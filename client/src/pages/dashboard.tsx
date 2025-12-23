@@ -14,23 +14,25 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Globe, Plus, Settings, CreditCard, LogOut, User as UserIcon } from "lucide-react";
 
 export default function Dashboard() {
-  const { user, signOut, isLoading } = useAuth();
+  const { user, profile, signOut, isLoading } = useAuth();
   const [location, setLocation] = useLocation();
 
-  // Protect the route
   useEffect(() => {
     if (!isLoading && !user) {
       setLocation("/auth");
     }
   }, [user, isLoading, setLocation]);
 
-  if (isLoading || !user) {
-    return null; // Or a loading spinner
+  if (isLoading || !user || !profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Dashboard Nav */}
       <header className="border-b bg-card">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-lg">
@@ -43,37 +45,37 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
+                <Button variant="ghost" className="relative h-9 w-9 rounded-full" data-testid="button-profile-menu">
                   <Avatar className="h-9 w-9">
-                    <AvatarImage src={`https://avatar.vercel.sh/${user.email}`} alt={user.full_name} />
-                    <AvatarFallback>{user.full_name.charAt(0)}</AvatarFallback>
+                    <AvatarImage src={`https://avatar.vercel.sh/${profile.email}`} alt={profile.fullName} />
+                    <AvatarFallback>{profile.fullName.charAt(0)}</AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{user.full_name}</p>
-                    <p className="text-xs leading-none text-muted-foreground">
-                      {user.email}
+                    <p className="text-sm font-medium leading-none" data-testid="text-profile-name">{profile.fullName}</p>
+                    <p className="text-xs leading-none text-muted-foreground" data-testid="text-profile-email">
+                      {profile.email}
                     </p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
+                <DropdownMenuItem data-testid="menu-item-profile">
                   <UserIcon className="mr-2 h-4 w-4" />
-                  <span>Profile</span>
+                  <span>Edit Profile</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem data-testid="menu-item-billing">
                   <CreditCard className="mr-2 h-4 w-4" />
                   <span>Billing</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem data-testid="menu-item-settings">
                   <Settings className="mr-2 h-4 w-4" />
                   <span>Settings</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => signOut()} className="text-destructive focus:text-destructive">
+                <DropdownMenuItem onClick={() => signOut()} className="text-destructive focus:text-destructive" data-testid="menu-item-logout">
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Log out</span>
                 </DropdownMenuItem>
@@ -83,7 +85,6 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 container mx-auto px-4 py-8">
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
           <div className="p-6 rounded-full bg-secondary mb-4">
@@ -91,13 +92,15 @@ export default function Dashboard() {
           </div>
           
           <div className="max-w-md space-y-2">
-            <h2 className="text-2xl font-bold tracking-tight">You haven't created any websites yet</h2>
+            <h2 className="text-2xl font-bold tracking-tight" data-testid="text-empty-state-title">
+              You haven't created any websites yet
+            </h2>
             <p className="text-muted-foreground">
-              Welcome to your dashboard. To get started, create your first website project.
+              Welcome to your dashboard, {profile.fullName.split(' ')[0]}. To get started, create your first website project.
             </p>
           </div>
 
-          <Button size="lg" className="gap-2">
+          <Button size="lg" className="gap-2" data-testid="button-create-website">
             <Plus className="w-4 h-4" />
             Create Website
           </Button>
