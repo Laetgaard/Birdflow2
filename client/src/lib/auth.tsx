@@ -1,11 +1,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 import { useLocation } from "wouter";
-import { createClient, type User, type Session } from "@supabase/supabase-js";
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { type User, type Session } from "@supabase/supabase-js";
+import { getSupabase } from "./supabaseClient";
 
 export type Profile = {
   id: string;
@@ -35,6 +31,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [, setLocation] = useLocation();
 
   useEffect(() => {
+    const supabase = getSupabase();
+    
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -98,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(profile);
       setSession(session);
       
-      // Set the session in Supabase client
+      const supabase = getSupabase();
       await supabase.auth.setSession({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
@@ -137,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(profile);
       setSession(session);
       
-      // Set the session in Supabase client
+      const supabase = getSupabase();
       await supabase.auth.setSession({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
@@ -153,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     setIsLoading(true);
+    const supabase = getSupabase();
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
