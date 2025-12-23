@@ -16,6 +16,14 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // Inject Supabase config into HTML for client
+  app.get("/api/config", (req, res) => {
+    res.json({
+      supabaseUrl: supabaseUrl || "",
+      supabaseAnonKey: supabaseAnonKey || "",
+    });
+  });
+
   // Sign Up - Creates Supabase auth user and profile in our DB
   app.post("/api/auth/signup", async (req, res) => {
     try {
