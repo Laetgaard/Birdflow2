@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Globe, Loader2 } from "lucide-react";
@@ -56,17 +56,18 @@ export default function AuthPage() {
       setIsLoading(true);
       await signUp({
         email: data.email,
-        full_name: data.fullName,
-        phone_number: data.phoneNumber,
+        password: data.password,
+        fullName: data.fullName,
+        phoneNumber: data.phoneNumber,
       });
       toast({
         title: "Account created!",
         description: "Welcome to your new dashboard.",
       });
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Something went wrong. Please try again.",
+        description: error.message || "Something went wrong. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -77,15 +78,15 @@ export default function AuthPage() {
   const onSignIn = async (data: z.infer<typeof signInSchema>) => {
     try {
       setIsLoading(true);
-      await signIn(data.email);
+      await signIn(data.email, data.password);
       toast({
         title: "Welcome back!",
         description: "Successfully signed in.",
       });
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Invalid credentials.",
+        description: error.message || "Invalid credentials.",
         variant: "destructive",
       });
     } finally {
