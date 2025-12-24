@@ -10,10 +10,11 @@ import {
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
-const supabaseDbUrl = process.env.SUPABASE_DATABASE_URL;
+// Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
+const supabaseDbUrl = process.env.SUPABASE_DB_URL || process.env.SUPABASE_DATABASE_URL;
 
 if (!supabaseDbUrl) {
-  console.error("SUPABASE_DATABASE_URL is not set. Database operations will fail.");
+  console.error("SUPABASE_DB_URL or SUPABASE_DATABASE_URL is not set. Database operations will fail.");
 }
 
 const pool = new Pool({
