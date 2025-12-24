@@ -10,6 +10,8 @@ import AuthPage from "@/pages/auth";
 import AuthCallback from "@/pages/auth-callback";
 import CheckEmail from "@/pages/check-email";
 import Dashboard from "@/pages/dashboard";
+import SetupPage from "@/pages/setup";
+import BuilderPage from "@/pages/builder";
 
 function Router() {
   return (
@@ -19,6 +21,8 @@ function Router() {
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/check-email" component={CheckEmail} />
       <Route path="/dashboard" component={Dashboard} />
+      <Route path="/setup/:id" component={SetupPage} />
+      <Route path="/builder/:id" component={BuilderPage} />
       <Route component={NotFound} />
     </Switch>
   );
