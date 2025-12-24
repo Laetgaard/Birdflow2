@@ -9,8 +9,16 @@ import {
   builderState, type BuilderState, type InsertBuilderState, type BuilderStateData
 } from "@shared/schema";
 
+// Use Supabase database as primary storage
+const supabaseDbUrl = process.env.SUPABASE_DATABASE_URL;
+
+if (!supabaseDbUrl) {
+  console.error("SUPABASE_DATABASE_URL is not set. Database operations will fail.");
+}
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL!,
+  connectionString: supabaseDbUrl,
+  ssl: { rejectUnauthorized: false },
 });
 
 const db = drizzle(pool);
