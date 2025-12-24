@@ -1,0 +1,117 @@
+1. Builder page (/builder/[website_id])
+
+Only accessible to authenticated users who own the website.
+
+Page layout consists of:
+
+A fixed header with:
+
+Website name
+
+Website status (draft / published)
+
+A disabled Publish button (placeholder)
+
+Profile menu
+
+A main preview area that renders the website content.
+
+A right sidebar with multiple sections.
+
+2. Responsive Preview (Desktop / Tablet / Mobile)
+
+The website preview must support device switching:
+
+Desktop, Tablet, Mobile
+
+Device switching should work by changing the preview container width (not custom CSS hacks).
+
+The website preview should behave like a real website using standard responsive styles.
+
+The preview must be isolated from the builder UI so it reflects real-world rendering.
+
+3. Components / Sections Sidebar
+
+Add a sidebar section called “Components”.
+
+Users can add predefined section blocks to the page, such as:
+
+Hero section
+
+Image slider
+
+Text + image section
+
+CTA section
+
+Each component should be data-driven (type + props), not hardcoded HTML.
+
+Adding a component updates a structured builder_state and immediately renders in the preview.
+
+4. Properties Sidebar
+
+When a section is selected in the preview, show a Properties panel where the user can edit:
+
+Text content
+
+Images
+
+Colors
+
+Fonts
+
+Spacing / layout
+
+Changes should update builder_state, re-render the preview in real time, and be persisted to Supabase.
+
+5. Builder State
+
+The builder must operate on a structured builder_state object stored in Supabase.
+
+All layout, components, and styling are derived from this state.
+
+Do not manipulate the DOM directly.
+
+This structure must be compatible with later AI generation and publishing.
+
+6. Website Management Page (/manage/[website_id])
+
+Create a separate page next to the builder used for website management.
+
+This page is not for design, but for operational data such as:
+
+Ecommerce orders
+
+Bookings
+
+Contact form submissions
+
+Customers
+
+Website settings
+
+This page should read data associated with the website from Supabase.
+
+7. Architecture for Publishing (future-ready)
+
+The system must be designed so that:
+
+The builder produces a clean, structured state.
+
+This state can later be transformed into a real Next.js website.
+
+The website can be deployed to Vercel.
+
+When the website is live:
+
+End-user interactions (orders, bookings, forms) write data to Supabase.
+
+The management page in this platform reads and manages that same data.
+
+Constraints
+
+Do not implement AI generation, publishing, Stripe, or Vercel deployment yet.
+
+Focus on clean architecture, separation of concerns, and scalability.
+
+Use Supabase as the single source of truth for all persistent data.

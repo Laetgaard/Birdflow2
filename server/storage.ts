@@ -6,7 +6,11 @@ import {
   profiles, type Profile, type InsertProfile,
   websites, type Website, type InsertWebsite,
   websiteInputs, type WebsiteInputs, type InsertWebsiteInputs,
-  builderState, type BuilderState, type InsertBuilderState, type BuilderStateData
+  builderState, type BuilderState, type InsertBuilderState, type BuilderStateData,
+  orders, type Order, type InsertOrder,
+  bookings, type Booking, type InsertBooking,
+  formSubmissions, type FormSubmission, type InsertFormSubmission,
+  customers, type Customer, type InsertCustomer
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
@@ -24,159 +28,72 @@ const pool = new Pool({
 
 const db = drizzle(pool);
 
-// Default builder state for new websites
+// Default builder state for new websites (component-based structure)
 const defaultBuilderState: BuilderStateData = {
   pages: [
     {
       id: 'home',
       name: 'Home',
       path: '/',
-      elements: [
+      components: [
         {
           id: 'header-1',
           type: 'header',
-          children: [
-            {
-              id: 'nav-1',
-              type: 'nav',
-              content: 'Navigation',
-              styles: {
-                padding: '16px 24px',
-                backgroundColor: '#ffffff',
-              }
-            }
-          ],
+          props: {
+            title: 'Your Brand',
+            buttonText: 'Contact',
+            buttonLink: '/contact'
+          },
           styles: {
             backgroundColor: '#ffffff',
+            textColor: '#1a1a1a',
+            padding: '16px 24px'
           }
         },
         {
-          id: 'section-hero',
-          type: 'section',
-          children: [
-            {
-              id: 'text-hero-title',
-              type: 'text',
-              content: 'Welcome to Your Website',
-              styles: {
-                fontSize: '48px',
-                fontWeight: '700',
-                textAlign: 'center',
-                color: '#1a1a1a',
-                margin: '0 0 16px 0'
-              }
-            },
-            {
-              id: 'text-hero-subtitle',
-              type: 'text',
-              content: 'Build something amazing with our website builder.',
-              styles: {
-                fontSize: '20px',
-                textAlign: 'center',
-                color: '#666666',
-                margin: '0 0 32px 0'
-              }
-            },
-            {
-              id: 'button-cta',
-              type: 'button',
-              content: 'Get Started',
-              styles: {
-                backgroundColor: '#3b82f6',
-                color: '#ffffff',
-                padding: '12px 24px',
-                borderRadius: '8px',
-                fontSize: '16px',
-                fontWeight: '500'
-              }
-            }
-          ],
+          id: 'hero-1',
+          type: 'hero',
+          props: {
+            title: 'Welcome to Your Website',
+            subtitle: 'Build something amazing with our website builder.',
+            buttonText: 'Get Started',
+            buttonLink: '#features',
+            alignment: 'center'
+          },
           styles: {
-            padding: '80px 24px',
-            textAlign: 'center',
-            backgroundColor: '#f8fafc'
+            backgroundColor: '#f8fafc',
+            textColor: '#1a1a1a',
+            padding: '80px 24px'
           }
         },
         {
-          id: 'section-features',
-          type: 'section',
-          children: [
-            {
-              id: 'text-features-title',
-              type: 'text',
-              content: 'Features',
-              styles: {
-                fontSize: '32px',
-                fontWeight: '600',
-                textAlign: 'center',
-                color: '#1a1a1a',
-                margin: '0 0 48px 0'
-              }
-            },
-            {
-              id: 'grid-features',
-              type: 'grid',
-              children: [
-                {
-                  id: 'text-feature-1',
-                  type: 'text',
-                  content: 'Feature One',
-                  styles: {
-                    fontSize: '18px',
-                    fontWeight: '500',
-                    textAlign: 'center'
-                  }
-                },
-                {
-                  id: 'text-feature-2',
-                  type: 'text',
-                  content: 'Feature Two',
-                  styles: {
-                    fontSize: '18px',
-                    fontWeight: '500',
-                    textAlign: 'center'
-                  }
-                },
-                {
-                  id: 'text-feature-3',
-                  type: 'text',
-                  content: 'Feature Three',
-                  styles: {
-                    fontSize: '18px',
-                    fontWeight: '500',
-                    textAlign: 'center'
-                  }
-                }
-              ],
-              styles: {
-                padding: '24px'
-              }
-            }
-          ],
+          id: 'features-1',
+          type: 'features',
+          props: {
+            title: 'Features',
+            items: [
+              { id: '1', title: 'Feature One', description: 'Description for feature one', icon: 'star' },
+              { id: '2', title: 'Feature Two', description: 'Description for feature two', icon: 'zap' },
+              { id: '3', title: 'Feature Three', description: 'Description for feature three', icon: 'shield' }
+            ],
+            alignment: 'center'
+          },
           styles: {
-            padding: '80px 24px',
-            backgroundColor: '#ffffff'
+            backgroundColor: '#ffffff',
+            textColor: '#1a1a1a',
+            padding: '80px 24px'
           }
         },
         {
           id: 'footer-1',
           type: 'footer',
-          children: [
-            {
-              id: 'text-footer',
-              type: 'text',
-              content: '© 2025 Your Company. All rights reserved.',
-              styles: {
-                fontSize: '14px',
-                textAlign: 'center',
-                color: '#666666'
-              }
-            }
-          ],
+          props: {
+            title: '© 2025 Your Company. All rights reserved.'
+          },
           styles: {
-            padding: '32px 24px',
             backgroundColor: '#1a1a1a',
-            color: '#ffffff'
+            textColor: '#ffffff',
+            padding: '32px 24px'
           }
         }
       ]
@@ -185,6 +102,7 @@ const defaultBuilderState: BuilderStateData = {
   activePage: 'home',
   globalStyles: {
     primaryColor: '#3b82f6',
+    secondaryColor: '#10b981',
     fontFamily: 'Inter, sans-serif',
     backgroundColor: '#ffffff'
   }
@@ -321,6 +239,73 @@ export class DatabaseStorage implements IStorage {
       .where(eq(builderState.websiteId, websiteId))
       .returning();
     return result[0] as BuilderState | undefined;
+  }
+
+  // Orders methods
+  async getOrders(websiteId: string): Promise<Order[]> {
+    return db.select().from(orders).where(eq(orders.websiteId, websiteId));
+  }
+
+  async createOrder(order: InsertOrder): Promise<Order> {
+    const result = await db.insert(orders).values(order as any).returning();
+    return result[0];
+  }
+
+  async updateOrder(orderId: string, websiteId: string, data: Partial<InsertOrder>): Promise<Order | undefined> {
+    const result = await db
+      .update(orders)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(orders.id, orderId), eq(orders.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  // Bookings methods
+  async getBookings(websiteId: string): Promise<Booking[]> {
+    return db.select().from(bookings).where(eq(bookings.websiteId, websiteId));
+  }
+
+  async createBooking(booking: InsertBooking): Promise<Booking> {
+    const result = await db.insert(bookings).values(booking as any).returning();
+    return result[0];
+  }
+
+  async updateBooking(bookingId: string, websiteId: string, data: Partial<InsertBooking>): Promise<Booking | undefined> {
+    const result = await db
+      .update(bookings)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(bookings.id, bookingId), eq(bookings.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  // Form submissions methods
+  async getFormSubmissions(websiteId: string): Promise<FormSubmission[]> {
+    return db.select().from(formSubmissions).where(eq(formSubmissions.websiteId, websiteId));
+  }
+
+  async createFormSubmission(submission: InsertFormSubmission): Promise<FormSubmission> {
+    const result = await db.insert(formSubmissions).values(submission as any).returning();
+    return result[0];
+  }
+
+  // Customers methods
+  async getCustomers(websiteId: string): Promise<Customer[]> {
+    return db.select().from(customers).where(eq(customers.websiteId, websiteId));
+  }
+
+  async createCustomer(customer: InsertCustomer): Promise<Customer> {
+    const result = await db.insert(customers).values(customer as any).returning();
+    return result[0];
+  }
+
+  async updateCustomer(customerId: string, websiteId: string, data: Partial<InsertCustomer>): Promise<Customer | undefined> {
+    const result = await db
+      .update(customers)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(customers.id, customerId), eq(customers.websiteId, websiteId)))
+      .returning();
+    return result[0];
   }
 }
 

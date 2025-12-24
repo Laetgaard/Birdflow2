@@ -1,8 +1,178 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema } from "@shared/schema";
+import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent } from "@shared/schema";
 import { createClient } from "@supabase/supabase-js";
+
+// Helper to migrate legacy element-based state to component-based state
+function migrateBuilderState(state: any): BuilderStateData {
+  // If already in component format, return as-is
+  if (state.pages?.[0]?.components !== undefined) {
+    return state as BuilderStateData;
+  }
+  
+  // Migrate from legacy element-based format to component-based format
+  const migratedPages = (state.pages || []).map((page: any) => {
+    const components: BuilderComponent[] = [];
+    
+    // Convert elements to components
+    const elements = page.elements || [];
+    for (const element of elements) {
+      const component = elementToComponent(element);
+      if (component) {
+        components.push(component);
+      }
+    }
+    
+    // If no components were created, add default ones
+    if (components.length === 0) {
+      components.push({
+        id: 'hero-1',
+        type: 'hero',
+        props: {
+          title: 'Welcome to Your Website',
+          subtitle: 'Build something amazing with our website builder.',
+          buttonText: 'Get Started',
+          buttonLink: '#features',
+          alignment: 'center'
+        },
+        styles: {
+          backgroundColor: '#f8fafc',
+          textColor: '#1a1a1a',
+          padding: '80px 24px'
+        }
+      });
+    }
+    
+    return {
+      id: page.id,
+      name: page.name,
+      path: page.path,
+      components
+    };
+  });
+  
+  return {
+    pages: migratedPages.length > 0 ? migratedPages : [{
+      id: 'home',
+      name: 'Home',
+      path: '/',
+      components: [{
+        id: 'hero-1',
+        type: 'hero',
+        props: {
+          title: 'Welcome to Your Website',
+          subtitle: 'Build something amazing with our website builder.',
+          buttonText: 'Get Started',
+          buttonLink: '#features',
+          alignment: 'center'
+        },
+        styles: {
+          backgroundColor: '#f8fafc',
+          textColor: '#1a1a1a',
+          padding: '80px 24px'
+        }
+      }]
+    }],
+    activePage: state.activePage || 'home',
+    globalStyles: {
+      primaryColor: state.globalStyles?.primaryColor || '#3b82f6',
+      secondaryColor: state.globalStyles?.secondaryColor || '#10b981',
+      fontFamily: state.globalStyles?.fontFamily || 'Inter, sans-serif',
+      backgroundColor: state.globalStyles?.backgroundColor || '#ffffff'
+    }
+  };
+}
+
+// Convert a legacy element to a component
+function elementToComponent(element: any): BuilderComponent | null {
+  const type = element.type;
+  
+  // Map element types to component types
+  switch (type) {
+    case 'header':
+      return {
+        id: element.id,
+        type: 'header',
+        props: {
+          title: element.children?.[0]?.content || 'Your Brand',
+          buttonText: 'Contact',
+          buttonLink: '/contact'
+        },
+        styles: {
+          backgroundColor: element.styles?.backgroundColor || '#ffffff',
+          textColor: element.styles?.color || '#1a1a1a',
+          padding: element.styles?.padding || '16px 24px'
+        }
+      };
+    
+    case 'section':
+      // Determine if it's a hero or features section based on content
+      const hasButton = element.children?.some((c: any) => c.type === 'button');
+      const hasGrid = element.children?.some((c: any) => c.type === 'grid');
+      
+      if (hasGrid) {
+        // Features section
+        const gridItems = element.children?.find((c: any) => c.type === 'grid')?.children || [];
+        return {
+          id: element.id,
+          type: 'features',
+          props: {
+            title: element.children?.find((c: any) => c.type === 'text')?.content || 'Features',
+            items: gridItems.map((item: any, idx: number) => ({
+              id: String(idx + 1),
+              title: item.content || `Feature ${idx + 1}`,
+              description: '',
+              icon: 'star'
+            })),
+            alignment: 'center'
+          },
+          styles: {
+            backgroundColor: element.styles?.backgroundColor || '#ffffff',
+            textColor: element.styles?.color || '#1a1a1a',
+            padding: element.styles?.padding || '80px 24px'
+          }
+        };
+      }
+      
+      // Hero section
+      const texts = element.children?.filter((c: any) => c.type === 'text') || [];
+      const button = element.children?.find((c: any) => c.type === 'button');
+      return {
+        id: element.id,
+        type: 'hero',
+        props: {
+          title: texts[0]?.content || 'Welcome',
+          subtitle: texts[1]?.content || '',
+          buttonText: button?.content || 'Get Started',
+          buttonLink: '#',
+          alignment: 'center'
+        },
+        styles: {
+          backgroundColor: element.styles?.backgroundColor || '#f8fafc',
+          textColor: element.styles?.color || '#1a1a1a',
+          padding: element.styles?.padding || '80px 24px'
+        }
+      };
+    
+    case 'footer':
+      return {
+        id: element.id,
+        type: 'footer',
+        props: {
+          title: element.children?.[0]?.content || '© 2025 Your Company'
+        },
+        styles: {
+          backgroundColor: element.styles?.backgroundColor || '#1a1a1a',
+          textColor: element.styles?.color || '#ffffff',
+          padding: element.styles?.padding || '32px 24px'
+        }
+      };
+    
+    default:
+      return null;
+  }
+}
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
@@ -449,7 +619,18 @@ export async function registerRoutes(
         builderState = await storage.createBuilderState(req.params.id);
       }
 
-      res.json(builderState);
+      // Migrate legacy element-based state to component-based state
+      const migratedState = migrateBuilderState(builderState.state);
+      
+      // If migration changed the state, persist it
+      if (JSON.stringify(migratedState) !== JSON.stringify(builderState.state)) {
+        builderState = await storage.updateBuilderState(req.params.id, migratedState);
+      }
+
+      res.json({
+        ...builderState,
+        state: migratedState
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -484,6 +665,151 @@ export async function registerRoutes(
       }
 
       res.json(builderState);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ MANAGEMENT ROUTES (Orders, Bookings, Submissions, Customers) ============
+
+  // Get orders for a website
+  app.get("/api/websites/:id/orders", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const orders = await storage.getOrders(req.params.id);
+      res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get bookings for a website
+  app.get("/api/websites/:id/bookings", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const bookings = await storage.getBookings(req.params.id);
+      res.json(bookings);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get form submissions for a website
+  app.get("/api/websites/:id/submissions", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const submissions = await storage.getFormSubmissions(req.params.id);
+      res.json(submissions);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get customers for a website
+  app.get("/api/websites/:id/customers", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const customers = await storage.getCustomers(req.params.id);
+      res.json(customers);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ PUBLIC API ROUTES (for published websites) ============
+  // These routes will be used by published websites to submit data
+
+  // Submit a form (public - no auth required)
+  app.post("/api/public/websites/:id/forms", async (req, res) => {
+    try {
+      const { formName, data } = req.body;
+      
+      if (!formName || !data) {
+        return res.status(400).json({ message: "Form name and data are required" });
+      }
+
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      const submission = await storage.createFormSubmission({
+        websiteId: req.params.id,
+        formName,
+        data,
+      });
+
+      res.status(201).json(submission);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a booking (public - no auth required)
+  app.post("/api/public/websites/:id/bookings", async (req, res) => {
+    try {
+      const { customerName, customerEmail, customerPhone, service, date, notes } = req.body;
+      
+      if (!customerName || !customerEmail || !service || !date) {
+        return res.status(400).json({ message: "Customer name, email, service, and date are required" });
+      }
+
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      const booking = await storage.createBooking({
+        websiteId: req.params.id,
+        customerName,
+        customerEmail,
+        customerPhone,
+        service,
+        date: new Date(date),
+        notes,
+      });
+
+      res.status(201).json(booking);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
