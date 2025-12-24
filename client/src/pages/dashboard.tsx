@@ -11,25 +11,42 @@ import {
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Globe, Plus, Settings, CreditCard, LogOut, User as UserIcon } from "lucide-react";
+import { Globe, Plus, Settings, CreditCard, LogOut, User as UserIcon, Loader2 } from "lucide-react";
 
 export default function Dashboard() {
-  const { user, profile, signOut, isLoading } = useAuth();
-  const [location, setLocation] = useLocation();
+  const { user, profile, signOut, isLoading, isEmailVerified } = useAuth();
+  const [, setLocation] = useLocation();
 
   useEffect(() => {
-    if (!isLoading && !user) {
-      setLocation("/auth");
+    if (!isLoading) {
+      // Redirect to auth if not logged in
+      if (!user) {
+        setLocation("/auth");
+        return;
+      }
+      
+      // Redirect to check-email if email not verified
+      if (!isEmailVerified) {
+        setLocation("/check-email");
+        return;
+      }
     }
-  }, [user, isLoading, setLocation]);
+  }, [user, isLoading, isEmailVerified, setLocation]);
 
-  if (isLoading || !user || !profile) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
+
+  if (!user || !isEmailVerified) {
+    return null;
+  }
+
+  const displayName = profile?.fullName || user.user_metadata?.full_name || user.email || "User";
+  const displayEmail = profile?.email || user.email || "";
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -47,17 +64,17 @@ export default function Dashboard() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-9 w-9 rounded-full" data-testid="button-profile-menu">
                   <Avatar className="h-9 w-9">
-                    <AvatarImage src={`https://avatar.vercel.sh/${profile.email}`} alt={profile.fullName} />
-                    <AvatarFallback>{profile.fullName.charAt(0)}</AvatarFallback>
+                    <AvatarImage src={`https://avatar.vercel.sh/${displayEmail}`} alt={displayName} />
+                    <AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none" data-testid="text-profile-name">{profile.fullName}</p>
+                    <p className="text-sm font-medium leading-none" data-testid="text-profile-name">{displayName}</p>
                     <p className="text-xs leading-none text-muted-foreground" data-testid="text-profile-email">
-                      {profile.email}
+                      {displayEmail}
                     </p>
                   </div>
                 </DropdownMenuLabel>
@@ -96,7 +113,7 @@ export default function Dashboard() {
               You haven't created any websites yet
             </h2>
             <p className="text-muted-foreground">
-              Welcome to your dashboard, {profile.fullName.split(' ')[0]}. To get started, create your first website project.
+              Welcome to your dashboard, {displayName.split(' ')[0]}. To get started, create your first website project.
             </p>
           </div>
 

@@ -7,6 +7,8 @@ import { AuthProvider } from "@/lib/auth";
 import NotFound from "@/pages/not-found";
 import LandingPage from "@/pages/landing";
 import AuthPage from "@/pages/auth";
+import AuthCallback from "@/pages/auth-callback";
+import CheckEmail from "@/pages/check-email";
 import Dashboard from "@/pages/dashboard";
 
 function Router() {
@@ -14,6 +16,8 @@ function Router() {
     <Switch>
       <Route path="/" component={LandingPage} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/auth/callback" component={AuthCallback} />
+      <Route path="/check-email" component={CheckEmail} />
       <Route path="/dashboard" component={Dashboard} />
       <Route component={NotFound} />
     </Switch>
