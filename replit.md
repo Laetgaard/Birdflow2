@@ -40,7 +40,11 @@ Database tables:
 - `profiles` - User profile data (id, email, fullName, phoneNumber, createdAt)
 - `websites` - User's website projects (id, ownerId, name, status, setupType)
 - `website_inputs` - Onboarding wizard data (businessDescription, pages, features, designPreset)
-- `builder_state` - Website builder state as JSONB (pages, elements, styles)
+- `builder_state` - Website builder state as JSONB (pages, components, globalStyles)
+- `orders` - Ecommerce orders (customerName, customerEmail, status, total, items)
+- `bookings` - Appointment bookings (customerName, service, date, status)
+- `form_submissions` - Contact form and other form submissions
+- `customers` - Customer profiles aggregated from orders/bookings
 
 ### Authentication
 - **Provider**: Supabase Auth (email/password with email confirmation)

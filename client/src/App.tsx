@@ -12,6 +12,7 @@ import CheckEmail from "@/pages/check-email";
 import Dashboard from "@/pages/dashboard";
 import SetupPage from "@/pages/setup";
 import BuilderPage from "@/pages/builder";
+import ManagePage from "@/pages/manage";
 
 function Router() {
   return (
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/setup/:id" component={SetupPage} />
       <Route path="/builder/:id" component={BuilderPage} />
+      <Route path="/manage/:id" component={ManagePage} />
       <Route component={NotFound} />
     </Switch>
   );

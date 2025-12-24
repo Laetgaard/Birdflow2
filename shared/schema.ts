@@ -60,41 +60,55 @@ export const insertWebsiteInputsSchema = createInsertSchema(websiteInputs).omit(
 export type InsertWebsiteInputs = z.infer<typeof insertWebsiteInputsSchema>;
 export type WebsiteInputs = typeof websiteInputs.$inferSelect;
 
-// Builder element types
-export type BuilderElement = {
+// Builder component types (new component-based structure)
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header';
+
+export type BuilderComponent = {
   id: string;
-  type: 'header' | 'section' | 'text' | 'image' | 'button' | 'footer' | 'nav' | 'grid';
-  content?: string;
-  children?: BuilderElement[];
-  styles?: {
+  type: ComponentType;
+  props: {
+    title?: string;
+    subtitle?: string;
+    description?: string;
+    buttonText?: string;
+    buttonLink?: string;
+    imageUrl?: string;
+    images?: string[];
+    items?: Array<{
+      id: string;
+      title: string;
+      description: string;
+      icon?: string;
+      imageUrl?: string;
+    }>;
+    alignment?: 'left' | 'center' | 'right';
     backgroundColor?: string;
-    color?: string;
-    fontSize?: string;
-    fontWeight?: string;
+    textColor?: string;
+    padding?: string;
+  };
+  styles: {
+    backgroundColor?: string;
+    textColor?: string;
     padding?: string;
     margin?: string;
-    textAlign?: string;
-    borderRadius?: string;
-    width?: string;
-    height?: string;
   };
-  props?: Record<string, any>;
 };
 
 export type BuilderPage = {
   id: string;
   name: string;
   path: string;
-  elements: BuilderElement[];
+  components: BuilderComponent[];
 };
 
 export type BuilderStateData = {
   pages: BuilderPage[];
   activePage: string;
-  globalStyles?: {
-    primaryColor?: string;
-    fontFamily?: string;
-    backgroundColor?: string;
+  globalStyles: {
+    primaryColor: string;
+    secondaryColor: string;
+    fontFamily: string;
+    backgroundColor: string;
   };
 };
 
@@ -125,3 +139,97 @@ export type BuilderState = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+// Orders table (for ecommerce)
+export const orders = pgTable("orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  customerPhone: text("customer_phone"),
+  status: text("status").notNull().default("pending"),
+  total: text("total").notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  items: jsonb("items").$type<Array<{ id: string; name: string; quantity: number; price: number }>>(),
+  shippingAddress: jsonb("shipping_address").$type<{ street: string; city: string; state: string; zip: string; country: string }>(),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertOrderSchema = createInsertSchema(orders).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type Order = typeof orders.$inferSelect;
+
+// Bookings table (for appointments/services)
+export const bookings = pgTable("bookings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  customerPhone: text("customer_phone"),
+  service: text("service").notNull(),
+  date: timestamp("date").notNull(),
+  duration: text("duration"),
+  status: text("status").notNull().default("pending"),
+  notes: text("notes"),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBookingSchema = createInsertSchema(bookings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertBooking = z.infer<typeof insertBookingSchema>;
+export type Booking = typeof bookings.$inferSelect;
+
+// Form submissions table
+export const formSubmissions = pgTable("form_submissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  formName: text("form_name").notNull(),
+  data: jsonb("data").$type<Record<string, any>>().notNull(),
+  read: text("read").notNull().default("false"),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertFormSubmissionSchema = createInsertSchema(formSubmissions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertFormSubmission = z.infer<typeof insertFormSubmissionSchema>;
+export type FormSubmission = typeof formSubmissions.$inferSelect;
+
+// Customers table
+export const customers = pgTable("customers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  totalOrders: text("total_orders").notNull().default("0"),
+  totalSpent: text("total_spent").notNull().default("0"),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCustomerSchema = createInsertSchema(customers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type Customer = typeof customers.$inferSelect;
