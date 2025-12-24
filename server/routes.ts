@@ -4,55 +4,19 @@ import { storage } from "./storage";
 import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent } from "@shared/schema";
 import { createClient } from "@supabase/supabase-js";
 
-// Default theme for migration
-const defaultTheme = {
-  colors: {
-    primary: '#3b82f6',
-    secondary: '#10b981',
-    accent: '#f59e0b',
-    background: '#ffffff',
-    surface: '#f8fafc',
-    text: '#1a1a1a',
-    textMuted: '#64748b',
-  },
-  fonts: {
-    heading: 'Inter, sans-serif',
-    body: 'Inter, sans-serif',
-  },
-  spacing: {
-    sectionPadding: '80px 24px',
-    containerMaxWidth: '1200px',
-  },
-  borderRadius: '8px',
-};
-
-// Helper to migrate legacy state to new single-source-of-truth structure
+// Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
-  // Check if already in new format (has version and theme)
-  if (state.version && state.theme && state.navigation) {
+  // If already in component format, return as-is
+  if (state.pages?.[0]?.components !== undefined) {
     return state as BuilderStateData;
   }
   
-  // Migrate from old format to new format
+  // Migrate from legacy element-based format to component-based format
   const migratedPages = (state.pages || []).map((page: any) => {
-    // If page already has components, use them
-    if (page.components) {
-      return {
-        id: page.id,
-        name: page.name,
-        path: page.path,
-        title: page.name,
-        components: page.components.map((c: any) => ({
-          ...c,
-          visibility: c.visibility || { desktop: true, tablet: true, mobile: true },
-        })),
-      };
-    }
-    
-    // Convert legacy elements to components
     const components: BuilderComponent[] = [];
-    const elements = page.elements || [];
     
+    // Convert elements to components
+    const elements = page.elements || [];
     for (const element of elements) {
       const component = elementToComponent(element);
       if (component) {
@@ -60,6 +24,7 @@ function migrateBuilderState(state: any): BuilderStateData {
       }
     }
     
+    // If no components were created, add default ones
     if (components.length === 0) {
       components.push({
         id: 'hero-1',
@@ -69,14 +34,13 @@ function migrateBuilderState(state: any): BuilderStateData {
           subtitle: 'Build something amazing with our website builder.',
           buttonText: 'Get Started',
           buttonLink: '#features',
-          alignment: 'center',
+          alignment: 'center'
         },
         styles: {
           backgroundColor: '#f8fafc',
           textColor: '#1a1a1a',
-          padding: '80px 24px',
-        },
-        visibility: { desktop: true, tablet: true, mobile: true },
+          padding: '80px 24px'
+        }
       });
     }
     
@@ -84,63 +48,15 @@ function migrateBuilderState(state: any): BuilderStateData {
       id: page.id,
       name: page.name,
       path: page.path,
-      title: page.name,
-      components,
+      components
     };
   });
   
-  // Extract colors from old globalStyles if present
-  const oldColors = state.globalStyles || {};
-  
   return {
-    version: 1,
-    siteMetadata: {
-      title: 'My Website',
-      description: 'A website built with SaaSify',
-      language: 'en',
-    },
-    navigation: {
-      header: {
-        logoText: 'My Brand',
-        links: [
-          { id: 'nav-1', label: 'Home', path: '/' },
-          { id: 'nav-2', label: 'Features', path: '#features' },
-          { id: 'nav-3', label: 'Contact', path: '#contact' },
-        ],
-        showCta: true,
-        ctaText: 'Get Started',
-        ctaLink: '#hero',
-      },
-      footer: {
-        copyright: '© 2025 My Brand. All rights reserved.',
-        links: [
-          { id: 'footer-1', label: 'Privacy', path: '/privacy' },
-          { id: 'footer-2', label: 'Terms', path: '/terms' },
-        ],
-      },
-    },
-    theme: {
-      colors: {
-        primary: oldColors.primaryColor || defaultTheme.colors.primary,
-        secondary: oldColors.secondaryColor || defaultTheme.colors.secondary,
-        accent: defaultTheme.colors.accent,
-        background: oldColors.backgroundColor || defaultTheme.colors.background,
-        surface: defaultTheme.colors.surface,
-        text: defaultTheme.colors.text,
-        textMuted: defaultTheme.colors.textMuted,
-      },
-      fonts: {
-        heading: oldColors.fontFamily || defaultTheme.fonts.heading,
-        body: oldColors.fontFamily || defaultTheme.fonts.body,
-      },
-      spacing: defaultTheme.spacing,
-      borderRadius: defaultTheme.borderRadius,
-    },
     pages: migratedPages.length > 0 ? migratedPages : [{
       id: 'home',
       name: 'Home',
       path: '/',
-      title: 'Home',
       components: [{
         id: 'hero-1',
         type: 'hero',
@@ -149,30 +65,54 @@ function migrateBuilderState(state: any): BuilderStateData {
           subtitle: 'Build something amazing with our website builder.',
           buttonText: 'Get Started',
           buttonLink: '#features',
-          alignment: 'center',
+          alignment: 'center'
         },
         styles: {
           backgroundColor: '#f8fafc',
           textColor: '#1a1a1a',
-          padding: '80px 24px',
-        },
-        visibility: { desktop: true, tablet: true, mobile: true },
-      }],
+          padding: '80px 24px'
+        }
+      }]
     }],
     activePage: state.activePage || 'home',
+    globalStyles: {
+      primaryColor: state.globalStyles?.primaryColor || '#3b82f6',
+      secondaryColor: state.globalStyles?.secondaryColor || '#10b981',
+      fontFamily: state.globalStyles?.fontFamily || 'Inter, sans-serif',
+      backgroundColor: state.globalStyles?.backgroundColor || '#ffffff'
+    }
   };
 }
 
 // Convert a legacy element to a component
 function elementToComponent(element: any): BuilderComponent | null {
   const type = element.type;
-  const defaultVisibility = { desktop: true, tablet: true, mobile: true };
   
+  // Map element types to component types
   switch (type) {
-    case 'section': {
+    case 'header':
+      return {
+        id: element.id,
+        type: 'header',
+        props: {
+          title: element.children?.[0]?.content || 'Your Brand',
+          buttonText: 'Contact',
+          buttonLink: '/contact'
+        },
+        styles: {
+          backgroundColor: element.styles?.backgroundColor || '#ffffff',
+          textColor: element.styles?.color || '#1a1a1a',
+          padding: element.styles?.padding || '16px 24px'
+        }
+      };
+    
+    case 'section':
+      // Determine if it's a hero or features section based on content
+      const hasButton = element.children?.some((c: any) => c.type === 'button');
       const hasGrid = element.children?.some((c: any) => c.type === 'grid');
       
       if (hasGrid) {
+        // Features section
         const gridItems = element.children?.find((c: any) => c.type === 'grid')?.children || [];
         return {
           id: element.id,
@@ -183,20 +123,19 @@ function elementToComponent(element: any): BuilderComponent | null {
               id: String(idx + 1),
               title: item.content || `Feature ${idx + 1}`,
               description: '',
-              icon: 'star',
+              icon: 'star'
             })),
-            alignment: 'center',
-            columns: 3,
+            alignment: 'center'
           },
           styles: {
             backgroundColor: element.styles?.backgroundColor || '#ffffff',
             textColor: element.styles?.color || '#1a1a1a',
-            padding: element.styles?.padding || '80px 24px',
-          },
-          visibility: defaultVisibility,
+            padding: element.styles?.padding || '80px 24px'
+          }
         };
       }
       
+      // Hero section
       const texts = element.children?.filter((c: any) => c.type === 'text') || [];
       const button = element.children?.find((c: any) => c.type === 'button');
       return {
@@ -207,16 +146,28 @@ function elementToComponent(element: any): BuilderComponent | null {
           subtitle: texts[1]?.content || '',
           buttonText: button?.content || 'Get Started',
           buttonLink: '#',
-          alignment: 'center',
+          alignment: 'center'
         },
         styles: {
           backgroundColor: element.styles?.backgroundColor || '#f8fafc',
           textColor: element.styles?.color || '#1a1a1a',
-          padding: element.styles?.padding || '80px 24px',
-        },
-        visibility: defaultVisibility,
+          padding: element.styles?.padding || '80px 24px'
+        }
       };
-    }
+    
+    case 'footer':
+      return {
+        id: element.id,
+        type: 'footer',
+        props: {
+          title: element.children?.[0]?.content || '© 2025 Your Company'
+        },
+        styles: {
+          backgroundColor: element.styles?.backgroundColor || '#1a1a1a',
+          textColor: element.styles?.color || '#ffffff',
+          padding: element.styles?.padding || '32px 24px'
+        }
+      };
     
     default:
       return null;

@@ -28,61 +28,28 @@ const pool = new Pool({
 
 const db = drizzle(pool);
 
-// Default builder state for new websites (single source of truth structure)
+// Default builder state for new websites (component-based structure)
 const defaultBuilderState: BuilderStateData = {
-  version: 1,
-  siteMetadata: {
-    title: 'My Website',
-    description: 'A website built with SaaSify',
-    language: 'en',
-  },
-  navigation: {
-    header: {
-      logoText: 'My Brand',
-      links: [
-        { id: 'nav-1', label: 'Home', path: '/' },
-        { id: 'nav-2', label: 'Features', path: '#features' },
-        { id: 'nav-3', label: 'Contact', path: '#contact' },
-      ],
-      showCta: true,
-      ctaText: 'Get Started',
-      ctaLink: '#hero',
-    },
-    footer: {
-      copyright: '© 2025 My Brand. All rights reserved.',
-      links: [
-        { id: 'footer-1', label: 'Privacy', path: '/privacy' },
-        { id: 'footer-2', label: 'Terms', path: '/terms' },
-      ],
-    },
-  },
-  theme: {
-    colors: {
-      primary: '#3b82f6',
-      secondary: '#10b981',
-      accent: '#f59e0b',
-      background: '#ffffff',
-      surface: '#f8fafc',
-      text: '#1a1a1a',
-      textMuted: '#64748b',
-    },
-    fonts: {
-      heading: 'Inter, sans-serif',
-      body: 'Inter, sans-serif',
-    },
-    spacing: {
-      sectionPadding: '80px 24px',
-      containerMaxWidth: '1200px',
-    },
-    borderRadius: '8px',
-  },
   pages: [
     {
       id: 'home',
       name: 'Home',
       path: '/',
-      title: 'Welcome',
       components: [
+        {
+          id: 'header-1',
+          type: 'header',
+          props: {
+            title: 'Your Brand',
+            buttonText: 'Contact',
+            buttonLink: '/contact'
+          },
+          styles: {
+            backgroundColor: '#ffffff',
+            textColor: '#1a1a1a',
+            padding: '16px 24px'
+          }
+        },
         {
           id: 'hero-1',
           type: 'hero',
@@ -91,57 +58,54 @@ const defaultBuilderState: BuilderStateData = {
             subtitle: 'Build something amazing with our website builder.',
             buttonText: 'Get Started',
             buttonLink: '#features',
-            alignment: 'center',
+            alignment: 'center'
           },
           styles: {
             backgroundColor: '#f8fafc',
             textColor: '#1a1a1a',
-            padding: '80px 24px',
-          },
-          visibility: { desktop: true, tablet: true, mobile: true },
+            padding: '80px 24px'
+          }
         },
         {
           id: 'features-1',
           type: 'features',
           props: {
             title: 'Features',
-            subtitle: 'Everything you need to succeed',
             items: [
               { id: '1', title: 'Feature One', description: 'Description for feature one', icon: 'star' },
               { id: '2', title: 'Feature Two', description: 'Description for feature two', icon: 'zap' },
-              { id: '3', title: 'Feature Three', description: 'Description for feature three', icon: 'shield' },
+              { id: '3', title: 'Feature Three', description: 'Description for feature three', icon: 'shield' }
             ],
-            alignment: 'center',
-            columns: 3,
+            alignment: 'center'
           },
           styles: {
             backgroundColor: '#ffffff',
             textColor: '#1a1a1a',
-            padding: '80px 24px',
-          },
-          visibility: { desktop: true, tablet: true, mobile: true },
+            padding: '80px 24px'
+          }
         },
         {
-          id: 'cta-1',
-          type: 'cta',
+          id: 'footer-1',
+          type: 'footer',
           props: {
-            title: 'Ready to get started?',
-            subtitle: 'Join thousands of satisfied customers today.',
-            buttonText: 'Start Now',
-            buttonLink: '/signup',
-            alignment: 'center',
+            title: '© 2025 Your Company. All rights reserved.'
           },
           styles: {
-            backgroundColor: '#3b82f6',
+            backgroundColor: '#1a1a1a',
             textColor: '#ffffff',
-            padding: '60px 24px',
-          },
-          visibility: { desktop: true, tablet: true, mobile: true },
-        },
-      ],
-    },
+            padding: '32px 24px'
+          }
+        }
+      ]
+    }
   ],
   activePage: 'home',
+  globalStyles: {
+    primaryColor: '#3b82f6',
+    secondaryColor: '#10b981',
+    fontFamily: 'Inter, sans-serif',
+    backgroundColor: '#ffffff'
+  }
 };
 
 export interface IStorage {
