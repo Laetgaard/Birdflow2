@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProfileSchema } from "@shared/schema";
+import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema } from "@shared/schema";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -279,6 +279,148 @@ export async function registerRoutes(
       }
 
       res.json(profile);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ WEBSITE ROUTES ============
+
+  // Get all websites for authenticated user
+  app.get("/api/websites", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const websites = await storage.getWebsitesByOwner(user.id);
+      res.json(websites);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get single website - user can only access their own
+  app.get("/api/websites/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      // User can only access their own websites
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(website);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create website
+  app.post("/api/websites", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { name, setupType } = req.body;
+
+      if (!name || !setupType) {
+        return res.status(400).json({ message: "Name and setup type are required" });
+      }
+
+      const website = await storage.createWebsite({
+        ownerId: user.id,
+        name,
+        setupType,
+        status: "draft",
+      });
+
+      // If customized setup, create empty inputs record
+      if (setupType === "customized") {
+        await storage.createWebsiteInputs({
+          websiteId: website.id,
+        });
+      }
+
+      res.status(201).json(website);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update website
+  app.patch("/api/websites/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.updateWebsite(req.params.id, user.id, req.body);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found or access denied" });
+      }
+
+      res.json(website);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete website
+  app.delete("/api/websites/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const deleted = await storage.deleteWebsite(req.params.id, user.id);
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Website not found or access denied" });
+      }
+
+      res.json({ message: "Website deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ WEBSITE INPUTS ROUTES ============
+
+  // Get website inputs
+  app.get("/api/websites/:id/inputs", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website || website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const inputs = await storage.getWebsiteInputs(req.params.id);
+      res.json(inputs || {});
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update website inputs
+  app.patch("/api/websites/:id/inputs", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website || website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      let inputs = await storage.getWebsiteInputs(req.params.id);
+      
+      if (!inputs) {
+        inputs = await storage.createWebsiteInputs({
+          websiteId: req.params.id,
+          ...req.body,
+        });
+      } else {
+        inputs = await storage.updateWebsiteInputs(req.params.id, req.body);
+      }
+
+      res.json(inputs);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
