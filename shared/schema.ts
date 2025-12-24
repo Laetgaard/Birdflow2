@@ -59,3 +59,69 @@ export const insertWebsiteInputsSchema = createInsertSchema(websiteInputs).omit(
 
 export type InsertWebsiteInputs = z.infer<typeof insertWebsiteInputsSchema>;
 export type WebsiteInputs = typeof websiteInputs.$inferSelect;
+
+// Builder element types
+export type BuilderElement = {
+  id: string;
+  type: 'header' | 'section' | 'text' | 'image' | 'button' | 'footer' | 'nav' | 'grid';
+  content?: string;
+  children?: BuilderElement[];
+  styles?: {
+    backgroundColor?: string;
+    color?: string;
+    fontSize?: string;
+    fontWeight?: string;
+    padding?: string;
+    margin?: string;
+    textAlign?: string;
+    borderRadius?: string;
+    width?: string;
+    height?: string;
+  };
+  props?: Record<string, any>;
+};
+
+export type BuilderPage = {
+  id: string;
+  name: string;
+  path: string;
+  elements: BuilderElement[];
+};
+
+export type BuilderStateData = {
+  pages: BuilderPage[];
+  activePage: string;
+  globalStyles?: {
+    primaryColor?: string;
+    fontFamily?: string;
+    backgroundColor?: string;
+  };
+};
+
+// Builder state table
+export const builderState = pgTable("builder_state", {
+  id: serial("id").primaryKey(),
+  websiteId: varchar("website_id").notNull().unique(),
+  state: jsonb("state").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Manual insert schema to avoid circular reference issues with nested types
+export const insertBuilderStateSchema = z.object({
+  websiteId: z.string(),
+  state: z.any(),
+});
+
+export type InsertBuilderState = {
+  websiteId: string;
+  state: BuilderStateData;
+};
+
+export type BuilderState = {
+  id: number;
+  websiteId: string;
+  state: BuilderStateData;
+  createdAt: Date;
+  updatedAt: Date;
+};
