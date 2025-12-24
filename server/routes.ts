@@ -426,5 +426,68 @@ export async function registerRoutes(
     }
   });
 
+  // ============ BUILDER STATE ROUTES ============
+
+  // Get builder state (creates default if none exists)
+  app.get("/api/websites/:id/builder", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      let builderState = await storage.getBuilderState(req.params.id);
+      
+      // Create default builder state if none exists
+      if (!builderState) {
+        builderState = await storage.createBuilderState(req.params.id);
+      }
+
+      res.json(builderState);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update builder state
+  app.patch("/api/websites/:id/builder", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { state } = req.body;
+      
+      if (!state) {
+        return res.status(400).json({ message: "State is required" });
+      }
+
+      let builderState = await storage.getBuilderState(req.params.id);
+      
+      if (!builderState) {
+        builderState = await storage.createBuilderState(req.params.id, state);
+      } else {
+        builderState = await storage.updateBuilderState(req.params.id, state);
+      }
+
+      res.json(builderState);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }
