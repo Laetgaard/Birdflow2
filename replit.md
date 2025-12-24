@@ -31,17 +31,22 @@ The frontend lives in `client/src/` with pages in `pages/`, reusable UI componen
 Server code is in `server/` with routes defined in `routes.ts` and database operations in `storage.ts`.
 
 ### Data Storage
-- **Database**: PostgreSQL via Drizzle ORM
+- **Database**: Supabase PostgreSQL via Drizzle ORM (pooled connection)
 - **Schema Location**: `shared/schema.ts` - defines database tables and Zod validation schemas
 - **Migrations**: Drizzle Kit with `db:push` command for schema synchronization
+- **Connection**: Uses transaction pooler for reliable serverless connections
 
-Currently defines a `profiles` table storing user profile data (id, email, fullName, phoneNumber, createdAt).
+Database tables:
+- `profiles` - User profile data (id, email, fullName, phoneNumber, createdAt)
+- `websites` - User's website projects (id, ownerId, name, status, setupType)
+- `website_inputs` - Onboarding wizard data (businessDescription, pages, features, designPreset)
+- `builder_state` - Website builder state as JSONB (pages, elements, styles)
 
 ### Authentication
 - **Provider**: Supabase Auth (email/password with email confirmation)
 - **Flow**: Frontend fetches Supabase config from `/api/config`, then uses Supabase JS client for auth operations
 - **Session Handling**: JWT tokens passed via Authorization header, validated on protected routes using `requireAuth` middleware
-- **Profile Sync**: After email verification, user profiles are created/synced in the local PostgreSQL database
+- **Profile Sync**: After email verification, user profiles are created/synced in Supabase PostgreSQL database
 
 ### Shared Code
 The `shared/` directory contains code used by both frontend and backend:
@@ -56,8 +61,9 @@ The `shared/` directory contains code used by both frontend and backend:
 - Environment variables: `SUPABASE_URL`, `SUPABASE_ANON_KEY`
 
 ### Database
-- **PostgreSQL**: Primary data store accessed via Drizzle ORM
-- Environment variable: `DATABASE_URL`
+- **Supabase PostgreSQL**: Primary data store accessed via Drizzle ORM
+- Environment variable: `SUPABASE_DB_URL` (pooled connection string with port 6543)
+- Connection format: `postgresql://postgres.[project-ref]:[password]@aws-[region].pooler.supabase.com:6543/postgres`
 
 ### Key NPM Packages
 - `@supabase/supabase-js`: Supabase client for auth
@@ -66,3 +72,9 @@ The `shared/` directory contains code used by both frontend and backend:
 - `@radix-ui/*`: Headless UI primitives for shadcn components
 - `framer-motion`: Animation library used on landing page
 - `bcryptjs`: Password hashing utilities
+
+## Recent Changes
+
+- **2024-12-24**: Migrated all persistent data storage from Replit internal database to Supabase PostgreSQL
+- **2024-12-24**: Added builder page with live preview, element selection, and properties sidebar
+- **2024-12-24**: Implemented website creation with setup wizard and dashboard management
