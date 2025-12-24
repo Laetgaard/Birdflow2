@@ -15,65 +15,24 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  Globe, ArrowLeft, Loader2, Save, Eye, Upload,
+  Globe, ArrowLeft, Loader2, Save, Eye,
   Settings, User, CreditCard, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
-  Type, MousePointer, Trash2, Move, ChevronRight
+  Type, MousePointer, Trash2, ChevronUp, ChevronDown,
+  Star, MessageSquare, Grid, Phone
 } from "lucide-react";
+import type { 
+  BuilderStateData, 
+  BuilderComponent, 
+  ComponentType,
+  ThemeConfig
+} from "@shared/schema";
+import { WebsiteRenderer, deviceWidths } from "@/components/builder/website-renderer";
 
-type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header';
-
-type BuilderComponent = {
-  id: string;
-  type: ComponentType;
-  props: {
-    title?: string;
-    subtitle?: string;
-    description?: string;
-    buttonText?: string;
-    buttonLink?: string;
-    imageUrl?: string;
-    images?: string[];
-    items?: Array<{
-      id: string;
-      title: string;
-      description: string;
-      icon?: string;
-      imageUrl?: string;
-    }>;
-    alignment?: 'left' | 'center' | 'right';
-    backgroundColor?: string;
-    textColor?: string;
-    padding?: string;
-  };
-  styles: {
-    backgroundColor?: string;
-    textColor?: string;
-    padding?: string;
-    margin?: string;
-  };
-};
-
-type BuilderPage = {
-  id: string;
-  name: string;
-  path: string;
-  components: BuilderComponent[];
-};
-
-type BuilderStateData = {
-  pages: BuilderPage[];
-  activePage: string;
-  globalStyles: {
-    primaryColor: string;
-    secondaryColor: string;
-    fontFamily: string;
-    backgroundColor: string;
-  };
-};
+type DeviceType = 'desktop' | 'tablet' | 'mobile';
 
 type Website = {
   id: string;
@@ -83,118 +42,145 @@ type Website = {
   ownerId: string;
 };
 
-type DeviceType = 'desktop' | 'tablet' | 'mobile';
+const COMPONENT_BLOCKS: { type: ComponentType; name: string; icon: any; description: string }[] = [
+  { type: 'hero', name: 'Hero', icon: Layout, description: 'Large banner with title and CTA' },
+  { type: 'features', name: 'Features', icon: Grid, description: 'Grid of feature cards' },
+  { type: 'cta', name: 'Call to Action', icon: MousePointer, description: 'Conversion section' },
+  { type: 'text-image', name: 'Text + Image', icon: Type, description: 'Content with image' },
+  { type: 'testimonials', name: 'Testimonials', icon: MessageSquare, description: 'Customer reviews' },
+  { type: 'image-slider', name: 'Image Slider', icon: Image, description: 'Image carousel' },
+  { type: 'pricing', name: 'Pricing', icon: CreditCard, description: 'Pricing plans' },
+  { type: 'contact-form', name: 'Contact Form', icon: Phone, description: 'Contact form' },
+];
 
-const DEVICE_WIDTHS: Record<DeviceType, number> = {
-  desktop: 1200,
-  tablet: 768,
-  mobile: 375,
-};
-
-const COMPONENT_TEMPLATES: Record<ComponentType, { name: string; icon: any; defaultProps: BuilderComponent['props'] }> = {
-  'hero': {
-    name: 'Hero Section',
-    icon: Layout,
-    defaultProps: {
-      title: 'Welcome to Our Platform',
-      subtitle: 'Build something amazing today',
-      description: 'Create stunning websites with our powerful builder tools.',
-      buttonText: 'Get Started',
-      buttonLink: '#',
-      backgroundColor: '#1a1a2e',
-      textColor: '#ffffff',
-      alignment: 'center',
-    }
-  },
-  'image-slider': {
-    name: 'Image Slider',
-    icon: Image,
-    defaultProps: {
-      images: [
-        'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800',
-        'https://images.unsplash.com/photo-1551434678-e076c223a692?w=800',
-        'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800',
-      ],
-      backgroundColor: '#f8f9fa',
-    }
-  },
-  'text-image': {
-    name: 'Text + Image',
-    icon: Type,
-    defaultProps: {
-      title: 'Our Story',
-      description: 'We are passionate about creating exceptional digital experiences that help businesses grow and succeed in the modern world.',
-      imageUrl: 'https://images.unsplash.com/photo-1553877522-43269d4ea984?w=600',
-      alignment: 'left',
-      backgroundColor: '#ffffff',
-      textColor: '#1a1a1a',
-    }
-  },
-  'cta': {
-    name: 'Call to Action',
-    icon: MousePointer,
-    defaultProps: {
-      title: 'Ready to Get Started?',
-      description: 'Join thousands of satisfied customers and transform your business today.',
-      buttonText: 'Start Free Trial',
-      buttonLink: '#',
-      backgroundColor: '#4f46e5',
-      textColor: '#ffffff',
-      alignment: 'center',
-    }
-  },
-  'features': {
-    name: 'Features Grid',
-    icon: Layout,
-    defaultProps: {
-      title: 'Our Features',
-      subtitle: 'Everything you need to succeed',
-      items: [
-        { id: '1', title: 'Easy to Use', description: 'Intuitive interface designed for everyone', icon: '✨' },
-        { id: '2', title: 'Fast & Reliable', description: 'Lightning-fast performance you can count on', icon: '⚡' },
-        { id: '3', title: 'Secure', description: 'Enterprise-grade security for your peace of mind', icon: '🔒' },
-      ],
-      backgroundColor: '#f8f9fa',
-      textColor: '#1a1a1a',
-    }
-  },
-  'testimonials': {
-    name: 'Testimonials',
-    icon: User,
-    defaultProps: {
-      title: 'What Our Customers Say',
-      items: [
-        { id: '1', title: 'John Doe', description: 'This platform transformed our business!', imageUrl: '' },
-        { id: '2', title: 'Jane Smith', description: 'Incredible experience from start to finish.', imageUrl: '' },
-      ],
-      backgroundColor: '#ffffff',
-      textColor: '#1a1a1a',
-    }
-  },
-  'header': {
-    name: 'Header/Nav',
-    icon: Layout,
-    defaultProps: {
-      title: 'Brand',
-      items: [
-        { id: '1', title: 'Home', description: '/' },
-        { id: '2', title: 'About', description: '/about' },
-        { id: '3', title: 'Contact', description: '/contact' },
-      ],
-      backgroundColor: '#ffffff',
-      textColor: '#1a1a1a',
-    }
-  },
-  'footer': {
-    name: 'Footer',
-    icon: Layout,
-    defaultProps: {
-      title: '© 2024 Your Company',
-      description: 'All rights reserved.',
-      backgroundColor: '#1a1a1a',
-      textColor: '#ffffff',
-    }
-  },
+const getDefaultComponent = (type: ComponentType): Omit<BuilderComponent, 'id'> => {
+  const defaults: Record<ComponentType, Omit<BuilderComponent, 'id'>> = {
+    'hero': {
+      type: 'hero',
+      props: {
+        title: 'Welcome to Our Platform',
+        subtitle: 'Build something amazing today',
+        buttonText: 'Get Started',
+        buttonLink: '#',
+        alignment: 'center',
+      },
+      styles: { backgroundColor: '#f8fafc', textColor: '#1a1a1a', padding: '80px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'features': {
+      type: 'features',
+      props: {
+        title: 'Our Features',
+        subtitle: 'Everything you need to succeed',
+        items: [
+          { id: '1', title: 'Easy to Use', description: 'Intuitive interface for everyone', icon: 'star' },
+          { id: '2', title: 'Fast & Reliable', description: 'Lightning-fast performance', icon: 'zap' },
+          { id: '3', title: 'Secure', description: 'Enterprise-grade security', icon: 'shield' },
+        ],
+        columns: 3,
+        alignment: 'center',
+      },
+      styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '80px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'cta': {
+      type: 'cta',
+      props: {
+        title: 'Ready to Get Started?',
+        subtitle: 'Join thousands of satisfied customers today.',
+        buttonText: 'Start Free Trial',
+        buttonLink: '#',
+        alignment: 'center',
+      },
+      styles: { backgroundColor: '#3b82f6', textColor: '#ffffff', padding: '60px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'text-image': {
+      type: 'text-image',
+      props: {
+        title: 'Our Story',
+        description: 'We are passionate about creating exceptional digital experiences.',
+        imageUrl: 'https://images.unsplash.com/photo-1553877522-43269d4ea984?w=600',
+        alignment: 'left',
+      },
+      styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '80px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'testimonials': {
+      type: 'testimonials',
+      props: {
+        title: 'What Our Customers Say',
+        items: [
+          { id: '1', title: 'John Doe', description: 'This platform transformed our business!', imageUrl: '' },
+          { id: '2', title: 'Jane Smith', description: 'Incredible experience from start to finish.', imageUrl: '' },
+        ],
+        alignment: 'center',
+      },
+      styles: { backgroundColor: '#f8fafc', textColor: '#1a1a1a', padding: '80px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'image-slider': {
+      type: 'image-slider',
+      props: {
+        title: 'Gallery',
+        images: [
+          'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800',
+          'https://images.unsplash.com/photo-1551434678-e076c223a692?w=800',
+        ],
+      },
+      styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '60px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'pricing': {
+      type: 'pricing',
+      props: {
+        title: 'Simple Pricing',
+        subtitle: 'Choose the plan that works for you',
+        items: [
+          { id: '1', title: 'Starter', description: 'For individuals', price: '$9/mo', features: ['Feature 1', 'Feature 2'] },
+          { id: '2', title: 'Pro', description: 'For teams', price: '$29/mo', features: ['All Starter features', 'Feature 3', 'Feature 4'] },
+          { id: '3', title: 'Enterprise', description: 'For large orgs', price: 'Custom', features: ['All Pro features', 'Custom integrations'] },
+        ],
+      },
+      styles: { backgroundColor: '#f8fafc', textColor: '#1a1a1a', padding: '80px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'contact-form': {
+      type: 'contact-form',
+      props: {
+        title: 'Get in Touch',
+        subtitle: 'We would love to hear from you',
+        buttonText: 'Send Message',
+      },
+      styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '80px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'header': {
+      type: 'header',
+      props: { title: 'Brand' },
+      styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '16px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'footer': {
+      type: 'footer',
+      props: { title: '© 2025 Brand' },
+      styles: { backgroundColor: '#1a1a1a', textColor: '#ffffff', padding: '32px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'gallery': {
+      type: 'gallery',
+      props: { title: 'Gallery', images: [] },
+      styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '60px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+    'faq': {
+      type: 'faq',
+      props: { title: 'FAQ', items: [] },
+      styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '60px 24px' },
+      visibility: { desktop: true, tablet: true, mobile: true },
+    },
+  };
+  return defaults[type] || defaults['hero'];
 };
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -210,7 +196,7 @@ export default function BuilderPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai">("components");
+  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "theme">("components");
   const [device, setDevice] = useState<DeviceType>('desktop');
 
   useEffect(() => {
@@ -251,27 +237,7 @@ export default function BuilderPage() {
 
         if (builderRes.ok) {
           const builderData = await builderRes.json();
-          const state = builderData.state as BuilderStateData;
-          if (!state.pages?.[0]?.components) {
-            const migratedState: BuilderStateData = {
-              pages: [{
-                id: 'home',
-                name: 'Home',
-                path: '/',
-                components: [],
-              }],
-              activePage: 'home',
-              globalStyles: state.globalStyles || {
-                primaryColor: '#4f46e5',
-                secondaryColor: '#06b6d4',
-                fontFamily: 'Inter, sans-serif',
-                backgroundColor: '#ffffff',
-              },
-            };
-            setBuilderState(migratedState);
-          } else {
-            setBuilderState(state);
-          }
+          setBuilderState(builderData.state as BuilderStateData);
         }
       } catch (error: any) {
         toast({
@@ -286,7 +252,7 @@ export default function BuilderPage() {
     };
 
     fetchData();
-  }, [id, session]);
+  }, [id, session, toast, setLocation]);
 
   const saveState = useCallback(async (newState: BuilderStateData) => {
     if (!session || !id) return;
@@ -315,17 +281,10 @@ export default function BuilderPage() {
   const addComponent = (type: ComponentType) => {
     if (!builderState) return;
 
-    const template = COMPONENT_TEMPLATES[type];
+    const defaultComp = getDefaultComponent(type);
     const newComponent: BuilderComponent = {
       id: generateId(),
-      type,
-      props: { ...template.defaultProps },
-      styles: {
-        backgroundColor: template.defaultProps.backgroundColor,
-        textColor: template.defaultProps.textColor,
-        padding: '60px 24px',
-        margin: '0',
-      },
+      ...defaultComp,
     };
 
     const newState: BuilderStateData = {
@@ -353,12 +312,33 @@ export default function BuilderPage() {
               ...page,
               components: page.components.map(comp =>
                 comp.id === componentId
-                  ? { ...comp, ...updates, props: { ...comp.props, ...updates.props }, styles: { ...comp.styles, ...updates.styles } }
+                  ? { 
+                      ...comp, 
+                      ...updates, 
+                      props: { ...comp.props, ...updates.props }, 
+                      styles: { ...comp.styles, ...updates.styles } 
+                    }
                   : comp
               ),
             }
           : page
       ),
+    };
+
+    setBuilderState(newState);
+  };
+
+  const updateTheme = (updates: Partial<ThemeConfig>) => {
+    if (!builderState) return;
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      theme: {
+        ...builderState.theme,
+        ...updates,
+        colors: { ...builderState.theme.colors, ...updates.colors },
+        fonts: { ...builderState.theme.fonts, ...updates.fonts },
+      },
     };
 
     setBuilderState(newState);
@@ -411,477 +391,426 @@ export default function BuilderPage() {
     return activePage?.components.find(c => c.id === selectedComponentId) || null;
   })();
 
-  const renderComponent = (component: BuilderComponent) => {
-    const isSelected = selectedComponentId === component.id;
-    const baseStyle: React.CSSProperties = {
-      backgroundColor: component.styles.backgroundColor || component.props.backgroundColor,
-      color: component.styles.textColor || component.props.textColor,
-      padding: component.styles.padding || '60px 24px',
-      cursor: 'pointer',
-      outline: isSelected ? '3px solid #3b82f6' : 'none',
-      outlineOffset: '-3px',
-      position: 'relative',
-    };
-
-    const handleClick = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      setSelectedComponentId(component.id);
-      setSidebarTab("properties");
-    };
-
-    switch (component.type) {
-      case 'hero':
-        return (
-          <section key={component.id} style={baseStyle} onClick={handleClick} data-testid={`component-${component.id}`}>
-            <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: component.props.alignment as any || 'center' }}>
-              <h1 style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px' }}>{component.props.title}</h1>
-              {component.props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{component.props.subtitle}</p>}
-              {component.props.description && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px' }}>{component.props.description}</p>}
-              {component.props.buttonText && (
-                <button style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: '#1a1a1a', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-                  {component.props.buttonText}
-                </button>
-              )}
-            </div>
-          </section>
-        );
-
-      case 'image-slider':
-        return (
-          <section key={component.id} style={baseStyle} onClick={handleClick} data-testid={`component-${component.id}`}>
-            <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', padding: '20px 0' }}>
-              {component.props.images?.map((img, i) => (
-                <img key={i} src={img} alt={`Slide ${i + 1}`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
-              ))}
-            </div>
-          </section>
-        );
-
-      case 'text-image':
-        return (
-          <section key={component.id} style={baseStyle} onClick={handleClick} data-testid={`component-${component.id}`}>
-            <div style={{ display: 'flex', gap: '48px', alignItems: 'center', flexDirection: component.props.alignment === 'right' ? 'row-reverse' : 'row', flexWrap: 'wrap', maxWidth: '1000px', margin: '0 auto' }}>
-              <div style={{ flex: 1, minWidth: '300px' }}>
-                <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{component.props.title}</h2>
-                <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{component.props.description}</p>
-              </div>
-              {component.props.imageUrl && (
-                <div style={{ flex: 1, minWidth: '300px' }}>
-                  <img src={component.props.imageUrl} alt="" style={{ width: '100%', borderRadius: '12px' }} />
-                </div>
-              )}
-            </div>
-          </section>
-        );
-
-      case 'cta':
-        return (
-          <section key={component.id} style={baseStyle} onClick={handleClick} data-testid={`component-${component.id}`}>
-            <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-              <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{component.props.title}</h2>
-              <p style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px' }}>{component.props.description}</p>
-              {component.props.buttonText && (
-                <button style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: '#4f46e5', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-                  {component.props.buttonText}
-                </button>
-              )}
-            </div>
-          </section>
-        );
-
-      case 'features':
-        return (
-          <section key={component.id} style={baseStyle} onClick={handleClick} data-testid={`component-${component.id}`}>
-            <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
-              <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px' }}>{component.props.title}</h2>
-              {component.props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px' }}>{component.props.subtitle}</p>}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '32px' }}>
-                {component.props.items?.map(item => (
-                  <div key={item.id} style={{ padding: '24px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px' }}>
-                    {item.icon && <div style={{ fontSize: '32px', marginBottom: '16px' }}>{item.icon}</div>}
-                    <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px' }}>{item.title}</h3>
-                    <p style={{ fontSize: '14px', opacity: 0.8 }}>{item.description}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        );
-
-      case 'testimonials':
-        return (
-          <section key={component.id} style={baseStyle} onClick={handleClick} data-testid={`component-${component.id}`}>
-            <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
-              <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '48px' }}>{component.props.title}</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
-                {component.props.items?.map(item => (
-                  <div key={item.id} style={{ padding: '32px', backgroundColor: '#f8f9fa', borderRadius: '12px', textAlign: 'left' }}>
-                    <p style={{ fontSize: '16px', fontStyle: 'italic', marginBottom: '16px' }}>"{item.description}"</p>
-                    <p style={{ fontWeight: 600 }}>{item.title}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-        );
-
-      case 'header':
-        return (
-          <header key={component.id} style={{ ...baseStyle, padding: '16px 24px' }} onClick={handleClick} data-testid={`component-${component.id}`}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
-              <span style={{ fontSize: '20px', fontWeight: 700 }}>{component.props.title}</span>
-              <nav style={{ display: 'flex', gap: '24px' }}>
-                {component.props.items?.map(item => (
-                  <a key={item.id} href="#" style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
-                ))}
-              </nav>
-            </div>
-          </header>
-        );
-
-      case 'footer':
-        return (
-          <footer key={component.id} style={{ ...baseStyle, padding: '32px 24px' }} onClick={handleClick} data-testid={`component-${component.id}`}>
-            <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-              <p style={{ fontWeight: 600, marginBottom: '8px' }}>{component.props.title}</p>
-              <p style={{ opacity: 0.7, fontSize: '14px' }}>{component.props.description}</p>
-            </div>
-          </footer>
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  const displayName = profile?.fullName || user?.user_metadata?.full_name || user?.email || "User";
-  const displayEmail = profile?.email || user?.email || "";
-
   if (authLoading || isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex items-center justify-center h-screen bg-gray-50" data-testid="loading-spinner">
+        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
       </div>
     );
   }
 
-  if (!website || !builderState) return null;
-
-  const activePage = builderState.pages.find(p => p.id === builderState.activePage);
+  if (!website || !builderState) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <p className="text-gray-500">Website not found</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <header className="border-b bg-card h-14 flex items-center px-4 gap-4 shrink-0">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/dashboard")} data-testid="button-back">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <Separator orientation="vertical" className="h-6" />
-        
-        <div className="flex items-center gap-3">
-          <div className="w-6 h-6 bg-primary rounded flex items-center justify-center text-primary-foreground">
-            <Globe className="w-4 h-4" />
+    <div className="h-screen flex flex-col bg-gray-100" data-testid="builder-page">
+      {/* Top Bar */}
+      <header className="h-14 bg-white border-b flex items-center justify-between px-4 shrink-0">
+        <div className="flex items-center gap-4">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setLocation("/dashboard")}
+            data-testid="button-back"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-gray-500" />
+            <span className="font-medium text-sm">{website.name}</span>
           </div>
-          <span className="font-medium" data-testid="text-website-name">{website.name}</span>
-          <span className={`text-xs px-2 py-0.5 rounded ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`} data-testid="text-website-status">
-            {website.status}
-          </span>
         </div>
-
-        <div className="flex-1" />
-
-        {/* Device Switcher */}
-        <div className="flex items-center bg-muted rounded-lg p-1">
-          <Button variant={device === 'desktop' ? 'secondary' : 'ghost'} size="sm" onClick={() => setDevice('desktop')} data-testid="button-desktop">
-            <Monitor className="h-4 w-4" />
-          </Button>
-          <Button variant={device === 'tablet' ? 'secondary' : 'ghost'} size="sm" onClick={() => setDevice('tablet')} data-testid="button-tablet">
-            <Tablet className="h-4 w-4" />
-          </Button>
-          <Button variant={device === 'mobile' ? 'secondary' : 'ghost'} size="sm" onClick={() => setDevice('mobile')} data-testid="button-mobile">
-            <Smartphone className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <Separator orientation="vertical" className="h-6" />
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2" data-testid="button-preview">
-            <Eye className="w-4 h-4" />
-            Preview
-          </Button>
-          <Button size="sm" className="gap-2" onClick={() => saveState(builderState)} disabled={isSaving} data-testid="button-save">
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {/* Device Preview Switcher */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-1" data-testid="device-switcher">
+            {(['desktop', 'tablet', 'mobile'] as DeviceType[]).map((d) => (
+              <Button
+                key={d}
+                variant={device === d ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => setDevice(d)}
+                className="px-3"
+                data-testid={`button-device-${d}`}
+              >
+                {d === 'desktop' && <Monitor className="h-4 w-4" />}
+                {d === 'tablet' && <Tablet className="h-4 w-4" />}
+                {d === 'mobile' && <Smartphone className="h-4 w-4" />}
+              </Button>
+            ))}
+          </div>
+
+          <Separator orientation="vertical" className="h-6" />
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => saveState(builderState)}
+            disabled={isSaving}
+            data-testid="button-save"
+          >
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
             Save
           </Button>
-          <Button size="sm" variant="secondary" disabled className="gap-2" data-testid="button-publish">
-            <Upload className="w-4 h-4" />
-            Publish
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open(`/preview/${id}`, '_blank')}
+            data-testid="button-preview"
+          >
+            <Eye className="h-4 w-4 mr-2" />
+            Preview
           </Button>
+
+          <Separator orientation="vertical" className="h-6" />
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-2">
+                <Avatar className="h-7 w-7">
+                  <AvatarFallback className="text-xs bg-blue-100 text-blue-700">
+                    {profile?.fullName?.charAt(0) || user?.email?.charAt(0) || 'U'}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>
+                <div className="flex flex-col">
+                  <span>{profile?.fullName || 'User'}</span>
+                  <span className="text-xs text-gray-500 font-normal">{user?.email}</span>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setLocation("/settings")}>
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={signOut} className="text-red-600">
+                <LogOut className="h-4 w-4 mr-2" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-
-        <Separator orientation="vertical" className="h-6" />
-
-        <Button variant="outline" size="sm" onClick={() => setLocation(`/manage/${id}`)} data-testid="button-manage">
-          <Settings className="w-4 h-4 mr-2" />
-          Manage
-        </Button>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-8 w-8 rounded-full" data-testid="button-profile-menu">
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={`https://avatar.vercel.sh/${displayEmail}`} alt={displayName} />
-                <AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback>
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56" align="end">
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium">{displayName}</p>
-                <p className="text-xs text-muted-foreground">{displayEmail}</p>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setLocation("/dashboard")}>
-              <Globe className="mr-2 h-4 w-4" />
-              Dashboard
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => signOut()} className="text-destructive">
-              <LogOut className="mr-2 h-4 w-4" />
-              Log out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </header>
 
+      {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Canvas / Preview */}
-        <main className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center" onClick={() => setSelectedComponentId(null)}>
-          <div 
-            className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
-            style={{ 
-              width: `${DEVICE_WIDTHS[device]}px`, 
-              maxWidth: '100%',
-              minHeight: '600px',
-              borderRadius: device === 'mobile' ? '24px' : '8px',
-            }}
-          >
-            {activePage?.components.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
-                <Layout className="w-16 h-16 mb-4 opacity-30" />
-                <p className="text-lg font-medium mb-2">No components yet</p>
-                <p className="text-sm text-center mb-4">Add components from the sidebar to start building your page.</p>
-                <Button variant="outline" onClick={() => setSidebarTab("components")}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Component
-                </Button>
-              </div>
-            ) : (
-              activePage?.components.map(comp => renderComponent(comp))
-            )}
-          </div>
-        </main>
-
-        {/* Right Sidebar */}
-        <aside className="w-80 border-l bg-card flex flex-col shrink-0">
-          <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col">
-            <TabsList className="grid w-full grid-cols-3 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
-              <TabsTrigger value="components" data-testid="tab-components">
-                <Plus className="w-4 h-4 mr-1" />
+        {/* Left Sidebar */}
+        <aside className="w-72 bg-white border-r flex flex-col shrink-0">
+          <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex flex-col h-full">
+            <TabsList className="grid w-full grid-cols-3 p-1 m-2">
+              <TabsTrigger value="components" className="text-xs">
+                <Plus className="h-3 w-3 mr-1" />
                 Add
               </TabsTrigger>
-              <TabsTrigger value="properties" data-testid="tab-properties">
-                <Settings className="w-4 h-4 mr-1" />
+              <TabsTrigger value="properties" className="text-xs">
+                <Settings className="h-3 w-3 mr-1" />
                 Edit
               </TabsTrigger>
-              <TabsTrigger value="ai" data-testid="tab-ai">
-                <Sparkles className="w-4 h-4 mr-1" />
-                AI
+              <TabsTrigger value="theme" className="text-xs">
+                <Star className="h-3 w-3 mr-1" />
+                Theme
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="components" className="flex-1 p-4 pt-2 overflow-auto">
-              <div className="space-y-2">
-                <h3 className="font-semibold text-sm mb-3">Components</h3>
-                {(Object.entries(COMPONENT_TEMPLATES) as [ComponentType, typeof COMPONENT_TEMPLATES[ComponentType]][]).map(([type, template]) => (
-                  <button
-                    key={type}
-                    onClick={() => addComponent(type)}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg border bg-background hover:bg-muted transition-colors text-left"
-                    data-testid={`add-component-${type}`}
-                  >
-                    <div className="w-10 h-10 rounded bg-primary/10 flex items-center justify-center">
-                      <template.icon className="w-5 h-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{template.name}</p>
-                      <p className="text-xs text-muted-foreground">Click to add</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                  </button>
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="properties" className="flex-1 overflow-auto">
-              <ScrollArea className="h-full">
-                <div className="p-4 pt-2">
-                  {selectedComponent ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-semibold text-sm">{COMPONENT_TEMPLATES[selectedComponent.type].name}</h3>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveComponent(selectedComponent.id, 'up')} data-testid="button-move-up">
-                            <Move className="w-4 h-4 rotate-180" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => moveComponent(selectedComponent.id, 'down')} data-testid="button-move-down">
-                            <Move className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteComponent(selectedComponent.id)} data-testid="button-delete">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+            <ScrollArea className="flex-1">
+              <TabsContent value="components" className="m-0 p-3">
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-3">
+                    Click to add section
+                  </p>
+                  {COMPONENT_BLOCKS.map((block) => (
+                    <button
+                      key={block.type}
+                      onClick={() => addComponent(block.type)}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg border hover:border-blue-300 hover:bg-blue-50 transition-colors text-left"
+                      data-testid={`button-add-${block.type}`}
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+                        <block.icon className="h-5 w-5 text-gray-600" />
                       </div>
+                      <div>
+                        <p className="font-medium text-sm">{block.name}</p>
+                        <p className="text-xs text-gray-500">{block.description}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </TabsContent>
 
-                      <Separator />
+              <TabsContent value="properties" className="m-0 p-3">
+                {selectedComponent ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-medium capitalize">{selectedComponent.type.replace('-', ' ')}</h3>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => moveComponent(selectedComponent.id, 'up')}
+                          data-testid="button-move-up"
+                        >
+                          <ChevronUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => moveComponent(selectedComponent.id, 'down')}
+                          data-testid="button-move-down"
+                        >
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteComponent(selectedComponent.id)}
+                          className="text-red-500 hover:text-red-600"
+                          data-testid="button-delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
 
-                      <div className="space-y-3">
-                        <h4 className="font-medium text-sm">Content</h4>
-                        
-                        {selectedComponent.props.title !== undefined && (
-                          <div className="space-y-1">
-                            <Label className="text-xs">Title</Label>
-                            <Input
-                              value={selectedComponent.props.title || ''}
-                              onChange={(e) => updateComponent(selectedComponent.id, { props: { title: e.target.value } })}
-                              data-testid="input-title"
-                            />
-                          </div>
-                        )}
+                    <Separator />
 
-                        {selectedComponent.props.subtitle !== undefined && (
-                          <div className="space-y-1">
-                            <Label className="text-xs">Subtitle</Label>
-                            <Input
-                              value={selectedComponent.props.subtitle || ''}
-                              onChange={(e) => updateComponent(selectedComponent.id, { props: { subtitle: e.target.value } })}
-                              data-testid="input-subtitle"
-                            />
-                          </div>
-                        )}
+                    {/* Content Properties */}
+                    <div className="space-y-3">
+                      <p className="text-xs font-medium text-gray-500 uppercase">Content</p>
+                      
+                      {selectedComponent.props.title !== undefined && (
+                        <div>
+                          <Label className="text-xs">Title</Label>
+                          <Input
+                            value={selectedComponent.props.title || ''}
+                            onChange={(e) => updateComponent(selectedComponent.id, { props: { title: e.target.value } })}
+                            className="mt-1"
+                            data-testid="input-title"
+                          />
+                        </div>
+                      )}
+                      
+                      {selectedComponent.props.subtitle !== undefined && (
+                        <div>
+                          <Label className="text-xs">Subtitle</Label>
+                          <Input
+                            value={selectedComponent.props.subtitle || ''}
+                            onChange={(e) => updateComponent(selectedComponent.id, { props: { subtitle: e.target.value } })}
+                            className="mt-1"
+                            data-testid="input-subtitle"
+                          />
+                        </div>
+                      )}
 
-                        {selectedComponent.props.description !== undefined && (
-                          <div className="space-y-1">
-                            <Label className="text-xs">Description</Label>
-                            <textarea
-                              className="w-full min-h-[80px] p-2 text-sm border rounded-md resize-none"
-                              value={selectedComponent.props.description || ''}
-                              onChange={(e) => updateComponent(selectedComponent.id, { props: { description: e.target.value } })}
-                              data-testid="input-description"
-                            />
-                          </div>
-                        )}
+                      {selectedComponent.props.description !== undefined && (
+                        <div>
+                          <Label className="text-xs">Description</Label>
+                          <textarea
+                            value={selectedComponent.props.description || ''}
+                            onChange={(e) => updateComponent(selectedComponent.id, { props: { description: e.target.value } })}
+                            className="mt-1 w-full px-3 py-2 text-sm border rounded-md"
+                            rows={3}
+                            data-testid="input-description"
+                          />
+                        </div>
+                      )}
 
-                        {selectedComponent.props.buttonText !== undefined && (
-                          <div className="space-y-1">
+                      {selectedComponent.props.buttonText !== undefined && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
                             <Label className="text-xs">Button Text</Label>
                             <Input
                               value={selectedComponent.props.buttonText || ''}
                               onChange={(e) => updateComponent(selectedComponent.id, { props: { buttonText: e.target.value } })}
+                              className="mt-1"
                               data-testid="input-button-text"
                             />
                           </div>
-                        )}
-
-                        {selectedComponent.props.imageUrl !== undefined && (
-                          <div className="space-y-1">
-                            <Label className="text-xs">Image URL</Label>
+                          <div>
+                            <Label className="text-xs">Button Link</Label>
                             <Input
-                              value={selectedComponent.props.imageUrl || ''}
-                              onChange={(e) => updateComponent(selectedComponent.id, { props: { imageUrl: e.target.value } })}
-                              placeholder="https://..."
-                              data-testid="input-image-url"
+                              value={selectedComponent.props.buttonLink || ''}
+                              onChange={(e) => updateComponent(selectedComponent.id, { props: { buttonLink: e.target.value } })}
+                              className="mt-1"
+                              data-testid="input-button-link"
                             />
                           </div>
-                        )}
-                      </div>
-
-                      <Separator />
-
-                      <div className="space-y-3">
-                        <h4 className="font-medium text-sm">Styles</h4>
-                        
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Background</Label>
-                            <div className="flex gap-1">
-                              <Input
-                                type="color"
-                                value={selectedComponent.styles.backgroundColor || '#ffffff'}
-                                onChange={(e) => updateComponent(selectedComponent.id, { styles: { backgroundColor: e.target.value } })}
-                                className="w-10 h-9 p-1 cursor-pointer"
-                                data-testid="input-bg-color"
-                              />
-                              <Input
-                                value={selectedComponent.styles.backgroundColor || ''}
-                                onChange={(e) => updateComponent(selectedComponent.id, { styles: { backgroundColor: e.target.value } })}
-                                placeholder="#ffffff"
-                                className="flex-1"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Text Color</Label>
-                            <div className="flex gap-1">
-                              <Input
-                                type="color"
-                                value={selectedComponent.styles.textColor || '#000000'}
-                                onChange={(e) => updateComponent(selectedComponent.id, { styles: { textColor: e.target.value } })}
-                                className="w-10 h-9 p-1 cursor-pointer"
-                                data-testid="input-text-color"
-                              />
-                              <Input
-                                value={selectedComponent.styles.textColor || ''}
-                                onChange={(e) => updateComponent(selectedComponent.id, { styles: { textColor: e.target.value } })}
-                                placeholder="#000000"
-                                className="flex-1"
-                              />
-                            </div>
-                          </div>
                         </div>
+                      )}
 
-                        <div className="space-y-1">
-                          <Label className="text-xs">Padding</Label>
+                      {selectedComponent.props.imageUrl !== undefined && (
+                        <div>
+                          <Label className="text-xs">Image URL</Label>
                           <Input
-                            value={selectedComponent.styles.padding || ''}
-                            onChange={(e) => updateComponent(selectedComponent.id, { styles: { padding: e.target.value } })}
-                            placeholder="60px 24px"
-                            data-testid="input-padding"
+                            value={selectedComponent.props.imageUrl || ''}
+                            onChange={(e) => updateComponent(selectedComponent.id, { props: { imageUrl: e.target.value } })}
+                            className="mt-1"
+                            placeholder="https://..."
+                            data-testid="input-image-url"
                           />
                         </div>
+                      )}
+                    </div>
+
+                    <Separator />
+
+                    {/* Style Properties */}
+                    <div className="space-y-3">
+                      <p className="text-xs font-medium text-gray-500 uppercase">Styles</p>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">Background</Label>
+                          <div className="flex mt-1 gap-1">
+                            <input
+                              type="color"
+                              value={selectedComponent.styles.backgroundColor || '#ffffff'}
+                              onChange={(e) => updateComponent(selectedComponent.id, { styles: { backgroundColor: e.target.value } })}
+                              className="w-10 h-9 rounded border cursor-pointer"
+                              data-testid="input-bg-color"
+                            />
+                            <Input
+                              value={selectedComponent.styles.backgroundColor || ''}
+                              onChange={(e) => updateComponent(selectedComponent.id, { styles: { backgroundColor: e.target.value } })}
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Text Color</Label>
+                          <div className="flex mt-1 gap-1">
+                            <input
+                              type="color"
+                              value={selectedComponent.styles.textColor || '#000000'}
+                              onChange={(e) => updateComponent(selectedComponent.id, { styles: { textColor: e.target.value } })}
+                              className="w-10 h-9 rounded border cursor-pointer"
+                              data-testid="input-text-color"
+                            />
+                            <Input
+                              value={selectedComponent.styles.textColor || ''}
+                              onChange={(e) => updateComponent(selectedComponent.id, { styles: { textColor: e.target.value } })}
+                              className="flex-1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-xs">Padding</Label>
+                        <Input
+                          value={selectedComponent.styles.padding || '60px 24px'}
+                          onChange={(e) => updateComponent(selectedComponent.id, { styles: { padding: e.target.value } })}
+                          className="mt-1"
+                          placeholder="60px 24px"
+                          data-testid="input-padding"
+                        />
                       </div>
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
-                      <Settings className="w-8 h-8 mb-3 opacity-50" />
-                      <p className="text-sm">Select a component to edit its properties.</p>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            </TabsContent>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Settings className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">Select a component to edit</p>
+                  </div>
+                )}
+              </TabsContent>
 
-            <TabsContent value="ai" className="flex-1 p-4 pt-2 overflow-auto">
-              <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                <Sparkles className="w-8 h-8 mb-3 opacity-50" />
-                <p className="font-medium mb-1">AI Assistant</p>
-                <p className="text-sm">AI-powered content generation will be available soon.</p>
-              </div>
-            </TabsContent>
+              <TabsContent value="theme" className="m-0 p-3">
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase mb-3">Colors</p>
+                    <div className="space-y-2">
+                      {[
+                        { key: 'primary', label: 'Primary' },
+                        { key: 'secondary', label: 'Secondary' },
+                        { key: 'accent', label: 'Accent' },
+                        { key: 'background', label: 'Background' },
+                        { key: 'text', label: 'Text' },
+                      ].map(({ key, label }) => (
+                        <div key={key} className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={(builderState.theme.colors as any)[key] || '#000000'}
+                            onChange={(e) => updateTheme({ colors: { [key]: e.target.value } as any })}
+                            className="w-8 h-8 rounded border cursor-pointer"
+                            data-testid={`input-theme-${key}`}
+                          />
+                          <span className="text-sm flex-1">{label}</span>
+                          <Input
+                            value={(builderState.theme.colors as any)[key] || ''}
+                            onChange={(e) => updateTheme({ colors: { [key]: e.target.value } as any })}
+                            className="w-24 text-xs"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase mb-3">Typography</p>
+                    <div className="space-y-2">
+                      <div>
+                        <Label className="text-xs">Heading Font</Label>
+                        <Input
+                          value={builderState.theme.fonts.heading}
+                          onChange={(e) => updateTheme({ fonts: { ...builderState.theme.fonts, heading: e.target.value } })}
+                          className="mt-1"
+                          data-testid="input-heading-font"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Body Font</Label>
+                        <Input
+                          value={builderState.theme.fonts.body}
+                          onChange={(e) => updateTheme({ fonts: { ...builderState.theme.fonts, body: e.target.value } })}
+                          className="mt-1"
+                          data-testid="input-body-font"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </ScrollArea>
           </Tabs>
         </aside>
+
+        {/* Preview Area */}
+        <main className="flex-1 overflow-auto bg-gray-200 p-6" data-testid="preview-area">
+          <div
+            className="mx-auto bg-white shadow-lg rounded-lg overflow-hidden transition-all duration-300"
+            style={{ 
+              width: deviceWidths[device],
+              maxWidth: '100%',
+              minHeight: 'calc(100vh - 160px)',
+            }}
+            data-testid="preview-container"
+          >
+            <WebsiteRenderer
+              state={builderState}
+              device={device}
+              selectedComponentId={selectedComponentId}
+              onComponentClick={(id) => {
+                setSelectedComponentId(id);
+                setSidebarTab("properties");
+              }}
+              showNavigation={true}
+            />
+          </div>
+        </main>
       </div>
     </div>
   );

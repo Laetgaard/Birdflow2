@@ -60,8 +60,14 @@ export const insertWebsiteInputsSchema = createInsertSchema(websiteInputs).omit(
 export type InsertWebsiteInputs = z.infer<typeof insertWebsiteInputsSchema>;
 export type WebsiteInputs = typeof websiteInputs.$inferSelect;
 
-// Builder component types (new component-based structure)
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header';
+// Builder component types (single source of truth structure)
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'contact-form' | 'gallery' | 'pricing' | 'faq';
+
+export type DeviceVisibility = {
+  desktop: boolean;
+  tablet: boolean;
+  mobile: boolean;
+};
 
 export type BuilderComponent = {
   id: string;
@@ -72,6 +78,8 @@ export type BuilderComponent = {
     description?: string;
     buttonText?: string;
     buttonLink?: string;
+    secondaryButtonText?: string;
+    secondaryButtonLink?: string;
     imageUrl?: string;
     images?: string[];
     items?: Array<{
@@ -80,36 +88,94 @@ export type BuilderComponent = {
       description: string;
       icon?: string;
       imageUrl?: string;
+      price?: string;
+      features?: string[];
     }>;
     alignment?: 'left' | 'center' | 'right';
-    backgroundColor?: string;
-    textColor?: string;
-    padding?: string;
+    layout?: 'grid' | 'list' | 'carousel';
+    columns?: number;
   };
   styles: {
     backgroundColor?: string;
     textColor?: string;
     padding?: string;
     margin?: string;
+    borderRadius?: string;
   };
+  visibility?: DeviceVisibility;
 };
 
 export type BuilderPage = {
   id: string;
   name: string;
   path: string;
+  title?: string;
+  description?: string;
   components: BuilderComponent[];
 };
 
+export type NavigationLink = {
+  id: string;
+  label: string;
+  path: string;
+  external?: boolean;
+};
+
+export type SiteMetadata = {
+  title: string;
+  description: string;
+  favicon?: string;
+  language: string;
+  logo?: string;
+};
+
+export type NavigationConfig = {
+  header: {
+    logo?: string;
+    logoText?: string;
+    links: NavigationLink[];
+    showCta?: boolean;
+    ctaText?: string;
+    ctaLink?: string;
+  };
+  footer: {
+    copyright: string;
+    links: NavigationLink[];
+    socialLinks?: Array<{
+      platform: string;
+      url: string;
+    }>;
+  };
+};
+
+export type ThemeConfig = {
+  colors: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    surface: string;
+    text: string;
+    textMuted: string;
+  };
+  fonts: {
+    heading: string;
+    body: string;
+  };
+  spacing: {
+    sectionPadding: string;
+    containerMaxWidth: string;
+  };
+  borderRadius: string;
+};
+
 export type BuilderStateData = {
+  version: number;
+  siteMetadata: SiteMetadata;
+  navigation: NavigationConfig;
+  theme: ThemeConfig;
   pages: BuilderPage[];
   activePage: string;
-  globalStyles: {
-    primaryColor: string;
-    secondaryColor: string;
-    fontFamily: string;
-    backgroundColor: string;
-  };
 };
 
 // Builder state table

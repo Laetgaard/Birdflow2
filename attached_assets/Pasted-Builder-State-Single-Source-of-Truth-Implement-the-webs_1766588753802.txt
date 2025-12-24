@@ -1,0 +1,83 @@
+Builder State – Single Source of Truth
+
+Implement the website builder so that the entire website is represented by a single structured object called builder_state.
+
+The builder_state must be the single source of truth for:
+
+The builder preview
+
+The live published website
+
+The future publish-to-Vercel flow
+
+There must be no difference between the previewed website and the published website, only a difference in context (editor UI vs live).
+
+Builder state structure
+
+The state should be pure data (JSON), not HTML or CSS files.
+
+It should include:
+
+Site metadata (name, status, language)
+
+Pages with routing information and section order
+
+Sections/components defined by type and props
+
+Global theme (colors, fonts, spacing)
+
+Navigation configuration (header/footer)
+
+Pages
+
+Pages define routes and the ordered list of section IDs.
+
+Pages should not contain layout or styling logic.
+
+Sections / Components
+
+Each section should be a reusable component defined by:
+
+type (e.g. hero, slider, text)
+
+props (content such as text and images)
+
+style (spacing, alignment, colors)
+
+visibility (desktop/tablet/mobile)
+
+The builder UI edits only these values.
+
+Theme
+
+Global theme settings should be shared across all pages.
+
+Theme values should control colors, fonts, and general layout rules.
+
+Builder behavior
+
+The builder page loads the builder_state from Supabase.
+
+The preview renders the website by interpreting the builder_state.
+
+When the user edits content or layout, only the builder_state is updated.
+
+Changes are persisted to Supabase and reflected in real time.
+
+Responsive behavior
+
+Responsive preview must be achieved by changing the preview container width (desktop/tablet/mobile).
+
+No separate mobile layouts should exist.
+
+Architecture constraints
+
+Do not manipulate the DOM directly.
+
+Do not create separate preview or published website logic.
+
+The same render logic must work for builder, preview, and published site.
+
+This structure must be stable, versioned, and designed so AI generation and Vercel deployment can be added later without refactoring.
+
+Before implementing, briefly explain how the builder_state flows between builder, preview, live website, and management pages.
