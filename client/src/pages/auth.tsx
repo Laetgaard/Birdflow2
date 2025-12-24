@@ -25,7 +25,7 @@ const signInSchema = z.object({
 });
 
 export default function AuthPage() {
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
   const defaultTab = searchParams.get("mode") === "signup" ? "signup" : "signin";
   
@@ -54,16 +54,21 @@ export default function AuthPage() {
   const onSignUp = async (data: z.infer<typeof signUpSchema>) => {
     try {
       setIsLoading(true);
-      await signUp({
+      const result = await signUp({
         email: data.email,
         password: data.password,
         fullName: data.fullName,
         phoneNumber: data.phoneNumber,
       });
-      toast({
-        title: "Account created!",
-        description: "Welcome to your new dashboard.",
-      });
+      
+      if (result.needsEmailConfirmation) {
+        setLocation("/check-email");
+      } else {
+        toast({
+          title: "Account created!",
+          description: "Welcome to your new dashboard.",
+        });
+      }
     } catch (error: any) {
       toast({
         title: "Error",

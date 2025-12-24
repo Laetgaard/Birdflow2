@@ -16,9 +16,11 @@ type AuthContextType = {
   profile: Profile | null;
   session: Session | null;
   isLoading: boolean;
+  isEmailVerified: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (data: { email: string; password: string; fullName: string; phoneNumber: string }) => Promise<void>;
+  signUp: (data: { email: string; password: string; fullName: string; phoneNumber: string }) => Promise<{ needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
+  refreshSession: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,6 +32,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [, setLocation] = useLocation();
 
+  const isEmailVerified = user?.email_confirmed_at != null;
+
   useEffect(() => {
     const supabase = getSupabase();
     
@@ -38,22 +42,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       
-      if (session?.user) {
-        fetchProfile(session.user.id);
+      if (session?.user && session.user.email_confirmed_at) {
+        fetchProfile(session.user.id, session.access_token);
       } else {
         setIsLoading(false);
       }
     });
 
-    // Listen for auth changes
+    // Listen for auth changes (including email confirmation callback)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       
-      if (session?.user) {
-        fetchProfile(session.user.id);
+      if (session?.user && session.user.email_confirmed_at) {
+        fetchProfile(session.user.id, session.access_token);
+        
+        // Redirect to dashboard after email confirmation
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          const currentPath = window.location.pathname;
+          if (currentPath === '/auth/callback' || currentPath === '/auth') {
+            setLocation("/dashboard");
+          }
+        }
       } else {
         setProfile(null);
         setIsLoading(false);
@@ -63,9 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, accessToken: string) => {
     try {
-      const response = await fetch(`/api/profile/${userId}`);
+      const response = await fetch(`/api/profile/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
       if (response.ok) {
         const data = await response.json();
         setProfile(data);
@@ -74,6 +90,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Error fetching profile:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const refreshSession = async () => {
+    const supabase = getSupabase();
+    const { data } = await supabase.auth.refreshSession();
+    if (data.session) {
+      setSession(data.session);
+      setUser(data.user);
     }
   };
 
@@ -86,12 +111,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message);
+        throw new Error(result.message);
       }
 
-      const { user, profile, session } = await response.json();
+      const { user, profile, session } = result;
       setUser(user);
       setProfile(profile);
       setSession(session);
@@ -119,29 +145,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(data),
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message);
+        throw new Error(result.message);
       }
 
-      const { user, profile, session } = await response.json();
-      
-      // Check if email confirmation is required
-      if (!session) {
-        throw new Error("Please check your email to confirm your account");
+      // If session exists, email confirmation is disabled
+      if (result.session) {
+        setUser(result.user);
+        setSession(result.session);
+        
+        const supabase = getSupabase();
+        await supabase.auth.setSession({
+          access_token: result.session.access_token,
+          refresh_token: result.session.refresh_token,
+        });
+        
+        // Fetch profile with auth token
+        await fetchProfile(result.user.id, result.session.access_token);
+        setLocation("/dashboard");
+        return { needsEmailConfirmation: false };
       }
-      
-      setUser(user);
-      setProfile(profile);
-      setSession(session);
-      
-      const supabase = getSupabase();
-      await supabase.auth.setSession({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-      });
-      
-      setLocation("/dashboard");
+
+      // Email confirmation required
+      return { needsEmailConfirmation: true };
     } catch (error: any) {
       throw error;
     } finally {
@@ -161,7 +189,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, session, isLoading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      profile, 
+      session, 
+      isLoading, 
+      isEmailVerified,
+      signIn, 
+      signUp, 
+      signOut,
+      refreshSession
+    }}>
       {children}
     </AuthContext.Provider>
   );
