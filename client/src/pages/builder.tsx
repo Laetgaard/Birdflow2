@@ -32,7 +32,6 @@ import {
 } from "@shared/componentRegistry";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
-import PreviewFrame from "@/components/builder/PreviewFrame";
 
 type BuilderPage = {
   id: string;
@@ -385,7 +384,7 @@ export default function BuilderPage() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Canvas / Preview */}
-        <main className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center">
+        <main className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center" onClick={() => setSelectedComponentId(null)}>
           <div 
             className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
             style={{ 
@@ -395,31 +394,29 @@ export default function BuilderPage() {
               borderRadius: device === 'mobile' ? '24px' : '8px',
             }}
           >
-            <PreviewFrame width={DEVICE_WIDTHS[device]}>
-              {activePage?.components.length === 0 ? (
-                <div className="flex flex-col items-center justify-center min-h-[600px] text-gray-400 p-8">
-                  <svg className="w-16 h-16 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="2"/>
-                    <path d="M3 9h18M9 21V9" strokeWidth="2"/>
-                  </svg>
-                  <p className="text-lg font-medium mb-2">No components yet</p>
-                  <p className="text-sm text-center">Add components from the sidebar to start building your page.</p>
-                </div>
-              ) : (
-                activePage?.components.map(comp => (
-                  <ComponentRenderer 
-                    key={comp.id}
-                    component={comp}
-                    isSelected={selectedComponentId === comp.id}
-                    onClick={() => {
-                      setSelectedComponentId(comp.id);
-                      setSidebarTab("properties");
-                    }}
-                    isPreview={true}
-                  />
-                ))
-              )}
-            </PreviewFrame>
+            {activePage?.components.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
+                <Layout className="w-16 h-16 mb-4 opacity-30" />
+                <p className="text-lg font-medium mb-2">No components yet</p>
+                <p className="text-sm text-center mb-4">Add components from the sidebar to start building your page.</p>
+                <Button variant="outline" onClick={() => setSidebarTab("components")}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Component
+                </Button>
+              </div>
+            ) : (
+              activePage?.components.map(comp => (
+                <ComponentRenderer 
+                  key={comp.id}
+                  component={comp}
+                  isSelected={selectedComponentId === comp.id}
+                  onClick={() => {
+                    setSelectedComponentId(comp.id);
+                    setSidebarTab("properties");
+                  }}
+                />
+              ))
+            )}
           </div>
         </main>
 
