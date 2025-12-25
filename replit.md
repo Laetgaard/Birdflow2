@@ -79,6 +79,27 @@ The website builder uses a registry-based component system:
 - Supports text, textarea, color picker, select, image URL, image array, and items editors
 - Updates flow through parent to builder_state and Supabase persistence
 
+### Publishing System
+The publisher generates a standalone Next.js project from builder_state and deploys to Vercel:
+
+**Publisher Service** (`server/publisher/`):
+- `generator.ts` - Creates Next.js App Router project from builder_state
+- `templates.ts` - Template generators for package.json, components, pages, theme.json
+- `vercel.ts` - Vercel REST API integration for deployment
+- `index.ts` - Orchestrates generation and deployment flow
+
+**Generated Project Structure**:
+- Portable Next.js 14 project with no builder dependencies
+- Components render from props (no hardcoded content)
+- `theme.json` drives global styling from globalStyles
+- Supabase client uses anon key (client) and service role (server-only)
+- Contact/Booking/Product components submit to Supabase tables via RLS
+
+**Data Flow**:
+- Published site writes orders/bookings/forms to Supabase with website_id
+- /manage/:id dashboard reads same tables for website owners
+- RLS policies scope data access by website_id
+
 ## External Dependencies
 
 ### Authentication & Authorization
@@ -98,8 +119,15 @@ The website builder uses a registry-based component system:
 - `framer-motion`: Animation library used on landing page
 - `bcryptjs`: Password hashing utilities
 
+### Deployment
+- **Vercel**: Hosts published Next.js sites via REST API
+- Environment variables: `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional)
+- Published sites receive `SUPABASE_SERVICE_ROLE_KEY` as encrypted Vercel env var
+
 ## Recent Changes
 
+- **2024-12-25**: Implemented publishing system with Next.js generator and Vercel deployment
+- **2024-12-25**: Added management dashboard for orders, bookings, and form submissions
 - **2024-12-25**: Added component system with registry, renderer, and dynamic properties panel for builder
 - **2024-12-24**: Migrated all persistent data storage from Replit internal database to Supabase PostgreSQL
 - **2024-12-24**: Added builder page with live preview, element selection, and properties sidebar
