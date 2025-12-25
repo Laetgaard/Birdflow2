@@ -57,6 +57,7 @@ type Website = {
   status: string;
   setupType: string;
   ownerId: string;
+  deploymentUrl?: string;
 };
 
 type DeviceType = 'desktop' | 'tablet' | 'mobile';
@@ -85,6 +86,7 @@ export default function BuilderPage() {
   const [builderState, setBuilderState] = useState<BuilderStateData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai">("components");
   const [device, setDevice] = useState<DeviceType>('desktop');
@@ -187,6 +189,40 @@ export default function BuilderPage() {
       setIsSaving(false);
     }
   }, [session, id, toast]);
+
+  const publishSite = useCallback(async () => {
+    if (!session || !id || !builderState) return;
+
+    await saveState(builderState);
+    
+    setIsPublishing(true);
+    try {
+      const response = await fetch(`/api/websites/${id}/publish`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || "Failed to publish");
+      }
+
+      setWebsite(prev => prev ? { ...prev, status: 'published', deploymentUrl: data.deploymentUrl } : prev);
+      
+      toast({ 
+        title: "Published!", 
+        description: `Your site is live at ${data.deploymentUrl}`,
+      });
+    } catch (error: any) {
+      toast({ title: "Publish failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [session, id, builderState, saveState, toast]);
 
   const addComponent = (type: ComponentType) => {
     if (!builderState) return;
@@ -312,6 +348,17 @@ export default function BuilderPage() {
           <span className={`text-xs px-2 py-0.5 rounded ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`} data-testid="text-website-status">
             {website.status}
           </span>
+          {website.deploymentUrl && (
+            <a 
+              href={website.deploymentUrl} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-xs text-blue-600 hover:underline"
+              data-testid="link-live-site"
+            >
+              View Live
+            </a>
+          )}
         </div>
 
         <div className="flex-1" />
@@ -340,9 +387,9 @@ export default function BuilderPage() {
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Save
           </Button>
-          <Button size="sm" variant="secondary" disabled className="gap-2" data-testid="button-publish">
-            <Upload className="w-4 h-4" />
-            Publish
+          <Button size="sm" variant="secondary" className="gap-2" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
+            {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            {isPublishing ? 'Publishing...' : 'Publish'}
           </Button>
         </div>
 

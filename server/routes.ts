@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent } from "@shared/schema";
 import { createClient } from "@supabase/supabase-js";
+import { publishWebsite } from "./publisher";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -756,6 +757,120 @@ export async function registerRoutes(
     }
   });
 
+  // Update order status
+  app.patch("/api/websites/:id/orders/:orderId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const order = await storage.updateOrder(req.params.orderId, req.params.id, req.body);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      res.json(order);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update booking status
+  app.patch("/api/websites/:id/bookings/:bookingId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const booking = await storage.updateBooking(req.params.bookingId, req.params.id, req.body);
+      if (!booking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
+      res.json(booking);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ PUBLISH ROUTE ============
+
+  // Publish a website to Vercel
+  app.post("/api/websites/:id/publish", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const builderState = await storage.getBuilderState(req.params.id);
+      if (!builderState) {
+        return res.status(400).json({ message: "No builder state found" });
+      }
+
+      const vercelToken = process.env.VERCEL_TOKEN;
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!vercelToken) {
+        return res.status(400).json({ message: "Vercel token not configured. Please add VERCEL_TOKEN to secrets." });
+      }
+
+      if (!supabaseUrl || !supabaseAnonKey) {
+        return res.status(400).json({ message: "Supabase not configured" });
+      }
+
+      const result = await publishWebsite({
+        websiteId: req.params.id,
+        siteName: website.name,
+        builderState: builderState.state as BuilderStateData,
+        supabaseUrl,
+        supabaseAnonKey,
+        supabaseServiceRoleKey: supabaseServiceRoleKey || '',
+        vercelToken,
+        vercelTeamId: process.env.VERCEL_TEAM_ID,
+      });
+
+      if (result.success) {
+        await storage.updateWebsite(req.params.id, user.id, {
+          status: 'published',
+          deploymentUrl: result.deploymentUrl,
+          deploymentId: result.deploymentId,
+        } as any);
+
+        res.json({
+          success: true,
+          deploymentUrl: result.deploymentUrl,
+          message: "Website published successfully",
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: result.error,
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ============ PUBLIC API ROUTES (for published websites) ============
   // These routes will be used by published websites to submit data
 
@@ -810,6 +925,36 @@ export async function registerRoutes(
       });
 
       res.status(201).json(booking);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create an order (public - no auth required)
+  app.post("/api/public/websites/:id/orders", async (req, res) => {
+    try {
+      const { customerName, customerEmail, shippingAddress, items, total } = req.body;
+      
+      if (!customerName || !customerEmail || !items || !total) {
+        return res.status(400).json({ message: "Customer name, email, items, and total are required" });
+      }
+
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      const order = await storage.createOrder({
+        websiteId: req.params.id,
+        customerName,
+        customerEmail,
+        shippingAddress,
+        items,
+        total,
+        status: 'pending',
+      });
+
+      res.status(201).json(order);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

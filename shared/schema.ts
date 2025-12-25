@@ -26,6 +26,9 @@ export const websites = pgTable("websites", {
   name: text("name").notNull(),
   status: text("status").notNull().default("draft"),
   setupType: text("setup_type").notNull(),
+  deploymentUrl: text("deployment_url"),
+  deploymentId: text("deployment_id"),
+  lastPublishedAt: timestamp("last_published_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -1,0 +1,216 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
+export type VercelConfig = {
+  token: string;
+  teamId?: string;
+};
+
+export type DeploymentResult = {
+  id: string;
+  url: string;
+  readyState: string;
+};
+
+async function vercelFetch(
+  endpoint: string,
+  config: VercelConfig,
+  options: RequestInit = {}
+): Promise<Response> {
+  const url = new URL(endpoint, 'https://api.vercel.com');
+  if (config.teamId) {
+    url.searchParams.set('teamId', config.teamId);
+  }
+  
+  return fetch(url.toString(), {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+}
+
+export async function getOrCreateProject(
+  projectName: string,
+  config: VercelConfig
+): Promise<string> {
+  const res = await vercelFetch(`/v9/projects/${projectName}`, config);
+  
+  if (res.ok) {
+    const project = await res.json();
+    return project.id;
+  }
+  
+  const createRes = await vercelFetch('/v9/projects', config, {
+    method: 'POST',
+    body: JSON.stringify({
+      name: projectName,
+      framework: 'nextjs',
+    }),
+  });
+  
+  if (!createRes.ok) {
+    const error = await createRes.text();
+    throw new Error(`Failed to create Vercel project: ${error}`);
+  }
+  
+  const project = await createRes.json();
+  return project.id;
+}
+
+export async function setProjectEnvVars(
+  projectId: string,
+  config: VercelConfig,
+  envVars: Record<string, string>
+): Promise<void> {
+  const errors: string[] = [];
+  
+  for (const [key, value] of Object.entries(envVars)) {
+    const res = await vercelFetch(`/v10/projects/${projectId}/env`, config, {
+      method: 'POST',
+      body: JSON.stringify({
+        key,
+        value,
+        target: ['production', 'preview', 'development'],
+        type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
+      }),
+    });
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      if (res.status === 409) {
+        const updateRes = await vercelFetch(`/v10/projects/${projectId}/env`, config, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            key,
+            value,
+            target: ['production', 'preview', 'development'],
+            type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
+          }),
+        });
+        if (!updateRes.ok) {
+          errors.push(`Failed to update ${key}: ${await updateRes.text()}`);
+        }
+      } else {
+        errors.push(`Failed to set ${key}: ${errorText}`);
+      }
+    }
+  }
+  
+  if (errors.length > 0) {
+    throw new Error(`Environment variable errors: ${errors.join('; ')}`);
+  }
+}
+
+async function collectFiles(dir: string, prefix = ''): Promise<Array<{ file: string; data: string; encoding: string }>> {
+  const files: Array<{ file: string; data: string; encoding: string }> = [];
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    
+    if (entry.isDirectory()) {
+      const subFiles = await collectFiles(fullPath, relativePath);
+      files.push(...subFiles);
+    } else {
+      const content = await fs.promises.readFile(fullPath);
+      files.push({
+        file: relativePath,
+        data: content.toString('base64'),
+        encoding: 'base64',
+      });
+    }
+  }
+  
+  return files;
+}
+
+export async function deployProject(
+  projectId: string,
+  projectDir: string,
+  projectName: string,
+  config: VercelConfig
+): Promise<DeploymentResult> {
+  const files = await collectFiles(projectDir);
+  
+  const res = await vercelFetch('/v13/deployments', config, {
+    method: 'POST',
+    body: JSON.stringify({
+      name: projectName,
+      project: projectId,
+      files,
+      projectSettings: {
+        framework: 'nextjs',
+        buildCommand: 'npm run build',
+        outputDirectory: '.next',
+        installCommand: 'npm install',
+      },
+    }),
+  });
+  
+  if (!res.ok) {
+    const error = await res.text();
+    throw new Error(`Failed to create deployment: ${error}`);
+  }
+  
+  const deployment = await res.json();
+  
+  return {
+    id: deployment.id,
+    url: `https://${deployment.url}`,
+    readyState: deployment.readyState,
+  };
+}
+
+export async function waitForDeployment(
+  deploymentId: string,
+  config: VercelConfig,
+  maxWaitMs = 300000
+): Promise<DeploymentResult> {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < maxWaitMs) {
+    const res = await vercelFetch(`/v13/deployments/${deploymentId}`, config);
+    
+    if (!res.ok) {
+      throw new Error('Failed to check deployment status');
+    }
+    
+    const deployment = await res.json();
+    
+    if (deployment.readyState === 'READY') {
+      return {
+        id: deployment.id,
+        url: `https://${deployment.url}`,
+        readyState: deployment.readyState,
+      };
+    }
+    
+    if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
+      throw new Error(`Deployment failed: ${deployment.readyState}`);
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+  
+  throw new Error('Deployment timed out');
+}
+
+export async function addCustomDomain(
+  projectId: string,
+  domain: string,
+  config: VercelConfig
+): Promise<void> {
+  const res = await vercelFetch(`/v9/projects/${projectId}/domains`, config, {
+    method: 'POST',
+    body: JSON.stringify({ name: domain }),
+  });
+  
+  if (!res.ok) {
+    const error = await res.text();
+    console.warn(`Could not add domain ${domain}: ${error}`);
+  }
+}
