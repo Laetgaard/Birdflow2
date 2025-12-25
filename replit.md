@@ -57,6 +57,27 @@ The `shared/` directory contains code used by both frontend and backend:
 - Database schemas with Drizzle
 - Zod validation schemas generated from Drizzle schemas
 - TypeScript types inferred from schemas
+- Component Registry (`shared/componentRegistry.ts`) - defines all website builder component types
+
+### Component System Architecture
+The website builder uses a registry-based component system:
+
+**Component Registry** (`shared/componentRegistry.ts`):
+- Defines 8 component types: hero, image-slider, text-image, cta, features, testimonials, header, footer
+- Each component has: type, name, icon, defaultProps, defaultStyles, and fields array
+- Field definitions specify editable properties with type (text, textarea, color, select, image, image-array, items)
+- `createComponent(type)` creates new component instances with defaults
+
+**ComponentRenderer** (`client/src/components/builder/ComponentRenderer.tsx`):
+- Maps component type to React JSX
+- Renders purely from builder_state data (props + styles)
+- Reusable for both builder preview and published site rendering
+- isPreview flag controls interactive behavior
+
+**PropertiesPanel** (`client/src/components/builder/PropertiesPanel.tsx`):
+- Dynamically renders edit fields based on component's field definitions
+- Supports text, textarea, color picker, select, image URL, image array, and items editors
+- Updates flow through parent to builder_state and Supabase persistence
 
 ## External Dependencies
 
@@ -79,6 +100,7 @@ The `shared/` directory contains code used by both frontend and backend:
 
 ## Recent Changes
 
+- **2024-12-25**: Added component system with registry, renderer, and dynamic properties panel for builder
 - **2024-12-24**: Migrated all persistent data storage from Replit internal database to Supabase PostgreSQL
 - **2024-12-24**: Added builder page with live preview, element selection, and properties sidebar
 - **2024-12-24**: Implemented website creation with setup wizard and dashboard management

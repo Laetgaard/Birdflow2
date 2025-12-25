@@ -60,45 +60,20 @@ export const insertWebsiteInputsSchema = createInsertSchema(websiteInputs).omit(
 export type InsertWebsiteInputs = z.infer<typeof insertWebsiteInputsSchema>;
 export type WebsiteInputs = typeof websiteInputs.$inferSelect;
 
-// Builder component types (new component-based structure)
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header';
-
-export type BuilderComponent = {
-  id: string;
-  type: ComponentType;
-  props: {
-    title?: string;
-    subtitle?: string;
-    description?: string;
-    buttonText?: string;
-    buttonLink?: string;
-    imageUrl?: string;
-    images?: string[];
-    items?: Array<{
-      id: string;
-      title: string;
-      description: string;
-      icon?: string;
-      imageUrl?: string;
-    }>;
-    alignment?: 'left' | 'center' | 'right';
-    backgroundColor?: string;
-    textColor?: string;
-    padding?: string;
-  };
-  styles: {
-    backgroundColor?: string;
-    textColor?: string;
-    padding?: string;
-    margin?: string;
-  };
-};
+// Builder component types - re-exported from componentRegistry for consistency
+export type { 
+  ComponentType,
+  BuilderComponentData as BuilderComponent,
+  ComponentProps,
+  ComponentStyles,
+  ComponentItem,
+} from './componentRegistry';
 
 export type BuilderPage = {
   id: string;
   name: string;
   path: string;
-  components: BuilderComponent[];
+  components: import('./componentRegistry').BuilderComponentData[];
 };
 
 export type BuilderStateData = {
