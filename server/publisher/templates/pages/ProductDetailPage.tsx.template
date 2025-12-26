@@ -4,11 +4,17 @@ import ProductDetailClient from './ProductDetailClient';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ProductDetailPage({ params }: { params: { id: string } }) {
+type Props = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function ProductDetailPage({ params }: Props) {
+  const { id } = await params;
+  
   const { data: product } = await supabase
     .from('products')
     .select('*')
-    .eq('id', params.id)
+    .eq('id', id)
     .eq('website_id', websiteId)
     .eq('status', 'active')
     .single();
