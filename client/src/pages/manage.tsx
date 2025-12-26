@@ -21,8 +21,25 @@ import { useToast } from "@/hooks/use-toast";
 import { 
   Globe, ArrowLeft, Loader2, Settings, User, LogOut,
   ShoppingCart, Calendar, Mail, Users, Palette,
-  Package, Clock, CheckCircle, XCircle, AlertCircle
+  Package, Clock, CheckCircle, XCircle, AlertCircle,
+  Plus, Pencil, Trash2, DollarSign
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Website = {
   id: string;
@@ -68,6 +85,18 @@ type Customer = {
   createdAt: string;
 };
 
+type Product = {
+  id: string;
+  websiteId: string;
+  name: string;
+  description: string | null;
+  price: string;
+  imageUrl: string | null;
+  stock: number;
+  status: 'active' | 'inactive';
+  createdAt: string;
+};
+
 export default function ManagePage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -82,6 +111,19 @@ export default function ManagePage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [productForm, setProductForm] = useState({
+    name: '',
+    description: '',
+    price: '',
+    imageUrl: '',
+    stock: 0,
+    status: 'active' as 'active' | 'inactive',
+  });
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -135,6 +177,11 @@ export default function ManagePage() {
         });
         if (customersRes.ok) setCustomers(await customersRes.json());
 
+        const productsRes = await fetch(`/api/websites/${id}/products`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (productsRes.ok) setProducts(await productsRes.json());
+
       } catch (error: any) {
         toast({
           title: "Error",
@@ -151,6 +198,100 @@ export default function ManagePage() {
 
   const displayName = profile?.fullName || user?.user_metadata?.full_name || user?.email || "User";
   const displayEmail = profile?.email || user?.email || "";
+
+  const openProductDialog = (product?: Product) => {
+    if (product) {
+      setEditingProduct(product);
+      setProductForm({
+        name: product.name,
+        description: product.description || '',
+        price: product.price,
+        imageUrl: product.imageUrl || '',
+        stock: product.stock,
+        status: product.status,
+      });
+    } else {
+      setEditingProduct(null);
+      setProductForm({
+        name: '',
+        description: '',
+        price: '',
+        imageUrl: '',
+        stock: 0,
+        status: 'active',
+      });
+    }
+    setProductDialogOpen(true);
+  };
+
+  const saveProduct = async () => {
+    if (!session || !id) return;
+    
+    if (!productForm.name || !productForm.price) {
+      toast({ title: "Error", description: "Name and price are required", variant: "destructive" });
+      return;
+    }
+
+    setIsSavingProduct(true);
+    try {
+      const url = editingProduct 
+        ? `/api/websites/${id}/products/${editingProduct.id}`
+        : `/api/websites/${id}/products`;
+      
+      const res = await fetch(url, {
+        method: editingProduct ? 'PATCH' : 'POST',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: productForm.name,
+          description: productForm.description || null,
+          price: productForm.price,
+          imageUrl: productForm.imageUrl || null,
+          stock: productForm.stock,
+          status: productForm.status,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save product");
+
+      const savedProduct = await res.json();
+      
+      if (editingProduct) {
+        setProducts(products.map(p => p.id === savedProduct.id ? savedProduct : p));
+      } else {
+        setProducts([...products, savedProduct]);
+      }
+
+      setProductDialogOpen(false);
+      toast({ title: "Success", description: `Product ${editingProduct ? 'updated' : 'created'} successfully` });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
+  const deleteProduct = async (productId: string) => {
+    if (!session || !id) return;
+    
+    if (!confirm("Are you sure you want to delete this product?")) return;
+
+    try {
+      const res = await fetch(`/api/websites/${id}/products/${productId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to delete product");
+
+      setProducts(products.filter(p => p.id !== productId));
+      toast({ title: "Success", description: "Product deleted successfully" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -243,7 +384,7 @@ export default function ManagePage() {
         </div>
 
         {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Orders</CardTitle>
@@ -288,6 +429,17 @@ export default function ManagePage() {
               </div>
             </CardContent>
           </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Products</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-primary" />
+                <span className="text-2xl font-bold">{products.length}</span>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Tabs */}
@@ -308,6 +460,10 @@ export default function ManagePage() {
             <TabsTrigger value="customers" data-testid="tab-customers">
               <Users className="w-4 h-4 mr-2" />
               Customers
+            </TabsTrigger>
+            <TabsTrigger value="products" data-testid="tab-products">
+              <Package className="w-4 h-4 mr-2" />
+              Products
             </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">
               <Settings className="w-4 h-4 mr-2" />
@@ -449,6 +605,70 @@ export default function ManagePage() {
             </Card>
           </TabsContent>
 
+          <TabsContent value="products">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Products</CardTitle>
+                  <CardDescription>Manage products for your online store</CardDescription>
+                </div>
+                <Button onClick={() => openProductDialog()} data-testid="button-add-product">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Product
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {products.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="font-medium">No products yet</p>
+                    <p className="text-sm">Add products to start selling on your website.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {products.map(product => (
+                      <div key={product.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`product-row-${product.id}`}>
+                        <div className="flex items-center gap-4">
+                          {product.imageUrl ? (
+                            <img src={product.imageUrl} alt={product.name} className="w-16 h-16 object-cover rounded" />
+                          ) : (
+                            <div className="w-16 h-16 bg-muted rounded flex items-center justify-center">
+                              <Package className="w-6 h-6 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-medium">{product.name}</p>
+                            <p className="text-sm text-muted-foreground line-clamp-1">{product.description || 'No description'}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="font-medium flex items-center gap-1">
+                              <DollarSign className="w-4 h-4" />
+                              {parseFloat(product.price).toFixed(2)}
+                            </p>
+                            <p className="text-sm text-muted-foreground">{product.stock} in stock</p>
+                          </div>
+                          <Badge variant={product.status === 'active' ? 'default' : 'secondary'}>
+                            {product.status}
+                          </Badge>
+                          <div className="flex gap-2">
+                            <Button variant="ghost" size="icon" onClick={() => openProductDialog(product)} data-testid={`button-edit-product-${product.id}`}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => deleteProduct(product.id)} data-testid={`button-delete-product-${product.id}`}>
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="settings">
             <Card>
               <CardHeader>
@@ -488,6 +708,95 @@ export default function ManagePage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Product Dialog */}
+      <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
+            <DialogDescription>
+              {editingProduct ? 'Update the product details below.' : 'Fill in the details to create a new product.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="product-name">Name *</Label>
+              <Input 
+                id="product-name" 
+                value={productForm.name} 
+                onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                placeholder="Product name"
+                data-testid="input-product-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="product-description">Description</Label>
+              <Textarea 
+                id="product-description" 
+                value={productForm.description} 
+                onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                placeholder="Product description"
+                rows={3}
+                data-testid="input-product-description"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="product-price">Price *</Label>
+                <Input 
+                  id="product-price" 
+                  type="number"
+                  step="0.01"
+                  value={productForm.price} 
+                  onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
+                  placeholder="0.00"
+                  data-testid="input-product-price"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="product-stock">Stock</Label>
+                <Input 
+                  id="product-stock" 
+                  type="number"
+                  value={productForm.stock} 
+                  onChange={(e) => setProductForm({ ...productForm, stock: parseInt(e.target.value) || 0 })}
+                  placeholder="0"
+                  data-testid="input-product-stock"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="product-image">Image URL</Label>
+              <Input 
+                id="product-image" 
+                value={productForm.imageUrl} 
+                onChange={(e) => setProductForm({ ...productForm, imageUrl: e.target.value })}
+                placeholder="https://example.com/image.jpg"
+                data-testid="input-product-image"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="product-status">Status</Label>
+              <Select value={productForm.status} onValueChange={(value: 'active' | 'inactive') => setProductForm({ ...productForm, status: value })}>
+                <SelectTrigger data-testid="select-product-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProductDialogOpen(false)}>Cancel</Button>
+            <Button onClick={saveProduct} disabled={isSavingProduct} data-testid="button-save-product">
+              {isSavingProduct ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {editingProduct ? 'Save Changes' : 'Add Product'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

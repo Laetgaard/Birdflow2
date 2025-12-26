@@ -14,6 +14,7 @@ import {
   generateContactForm,
   generateBookingForm,
   generateProductGrid,
+  generateShopPage,
   generateRootLayout,
   generateGlobalsCss,
   generatePageFile,
@@ -69,6 +70,9 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     
     files.push({ path: pagePath, content: generatePageFile(page, websiteId) });
   }
+  
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'shop'), { recursive: true });
+  files.push({ path: 'app/shop/page.tsx', content: generateShopPage() });
   
   for (const file of files) {
     const filePath = path.join(outputDir, file.path);
