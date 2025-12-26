@@ -1,0 +1,70 @@
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { useCart } from '@/components/CartProvider';
+import theme from '@/theme.json';
+
+type Product = {
+  id: string;
+  name: string;
+  description: string | null;
+  price: string;
+  stock: number;
+  image_url: string | null;
+  status: string;
+};
+
+export default function ProductDetailClient({ product }: { product: Product }) {
+  const { items, addItem } = useCart();
+  const [quantity, setQuantity] = useState(1);
+  const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+  const total = items.reduce((sum, i) => sum + parseFloat(i.product.price) * i.quantity, 0);
+
+  const handleAddToCart = () => {
+    for (let i = 0; i < quantity; i++) {
+      addItem(product);
+    }
+    setQuantity(1);
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: theme.backgroundColor, fontFamily: theme.fontFamily }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 40px', backgroundColor: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+          <Link href="/" style={{ fontSize: '20px', fontWeight: 700 }}>Home</Link>
+          <Link href="/shop" style={{ fontSize: '16px', opacity: 0.7 }}>Back to Shop</Link>
+        </div>
+        <Link href="/cart" style={{ padding: '10px 20px', backgroundColor: theme.primaryColor, color: '#fff', borderRadius: '8px', fontWeight: 600, textDecoration: 'none' }}>
+          Cart ({itemCount}) - ${total.toFixed(2)}
+        </Link>
+      </header>
+      <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px' }}>
+          <div>
+            {product.image_url ? <img src={product.image_url} alt={product.name} style={{ width: '100%', borderRadius: '12px', objectFit: 'cover' }} /> : <div style={{ width: '100%', height: '400px', backgroundColor: '#f0f0f0', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ opacity: 0.5, fontSize: '18px' }}>No image</span></div>}
+          </div>
+          <div>
+            <h1 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px' }}>{product.name}</h1>
+            <p style={{ fontSize: '36px', fontWeight: 700, color: theme.primaryColor, marginBottom: '24px' }}>${parseFloat(product.price).toFixed(2)}</p>
+            {product.description && <p style={{ fontSize: '16px', lineHeight: 1.6, opacity: 0.8, marginBottom: '32px' }}>{product.description}</p>}
+            {product.stock > 0 ? (<>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+                <label style={{ fontWeight: 600 }}>Quantity:</label>
+                <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #ddd', borderRadius: '8px' }}>
+                  <button onClick={() => setQuantity(Math.max(1, quantity - 1))} style={{ padding: '8px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>-</button>
+                  <span style={{ padding: '8px 16px', fontWeight: 600 }}>{quantity}</span>
+                  <button onClick={() => setQuantity(Math.min(product.stock, quantity + 1))} style={{ padding: '8px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>+</button>
+                </div>
+                <span style={{ opacity: 0.6 }}>{product.stock} in stock</span>
+              </div>
+              <button onClick={handleAddToCart} style={{ width: '100%', padding: '16px', backgroundColor: theme.primaryColor, color: '#fff', border: 'none', borderRadius: '8px', fontSize: '18px', fontWeight: 600, cursor: 'pointer' }}>
+                Add to Cart
+              </button>
+            </>) : (<p style={{ color: '#ef4444', fontSize: '18px', fontWeight: 600 }}>Out of Stock</p>)}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

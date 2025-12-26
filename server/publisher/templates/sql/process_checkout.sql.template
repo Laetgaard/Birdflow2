@@ -1,0 +1,70 @@
+-- Run this SQL in your Supabase SQL Editor before publishing
+-- This enables atomic stock validation and order creation
+
+CREATE OR REPLACE FUNCTION process_checkout(
+  p_website_id UUID,
+  p_customer_name TEXT,
+  p_customer_email TEXT,
+  p_customer_phone TEXT,
+  p_items JSONB
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_item RECORD;
+  v_product RECORD;
+  v_order_items JSONB := '[]'::JSONB;
+  v_total NUMERIC := 0;
+  v_order_id UUID;
+  v_item_json JSONB;
+BEGIN
+  -- Lock and validate all products
+  FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x(product_id UUID, quantity INT)
+  LOOP
+    SELECT id, name, price, stock INTO v_product
+    FROM products
+    WHERE id = v_item.product_id 
+      AND website_id = p_website_id
+      AND status = 'active'
+    FOR UPDATE;
+    
+    IF v_product IS NULL THEN
+      RAISE EXCEPTION 'Product not found or unavailable';
+    END IF;
+    
+    IF v_product.stock < v_item.quantity THEN
+      RAISE EXCEPTION 'Insufficient stock for %: only % available', v_product.name, v_product.stock;
+    END IF;
+    
+    -- Decrement stock
+    UPDATE products 
+    SET stock = stock - v_item.quantity
+    WHERE id = v_item.product_id AND website_id = p_website_id;
+    
+    -- Build order item as proper JSON object
+    v_item_json := jsonb_build_object(
+      'productId', v_item.product_id,
+      'name', v_product.name,
+      'price', v_product.price,
+      'quantity', v_item.quantity
+    );
+    
+    -- Append to array properly using || with jsonb_build_array
+    v_order_items := v_order_items || jsonb_build_array(v_item_json);
+    
+    v_total := v_total + (v_product.price * v_item.quantity);
+  END LOOP;
+  
+  -- Create order
+  INSERT INTO orders (website_id, customer_name, customer_email, customer_phone, status, total, items)
+  VALUES (p_website_id, p_customer_name, p_customer_email, NULLIF(p_customer_phone, ''), 'pending', v_total, v_order_items)
+  RETURNING id INTO v_order_id;
+  
+  RETURN jsonb_build_object('success', true, 'orderId', v_order_id);
+  
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'error', SQLERRM);
+END;
+$$;
