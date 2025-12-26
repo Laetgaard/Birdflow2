@@ -938,9 +938,6 @@ export async function registerRoutes(
         return res.status(400).json({ message: "No builder state found" });
       }
 
-      const products = await storage.getProducts(req.params.id);
-      const hasProducts = products && products.length > 0;
-
       const vercelToken = process.env.VERCEL_TOKEN;
       const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -961,7 +958,6 @@ export async function registerRoutes(
         supabaseServiceRoleKey: supabaseServiceRoleKey || '',
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
-        hasProducts,
       });
 
       if (result.success) {
