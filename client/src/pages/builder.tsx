@@ -153,13 +153,14 @@ export default function BuilderPage() {
         if (builderRes.ok) {
           const builderData = await builderRes.json();
           const state = builderData.state as BuilderStateData;
-          if (!state.pages?.[0]?.components) {
+          if (!state.pages || state.pages.length === 0) {
+            const legacyComponents = (state as any).components || [];
             const migratedState: BuilderStateData = {
               pages: [{
                 id: 'home',
                 name: 'Home',
                 path: '/',
-                components: [],
+                components: legacyComponents,
               }],
               activePage: 'home',
               globalStyles: state.globalStyles || {
@@ -345,12 +346,33 @@ export default function BuilderPage() {
     setSelectedComponentId(null);
   };
 
+  const generateUniqueSlug = (name: string, existingPaths: string[], excludePath?: string): string => {
+    let baseSlug = name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!baseSlug) baseSlug = 'page';
+    
+    const reservedPaths = ['/', '/api', '/manage', '/auth', '/dashboard'];
+    let slug = baseSlug;
+    let counter = 1;
+    
+    while (
+      reservedPaths.includes(`/${slug}`) ||
+      (existingPaths.includes(`/${slug}`) && `/${slug}` !== excludePath)
+    ) {
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+    
+    return slug;
+  };
+
   const createPage = () => {
     if (!builderState || !newPageName.trim()) return;
 
-    const slug = newPageName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const existingPaths = builderState.pages.map(p => p.path);
+    const slug = generateUniqueSlug(newPageName, existingPaths);
+    
     const newPage: BuilderPage = {
-      id: slug || Math.random().toString(36).substring(2, 9),
+      id: slug,
       name: newPageName.trim(),
       path: `/${slug}`,
       components: [],
@@ -371,13 +393,16 @@ export default function BuilderPage() {
   const updatePageName = () => {
     if (!builderState || !editingPage || !newPageName.trim()) return;
 
-    const slug = newPageName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const existingPaths = builderState.pages.map(p => p.path);
+    const newPath = editingPage.path === '/' 
+      ? '/' 
+      : `/${generateUniqueSlug(newPageName, existingPaths, editingPage.path)}`;
     
     const newState: BuilderStateData = {
       ...builderState,
       pages: builderState.pages.map(page =>
         page.id === editingPage.id
-          ? { ...page, name: newPageName.trim(), path: page.path === '/' ? '/' : `/${slug}` }
+          ? { ...page, name: newPageName.trim(), path: newPath }
           : page
       ),
     };
