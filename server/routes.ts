@@ -849,7 +849,6 @@ export async function registerRoutes(
         price: req.body.price || "0",
         imageUrl: req.body.imageUrl,
         status: req.body.status || "active",
-        inventory: req.body.inventory,
         category: req.body.category,
       });
       res.status(201).json(product);
