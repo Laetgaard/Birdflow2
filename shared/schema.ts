@@ -211,3 +211,29 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
 
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
+
+// Products table (for product catalog)
+export const products = pgTable("products", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  price: text("price").notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  imageUrl: text("image_url"),
+  status: text("status").notNull().default("active"),
+  inventory: text("inventory"),
+  category: text("category"),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProductSchema = createInsertSchema(products).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+export type Product = typeof products.$inferSelect;
