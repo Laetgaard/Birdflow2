@@ -21,8 +21,12 @@ import { useToast } from "@/hooks/use-toast";
 import { 
   Globe, ArrowLeft, Loader2, Settings, User, LogOut,
   ShoppingCart, Calendar, Mail, Users, Palette,
-  Package, Clock, CheckCircle, XCircle, AlertCircle
+  Package, Clock, CheckCircle, XCircle, AlertCircle,
+  Plus, Pencil, Trash2, DollarSign, Image
 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 type Website = {
   id: string;
@@ -68,6 +72,18 @@ type Customer = {
   createdAt: string;
 };
 
+type Product = {
+  id: string;
+  name: string;
+  description?: string;
+  price: string;
+  currency: string;
+  imageUrl?: string;
+  status: 'active' | 'draft' | 'archived';
+  inventory?: string;
+  category?: string;
+};
+
 export default function ManagePage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -82,6 +98,18 @@ export default function ManagePage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
+  const [productForm, setProductForm] = useState<Partial<Product>>({
+    name: '',
+    description: '',
+    price: '0',
+    currency: 'USD',
+    imageUrl: '',
+    status: 'active',
+    category: '',
+  });
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -135,6 +163,11 @@ export default function ManagePage() {
         });
         if (customersRes.ok) setCustomers(await customersRes.json());
 
+        const productsRes = await fetch(`/api/websites/${id}/products`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (productsRes.ok) setProducts(await productsRes.json());
+
       } catch (error: any) {
         toast({
           title: "Error",
@@ -165,6 +198,108 @@ export default function ManagePage() {
         return <Badge className="bg-red-100 text-red-800"><XCircle className="w-3 h-3 mr-1" />{status}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const resetProductForm = () => {
+    setProductForm({
+      name: '',
+      description: '',
+      price: '0',
+      currency: 'USD',
+      imageUrl: '',
+      status: 'active',
+      category: '',
+    });
+    setEditingProduct(null);
+  };
+
+  const openProductDialog = (product?: Product) => {
+    if (product) {
+      setEditingProduct(product);
+      setProductForm({
+        name: product.name,
+        description: product.description || '',
+        price: product.price,
+        currency: product.currency,
+        imageUrl: product.imageUrl || '',
+        status: product.status,
+        category: product.category || '',
+      });
+    } else {
+      resetProductForm();
+    }
+    setIsProductDialogOpen(true);
+  };
+
+  const handleSaveProduct = async () => {
+    if (!session || !id || !productForm.name) return;
+    
+    try {
+      const url = editingProduct 
+        ? `/api/websites/${id}/products/${editingProduct.id}`
+        : `/api/websites/${id}/products`;
+      
+      const method = editingProduct ? 'PATCH' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(productForm),
+      });
+
+      if (!res.ok) throw new Error("Failed to save product");
+
+      const savedProduct = await res.json();
+      
+      if (editingProduct) {
+        setProducts(products.map(p => p.id === savedProduct.id ? savedProduct : p));
+      } else {
+        setProducts([...products, savedProduct]);
+      }
+      
+      toast({
+        title: editingProduct ? "Product Updated" : "Product Created",
+        description: `${savedProduct.name} has been ${editingProduct ? 'updated' : 'added'}.`,
+      });
+      
+      setIsProductDialogOpen(false);
+      resetProductForm();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    if (!session || !id) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/products/${productId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to delete product");
+      
+      setProducts(products.filter(p => p.id !== productId));
+      
+      toast({
+        title: "Product Deleted",
+        description: "The product has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -309,6 +444,10 @@ export default function ManagePage() {
               <Users className="w-4 h-4 mr-2" />
               Customers
             </TabsTrigger>
+            <TabsTrigger value="products" data-testid="tab-products">
+              <Package className="w-4 h-4 mr-2" />
+              Products
+            </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">
               <Settings className="w-4 h-4 mr-2" />
               Settings
@@ -440,6 +579,174 @@ export default function ManagePage() {
                         <div className="text-right">
                           <p className="font-medium">${customer.totalSpent.toFixed(2)} spent</p>
                           <p className="text-sm text-muted-foreground">{customer.totalOrders} orders</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="products">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Products</CardTitle>
+                  <CardDescription>Manage your product catalog</CardDescription>
+                </div>
+                <Dialog open={isProductDialogOpen} onOpenChange={(open) => {
+                  setIsProductDialogOpen(open);
+                  if (!open) resetProductForm();
+                }}>
+                  <DialogTrigger asChild>
+                    <Button onClick={() => openProductDialog()} data-testid="button-add-product">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Product
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
+                      <DialogDescription>
+                        {editingProduct ? 'Update product details' : 'Add a new product to your catalog'}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="name">Name *</Label>
+                        <Input 
+                          id="name"
+                          value={productForm.name || ''} 
+                          onChange={(e) => setProductForm({...productForm, name: e.target.value})}
+                          placeholder="Product name"
+                          data-testid="input-product-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="description">Description</Label>
+                        <Textarea 
+                          id="description"
+                          value={productForm.description || ''} 
+                          onChange={(e) => setProductForm({...productForm, description: e.target.value})}
+                          placeholder="Product description"
+                          data-testid="input-product-description"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="price">Price</Label>
+                          <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <Input 
+                              id="price"
+                              type="number"
+                              step="0.01"
+                              className="pl-9"
+                              value={productForm.price || '0'} 
+                              onChange={(e) => setProductForm({...productForm, price: e.target.value})}
+                              data-testid="input-product-price"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="status">Status</Label>
+                          <Select 
+                            value={productForm.status || 'active'} 
+                            onValueChange={(value) => setProductForm({...productForm, status: value as any})}
+                          >
+                            <SelectTrigger data-testid="select-product-status">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="draft">Draft</SelectItem>
+                              <SelectItem value="archived">Archived</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="category">Category</Label>
+                        <Input 
+                          id="category"
+                          value={productForm.category || ''} 
+                          onChange={(e) => setProductForm({...productForm, category: e.target.value})}
+                          placeholder="e.g., Electronics, Clothing"
+                          data-testid="input-product-category"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="imageUrl">Image URL</Label>
+                        <div className="relative">
+                          <Image className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input 
+                            id="imageUrl"
+                            className="pl-9"
+                            value={productForm.imageUrl || ''} 
+                            onChange={(e) => setProductForm({...productForm, imageUrl: e.target.value})}
+                            placeholder="https://example.com/image.jpg"
+                            data-testid="input-product-image"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsProductDialogOpen(false)}>Cancel</Button>
+                      <Button onClick={handleSaveProduct} disabled={!productForm.name} data-testid="button-save-product">
+                        {editingProduct ? 'Save Changes' : 'Add Product'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </CardHeader>
+              <CardContent>
+                {products.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="font-medium">No products yet</p>
+                    <p className="text-sm">Add products to your catalog to display them on your website.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {products.map(product => (
+                      <div key={product.id} className="border rounded-lg overflow-hidden" data-testid={`card-product-${product.id}`}>
+                        {product.imageUrl && (
+                          <div className="aspect-video bg-muted relative">
+                            <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                          </div>
+                        )}
+                        {!product.imageUrl && (
+                          <div className="aspect-video bg-muted flex items-center justify-center">
+                            <Package className="w-12 h-12 text-muted-foreground/50" />
+                          </div>
+                        )}
+                        <div className="p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h3 className="font-medium">{product.name}</h3>
+                              {product.category && (
+                                <p className="text-xs text-muted-foreground">{product.category}</p>
+                              )}
+                            </div>
+                            <Badge variant={product.status === 'active' ? 'default' : 'secondary'}>
+                              {product.status}
+                            </Badge>
+                          </div>
+                          {product.description && (
+                            <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{product.description}</p>
+                          )}
+                          <div className="flex items-center justify-between mt-4">
+                            <span className="text-lg font-bold">${parseFloat(product.price).toFixed(2)}</span>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => openProductDialog(product)} data-testid={`button-edit-${product.id}`}>
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteProduct(product.id)} data-testid={`button-delete-${product.id}`}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ))}
