@@ -14,18 +14,9 @@ import {
   generateContactForm,
   generateBookingForm,
   generateProductGrid,
-  generateShopPageWithCart,
-  generateShopClient,
-  generateProductDetailPage,
-  generateProductDetailClient,
-  generateCartPage,
-  generateCheckoutSuccessPage,
-  generateCartProviderComponent,
-  generateCheckoutAPI,
-  generateCheckoutSQL,
+  generateRootLayout,
   generateGlobalsCss,
   generatePageFile,
-  generateRootLayout,
 } from './templates';
 
 export type GeneratorConfig = {
@@ -78,22 +69,6 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     
     files.push({ path: pagePath, content: generatePageFile(page, websiteId) });
   }
-  
-  await fs.promises.mkdir(path.join(outputDir, 'app', 'shop'), { recursive: true });
-  await fs.promises.mkdir(path.join(outputDir, 'app', 'shop', '[id]'), { recursive: true });
-  await fs.promises.mkdir(path.join(outputDir, 'app', 'cart'), { recursive: true });
-  await fs.promises.mkdir(path.join(outputDir, 'app', 'checkout', 'success'), { recursive: true });
-  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout'), { recursive: true });
-  
-  files.push({ path: 'components/CartProvider.tsx', content: generateCartProviderComponent(websiteId) });
-  files.push({ path: 'app/shop/page.tsx', content: generateShopPageWithCart() });
-  files.push({ path: 'app/shop/ShopClient.tsx', content: generateShopClient() });
-  files.push({ path: 'app/shop/[id]/page.tsx', content: generateProductDetailPage() });
-  files.push({ path: 'app/shop/[id]/ProductDetailClient.tsx', content: generateProductDetailClient() });
-  files.push({ path: 'app/cart/page.tsx', content: generateCartPage() });
-  files.push({ path: 'app/checkout/success/page.tsx', content: generateCheckoutSuccessPage() });
-  files.push({ path: 'app/api/checkout/route.ts', content: generateCheckoutAPI() });
-  files.push({ path: 'supabase/process_checkout.sql', content: generateCheckoutSQL() });
   
   for (const file of files) {
     const filePath = path.join(outputDir, file.path);

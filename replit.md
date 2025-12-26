@@ -41,8 +41,7 @@ Database tables:
 - `websites` - User's website projects (id, ownerId, name, status, setupType)
 - `website_inputs` - Onboarding wizard data (businessDescription, pages, features, designPreset)
 - `builder_state` - Website builder state as JSONB (pages, components, globalStyles)
-- `products` - Ecommerce products (website_id, name, description, price as numeric, stock as integer, image_url, status)
-- `orders` - Ecommerce orders (website_id, customerName, customerEmail, status, total, items as JSONB with product details)
+- `orders` - Ecommerce orders (customerName, customerEmail, status, total, items)
 - `bookings` - Appointment bookings (customerName, service, date, status)
 - `form_submissions` - Contact form and other form submissions
 - `customers` - Customer profiles aggregated from orders/bookings
@@ -127,9 +126,6 @@ The publisher generates a standalone Next.js project from builder_state and depl
 
 ## Recent Changes
 
-- **2024-12-26**: Added Products management system with CRUD operations (products table with numeric price, integer stock)
-- **2024-12-26**: Added Shop page auto-generation in publisher - fetches active products from Supabase filtered by website_id
-- **2024-12-26**: Implemented shopping cart with "Request to Buy" that creates pending orders
 - **2024-12-25**: Implemented publishing system with Next.js generator and Vercel deployment
 - **2024-12-25**: Added management dashboard for orders, bookings, and form submissions
 - **2024-12-25**: Added component system with registry, renderer, and dynamic properties panel for builder
