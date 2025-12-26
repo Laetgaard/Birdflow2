@@ -14,22 +14,12 @@ import {
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Globe, ArrowLeft, Loader2, Save, Eye, Upload,
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
-  Type, MousePointer, ChevronRight, User, FileText, Trash2, ShoppingCart
+  Type, MousePointer, ChevronRight, User
 } from "lucide-react";
 import { 
   componentRegistry, 
@@ -84,15 +74,7 @@ const ICON_MAP: Record<string, any> = {
   type: Type,
   'mouse-pointer': MousePointer,
   user: User,
-  'shopping-cart': ShoppingCart,
 };
-
-const PAGE_PRESETS = [
-  { id: 'blank', name: 'Blank Page', path: '', icon: FileText },
-  { id: 'shop', name: 'Shop', path: '/shop', icon: ShoppingCart },
-  { id: 'about', name: 'About', path: '/about', icon: FileText },
-  { id: 'contact', name: 'Contact', path: '/contact', icon: FileText },
-];
 
 export default function BuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -108,9 +90,6 @@ export default function BuilderPage() {
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai">("components");
   const [device, setDevice] = useState<DeviceType>('desktop');
-  const [isAddPageOpen, setIsAddPageOpen] = useState(false);
-  const [newPageName, setNewPageName] = useState('');
-  const [newPagePath, setNewPagePath] = useState('');
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -331,70 +310,6 @@ export default function BuilderPage() {
     setBuilderState(newState);
   };
 
-  const addPage = (preset?: typeof PAGE_PRESETS[0]) => {
-    if (!builderState) return;
-    
-    const pageName = preset ? (preset.id === 'blank' ? newPageName : preset.name) : newPageName;
-    const pagePath = preset ? (preset.id === 'blank' ? newPagePath : preset.path) : newPagePath;
-    
-    if (!pageName.trim()) {
-      toast({ title: "Error", description: "Please enter a page name", variant: "destructive" });
-      return;
-    }
-
-    const pageId = pageName.toLowerCase().replace(/\s+/g, '-');
-    const normalizedPath = pagePath.startsWith('/') ? pagePath : `/${pagePath}`;
-
-    if (builderState.pages.some(p => p.id === pageId || p.path === normalizedPath)) {
-      toast({ title: "Error", description: "A page with this name or path already exists", variant: "destructive" });
-      return;
-    }
-
-    const newPage: BuilderPage = {
-      id: pageId,
-      name: pageName,
-      path: normalizedPath || `/${pageId}`,
-      components: [],
-    };
-
-    const newState: BuilderStateData = {
-      ...builderState,
-      pages: [...builderState.pages, newPage],
-      activePage: newPage.id,
-    };
-
-    setBuilderState(newState);
-    setSelectedComponentId(null);
-    setIsAddPageOpen(false);
-    setNewPageName('');
-    setNewPagePath('');
-    toast({ title: "Page Added", description: `${pageName} has been created.` });
-  };
-
-  const switchPage = (pageId: string) => {
-    if (!builderState) return;
-    setBuilderState({ ...builderState, activePage: pageId });
-    setSelectedComponentId(null);
-  };
-
-  const deletePage = (pageId: string) => {
-    if (!builderState || builderState.pages.length <= 1) {
-      toast({ title: "Cannot Delete", description: "You must have at least one page.", variant: "destructive" });
-      return;
-    }
-
-    const newPages = builderState.pages.filter(p => p.id !== pageId);
-    const newActivePage = builderState.activePage === pageId ? newPages[0].id : builderState.activePage;
-
-    setBuilderState({
-      ...builderState,
-      pages: newPages,
-      activePage: newActivePage,
-    });
-    setSelectedComponentId(null);
-    toast({ title: "Page Deleted" });
-  };
-
   const selectedComponent = (() => {
     if (!builderState || !selectedComponentId) return null;
     const activePage = builderState.pages.find(p => p.id === builderState.activePage);
@@ -444,43 +359,6 @@ export default function BuilderPage() {
               View Live
             </a>
           )}
-        </div>
-
-        <Separator orientation="vertical" className="h-6" />
-
-        {/* Page Tabs */}
-        <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
-          {builderState.pages.map(page => (
-            <div key={page.id} className="relative group flex items-center">
-              <Button
-                variant={builderState.activePage === page.id ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => switchPage(page.id)}
-                className="pr-6"
-                data-testid={`page-tab-${page.id}`}
-              >
-                <FileText className="w-3 h-3 mr-1" />
-                {page.name}
-              </Button>
-              {builderState.pages.length > 1 && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); deletePage(page.id); }}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-0.5 hover:bg-destructive/20 rounded transition-opacity"
-                  data-testid={`delete-page-${page.id}`}
-                >
-                  <Trash2 className="w-3 h-3 text-destructive" />
-                </button>
-              )}
-            </div>
-          ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsAddPageOpen(true)}
-            data-testid="button-add-page"
-          >
-            <Plus className="w-4 h-4" />
-          </Button>
         </div>
 
         <div className="flex-1" />
@@ -664,79 +542,6 @@ export default function BuilderPage() {
           </Tabs>
         </aside>
       </div>
-
-      {/* Add Page Dialog */}
-      <Dialog open={isAddPageOpen} onOpenChange={setIsAddPageOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add New Page</DialogTitle>
-            <DialogDescription>
-              Create a new page for your website. Choose a preset or create a custom page.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              {PAGE_PRESETS.filter(p => p.id !== 'blank').map(preset => {
-                const IconComponent = preset.icon;
-                return (
-                  <button
-                    key={preset.id}
-                    onClick={() => addPage(preset)}
-                    className="flex flex-col items-center gap-2 p-4 rounded-lg border bg-background hover:bg-muted transition-colors"
-                    data-testid={`preset-${preset.id}`}
-                  >
-                    <IconComponent className="w-6 h-6 text-primary" />
-                    <span className="text-sm font-medium">{preset.name}</span>
-                    <span className="text-xs text-muted-foreground">{preset.path}</span>
-                  </button>
-                );
-              })}
-            </div>
-            
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">Or create custom</span>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label htmlFor="page-name">Page Name</Label>
-                <Input
-                  id="page-name"
-                  placeholder="e.g., Services"
-                  value={newPageName}
-                  onChange={(e) => setNewPageName(e.target.value)}
-                  data-testid="input-page-name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="page-path">URL Path</Label>
-                <Input
-                  id="page-path"
-                  placeholder="e.g., /services"
-                  value={newPagePath}
-                  onChange={(e) => setNewPagePath(e.target.value)}
-                  data-testid="input-page-path"
-                />
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddPageOpen(false)} data-testid="button-cancel-add-page">
-              Cancel
-            </Button>
-            <Button onClick={() => addPage()} disabled={!newPageName.trim()} data-testid="button-create-page">
-              Create Page
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
