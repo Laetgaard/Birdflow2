@@ -6,18 +6,15 @@ export function generatePackageJson(siteName: string): string {
     name: siteName.toLowerCase().replace(/\s+/g, '-'),
     version: '1.0.0',
     private: true,
-    engines: {
-      node: '>=18.17.0 <21.0.0',
-    },
     scripts: {
       dev: 'next dev',
       build: 'next build',
       start: 'next start',
     },
     dependencies: {
-      next: '14.2.18',
-      react: '18.2.0',
-      'react-dom': '18.2.0',
+      next: '^14.0.0',
+      react: '^18.2.0',
+      'react-dom': '^18.2.0',
       '@supabase/supabase-js': '^2.39.0',
     },
     devDependencies: {
