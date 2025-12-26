@@ -1,0 +1,85 @@
+Add Products Management to Manage Page + Live Store Integration
+
+I want to add a product management system inside the /manage/[website_id] page.
+The goal is that the website owner can create and manage products, and these products will be available on their published website for customers to purchase.
+
+1. Product Management UI
+
+On /manage/[website_id], add a new section called "Products".
+
+Show a product list with: name, price, description, image, stock, status (active/inactive).
+
+Add controls to:
+
+Create new product
+
+Edit product details
+
+Delete or archive product
+
+Store product data in Supabase with a website_id foreign key so each website only sees their own products.
+
+2. Database Requirements
+Create or use a products table with fields:
+
+id (uuid)
+
+website_id (uuid) → must match the website being managed
+
+name (text)
+
+description (text)
+
+price (numeric)
+
+image_url (text)
+
+stock (int)
+
+status (text: active/inactive)
+
+created_at
+RLS: only the owner of that website_id may read/write.
+
+3. Live Website Storefront
+
+On the published website, add a "Products" or "Shop" page (route generated automatically if products exist).
+
+The published site should fetch products belonging to its website_id from Supabase.
+
+Only products with status = "active" should show.
+
+4. Future Checkout Integration (not now)
+
+Do not implement Stripe checkout yet.
+
+Instead, add an "Add to Cart" or "Request to Buy" button that logs the event in a new orders table.
+
+5. Orders Table (for later)
+Prepare a table for when checkout is added:
+
+id (uuid)
+
+website_id
+
+product_id
+
+quantity
+
+customer_email
+
+status (pending)
+
+created_at
+
+6. Architecture Constraints
+
+The live published website and the manage dashboard must use the same Supabase data.
+
+Never expose the service_role key client-side.
+
+Use the anon key + RLS for storefront reads.
+
+Builder, manage, and published site must never duplicate product data.
+
+Before coding, explain where product fetching and product update logic will live, and how the published site will reference its website_id.

@@ -805,6 +805,118 @@ export async function registerRoutes(
     }
   });
 
+  // ============ PRODUCTS ROUTES ============
+
+  // Get all products for a website (owner only)
+  app.get("/api/websites/:id/products", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const products = await storage.getProducts(req.params.id);
+      res.json(products);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a product (owner only)
+  app.post("/api/websites/:id/products", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { name, description, price, imageUrl, stock, status } = req.body;
+      
+      if (!name || price === undefined) {
+        return res.status(400).json({ message: "Name and price are required" });
+      }
+
+      const product = await storage.createProduct({
+        websiteId: req.params.id,
+        name,
+        description: description || null,
+        price: String(price),
+        imageUrl: imageUrl || null,
+        stock: stock ?? 0,
+        status: status || 'active',
+      });
+
+      res.status(201).json(product);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update a product (owner only)
+  app.patch("/api/websites/:id/products/:productId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updateData: any = { ...req.body };
+      if (updateData.price !== undefined) {
+        updateData.price = String(updateData.price);
+      }
+
+      const product = await storage.updateProduct(req.params.productId, req.params.id, updateData);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      res.json(product);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a product (owner only)
+  app.delete("/api/websites/:id/products/:productId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const deleted = await storage.deleteProduct(req.params.productId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      res.json({ message: "Product deleted" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ============ PUBLISH ROUTE ============
 
   // Publish a website to Vercel
