@@ -140,12 +140,6 @@ type ComponentData = {
   styles: ComponentStyles;
 };
 
-type PageData = {
-  id: string;
-  name: string;
-  path: string;
-};
-
 function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
   return {
     backgroundColor: styles.backgroundColor || theme.backgroundColor,
@@ -270,20 +264,16 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
   );
 }
 
-function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles: ComponentStyles; pages?: PageData[] }) {
+function HeaderSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' });
-  
-  const navItems = pages && pages.length > 0
-    ? pages.map(page => ({ id: page.id, title: page.name, href: page.path }))
-    : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
   
   return (
     <header style={baseStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
         <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
         <nav style={{ display: 'flex', gap: '24px' }}>
-          {navItems.map(item => (
-            <a key={item.id} href={item.href} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+          {props.items?.map(item => (
+            <a key={item.id} href={item.description} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
           ))}
         </nav>
       </div>
@@ -304,7 +294,7 @@ function FooterSection({ props, styles }: { props: ComponentProps; styles: Compo
   );
 }
 
-export default function ComponentRenderer({ component, pages }: { component: ComponentData; pages?: PageData[] }) {
+export default function ComponentRenderer({ component }: { component: ComponentData }) {
   switch (component.type) {
     case 'hero':
       return <HeroSection props={component.props} styles={component.styles} />;
@@ -319,7 +309,7 @@ export default function ComponentRenderer({ component, pages }: { component: Com
     case 'testimonials':
       return <TestimonialsSection props={component.props} styles={component.styles} />;
     case 'header':
-      return <HeaderSection props={component.props} styles={component.styles} pages={pages} />;
+      return <HeaderSection props={component.props} styles={component.styles} />;
     case 'footer':
       return <FooterSection props={component.props} styles={component.styles} />;
     default:
@@ -912,19 +902,17 @@ a {
 `;
 }
 
-export function generatePageFile(page: PageData, websiteId: string, allPages?: PageData[]): string {
+export function generatePageFile(page: PageData, websiteId: string): string {
   const componentsImport = `import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';`;
 
   const componentsJson = JSON.stringify(page.components, null, 2);
-  const pagesJson = JSON.stringify(allPages?.map(p => ({ id: p.id, name: p.name, path: p.path })) || [], null, 2);
   
   return `${componentsImport}
 
 const pageComponents = ${componentsJson};
-const sitePages = ${pagesJson};
 
 export default function Page() {
   return (
@@ -938,7 +926,7 @@ export default function Page() {
           case 'product-grid':
             return <ProductGrid key={component.id} props={component.props} styles={component.styles} />;
           default:
-            return <ComponentRenderer key={component.id} component={component} pages={sitePages} />;
+            return <ComponentRenderer key={component.id} component={component} />;
         }
       })}
     </main>

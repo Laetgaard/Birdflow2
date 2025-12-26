@@ -1,17 +1,10 @@
 import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@shared/componentRegistry';
 
-type PageData = {
-  id: string;
-  name: string;
-  path: string;
-};
-
 type RenderProps = {
   component: BuilderComponentData;
   isSelected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   isPreview?: boolean;
-  pages?: PageData[];
 };
 
 function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: boolean): React.CSSProperties {
@@ -141,20 +134,16 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview }
   );
 }
 
-function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean; pages?: PageData[] }) {
+function HeaderComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
-  
-  const navItems = pages && pages.length > 0
-    ? pages.map(page => ({ id: page.id, title: page.name, href: page.path }))
-    : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
   
   return (
     <header style={baseStyle} onClick={onClick}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
         <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
         <nav style={{ display: 'flex', gap: '24px' }}>
-          {navItems.map(item => (
-            <a key={item.id} href={isPreview ? item.href : '#'} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+          {props.items?.map(item => (
+            <a key={item.id} href={isPreview ? item.description : '#'} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
           ))}
         </nav>
       </div>
@@ -175,7 +164,7 @@ function FooterComponent({ props, styles, isSelected, onClick, isPreview }: { pr
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, pages }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -210,7 +199,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     case 'testimonials':
       return <div {...wrapperProps}><TestimonialsComponent {...commonProps} /></div>;
     case 'header':
-      return <div {...wrapperProps}><HeaderComponent {...commonProps} pages={pages} /></div>;
+      return <div {...wrapperProps}><HeaderComponent {...commonProps} /></div>;
     case 'footer':
       return <div {...wrapperProps}><FooterComponent {...commonProps} /></div>;
     default:
