@@ -571,21 +571,30 @@ export default function ProductGrid({ styles, props }: Props) {
   const [showCart, setShowCart] = useState(false);
   const [checkoutForm, setCheckoutForm] = useState({ name: '', email: '', address: '' });
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [fetchError, setFetchError] = useState(false);
 
   const columns = props.columns || 3;
   const limit = props.productLimit || 6;
 
   useEffect(() => {
     async function fetchProducts() {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('website_id', websiteId)
-        .eq('status', 'active')
-        .limit(limit);
-      
-      if (data) {
-        setProducts(data);
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('*')
+          .eq('website_id', websiteId)
+          .eq('status', 'active')
+          .limit(limit);
+        
+        if (error) {
+          console.error('Failed to fetch products:', error);
+          setFetchError(true);
+        } else if (data) {
+          setProducts(data);
+        }
+      } catch (err) {
+        console.error('Products fetch error:', err);
+        setFetchError(true);
       }
       setLoading(false);
     }
@@ -669,6 +678,8 @@ export default function ProductGrid({ styles, props }: Props) {
         
         {loading ? (
           <div style={{ textAlign: 'center', padding: '40px' }}>Loading products...</div>
+        ) : fetchError ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#ef4444' }}>Unable to load products. Please try again later.</div>
         ) : products.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>No products available.</div>
         ) : (
