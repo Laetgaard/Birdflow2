@@ -70,6 +70,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'tsconfig.json', content: generateTsConfig() },
     { path: 'next.config.js', content: generateNextConfig() },
     { path: 'theme.json', content: generateThemeJson(theme) },
+    { path: '.nvmrc', content: '18' },
     { path: '.env.example', content: generateEnvExample() },
     { path: 'lib/supabase.ts', content: generateSupabaseClient() },
     { path: 'lib/supabase-admin.ts', content: generateServerSupabase() },
