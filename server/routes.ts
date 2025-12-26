@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent } from "@shared/schema";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
+import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -913,6 +914,109 @@ export async function registerRoutes(
       const products = await storage.getActiveProducts(req.params.id);
       res.json(products);
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get Stripe publishable key
+  app.get("/api/stripe/config", async (req, res) => {
+    try {
+      const publishableKey = await getStripePublishableKey();
+      res.json({ publishableKey });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create Stripe checkout session for cart
+  app.post("/api/checkout/create-session", async (req, res) => {
+    try {
+      const { websiteId, items, customerEmail, successUrl, cancelUrl } = req.body;
+      
+      if (!websiteId || !items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Invalid request" });
+      }
+
+      if (!customerEmail) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      // Validate items against database products to prevent price tampering
+      const validatedItems: Array<{ productId: string; name: string; price: number; quantity: number }> = [];
+      
+      for (const item of items) {
+        const product = await storage.getProduct(item.productId);
+        if (!product) {
+          return res.status(400).json({ message: `Product not found: ${item.productId}` });
+        }
+        if (product.websiteId !== websiteId) {
+          return res.status(400).json({ message: "Invalid product for this website" });
+        }
+        if (product.status !== 'active') {
+          return res.status(400).json({ message: `Product not available: ${product.name}` });
+        }
+        
+        // Use database price, not client-provided price
+        validatedItems.push({
+          productId: product.id,
+          name: product.name,
+          price: parseFloat(product.price),
+          quantity: Math.max(1, Math.floor(item.quantity || 1)),
+        });
+      }
+
+      const stripe = await getUncachableStripeClient();
+
+      // Calculate total from validated items
+      const total = validatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+      // Create line items from validated cart
+      const lineItems = validatedItems.map(item => ({
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: item.name,
+            metadata: { productId: item.productId },
+          },
+          unit_amount: Math.round(item.price * 100),
+        },
+        quantity: item.quantity,
+      }));
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: lineItems,
+        mode: 'payment',
+        success_url: successUrl || `${req.headers.origin}?success=true`,
+        cancel_url: cancelUrl || `${req.headers.origin}?canceled=true`,
+        customer_email: customerEmail,
+        metadata: {
+          websiteId,
+          itemsJson: JSON.stringify(validatedItems),
+        },
+      });
+
+      // Create order with pending payment status
+      await storage.createOrder({
+        websiteId,
+        customerName: customerEmail.split('@')[0] || 'Customer',
+        customerEmail,
+        status: 'pending',
+        paymentStatus: 'pending',
+        stripeSessionId: session.id,
+        total: total.toFixed(2),
+        currency: 'USD',
+        items: validatedItems.map(item => ({
+          id: item.productId,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+        })),
+      });
+
+      res.json({ sessionId: session.id, url: session.url });
+    } catch (error: any) {
+      console.error('Stripe checkout error:', error);
       res.status(500).json({ message: error.message });
     }
   });

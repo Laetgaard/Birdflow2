@@ -261,6 +261,20 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async getOrderByStripeSessionId(sessionId: string): Promise<Order | undefined> {
+    const result = await db.select().from(orders).where(eq(orders.stripeSessionId, sessionId));
+    return result[0];
+  }
+
+  async updateOrderByStripeSessionId(sessionId: string, data: Partial<InsertOrder>): Promise<Order | undefined> {
+    const result = await db
+      .update(orders)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(orders.stripeSessionId, sessionId))
+      .returning();
+    return result[0];
+  }
+
   // Bookings methods
   async getBookings(websiteId: string): Promise<Booking[]> {
     return db.select().from(bookings).where(eq(bookings.websiteId, websiteId));
@@ -320,10 +334,14 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getProduct(productId: string, websiteId: string): Promise<Product | undefined> {
-    const result = await db.select().from(products).where(
-      and(eq(products.id, productId), eq(products.websiteId, websiteId))
-    ).limit(1);
+  async getProduct(productId: string, websiteId?: string): Promise<Product | undefined> {
+    if (websiteId) {
+      const result = await db.select().from(products).where(
+        and(eq(products.id, productId), eq(products.websiteId, websiteId))
+      ).limit(1);
+      return result[0];
+    }
+    const result = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     return result[0];
   }
 

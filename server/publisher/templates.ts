@@ -546,9 +546,12 @@ type Product = {
   name: string;
   description?: string;
   price: string;
+  currency?: string;
   image_url?: string;
   category?: string;
 };
+
+type CartItem = { product: Product; quantity: number };
 
 type Props = {
   styles: {
@@ -567,14 +570,26 @@ type Props = {
 export default function ProductGrid({ styles, props }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
-  const [checkoutForm, setCheckoutForm] = useState({ name: '', email: '', address: '' });
+  const [customerEmail, setCustomerEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [fetchError, setFetchError] = useState(false);
+  const [checkoutMessage, setCheckoutMessage] = useState('');
 
   const columns = props.columns || 3;
   const limit = props.productLimit || 6;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('success') === 'true') {
+      setStatus('success');
+      setCheckoutMessage('Payment successful! Your order has been placed.');
+      setCart([]);
+    } else if (params.get('canceled') === 'true') {
+      setCheckoutMessage('Payment was canceled.');
+    }
+  }, []);
 
   useEffect(() => {
     async function fetchProducts() {
@@ -611,28 +626,61 @@ export default function ProductGrid({ styles, props }: Props) {
     });
   };
 
+  const removeFromCart = (productId: string) => {
+    setCart(prev => prev.filter(item => item.product.id !== productId));
+  };
+
+  const updateQuantity = (productId: string, quantity: number) => {
+    if (quantity < 1) {
+      removeFromCart(productId);
+      return;
+    }
+    setCart(prev => prev.map(item => 
+      item.product.id === productId ? { ...item, quantity } : item
+    ));
+  };
+
   const total = cart.reduce((sum, item) => sum + parseFloat(item.product.price || '0') * item.quantity, 0);
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (cart.length === 0) return;
+    
     setStatus('loading');
+    setCheckoutMessage('');
     
-    const { error } = await supabase.from('orders').insert({
-      website_id: websiteId,
-      customer_name: checkoutForm.name,
-      customer_email: checkoutForm.email,
-      shipping_address: checkoutForm.address,
-      items: cart.map(item => ({ id: item.product.id, name: item.product.name, price: item.product.price, quantity: item.quantity })),
-      total: total.toString(),
-      status: 'pending',
-    });
-    
-    if (error) {
+    try {
+      const items = cart.map(item => ({
+        productId: item.product.id,
+        name: item.product.name,
+        price: parseFloat(item.product.price || '0'),
+        quantity: item.quantity,
+      }));
+
+      const response = await fetch('/api/checkout/create-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          websiteId,
+          items,
+          customerEmail,
+          successUrl: window.location.href.split('?')[0] + '?success=true',
+          cancelUrl: window.location.href.split('?')[0] + '?canceled=true',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setStatus('error');
+        setCheckoutMessage(data.message || 'Checkout failed');
+      }
+    } catch (err) {
+      console.error('Checkout error:', err);
       setStatus('error');
-    } else {
-      setStatus('success');
-      setCart([]);
-      setCheckoutForm({ name: '', email: '', address: '' });
+      setCheckoutMessage('Failed to start checkout');
     }
   };
 
@@ -640,35 +688,51 @@ export default function ProductGrid({ styles, props }: Props) {
     <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '60px 24px' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-          <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
-          <button onClick={() => setShowCart(!showCart)} style={{ padding: '10px 20px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-            Cart ({cart.reduce((sum, item) => sum + item.quantity, 0)})
+          <div>
+            <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
+            {props.description && <p style={{ opacity: 0.7, marginTop: '8px' }}>{props.description}</p>}
+          </div>
+          <button onClick={() => setShowCart(!showCart)} style={{ padding: '10px 20px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', position: 'relative' }}>
+            🛒 Cart ({cart.reduce((sum, item) => sum + item.quantity, 0)})
           </button>
         </div>
+
+        {checkoutMessage && (
+          <div style={{ marginBottom: '24px', padding: '16px', borderRadius: '8px', backgroundColor: status === 'success' ? '#dcfce7' : '#fef2f2', color: status === 'success' ? '#166534' : '#991b1b', textAlign: 'center' }}>
+            {checkoutMessage}
+          </div>
+        )}
         
         {showCart && (
           <div style={{ marginBottom: '32px', padding: '24px', backgroundColor: '#f8f9fa', borderRadius: '12px' }}>
-            {status === 'success' ? (
-              <p style={{ textAlign: 'center', color: '#22c55e' }}>Order placed successfully!</p>
-            ) : cart.length === 0 ? (
+            <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '16px', color: '#1a1a1a' }}>Shopping Cart</h3>
+            {cart.length === 0 ? (
               <p style={{ color: '#1a1a1a' }}>Your cart is empty.</p>
             ) : (
               <>
                 {cart.map(item => (
-                  <div key={item.product.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: '#1a1a1a' }}>
-                    <span>{item.product.name} x {item.quantity}</span>
-                    <span>\${(parseFloat(item.product.price || '0') * item.quantity).toFixed(2)}</span>
+                  <div key={item.product.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', color: '#1a1a1a', padding: '12px', backgroundColor: '#fff', borderRadius: '8px' }}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontWeight: 500 }}>{item.product.name}</span>
+                      <span style={{ marginLeft: '12px', opacity: 0.6 }}>\${parseFloat(item.product.price || '0').toFixed(2)} each</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} style={{ width: '28px', height: '28px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', backgroundColor: '#fff' }}>-</button>
+                      <span style={{ minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} style={{ width: '28px', height: '28px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', backgroundColor: '#fff' }}>+</button>
+                      <span style={{ marginLeft: '16px', fontWeight: 600, minWidth: '60px', textAlign: 'right' }}>\${(parseFloat(item.product.price || '0') * item.quantity).toFixed(2)}</span>
+                      <button onClick={() => removeFromCart(item.product.id)} style={{ marginLeft: '8px', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>×</button>
+                    </div>
                   </div>
                 ))}
-                <div style={{ borderTop: '1px solid #ddd', paddingTop: '12px', marginTop: '12px', fontWeight: 700, color: '#1a1a1a' }}>
-                  Total: \${total.toFixed(2)}
+                <div style={{ borderTop: '2px solid #ddd', paddingTop: '16px', marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#1a1a1a' }}>
+                  <span style={{ fontSize: '18px', fontWeight: 700 }}>Total:</span>
+                  <span style={{ fontSize: '24px', fontWeight: 700 }}>\${total.toFixed(2)}</span>
                 </div>
                 <form onSubmit={handleCheckout} style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <input type="text" placeholder="Name" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} required style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} />
-                  <input type="email" placeholder="Email" value={checkoutForm.email} onChange={(e) => setCheckoutForm({ ...checkoutForm, email: e.target.value })} required style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} />
-                  <input type="text" placeholder="Shipping Address" value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} required style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }} />
-                  <button type="submit" disabled={status === 'loading'} style={{ padding: '12px', backgroundColor: '#22c55e', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-                    {status === 'loading' ? 'Processing...' : 'Place Order'}
+                  <input type="email" placeholder="Your email for order confirmation" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} required style={{ padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px' }} />
+                  <button type="submit" disabled={status === 'loading' || cart.length === 0} style={{ padding: '14px', backgroundColor: status === 'loading' ? '#9ca3af' : '#22c55e', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '16px', cursor: status === 'loading' ? 'not-allowed' : 'pointer' }}>
+                    {status === 'loading' ? 'Redirecting to checkout...' : 'Checkout with Stripe'}
                   </button>
                 </form>
               </>
@@ -697,7 +761,7 @@ export default function ProductGrid({ styles, props }: Props) {
                   {product.description && <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px' }}>{product.description}</p>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '20px', fontWeight: 700 }}>\${parseFloat(product.price).toFixed(2)}</span>
-                    <button onClick={() => addToCart(product)} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add</button>
+                    <button onClick={() => addToCart(product)} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
                   </div>
                 </div>
               </div>
