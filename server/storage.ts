@@ -10,7 +10,8 @@ import {
   orders, type Order, type InsertOrder,
   bookings, type Booking, type InsertBooking,
   formSubmissions, type FormSubmission, type InsertFormSubmission,
-  customers, type Customer, type InsertCustomer
+  customers, type Customer, type InsertCustomer,
+  products, type Product, type InsertProduct
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
@@ -306,6 +307,46 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(customers.id, customerId), eq(customers.websiteId, websiteId)))
       .returning();
     return result[0];
+  }
+
+  // Products methods
+  async getProducts(websiteId: string): Promise<Product[]> {
+    return db.select().from(products).where(eq(products.websiteId, websiteId));
+  }
+
+  async getActiveProducts(websiteId: string): Promise<Product[]> {
+    return db.select().from(products).where(
+      and(eq(products.websiteId, websiteId), eq(products.status, 'active'))
+    );
+  }
+
+  async getProduct(productId: string, websiteId: string): Promise<Product | undefined> {
+    const result = await db.select().from(products).where(
+      and(eq(products.id, productId), eq(products.websiteId, websiteId))
+    ).limit(1);
+    return result[0];
+  }
+
+  async createProduct(product: InsertProduct): Promise<Product> {
+    const result = await db.insert(products).values(product as any).returning();
+    return result[0];
+  }
+
+  async updateProduct(productId: string, websiteId: string, data: Partial<InsertProduct>): Promise<Product | undefined> {
+    const result = await db
+      .update(products)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(products.id, productId), eq(products.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteProduct(productId: string, websiteId: string): Promise<boolean> {
+    const result = await db
+      .delete(products)
+      .where(and(eq(products.id, productId), eq(products.websiteId, websiteId)))
+      .returning();
+    return result.length > 0;
   }
 }
 
