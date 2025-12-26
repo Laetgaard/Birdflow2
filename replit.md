@@ -126,6 +126,8 @@ The publisher generates a standalone Next.js project from builder_state and depl
 
 ## Recent Changes
 
+- **2024-12-26**: Added multi-page support to builder - create, rename, delete pages with unique URL slugs
+- **2024-12-26**: Updated Next.js generator to create separate routes for each page
 - **2024-12-25**: Implemented publishing system with Next.js generator and Vercel deployment
 - **2024-12-25**: Added management dashboard for orders, bookings, and form submissions
 - **2024-12-25**: Added component system with registry, renderer, and dynamic properties panel for builder
