@@ -847,7 +847,6 @@ export async function registerRoutes(
         name: req.body.name,
         description: req.body.description,
         price: req.body.price || "0",
-        currency: req.body.currency || "USD",
         imageUrl: req.body.imageUrl,
         status: req.body.status || "active",
         inventory: req.body.inventory,
