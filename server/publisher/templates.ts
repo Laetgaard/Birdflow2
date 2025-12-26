@@ -124,6 +124,7 @@ type ComponentProps = {
   items?: ComponentItem[];
   alignment?: 'left' | 'center' | 'right';
   imageSide?: 'left' | 'right';
+  showCart?: boolean | string;
 };
 
 type ComponentStyles = {
@@ -266,15 +267,26 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
 
 function HeaderSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' });
+  const showCart = props.showCart === true || String(props.showCart) === 'true';
   
   return (
     <header style={baseStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
         <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
-        <nav style={{ display: 'flex', gap: '24px' }}>
+        <nav style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
           {props.items?.map(item => (
             <a key={item.id} href={item.description} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
           ))}
+          {showCart && (
+            <a href="/cart" style={{ color: 'inherit', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="9" cy="21" r="1" />
+                <circle cx="20" cy="21" r="1" />
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+              </svg>
+              Cart
+            </a>
+          )}
         </nav>
       </div>
     </header>
@@ -291,6 +303,52 @@ function FooterSection({ props, styles }: { props: ComponentProps; styles: Compo
         <p style={{ opacity: 0.7, fontSize: '14px' }}>{props.description}</p>
       </div>
     </footer>
+  );
+}
+
+function ProductsSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+        <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '32px' }}>{props.subtitle}</p>}
+        <div style={{ marginBottom: '32px' }}>
+          <a href="/shop" style={{ display: 'inline-block', padding: '12px 24px', backgroundColor: '#4f46e5', color: '#ffffff', textDecoration: 'none', borderRadius: '8px', fontWeight: 600 }}>
+            {props.buttonText || 'View All Products'}
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ContactFormSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+        <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '32px', textAlign: 'center' }}>{props.subtitle}</p>}
+        <p style={{ textAlign: 'center', opacity: 0.7 }}>Contact form will be functional on the published site.</p>
+      </div>
+    </section>
+  );
+}
+
+function BookingFormSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+        <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '32px', textAlign: 'center' }}>{props.subtitle}</p>}
+        <p style={{ textAlign: 'center', opacity: 0.7 }}>Booking form will be functional on the published site.</p>
+      </div>
+    </section>
   );
 }
 
@@ -312,6 +370,12 @@ export default function ComponentRenderer({ component }: { component: ComponentD
       return <HeaderSection props={component.props} styles={component.styles} />;
     case 'footer':
       return <FooterSection props={component.props} styles={component.styles} />;
+    case 'products':
+      return <ProductsSection props={component.props} styles={component.styles} />;
+    case 'contact-form':
+      return <ContactFormSection props={component.props} styles={component.styles} />;
+    case 'booking-form':
+      return <BookingFormSection props={component.props} styles={component.styles} />;
     default:
       return null;
   }
@@ -923,7 +987,7 @@ export default function Page() {
             return <ContactForm key={component.id} props={component.props} styles={component.styles} />;
           case 'booking-form':
             return <BookingForm key={component.id} props={component.props} styles={component.styles} />;
-          case 'product-grid':
+          case 'products':
             return <ProductGrid key={component.id} props={component.props} styles={component.styles} />;
           default:
             return <ComponentRenderer key={component.id} component={component} />;

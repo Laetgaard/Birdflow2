@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'products' | 'contact-form' | 'booking-form';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items';
 
@@ -32,6 +32,7 @@ export type ComponentProps = {
   imageSide?: 'left' | 'right';
   autoPlay?: boolean;
   speed?: number;
+  showCart?: boolean;
 };
 
 export type ComponentStyles = {
@@ -229,6 +230,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
         { id: '2', title: 'About', description: '/about' },
         { id: '3', title: 'Contact', description: '/contact' },
       ],
+      showCart: false,
     },
     defaultStyles: {
       backgroundColor: '#ffffff',
@@ -238,6 +240,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     fields: [
       { key: 'title', label: 'Brand Name', type: 'text', group: 'content' },
       { key: 'items', label: 'Nav Items', type: 'items', group: 'content' },
+      { key: 'showCart', label: 'Show Cart Icon', type: 'select', group: 'content', options: ['true', 'false'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '16px 24px' },
@@ -263,6 +266,85 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '32px 24px' },
+    ],
+  },
+
+  products: {
+    type: 'products',
+    name: 'Products Grid',
+    icon: 'layout',
+    defaultProps: {
+      title: 'Our Products',
+      subtitle: 'Browse our collection',
+      buttonText: 'View All',
+      buttonLink: '/shop',
+    },
+    defaultStyles: {
+      backgroundColor: '#f8f9fa',
+      textColor: '#1a1a1a',
+      padding: '60px 24px',
+    },
+    fields: [
+      { key: 'title', label: 'Section Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'buttonText', label: 'View All Button Text', type: 'text', group: 'content' },
+      { key: 'buttonLink', label: 'View All Link', type: 'text', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  'contact-form': {
+    type: 'contact-form',
+    name: 'Contact Form',
+    icon: 'layout',
+    defaultProps: {
+      title: 'Get in Touch',
+      subtitle: 'We\'d love to hear from you',
+      buttonText: 'Send Message',
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      padding: '60px 24px',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  'booking-form': {
+    type: 'booking-form',
+    name: 'Booking Form',
+    icon: 'layout',
+    defaultProps: {
+      title: 'Book an Appointment',
+      subtitle: 'Choose a time that works for you',
+      buttonText: 'Book Now',
+      items: [
+        { id: '1', title: 'Consultation', description: '30 minutes' },
+        { id: '2', title: 'Full Service', description: '60 minutes' },
+      ],
+    },
+    defaultStyles: {
+      backgroundColor: '#f8f9fa',
+      textColor: '#1a1a1a',
+      padding: '60px 24px',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
+      { key: 'items', label: 'Services', type: 'items', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
     ],
   },
 };
