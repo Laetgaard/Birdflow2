@@ -34,10 +34,22 @@ export type GeneratorConfig = {
   builderState: BuilderStateData;
   supabaseUrl: string;
   supabaseAnonKey: string;
+  hasProducts?: boolean;
 };
 
 export async function generateNextJsProject(config: GeneratorConfig): Promise<string> {
-  const { websiteId, siteName, builderState, supabaseUrl, supabaseAnonKey } = config;
+  const { websiteId, siteName, builderState, supabaseUrl, supabaseAnonKey, hasProducts } = config;
+  
+  let pagesForNav = [...builderState.pages];
+  
+  if (hasProducts) {
+    if (!pagesForNav.some(p => p.path === '/shop')) {
+      pagesForNav.push({ id: 'shop', name: 'Shop', path: '/shop', components: [] });
+    }
+    if (!pagesForNav.some(p => p.path === '/cart')) {
+      pagesForNav.push({ id: 'cart', name: 'Cart', path: '/cart', components: [] });
+    }
+  }
   
   const outputDir = path.join('/tmp', 'publish', websiteId, Date.now().toString());
   
@@ -76,7 +88,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
       await fs.promises.mkdir(path.join(outputDir, 'app', page.path.slice(1)), { recursive: true });
     }
     
-    files.push({ path: pagePath, content: generatePageFile(page, websiteId) });
+    files.push({ path: pagePath, content: generatePageFile(page, websiteId, pagesForNav) });
   }
   
   await fs.promises.mkdir(path.join(outputDir, 'app', 'shop'), { recursive: true });
