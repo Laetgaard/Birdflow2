@@ -1,4 +1,5 @@
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
+import { loadTemplate } from './templateLoader';
 
 export function generatePackageJson(siteName: string): string {
   return JSON.stringify({
@@ -862,6 +863,7 @@ export default function ShopPage() {
 
 export function generateRootLayout(siteName: string): string {
   return `import type { Metadata } from 'next';
+import { CartProvider } from '@/components/CartProvider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -872,7 +874,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <CartProvider>{children}</CartProvider>
+      </body>
     </html>
   );
 }
@@ -929,4 +933,166 @@ export default function Page() {
   );
 }
 `;
+}
+
+export function generateCartProvider(): string {
+  return `'use client';
+
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { websiteId } from '@/lib/supabase';
+
+export type CartProduct = {
+  id: string;
+  name: string;
+  description: string | null;
+  price: string;
+  image_url: string | null;
+  stock: number;
+};
+
+export type CartItem = {
+  product: CartProduct;
+  quantity: number;
+};
+
+type CartContextType = {
+  items: CartItem[];
+  addItem: (product: CartProduct, quantity?: number) => void;
+  removeItem: (productId: string) => void;
+  updateQuantity: (productId: string, quantity: number) => void;
+  clearCart: () => void;
+  total: number;
+  itemCount: number;
+};
+
+const CartContext = createContext<CartContextType | undefined>(undefined);
+
+const CART_STORAGE_KEY = \`cart_\${websiteId}\`;
+
+export function CartProvider({ children }: { children: ReactNode }) {
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(CART_STORAGE_KEY);
+    if (stored) {
+      try {
+        setItems(JSON.parse(stored));
+      } catch {}
+    }
+    setIsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+    }
+  }, [items, isHydrated]);
+
+  const addItem = (product: CartProduct, quantity = 1) => {
+    setItems(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        const newQty = Math.min(existing.quantity + quantity, product.stock);
+        return prev.map(item =>
+          item.product.id === product.id ? { ...item, quantity: newQty } : item
+        );
+      }
+      return [...prev, { product, quantity: Math.min(quantity, product.stock) }];
+    });
+  };
+
+  const removeItem = (productId: string) => {
+    setItems(prev => prev.filter(item => item.product.id !== productId));
+  };
+
+  const updateQuantity = (productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      removeItem(productId);
+      return;
+    }
+    setItems(prev =>
+      prev.map(item =>
+        item.product.id === productId
+          ? { ...item, quantity: Math.min(quantity, item.product.stock) }
+          : item
+      )
+    );
+  };
+
+  const clearCart = () => setItems([]);
+
+  const total = items.reduce((sum, item) => sum + parseFloat(item.product.price) * item.quantity, 0);
+  const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+
+  return (
+    <CartContext.Provider value={{ items, addItem, removeItem, updateQuantity, clearCart, total, itemCount }}>
+      {children}
+    </CartContext.Provider>
+  );
+}
+
+export function useCart() {
+  const context = useContext(CartContext);
+  if (!context) throw new Error('useCart must be used within CartProvider');
+  return context;
+}
+`;
+}
+
+export function generateCartLayout(siteName: string): string {
+  return `import { CartProvider } from '@/components/CartProvider';
+import './globals.css';
+
+export const metadata = {
+  title: '${siteName}',
+  description: 'Browse our products',
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <CartProvider>{children}</CartProvider>
+      </body>
+    </html>
+  );
+}
+`;
+}
+
+export function generateShopPageWithCart(): string {
+  return loadTemplate('pages/ShopPage.tsx.template');
+}
+
+export function generateShopClient(): string {
+  return loadTemplate('pages/ShopClient.tsx.template');
+}
+
+export function generateProductDetailPage(): string {
+  return loadTemplate('pages/ProductDetailPage.tsx.template');
+}
+
+export function generateProductDetailClient(): string {
+  return loadTemplate('pages/ProductDetailClient.tsx.template');
+}
+
+export function generateCartPage(): string {
+  return loadTemplate('pages/CartPage.tsx.template');
+}
+
+export function generateCheckoutSuccessPage(): string {
+  return loadTemplate('pages/CheckoutSuccessPage.tsx.template');
+}
+
+export function generateCartProviderComponent(websiteId: string): string {
+  return loadTemplate('components/CartProvider.tsx.template', { website_id: websiteId });
+}
+
+export function generateCheckoutAPI(): string {
+  return loadTemplate('api/checkout.ts.template');
+}
+
+export function generateCheckoutSQL(): string {
+  return loadTemplate('sql/process_checkout.sql.template');
 }
