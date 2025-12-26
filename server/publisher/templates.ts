@@ -12,7 +12,7 @@ export function generatePackageJson(siteName: string): string {
       start: 'next start',
     },
     dependencies: {
-      next: '^15.0.0',
+      next: '14.2.18',
       react: '^18.2.0',
       'react-dom': '^18.2.0',
       '@supabase/supabase-js': '^2.39.0',
