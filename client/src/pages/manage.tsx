@@ -40,8 +40,11 @@ type Order = {
   id: string;
   customerName: string;
   customerEmail: string;
-  status: 'pending' | 'processing' | 'completed' | 'cancelled';
+  status: 'pending' | 'processing' | 'completed' | 'cancelled' | 'confirmed';
+  paymentStatus?: 'unpaid' | 'pending' | 'paid' | 'refunded';
   total: number;
+  currency?: string;
+  items?: Array<{ id: string; name: string; price: number; quantity: number }>;
   createdAt: string;
 };
 
@@ -470,14 +473,34 @@ export default function ManagePage() {
                 ) : (
                   <div className="space-y-4">
                     {orders.map(order => (
-                      <div key={order.id} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div>
+                      <div key={order.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`order-${order.id}`}>
+                        <div className="flex-1">
                           <p className="font-medium">{order.customerName}</p>
                           <p className="text-sm text-muted-foreground">{order.customerEmail}</p>
+                          {order.items && order.items.length > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {order.items.map(item => `${item.name} x${item.quantity}`).join(', ')}
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleString()}</p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-medium">${order.total.toFixed(2)}</p>
-                          {getStatusBadge(order.status)}
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <p className="font-medium text-lg">${typeof order.total === 'number' ? order.total.toFixed(2) : parseFloat(order.total || '0').toFixed(2)}</p>
+                          <div className="flex gap-2">
+                            {order.paymentStatus && (
+                              <span className={`text-xs px-2 py-1 rounded-full ${
+                                order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
+                                order.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                order.paymentStatus === 'refunded' ? 'bg-purple-100 text-purple-700' :
+                                'bg-gray-100 text-gray-700'
+                              }`}>
+                                {order.paymentStatus === 'paid' ? '✓ Paid' : 
+                                 order.paymentStatus === 'pending' ? '⏳ Pending' :
+                                 order.paymentStatus === 'refunded' ? '↩ Refunded' : 'Unpaid'}
+                              </span>
+                            )}
+                            {getStatusBadge(order.status)}
+                          </div>
                         </div>
                       </div>
                     ))}
