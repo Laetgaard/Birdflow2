@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items';
 
@@ -32,6 +32,8 @@ export type ComponentProps = {
   imageSide?: 'left' | 'right';
   autoPlay?: boolean;
   speed?: number;
+  columns?: number;
+  productLimit?: number;
 };
 
 export type ComponentStyles = {
@@ -263,6 +265,32 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '32px 24px' },
+    ],
+  },
+
+  'product-grid': {
+    type: 'product-grid',
+    name: 'Product Grid',
+    icon: 'shopping-bag',
+    defaultProps: {
+      title: 'Our Products',
+      description: 'Browse our selection of products',
+      columns: 3,
+      productLimit: 6,
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      padding: '60px 24px',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'columns', label: 'Columns', type: 'select', group: 'content', options: ['2', '3', '4'] },
+      { key: 'productLimit', label: 'Max Products', type: 'select', group: 'content', options: ['3', '6', '9', '12'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
     ],
   },
 };

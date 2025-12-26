@@ -19,7 +19,7 @@ import {
   Globe, ArrowLeft, Loader2, Save, Eye, Upload,
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
-  Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2
+  Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2, ShoppingBag
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -93,6 +93,7 @@ const ICON_MAP: Record<string, any> = {
   type: Type,
   'mouse-pointer': MousePointer,
   user: User,
+  'shopping-bag': ShoppingBag,
 };
 
 export default function BuilderPage() {
@@ -640,6 +641,7 @@ export default function BuilderPage() {
                     setSelectedComponentId(comp.id);
                     setSidebarTab("properties");
                   }}
+                  websiteId={id}
                 />
               ))
             )}
