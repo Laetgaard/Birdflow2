@@ -65,36 +65,41 @@ export async function setProjectEnvVars(
   config: VercelConfig,
   envVars: Record<string, string>
 ): Promise<void> {
+  const existingRes = await vercelFetch(`/v9/projects/${projectId}/env`, config);
+  const existingEnvVars: Array<{ id: string; key: string }> = existingRes.ok 
+    ? (await existingRes.json()).envs || [] 
+    : [];
+  
+  const existingByKey = new Map(existingEnvVars.map(e => [e.key, e.id]));
   const errors: string[] = [];
   
   for (const [key, value] of Object.entries(envVars)) {
-    const res = await vercelFetch(`/v10/projects/${projectId}/env`, config, {
-      method: 'POST',
-      body: JSON.stringify({
-        key,
-        value,
-        target: ['production', 'preview', 'development'],
-        type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
-      }),
-    });
+    const existingId = existingByKey.get(key);
     
-    if (!res.ok) {
-      const errorText = await res.text();
-      if (res.status === 409) {
-        const updateRes = await vercelFetch(`/v10/projects/${projectId}/env`, config, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            key,
-            value,
-            target: ['production', 'preview', 'development'],
-            type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
-          }),
-        });
-        if (!updateRes.ok) {
-          errors.push(`Failed to update ${key}: ${await updateRes.text()}`);
-        }
-      } else {
-        errors.push(`Failed to set ${key}: ${errorText}`);
+    if (existingId) {
+      const updateRes = await vercelFetch(`/v9/projects/${projectId}/env/${existingId}`, config, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          value,
+          target: ['production', 'preview', 'development'],
+          type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
+        }),
+      });
+      if (!updateRes.ok) {
+        errors.push(`Failed to update ${key}: ${await updateRes.text()}`);
+      }
+    } else {
+      const res = await vercelFetch(`/v10/projects/${projectId}/env`, config, {
+        method: 'POST',
+        body: JSON.stringify({
+          key,
+          value,
+          target: ['production', 'preview', 'development'],
+          type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
+        }),
+      });
+      if (!res.ok) {
+        errors.push(`Failed to set ${key}: ${await res.text()}`);
       }
     }
   }
