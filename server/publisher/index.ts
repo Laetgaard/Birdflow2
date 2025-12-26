@@ -12,6 +12,7 @@ export type PublishConfig = {
   vercelToken: string;
   vercelTeamId?: string;
   customDomain?: string;
+  hasProducts?: boolean;
 };
 
 export type PublishResult = {
@@ -33,6 +34,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       builderState: config.builderState,
       supabaseUrl: config.supabaseUrl,
       supabaseAnonKey: config.supabaseAnonKey,
+      hasProducts: config.hasProducts,
     });
     
     const vercelConfig: VercelConfig = {

@@ -19,8 +19,18 @@ import {
   Globe, ArrowLeft, Loader2, Save, Eye, Upload,
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
-  Type, MousePointer, ChevronRight, User
+  Type, MousePointer, ChevronRight, User, FileText,
+  Pencil, Trash2, Check, X, GripVertical, Home
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   componentRegistry, 
   createComponent,
@@ -88,8 +98,14 @@ export default function BuilderPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai">("components");
+  const [sidebarTab, setSidebarTab] = useState<"pages" | "components" | "properties">("components");
   const [device, setDevice] = useState<DeviceType>('desktop');
+  const [editingPageId, setEditingPageId] = useState<string | null>(null);
+  const [editingPageName, setEditingPageName] = useState("");
+  const [showNewPageDialog, setShowNewPageDialog] = useState(false);
+  const [newPageName, setNewPageName] = useState("");
+  const [newPagePath, setNewPagePath] = useState("");
+  const [deletePageId, setDeletePageId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -310,6 +326,82 @@ export default function BuilderPage() {
     setBuilderState(newState);
   };
 
+  const addPage = (name: string, path: string) => {
+    if (!builderState) return;
+
+    const sanitizedPath = path.startsWith('/') ? path : `/${path}`;
+    const pageId = name.toLowerCase().replace(/\s+/g, '-');
+
+    if (builderState.pages.some(p => p.path === sanitizedPath)) {
+      toast({ title: "Error", description: "A page with this path already exists.", variant: "destructive" });
+      return;
+    }
+
+    const newPage: BuilderPage = {
+      id: pageId,
+      name,
+      path: sanitizedPath,
+      components: [],
+    };
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: [...builderState.pages, newPage],
+    };
+
+    setBuilderState(newState);
+    setShowNewPageDialog(false);
+    setNewPageName("");
+    setNewPagePath("");
+    toast({ title: "Page created", description: `"${name}" has been added.` });
+  };
+
+  const renamePage = (pageId: string, newName: string) => {
+    if (!builderState) return;
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map(page =>
+        page.id === pageId ? { ...page, name: newName } : page
+      ),
+    };
+
+    setBuilderState(newState);
+    setEditingPageId(null);
+    setEditingPageName("");
+  };
+
+  const deletePage = (pageId: string) => {
+    if (!builderState) return;
+
+    if (pageId === 'home' || builderState.pages.find(p => p.id === pageId)?.path === '/') {
+      toast({ title: "Cannot delete", description: "The home page cannot be deleted.", variant: "destructive" });
+      return;
+    }
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.filter(page => page.id !== pageId),
+      activePage: builderState.activePage === pageId ? 'home' : builderState.activePage,
+    };
+
+    setBuilderState(newState);
+    setDeletePageId(null);
+    toast({ title: "Page deleted", description: "The page has been removed." });
+  };
+
+  const switchPage = (pageId: string) => {
+    if (!builderState) return;
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      activePage: pageId,
+    };
+
+    setBuilderState(newState);
+    setSelectedComponentId(null);
+  };
+
   const selectedComponent = (() => {
     if (!builderState || !selectedComponentId) return null;
     const activePage = builderState.pages.find(p => p.id === builderState.activePage);
@@ -461,6 +553,7 @@ export default function BuilderPage() {
                     setSelectedComponentId(comp.id);
                     setSidebarTab("properties");
                   }}
+                  pages={builderState?.pages}
                 />
               ))
             )}
@@ -471,6 +564,10 @@ export default function BuilderPage() {
         <aside className="w-80 border-l bg-card flex flex-col shrink-0">
           <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col">
             <TabsList className="grid w-full grid-cols-3 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
+              <TabsTrigger value="pages" data-testid="tab-pages">
+                <FileText className="w-4 h-4 mr-1" />
+                Pages
+              </TabsTrigger>
               <TabsTrigger value="components" data-testid="tab-components">
                 <Plus className="w-4 h-4 mr-1" />
                 Add
@@ -478,10 +575,6 @@ export default function BuilderPage() {
               <TabsTrigger value="properties" data-testid="tab-properties">
                 <Settings className="w-4 h-4 mr-1" />
                 Edit
-              </TabsTrigger>
-              <TabsTrigger value="ai" data-testid="tab-ai">
-                <Sparkles className="w-4 h-4 mr-1" />
-                AI
               </TabsTrigger>
             </TabsList>
 
@@ -532,16 +625,198 @@ export default function BuilderPage() {
               </ScrollArea>
             </TabsContent>
 
-            <TabsContent value="ai" className="flex-1 p-4 pt-2 overflow-auto">
-              <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                <Sparkles className="w-8 h-8 mb-3 opacity-50" />
-                <p className="font-medium mb-1">AI Assistant</p>
-                <p className="text-sm">AI-powered content generation will be available soon.</p>
+            <TabsContent value="pages" className="flex-1 p-4 pt-2 overflow-auto">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-sm">Pages</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowNewPageDialog(true)}
+                    data-testid="button-add-page"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Page
+                  </Button>
+                </div>
+                {builderState?.pages.map((page) => (
+                  <div
+                    key={page.id}
+                    className={`flex items-center gap-2 p-3 rounded-lg border transition-colors cursor-pointer ${
+                      builderState.activePage === page.id
+                        ? 'bg-primary/10 border-primary'
+                        : 'bg-background hover:bg-muted'
+                    }`}
+                    onClick={() => switchPage(page.id)}
+                    data-testid={`page-item-${page.id}`}
+                  >
+                    <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center shrink-0">
+                      {page.path === '/' ? (
+                        <Home className="w-4 h-4 text-primary" />
+                      ) : (
+                        <FileText className="w-4 h-4 text-primary" />
+                      )}
+                    </div>
+                    
+                    {editingPageId === page.id ? (
+                      <div className="flex-1 flex items-center gap-1">
+                        <Input
+                          value={editingPageName}
+                          onChange={(e) => setEditingPageName(e.target.value)}
+                          className="h-7 text-sm"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') renamePage(page.id, editingPageName);
+                            if (e.key === 'Escape') {
+                              setEditingPageId(null);
+                              setEditingPageName("");
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            renamePage(page.id, editingPageName);
+                          }}
+                        >
+                          <Check className="w-4 h-4 text-green-600" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingPageId(null);
+                            setEditingPageName("");
+                          }}
+                        >
+                          <X className="w-4 h-4 text-red-600" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{page.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{page.path}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingPageId(page.id);
+                              setEditingPageName(page.name);
+                            }}
+                            data-testid={`rename-page-${page.id}`}
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </Button>
+                          {page.path !== '/' && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeletePageId(page.id);
+                              }}
+                              data-testid={`delete-page-${page.id}`}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
             </TabsContent>
           </Tabs>
         </aside>
       </div>
+
+      {/* New Page Dialog */}
+      <Dialog open={showNewPageDialog} onOpenChange={setShowNewPageDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Page</DialogTitle>
+            <DialogDescription>
+              Add a new page to your website. The page will appear in navigation automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Page Name</label>
+              <Input
+                value={newPageName}
+                onChange={(e) => {
+                  setNewPageName(e.target.value);
+                  setNewPagePath('/' + e.target.value.toLowerCase().replace(/\s+/g, '-'));
+                }}
+                placeholder="About Us"
+                data-testid="input-new-page-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">URL Path</label>
+              <Input
+                value={newPagePath}
+                onChange={(e) => setNewPagePath(e.target.value)}
+                placeholder="/about-us"
+                data-testid="input-new-page-path"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowNewPageDialog(false);
+              setNewPageName("");
+              setNewPagePath("");
+            }}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => addPage(newPageName, newPagePath)}
+              disabled={!newPageName.trim() || !newPagePath.trim()}
+              data-testid="button-create-page"
+            >
+              Create Page
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Page Confirmation */}
+      <Dialog open={!!deletePageId} onOpenChange={() => setDeletePageId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Page</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this page? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletePageId(null)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={() => deletePageId && deletePage(deletePageId)}
+              data-testid="button-confirm-delete-page"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
