@@ -123,6 +123,8 @@ type ComponentProps = {
   items?: ComponentItem[];
   alignment?: 'left' | 'center' | 'right';
   imageSide?: 'left' | 'right';
+  columns?: number;
+  productLimit?: number;
 };
 
 type ComponentStyles = {
@@ -293,7 +295,49 @@ function FooterSection({ props, styles }: { props: ComponentProps; styles: Compo
   );
 }
 
-export default function ComponentRenderer({ component }: { component: ComponentData }) {
+function ProductGridSection({ props, styles, products }: { props: ComponentProps; styles: ComponentStyles; products: any[] }) {
+  const baseStyle = getBaseStyle(styles);
+  const columns = props.columns || 3;
+  const limit = props.productLimit || 6;
+  const displayProducts = products.slice(0, limit);
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
+        {props.description && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', textAlign: 'center' }}>{props.description}</p>}
+        
+        {displayProducts.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>
+            <p>No products available.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: '24px' }}>
+            {displayProducts.map((product: any) => (
+              <div key={product.id} style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)' }}>
+                {product.image_url ? (
+                  <img src={product.image_url} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
+                    📦
+                  </div>
+                )}
+                <div style={{ padding: '16px' }}>
+                  <h3 style={{ fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
+                  {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
+                  {product.description && <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '12px' }}>{product.description}</p>}
+                  <p style={{ fontSize: '20px', fontWeight: 700 }}>\${parseFloat(product.price).toFixed(2)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export default function ComponentRenderer({ component, products = [] }: { component: ComponentData; products?: any[] }) {
   switch (component.type) {
     case 'hero':
       return <HeroSection props={component.props} styles={component.styles} />;
@@ -311,6 +355,8 @@ export default function ComponentRenderer({ component }: { component: ComponentD
       return <HeaderSection props={component.props} styles={component.styles} />;
     case 'footer':
       return <FooterSection props={component.props} styles={component.styles} />;
+    case 'product-grid':
+      return <ProductGridSection props={component.props} styles={component.styles} products={products} />;
     default:
       return null;
   }
@@ -492,15 +538,16 @@ export default function BookingForm({ styles, props }: Props) {
 export function generateProductGrid(): string {
   return `'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase, websiteId } from '@/lib/supabase';
 
 type Product = {
   id: string;
-  title: string;
-  description: string;
-  price?: number;
-  imageUrl?: string;
+  name: string;
+  description?: string;
+  price: string;
+  image_url?: string;
+  category?: string;
 };
 
 type Props = {
@@ -511,17 +558,39 @@ type Props = {
   };
   props: {
     title?: string;
-    items?: Product[];
+    description?: string;
+    columns?: number;
+    productLimit?: number;
   };
 };
 
 export default function ProductGrid({ styles, props }: Props) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [checkoutForm, setCheckoutForm] = useState({ name: '', email: '', address: '' });
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
-  const products = props.items || [];
+  const columns = props.columns || 3;
+  const limit = props.productLimit || 6;
+
+  useEffect(() => {
+    async function fetchProducts() {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('website_id', websiteId)
+        .eq('status', 'active')
+        .limit(limit);
+      
+      if (data) {
+        setProducts(data);
+      }
+      setLoading(false);
+    }
+    fetchProducts();
+  }, [limit]);
 
   const addToCart = (product: Product) => {
     setCart(prev => {
@@ -533,7 +602,7 @@ export default function ProductGrid({ styles, props }: Props) {
     });
   };
 
-  const total = cart.reduce((sum, item) => sum + (item.product.price || 0) * item.quantity, 0);
+  const total = cart.reduce((sum, item) => sum + parseFloat(item.product.price || '0') * item.quantity, 0);
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -544,8 +613,8 @@ export default function ProductGrid({ styles, props }: Props) {
       customer_name: checkoutForm.name,
       customer_email: checkoutForm.email,
       shipping_address: checkoutForm.address,
-      items: cart.map(item => ({ id: item.product.id, title: item.product.title, price: item.product.price, quantity: item.quantity })),
-      total,
+      items: cart.map(item => ({ id: item.product.id, name: item.product.name, price: item.product.price, quantity: item.quantity })),
+      total: total.toString(),
       status: 'pending',
     });
     
@@ -573,13 +642,13 @@ export default function ProductGrid({ styles, props }: Props) {
             {status === 'success' ? (
               <p style={{ textAlign: 'center', color: '#22c55e' }}>Order placed successfully!</p>
             ) : cart.length === 0 ? (
-              <p>Your cart is empty.</p>
+              <p style={{ color: '#1a1a1a' }}>Your cart is empty.</p>
             ) : (
               <>
                 {cart.map(item => (
                   <div key={item.product.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', color: '#1a1a1a' }}>
-                    <span>{item.product.title} x {item.quantity}</span>
-                    <span>\${((item.product.price || 0) * item.quantity).toFixed(2)}</span>
+                    <span>{item.product.name} x {item.quantity}</span>
+                    <span>\${(parseFloat(item.product.price || '0') * item.quantity).toFixed(2)}</span>
                   </div>
                 ))}
                 <div style={{ borderTop: '1px solid #ddd', paddingTop: '12px', marginTop: '12px', fontWeight: 700, color: '#1a1a1a' }}>
@@ -598,21 +667,32 @@ export default function ProductGrid({ styles, props }: Props) {
           </div>
         )}
         
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
-          {products.map(product => (
-            <div key={product.id} style={{ backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-              {product.imageUrl && <img src={product.imageUrl} alt={product.title} style={{ width: '100%', height: '200px', objectFit: 'cover' }} />}
-              <div style={{ padding: '16px', color: '#1a1a1a' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>{product.title}</h3>
-                <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px' }}>{product.description}</p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '20px', fontWeight: 700 }}>\${(product.price || 0).toFixed(2)}</span>
-                  <button onClick={() => addToCart(product)} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add</button>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>Loading products...</div>
+        ) : products.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>No products available.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: '24px' }}>
+            {products.map(product => (
+              <div key={product.id} style={{ backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                {product.image_url ? (
+                  <img src={product.image_url} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: '#f8f9fa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>📦</div>
+                )}
+                <div style={{ padding: '16px', color: '#1a1a1a' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
+                  {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
+                  {product.description && <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px' }}>{product.description}</p>}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '20px', fontWeight: 700 }}>\${parseFloat(product.price).toFixed(2)}</span>
+                    <button onClick={() => addToCart(product)} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

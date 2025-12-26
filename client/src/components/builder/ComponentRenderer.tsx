@@ -1,10 +1,22 @@
+import { useState, useEffect } from 'react';
 import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@shared/componentRegistry';
+
+type Product = {
+  id: string;
+  name: string;
+  description?: string;
+  price: string;
+  imageUrl?: string;
+  status: string;
+  category?: string;
+};
 
 type RenderProps = {
   component: BuilderComponentData;
   isSelected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   isPreview?: boolean;
+  websiteId?: string;
 };
 
 function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: boolean): React.CSSProperties {
@@ -164,7 +176,70 @@ function FooterComponent({ props, styles, isSelected, onClick, isPreview }: { pr
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false }: RenderProps) {
+function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, websiteId }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean; websiteId?: string }) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const columns = props.columns || 3;
+  const limit = props.productLimit || 6;
+  
+  useEffect(() => {
+    if (!websiteId) {
+      setLoading(false);
+      return;
+    }
+    
+    fetch(`/api/public/websites/${websiteId}/products`)
+      .then(res => res.json())
+      .then(data => {
+        setProducts((data as Product[]).slice(0, limit));
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [websiteId, limit]);
+
+  return (
+    <section style={baseStyle} onClick={onClick}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
+        {props.description && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', textAlign: 'center' }}>{props.description}</p>}
+        
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: styles.textColor, opacity: 0.6 }}>
+            Loading products...
+          </div>
+        ) : products.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: styles.textColor, opacity: 0.6 }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📦</div>
+            <p>No products yet. Add products in the manage dashboard.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '24px' }}>
+            {products.map(product => (
+              <div key={product.id} style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)' }}>
+                {product.imageUrl ? (
+                  <img src={product.imageUrl} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
+                    📦
+                  </div>
+                )}
+                <div style={{ padding: '16px' }}>
+                  <h3 style={{ fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
+                  {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
+                  {product.description && <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{product.description}</p>}
+                  <p style={{ fontSize: '20px', fontWeight: 700 }}>${parseFloat(product.price).toFixed(2)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -202,6 +277,8 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
       return <div {...wrapperProps}><HeaderComponent {...commonProps} /></div>;
     case 'footer':
       return <div {...wrapperProps}><FooterComponent {...commonProps} /></div>;
+    case 'product-grid':
+      return <div {...wrapperProps}><ProductGridComponent {...commonProps} websiteId={websiteId} /></div>;
     default:
       return null;
   }
