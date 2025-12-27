@@ -15,7 +15,7 @@ export function generatePackageJson(siteName: string): string {
       react: '^18.2.0',
       'react-dom': '^18.2.0',
       '@supabase/supabase-js': '^2.39.0',
-      'stripe': '^14.0.0',
+      'stripe': '^13.0.0',
     },
     devDependencies: {
       typescript: '^5.3.0',
@@ -82,9 +82,7 @@ export function generateCheckoutApiRoute(): string {
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16',
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -93,7 +91,8 @@ const websiteId = process.env.WEBSITE_ID || '';
 
 export async function POST(request: NextRequest) {
   try {
-    const { items, customerEmail, successUrl, cancelUrl } = await request.json();
+    const body = await request.json();
+    const { items, customerEmail, successUrl, cancelUrl } = body;
     
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ message: 'Invalid request: no items' }, { status: 400 });
@@ -104,7 +103,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate items against database products to prevent price tampering
-    const validatedItems: Array<{ productId: string; name: string; price: number; quantity: number }> = [];
+    const validatedItems: { productId: string; name: string; price: number; quantity: number }[] = [];
     
     for (const item of items) {
       const { data: product, error } = await supabaseAdmin
@@ -183,9 +182,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ sessionId: session.id, url: session.url });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Stripe checkout error:', error);
-    return NextResponse.json({ message: error.message }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Checkout failed';
+    return NextResponse.json({ message }, { status: 500 });
   }
 }
 `;
