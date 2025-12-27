@@ -6,7 +6,7 @@ export function generatePackageJson(siteName: string): string {
     version: '1.0.0',
     private: true,
     engines: {
-      node: '20.x',
+      node: '>=18.0.0',
     },
     scripts: {
       dev: 'next dev',
@@ -14,17 +14,17 @@ export function generatePackageJson(siteName: string): string {
       start: 'next start',
     },
     dependencies: {
-      next: '14.2.3',
-      react: '18.2.0',
-      'react-dom': '18.2.0',
-      '@supabase/supabase-js': '2.39.0',
-      'stripe': '13.0.0',
+      next: '^14.0.0',
+      react: '^18.0.0',
+      'react-dom': '^18.0.0',
+      '@supabase/supabase-js': '^2.0.0',
+      stripe: '^14.0.0',
     },
     devDependencies: {
-      typescript: '5.3.0',
-      '@types/node': '20.10.0',
-      '@types/react': '18.2.0',
-      '@types/react-dom': '18.2.0',
+      typescript: '^5.0.0',
+      '@types/node': '^20.0.0',
+      '@types/react': '^18.0.0',
+      '@types/react-dom': '^18.0.0',
     },
   }, null, 2);
 }
