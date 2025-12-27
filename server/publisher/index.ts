@@ -9,6 +9,7 @@ export type PublishConfig = {
   supabaseUrl: string;
   supabaseAnonKey: string;
   supabaseServiceRoleKey: string;
+  stripeSecretKey?: string;
   vercelToken: string;
   vercelTeamId?: string;
   customDomain?: string;
@@ -42,12 +43,18 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     
     const projectId = await getOrCreateProject(projectName, vercelConfig);
     
-    await setProjectEnvVars(projectId, vercelConfig, {
+    const envVars: Record<string, string> = {
       NEXT_PUBLIC_SUPABASE_URL: config.supabaseUrl,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: config.supabaseAnonKey,
       SUPABASE_SERVICE_ROLE_KEY: config.supabaseServiceRoleKey,
       WEBSITE_ID: config.websiteId,
-    });
+    };
+    
+    if (config.stripeSecretKey) {
+      envVars.STRIPE_SECRET_KEY = config.stripeSecretKey;
+    }
+    
+    await setProjectEnvVars(projectId, vercelConfig, envVars);
     
     const deployment = await deployProject(projectId, projectDir, projectName, vercelConfig);
     

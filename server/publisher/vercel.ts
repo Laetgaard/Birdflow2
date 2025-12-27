@@ -76,13 +76,15 @@ export async function setProjectEnvVars(
   for (const [key, value] of Object.entries(envVars)) {
     const existingId = existingByKey.get(key);
     
+    const isSecret = key.includes('SERVICE_ROLE') || key.includes('SECRET');
+    
     if (existingId) {
       const updateRes = await vercelFetch(`/v9/projects/${projectId}/env/${existingId}`, config, {
         method: 'PATCH',
         body: JSON.stringify({
           value,
           target: ['production', 'preview', 'development'],
-          type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
+          type: isSecret ? 'encrypted' : 'plain',
         }),
       });
       if (!updateRes.ok) {
@@ -95,7 +97,7 @@ export async function setProjectEnvVars(
           key,
           value,
           target: ['production', 'preview', 'development'],
-          type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
+          type: isSecret ? 'encrypted' : 'plain',
         }),
       });
       if (!res.ok) {
