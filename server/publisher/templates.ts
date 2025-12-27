@@ -79,20 +79,19 @@ STRIPE_SECRET_KEY=your-stripe-secret-key
 
 export function generateCheckoutApiRoute(): string {
   return `import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-const websiteId = process.env.WEBSITE_ID || '';
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WEBSITE_ID = process.env.WEBSITE_ID || '';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { items, customerEmail, successUrl, cancelUrl } = body;
+    const items = body.items;
+    const customerEmail = body.customerEmail;
+    const successUrl = body.successUrl;
+    const cancelUrl = body.cancelUrl;
     
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ message: 'Invalid request: no items' }, { status: 400 });
@@ -102,24 +101,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Email is required' }, { status: 400 });
     }
 
-    // Validate items against database products to prevent price tampering
-    const validatedItems: { productId: string; name: string; price: number; quantity: number }[] = [];
+    if (!STRIPE_SECRET_KEY) {
+      return NextResponse.json({ message: 'Stripe not configured' }, { status: 500 });
+    }
+
+    // Dynamically import Stripe and Supabase to avoid build issues
+    const Stripe = (await import('stripe')).default;
+    const { createClient } = await import('@supabase/supabase-js');
+    
+    const stripe = new Stripe(STRIPE_SECRET_KEY);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    // Validate items against database products
+    const validatedItems: Array<{ productId: string; name: string; price: number; quantity: number }> = [];
     
     for (const item of items) {
-      const { data: product, error } = await supabaseAdmin
+      const { data: product, error } = await supabase
         .from('products')
         .select('*')
         .eq('id', item.productId)
         .single();
       
       if (error || !product) {
-        return NextResponse.json({ message: \`Product not found: \${item.productId}\` }, { status: 400 });
+        return NextResponse.json({ message: 'Product not found: ' + item.productId }, { status: 400 });
       }
-      if (product.website_id !== websiteId) {
+      if (product.website_id !== WEBSITE_ID) {
         return NextResponse.json({ message: 'Invalid product for this website' }, { status: 400 });
       }
       if (product.status !== 'active') {
-        return NextResponse.json({ message: \`Product not available: \${product.name}\` }, { status: 400 });
+        return NextResponse.json({ message: 'Product not available: ' + product.name }, { status: 400 });
       }
       
       validatedItems.push({
@@ -137,55 +147,47 @@ export async function POST(request: NextRequest) {
         currency: 'usd',
         product_data: {
           name: item.name,
-          metadata: { productId: item.productId },
         },
         unit_amount: Math.round(item.price * 100),
       },
       quantity: item.quantity,
     }));
 
+    const origin = request.headers.get('origin') || '';
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: lineItems,
       mode: 'payment',
-      success_url: successUrl || \`\${request.headers.get('origin')}?success=true\`,
-      cancel_url: cancelUrl || \`\${request.headers.get('origin')}?canceled=true\`,
+      success_url: successUrl || origin + '?success=true',
+      cancel_url: cancelUrl || origin + '?canceled=true',
       customer_email: customerEmail,
       metadata: {
-        websiteId,
-        itemsJson: JSON.stringify(validatedItems),
+        websiteId: WEBSITE_ID,
       },
     });
 
     // Create order with pending payment status
-    const { error: orderError } = await supabaseAdmin
-      .from('orders')
-      .insert({
-        website_id: websiteId,
-        customer_name: customerEmail.split('@')[0] || 'Customer',
-        customer_email: customerEmail,
-        status: 'pending',
-        payment_status: 'pending',
-        stripe_session_id: session.id,
-        total: total.toFixed(2),
-        currency: 'USD',
-        items: validatedItems.map(item => ({
-          id: item.productId,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-        })),
-      });
-
-    if (orderError) {
-      console.error('Order creation error:', orderError);
-    }
+    await supabase.from('orders').insert({
+      website_id: WEBSITE_ID,
+      customer_name: customerEmail.split('@')[0] || 'Customer',
+      customer_email: customerEmail,
+      status: 'pending',
+      payment_status: 'pending',
+      stripe_session_id: session.id,
+      total: total.toFixed(2),
+      currency: 'USD',
+      items: validatedItems.map(item => ({
+        id: item.productId,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+      })),
+    });
 
     return NextResponse.json({ sessionId: session.id, url: session.url });
-  } catch (error) {
-    console.error('Stripe checkout error:', error);
-    const message = error instanceof Error ? error.message : 'Checkout failed';
-    return NextResponse.json({ message }, { status: 500 });
+  } catch (err) {
+    console.error('Checkout error:', err);
+    return NextResponse.json({ message: 'Checkout failed' }, { status: 500 });
   }
 }
 `;

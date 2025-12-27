@@ -197,7 +197,16 @@ export async function waitForDeployment(
     }
     
     if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
-      throw new Error(`Deployment failed: ${deployment.readyState}`);
+      // Try to get build logs for more details
+      let errorDetails = deployment.readyState;
+      if (deployment.errorMessage) {
+        errorDetails += `: ${deployment.errorMessage}`;
+      }
+      if (deployment.errorCode) {
+        errorDetails += ` (${deployment.errorCode})`;
+      }
+      console.error('Vercel deployment error details:', JSON.stringify(deployment, null, 2));
+      throw new Error(`Deployment failed: ${errorDetails}`);
     }
     
     await new Promise(resolve => setTimeout(resolve, 5000));
