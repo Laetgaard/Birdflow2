@@ -17,6 +17,7 @@ import {
   generateRootLayout,
   generateGlobalsCss,
   generatePageFile,
+  generateCheckoutApiRoute,
 } from './templates';
 
 export type GeneratorConfig = {
@@ -34,6 +35,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   
   await fs.promises.mkdir(outputDir, { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout', 'create-session'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'components'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'lib'), { recursive: true });
   
@@ -58,6 +60,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/ProductGrid.tsx', content: generateProductGrid() },
     { path: 'app/layout.tsx', content: generateRootLayout(siteName) },
     { path: 'app/globals.css', content: generateGlobalsCss() },
+    { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute() },
   ];
   
   for (const page of builderState.pages) {

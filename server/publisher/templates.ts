@@ -15,6 +15,7 @@ export function generatePackageJson(siteName: string): string {
       react: '^18.2.0',
       'react-dom': '^18.2.0',
       '@supabase/supabase-js': '^2.39.0',
+      'stripe': '^14.0.0',
     },
     devDependencies: {
       typescript: '^5.3.0',
@@ -72,6 +73,121 @@ export function generateEnvExample(): string {
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 WEBSITE_ID=your-website-id
+STRIPE_SECRET_KEY=your-stripe-secret-key
+`;
+}
+
+export function generateCheckoutApiRoute(): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+  apiVersion: '2023-10-16',
+});
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
+const websiteId = process.env.WEBSITE_ID || '';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { items, customerEmail, successUrl, cancelUrl } = await request.json();
+    
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ message: 'Invalid request: no items' }, { status: 400 });
+    }
+
+    if (!customerEmail) {
+      return NextResponse.json({ message: 'Email is required' }, { status: 400 });
+    }
+
+    // Validate items against database products to prevent price tampering
+    const validatedItems: Array<{ productId: string; name: string; price: number; quantity: number }> = [];
+    
+    for (const item of items) {
+      const { data: product, error } = await supabaseAdmin
+        .from('products')
+        .select('*')
+        .eq('id', item.productId)
+        .single();
+      
+      if (error || !product) {
+        return NextResponse.json({ message: \`Product not found: \${item.productId}\` }, { status: 400 });
+      }
+      if (product.website_id !== websiteId) {
+        return NextResponse.json({ message: 'Invalid product for this website' }, { status: 400 });
+      }
+      if (product.status !== 'active') {
+        return NextResponse.json({ message: \`Product not available: \${product.name}\` }, { status: 400 });
+      }
+      
+      validatedItems.push({
+        productId: product.id,
+        name: product.name,
+        price: parseFloat(product.price),
+        quantity: Math.max(1, Math.floor(item.quantity || 1)),
+      });
+    }
+
+    const total = validatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+    const lineItems = validatedItems.map(item => ({
+      price_data: {
+        currency: 'usd',
+        product_data: {
+          name: item.name,
+          metadata: { productId: item.productId },
+        },
+        unit_amount: Math.round(item.price * 100),
+      },
+      quantity: item.quantity,
+    }));
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: lineItems,
+      mode: 'payment',
+      success_url: successUrl || \`\${request.headers.get('origin')}?success=true\`,
+      cancel_url: cancelUrl || \`\${request.headers.get('origin')}?canceled=true\`,
+      customer_email: customerEmail,
+      metadata: {
+        websiteId,
+        itemsJson: JSON.stringify(validatedItems),
+      },
+    });
+
+    // Create order with pending payment status
+    const { error: orderError } = await supabaseAdmin
+      .from('orders')
+      .insert({
+        website_id: websiteId,
+        customer_name: customerEmail.split('@')[0] || 'Customer',
+        customer_email: customerEmail,
+        status: 'pending',
+        payment_status: 'pending',
+        stripe_session_id: session.id,
+        total: total.toFixed(2),
+        currency: 'USD',
+        items: validatedItems.map(item => ({
+          id: item.productId,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+        })),
+      });
+
+    if (orderError) {
+      console.error('Order creation error:', orderError);
+    }
+
+    return NextResponse.json({ sessionId: session.id, url: session.url });
+  } catch (error: any) {
+    console.error('Stripe checkout error:', error);
+    return NextResponse.json({ message: error.message }, { status: 500 });
+  }
+}
 `;
 }
 

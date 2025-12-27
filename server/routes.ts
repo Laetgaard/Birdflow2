@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent } from "@shared/schema";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
-import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
+import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -1053,6 +1053,16 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Supabase not configured" });
       }
 
+      // Fetch Stripe secret key from Replit connector
+      let stripeSecretKey: string | undefined;
+      let stripeWarning: string | undefined;
+      try {
+        stripeSecretKey = await getStripeSecretKey();
+      } catch (err) {
+        console.log('Stripe not configured - checkout will not work on published site');
+        stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Configure Stripe in the integrations panel to enable payments.';
+      }
+
       const result = await publishWebsite({
         websiteId: req.params.id,
         siteName: website.name,
@@ -1060,6 +1070,7 @@ export async function registerRoutes(
         supabaseUrl,
         supabaseAnonKey,
         supabaseServiceRoleKey: supabaseServiceRoleKey || '',
+        stripeSecretKey,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
       });
@@ -1074,7 +1085,8 @@ export async function registerRoutes(
         res.json({
           success: true,
           deploymentUrl: result.deploymentUrl,
-          message: "Website published successfully",
+          message: stripeWarning ? `Website published successfully. Warning: ${stripeWarning}` : "Website published successfully",
+          warning: stripeWarning,
         });
       } else {
         res.status(500).json({
