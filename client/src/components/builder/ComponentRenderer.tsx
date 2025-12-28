@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@shared/componentRegistry';
+import BookingWidget from './BookingWidget';
 
 type Product = {
   id: string;
@@ -279,6 +280,8 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
       return <div {...wrapperProps}><FooterComponent {...commonProps} /></div>;
     case 'product-grid':
       return <div {...wrapperProps}><ProductGridComponent {...commonProps} websiteId={websiteId} /></div>;
+    case 'booking':
+      return <div {...wrapperProps}><BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} /></div>;
     default:
       return null;
   }

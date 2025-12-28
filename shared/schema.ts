@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, serial, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -79,6 +79,37 @@ export type BuilderPage = {
   components: import('./componentRegistry').BuilderComponentData[];
 };
 
+export type MediaReference = {
+  mediaId: string;
+  cropOverride?: { x: number; y: number; width: number; height: number };
+};
+
+export type BookingAvailability = {
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+};
+
+export type BookingConfig = {
+  enabled: boolean;
+  timezone?: string;
+  services: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    durationMinutes: number;
+    price: string;
+    currency: string;
+  }>;
+  availability: BookingAvailability[];
+  formFields?: Array<{
+    id: string;
+    label: string;
+    type: 'text' | 'email' | 'phone' | 'textarea';
+    required: boolean;
+  }>;
+};
+
 export type BuilderStateData = {
   pages: BuilderPage[];
   activePage: string;
@@ -88,6 +119,8 @@ export type BuilderStateData = {
     fontFamily: string;
     backgroundColor: string;
   };
+  media?: MediaReference[];
+  bookingConfig?: BookingConfig;
 };
 
 // Builder state table
@@ -151,12 +184,17 @@ export type Order = typeof orders.$inferSelect;
 export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   websiteId: varchar("website_id").notNull(),
+  serviceId: varchar("service_id"),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
   customerPhone: text("customer_phone"),
   service: text("service").notNull(),
   date: timestamp("date").notNull(),
+  time: text("time"),
   duration: text("duration"),
+  durationMinutes: integer("duration_minutes"),
+  price: text("price"),
+  currency: text("currency").default("USD"),
   status: text("status").notNull().default("pending"),
   notes: text("notes"),
   metadata: jsonb("metadata").$type<Record<string, any>>(),
@@ -240,3 +278,53 @@ export const insertProductSchema = createInsertSchema(products).omit({
 
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
+
+// Media assets table
+export const mediaAssets = pgTable("media_assets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  filename: text("filename").notNull(),
+  originalFilename: text("original_filename").notNull(),
+  storagePath: text("storage_path").notNull(),
+  mimeType: text("mime_type").notNull(),
+  size: integer("size").notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  crop: jsonb("crop").$type<{ x: number; y: number; width: number; height: number } | null>(),
+  altText: text("alt_text"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMediaAssetSchema = createInsertSchema(mediaAssets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertMediaAsset = z.infer<typeof insertMediaAssetSchema>;
+export type MediaAsset = typeof mediaAssets.$inferSelect;
+
+// Booking services table
+export const bookingServices = pgTable("booking_services", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  durationMinutes: integer("duration_minutes").notNull().default(30),
+  price: text("price").notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  active: text("active").notNull().default("true"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBookingServiceSchema = createInsertSchema(bookingServices).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertBookingService = z.infer<typeof insertBookingServiceSchema>;
+export type BookingService = typeof bookingServices.$inferSelect;

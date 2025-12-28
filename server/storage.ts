@@ -11,7 +11,9 @@ import {
   bookings, type Booking, type InsertBooking,
   formSubmissions, type FormSubmission, type InsertFormSubmission,
   customers, type Customer, type InsertCustomer,
-  products, type Product, type InsertProduct
+  products, type Product, type InsertProduct,
+  mediaAssets, type MediaAsset, type InsertMediaAsset,
+  bookingServices, type BookingService, type InsertBookingService
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
@@ -363,6 +365,88 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(products)
       .where(and(eq(products.id, productId), eq(products.websiteId, websiteId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Media assets methods
+  async getMediaAssets(websiteId: string): Promise<MediaAsset[]> {
+    return db.select().from(mediaAssets).where(eq(mediaAssets.websiteId, websiteId));
+  }
+
+  async getMediaAsset(mediaId: string, websiteId?: string): Promise<MediaAsset | undefined> {
+    if (websiteId) {
+      const result = await db.select().from(mediaAssets).where(
+        and(eq(mediaAssets.id, mediaId), eq(mediaAssets.websiteId, websiteId))
+      ).limit(1);
+      return result[0];
+    }
+    const result = await db.select().from(mediaAssets).where(eq(mediaAssets.id, mediaId)).limit(1);
+    return result[0];
+  }
+
+  async createMediaAsset(asset: InsertMediaAsset): Promise<MediaAsset> {
+    const result = await db.insert(mediaAssets).values(asset as any).returning();
+    return result[0];
+  }
+
+  async updateMediaAsset(mediaId: string, websiteId: string, data: Partial<InsertMediaAsset>): Promise<MediaAsset | undefined> {
+    const result = await db
+      .update(mediaAssets)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(mediaAssets.id, mediaId), eq(mediaAssets.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteMediaAsset(mediaId: string, websiteId: string): Promise<boolean> {
+    const result = await db
+      .delete(mediaAssets)
+      .where(and(eq(mediaAssets.id, mediaId), eq(mediaAssets.websiteId, websiteId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Booking services methods
+  async getBookingServices(websiteId: string): Promise<BookingService[]> {
+    return db.select().from(bookingServices).where(eq(bookingServices.websiteId, websiteId));
+  }
+
+  async getActiveBookingServices(websiteId: string): Promise<BookingService[]> {
+    return db.select().from(bookingServices).where(
+      and(eq(bookingServices.websiteId, websiteId), eq(bookingServices.active, 'true'))
+    );
+  }
+
+  async getBookingService(serviceId: string, websiteId?: string): Promise<BookingService | undefined> {
+    if (websiteId) {
+      const result = await db.select().from(bookingServices).where(
+        and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId))
+      ).limit(1);
+      return result[0];
+    }
+    const result = await db.select().from(bookingServices).where(eq(bookingServices.id, serviceId)).limit(1);
+    return result[0];
+  }
+
+  async createBookingService(service: InsertBookingService): Promise<BookingService> {
+    const result = await db.insert(bookingServices).values(service as any).returning();
+    return result[0];
+  }
+
+  async updateBookingService(serviceId: string, websiteId: string, data: Partial<InsertBookingService>): Promise<BookingService | undefined> {
+    const result = await db
+      .update(bookingServices)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteBookingService(serviceId: string, websiteId: string): Promise<boolean> {
+    const result = await db
+      .delete(bookingServices)
+      .where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId)))
       .returning();
     return result.length > 0;
   }
