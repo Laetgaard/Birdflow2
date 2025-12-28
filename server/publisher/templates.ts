@@ -228,12 +228,14 @@ export function generateComponentRenderer(): string {
 import React from 'react';
 import theme from '@/theme.json';
 
+type ImageValue = string | { url: string; mediaId?: string; crop?: { x: number; y: number; width: number; height: number } };
+
 type ComponentItem = {
   id: string;
   title: string;
   description: string;
   icon?: string;
-  imageUrl?: string;
+  imageUrl?: ImageValue;
   price?: number;
 };
 
@@ -243,14 +245,20 @@ type ComponentProps = {
   description?: string;
   buttonText?: string;
   buttonLink?: string;
-  imageUrl?: string;
-  images?: string[];
+  imageUrl?: ImageValue;
+  images?: ImageValue[];
   items?: ComponentItem[];
   alignment?: 'left' | 'center' | 'right';
   imageSide?: 'left' | 'right';
   columns?: number;
   productLimit?: number;
 };
+
+function getImageUrl(image: ImageValue | undefined): string {
+  if (!image) return '';
+  if (typeof image === 'string') return image;
+  return image.url || '';
+}
 
 type ComponentStyles = {
   backgroundColor?: string;
@@ -277,7 +285,8 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
 
 function HeroSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
-  const backgroundImage = props.imageUrl ? { backgroundImage: \`url(\${props.imageUrl})\`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
+  const imageUrl = getImageUrl(props.imageUrl);
+  const backgroundImage = imageUrl ? { backgroundImage: \`url(\${imageUrl})\`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
   
   return (
     <section style={{ ...baseStyle, ...backgroundImage }}>
@@ -301,9 +310,12 @@ function ImageSliderSection({ props, styles }: { props: ComponentProps; styles: 
   return (
     <section style={baseStyle}>
       <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', padding: '20px 0' }}>
-        {props.images?.map((img, i) => (
-          <img key={i} src={img} alt={\`Slide \${i + 1}\`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
-        ))}
+        {props.images?.map((img, i) => {
+          const url = getImageUrl(img);
+          return url ? (
+            <img key={i} src={url} alt={\`Slide \${i + 1}\`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+          ) : null;
+        })}
       </div>
     </section>
   );
@@ -312,6 +324,7 @@ function ImageSliderSection({ props, styles }: { props: ComponentProps; styles: 
 function TextImageSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
   const isImageLeft = props.imageSide === 'left';
+  const imageUrl = getImageUrl(props.imageUrl);
   
   return (
     <section style={baseStyle}>
@@ -320,9 +333,9 @@ function TextImageSection({ props, styles }: { props: ComponentProps; styles: Co
           <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
           <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{props.description}</p>
         </div>
-        {props.imageUrl && (
+        {imageUrl && (
           <div style={{ flex: 1, minWidth: '300px' }}>
-            <img src={props.imageUrl} alt="" style={{ width: '100%', borderRadius: '12px' }} />
+            <img src={imageUrl} alt="" style={{ width: '100%', borderRadius: '12px' }} />
           </div>
         )}
       </div>
