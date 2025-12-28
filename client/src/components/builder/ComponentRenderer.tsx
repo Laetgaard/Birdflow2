@@ -281,7 +281,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     case 'product-grid':
       return <div {...wrapperProps}><ProductGridComponent {...commonProps} websiteId={websiteId} /></div>;
     case 'booking':
-      return <div {...wrapperProps}><BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} /></div>;
+      return <div {...wrapperProps}><BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} /></div>;
     default:
       return null;
   }
