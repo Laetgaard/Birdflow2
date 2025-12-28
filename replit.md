@@ -126,6 +126,10 @@ The publisher generates a standalone Next.js project from builder_state and depl
 
 ## Recent Changes
 
+- **2024-12-28**: Redesigned booking management UI with status-colored cards, quick action buttons, and visual improvements
+- **2024-12-28**: Added booking filtering (All/Pending/Confirmed/Cancelled) and search by customer name/email/service
+- **2024-12-28**: Improved services management with visual card grid, gradient icons, and inline add/edit/delete
+- **2024-12-28**: Fixed click propagation in booking cards - quick actions don't trigger detail dialog
 - **2024-12-28**: Enhanced BookingWidget with 3-step wizard flow (Service → Date/Time → Details), modern UI with progress indicators
 - **2024-12-28**: Fixed builder/preview mode interaction handling - components selectable in builder but interactive on live sites
 - **2024-12-28**: Updated publisher booking template to fetch services from database and use proper column names
