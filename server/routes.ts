@@ -1099,6 +1099,312 @@ export async function registerRoutes(
     }
   });
 
+  // ============ MEDIA ASSETS ROUTES ============
+
+  // Get all media assets for a website
+  app.get("/api/websites/:id/media", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const assets = await storage.getMediaAssets(req.params.id);
+      res.json(assets);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a signed upload URL for Supabase Storage
+  app.post("/api/websites/:id/media/upload-url", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { filename, contentType } = req.body;
+      if (!filename || !contentType) {
+        return res.status(400).json({ message: "Filename and content type are required" });
+      }
+
+      const uniqueFilename = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      const storagePath = `${req.params.id}/${uniqueFilename}`;
+
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseServiceRoleKey || !supabaseUrl) {
+        return res.status(500).json({ message: "Supabase service role key not configured" });
+      }
+
+      const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+      
+      const { data, error } = await adminClient.storage
+        .from('media')
+        .createSignedUploadUrl(storagePath);
+
+      if (error) {
+        console.error('Supabase storage error:', error);
+        return res.status(500).json({ message: "Failed to create upload URL" });
+      }
+
+      res.json({
+        uploadUrl: data.signedUrl,
+        token: data.token,
+        storagePath,
+        filename: uniqueFilename,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a media asset record after upload
+  app.post("/api/websites/:id/media", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { filename, originalFilename, storagePath, mimeType, size, width, height, crop, altText } = req.body;
+      
+      if (!filename || !originalFilename || !storagePath || !mimeType || size === undefined) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const asset = await storage.createMediaAsset({
+        websiteId: req.params.id,
+        filename,
+        originalFilename,
+        storagePath,
+        mimeType,
+        size,
+        width,
+        height,
+        crop,
+        altText,
+      });
+
+      res.status(201).json(asset);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update a media asset (for cropping, alt text, etc.)
+  app.patch("/api/websites/:id/media/:mediaId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const asset = await storage.updateMediaAsset(req.params.mediaId, req.params.id, req.body);
+      if (!asset) {
+        return res.status(404).json({ message: "Media asset not found" });
+      }
+      res.json(asset);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a media asset
+  app.delete("/api/websites/:id/media/:mediaId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Also delete from Supabase Storage
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (supabaseServiceRoleKey && supabaseUrl) {
+        const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
+        if (asset) {
+          const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+          await adminClient.storage.from('media').remove([asset.storagePath]);
+        }
+      }
+
+      const deleted = await storage.deleteMediaAsset(req.params.mediaId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Media asset not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get public URL for a media asset
+  app.get("/api/websites/:id/media/:mediaId/url", async (req, res) => {
+    try {
+      const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
+      if (!asset) {
+        return res.status(404).json({ message: "Media asset not found" });
+      }
+
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseServiceRoleKey || !supabaseUrl) {
+        return res.status(500).json({ message: "Storage not configured" });
+      }
+
+      const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+      const { data } = adminClient.storage.from('media').getPublicUrl(asset.storagePath);
+      
+      res.json({ url: data.publicUrl, asset });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ BOOKING SERVICES ROUTES ============
+
+  // Get all booking services for a website
+  app.get("/api/websites/:id/booking-services", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const services = await storage.getBookingServices(req.params.id);
+      res.json(services);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a booking service
+  app.post("/api/websites/:id/booking-services", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { name, description, durationMinutes, price, currency } = req.body;
+      if (!name) {
+        return res.status(400).json({ message: "Service name is required" });
+      }
+
+      const service = await storage.createBookingService({
+        websiteId: req.params.id,
+        name,
+        description,
+        durationMinutes: durationMinutes || 30,
+        price: price || '0',
+        currency: currency || 'USD',
+      });
+
+      res.status(201).json(service);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update a booking service
+  app.patch("/api/websites/:id/booking-services/:serviceId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const service = await storage.updateBookingService(req.params.serviceId, req.params.id, req.body);
+      if (!service) {
+        return res.status(404).json({ message: "Booking service not found" });
+      }
+      res.json(service);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a booking service
+  app.delete("/api/websites/:id/booking-services/:serviceId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const deleted = await storage.deleteBookingService(req.params.serviceId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Booking service not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Public endpoint to get active booking services (for published sites)
+  app.get("/api/public/websites/:id/booking-services", async (req, res) => {
+    try {
+      const services = await storage.getActiveBookingServices(req.params.id);
+      res.json(services);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ============ PUBLIC API ROUTES (for published websites) ============
   // These routes will be used by published websites to submit data
 

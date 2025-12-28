@@ -87,6 +87,16 @@ type Product = {
   category?: string;
 };
 
+type BookingService = {
+  id: string;
+  name: string;
+  description?: string;
+  durationMinutes: number;
+  price: string;
+  currency: string;
+  isActive: boolean;
+};
+
 export default function ManagePage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -112,6 +122,18 @@ export default function ManagePage() {
     imageUrl: '',
     status: 'active',
     category: '',
+  });
+  
+  const [bookingServices, setBookingServices] = useState<BookingService[]>([]);
+  const [editingService, setEditingService] = useState<BookingService | null>(null);
+  const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
+  const [serviceForm, setServiceForm] = useState<Partial<BookingService>>({
+    name: '',
+    description: '',
+    durationMinutes: 60,
+    price: '0',
+    currency: 'USD',
+    isActive: true,
   });
 
   useEffect(() => {
@@ -170,6 +192,11 @@ export default function ManagePage() {
           headers: { "Authorization": `Bearer ${session.access_token}` },
         });
         if (productsRes.ok) setProducts(await productsRes.json());
+
+        const servicesRes = await fetch(`/api/websites/${id}/booking-services`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (servicesRes.ok) setBookingServices(await servicesRes.json());
 
       } catch (error: any) {
         toast({
@@ -298,6 +325,145 @@ export default function ManagePage() {
         description: "The product has been removed.",
       });
     } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const resetServiceForm = () => {
+    setServiceForm({
+      name: '',
+      description: '',
+      durationMinutes: 60,
+      price: '0',
+      currency: 'USD',
+      isActive: true,
+    });
+    setEditingService(null);
+  };
+
+  const openServiceDialog = (service?: BookingService) => {
+    if (service) {
+      setEditingService(service);
+      setServiceForm({
+        name: service.name,
+        description: service.description || '',
+        durationMinutes: service.durationMinutes,
+        price: service.price,
+        currency: service.currency,
+        isActive: service.isActive,
+      });
+    } else {
+      resetServiceForm();
+    }
+    setIsServiceDialogOpen(true);
+  };
+
+  const handleSaveService = async () => {
+    if (!session || !id || !serviceForm.name) return;
+    
+    try {
+      const url = editingService 
+        ? `/api/websites/${id}/booking-services/${editingService.id}`
+        : `/api/websites/${id}/booking-services`;
+      
+      const method = editingService ? 'PATCH' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(serviceForm),
+      });
+
+      if (!res.ok) throw new Error("Failed to save service");
+
+      const savedService = await res.json();
+      
+      if (editingService) {
+        setBookingServices(bookingServices.map(s => s.id === savedService.id ? savedService : s));
+      } else {
+        setBookingServices([...bookingServices, savedService]);
+      }
+      
+      toast({
+        title: editingService ? "Service Updated" : "Service Created",
+        description: `${savedService.name} has been ${editingService ? 'updated' : 'added'}.`,
+      });
+      
+      setIsServiceDialogOpen(false);
+      resetServiceForm();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteService = async (serviceId: string) => {
+    if (!session || !id) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/booking-services/${serviceId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to delete service (${res.status})`);
+      }
+      
+      setBookingServices(bookingServices.filter(s => s.id !== serviceId));
+      
+      toast({
+        title: "Service Deleted",
+        description: "The booking service has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateBookingStatus = async (bookingId: string, newStatus: Booking['status']) => {
+    if (!session || !id) return;
+    
+    const previousBookings = [...bookings];
+    setBookings(bookings.map(b => b.id === bookingId ? { ...b, status: newStatus } : b));
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/bookings/${bookingId}`, {
+        method: 'PATCH',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!res.ok) {
+        setBookings(previousBookings);
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to update booking (${res.status})`);
+      }
+
+      toast({
+        title: "Booking Updated",
+        description: `Booking status changed to ${newStatus}.`,
+      });
+    } catch (error: any) {
+      setBookings(previousBookings);
       toast({
         title: "Error",
         description: error.message,
@@ -451,6 +617,10 @@ export default function ManagePage() {
               <Package className="w-4 h-4 mr-2" />
               Products
             </TabsTrigger>
+            <TabsTrigger value="services" data-testid="tab-services">
+              <Clock className="w-4 h-4 mr-2" />
+              Services
+            </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">
               <Settings className="w-4 h-4 mr-2" />
               Settings
@@ -526,14 +696,30 @@ export default function ManagePage() {
                 ) : (
                   <div className="space-y-4">
                     {bookings.map(booking => (
-                      <div key={booking.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div key={booking.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`booking-${booking.id}`}>
                         <div>
                           <p className="font-medium">{booking.customerName}</p>
+                          <p className="text-sm text-muted-foreground">{booking.customerEmail}</p>
                           <p className="text-sm text-muted-foreground">{booking.service}</p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-medium">{new Date(booking.date).toLocaleDateString()}</p>
-                          {getStatusBadge(booking.status)}
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="font-medium">{new Date(booking.date).toLocaleDateString()}</p>
+                            <p className="text-sm text-muted-foreground">{new Date(booking.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                          </div>
+                          <Select 
+                            value={booking.status} 
+                            onValueChange={(value: Booking['status']) => handleUpdateBookingStatus(booking.id, value)}
+                          >
+                            <SelectTrigger className="w-[140px]" data-testid={`select-booking-status-${booking.id}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pending">Pending</SelectItem>
+                              <SelectItem value="confirmed">Confirmed</SelectItem>
+                              <SelectItem value="cancelled">Cancelled</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
                     ))}
@@ -770,6 +956,141 @@ export default function ManagePage() {
                               </Button>
                             </div>
                           </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="services">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Booking Services</CardTitle>
+                  <CardDescription>Manage services available for booking</CardDescription>
+                </div>
+                <Dialog open={isServiceDialogOpen} onOpenChange={(open) => {
+                  setIsServiceDialogOpen(open);
+                  if (!open) resetServiceForm();
+                }}>
+                  <DialogTrigger asChild>
+                    <Button onClick={() => openServiceDialog()} data-testid="button-add-service">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Service
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{editingService ? 'Edit Service' : 'Add New Service'}</DialogTitle>
+                      <DialogDescription>
+                        {editingService ? 'Update the service details below.' : 'Enter the details for your new booking service.'}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="serviceName">Name *</Label>
+                        <Input 
+                          id="serviceName"
+                          value={serviceForm.name || ''} 
+                          onChange={(e) => setServiceForm({...serviceForm, name: e.target.value})}
+                          placeholder="Service name"
+                          data-testid="input-service-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="serviceDescription">Description</Label>
+                        <Textarea 
+                          id="serviceDescription"
+                          value={serviceForm.description || ''} 
+                          onChange={(e) => setServiceForm({...serviceForm, description: e.target.value})}
+                          placeholder="Service description"
+                          data-testid="input-service-description"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="serviceDuration">Duration (minutes)</Label>
+                          <Input 
+                            id="serviceDuration"
+                            type="number"
+                            value={serviceForm.durationMinutes || 60} 
+                            onChange={(e) => setServiceForm({...serviceForm, durationMinutes: parseInt(e.target.value) || 60})}
+                            data-testid="input-service-duration"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="servicePrice">Price</Label>
+                          <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <Input 
+                              id="servicePrice"
+                              type="number"
+                              step="0.01"
+                              className="pl-9"
+                              value={serviceForm.price || '0'} 
+                              onChange={(e) => setServiceForm({...serviceForm, price: e.target.value})}
+                              data-testid="input-service-price"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="serviceActive"
+                          checked={serviceForm.isActive ?? true}
+                          onChange={(e) => setServiceForm({...serviceForm, isActive: e.target.checked})}
+                          className="rounded"
+                          data-testid="checkbox-service-active"
+                        />
+                        <Label htmlFor="serviceActive">Service is active and available for booking</Label>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsServiceDialogOpen(false)}>Cancel</Button>
+                      <Button onClick={handleSaveService} disabled={!serviceForm.name} data-testid="button-save-service">
+                        {editingService ? 'Save Changes' : 'Add Service'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </CardHeader>
+              <CardContent>
+                {bookingServices.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="font-medium">No services yet</p>
+                    <p className="text-sm">Add booking services that customers can schedule appointments for.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {bookingServices.map(service => (
+                      <div key={service.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`service-${service.id}`}>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium">{service.name}</p>
+                            <Badge variant={service.isActive ? 'default' : 'secondary'}>
+                              {service.isActive ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </div>
+                          {service.description && (
+                            <p className="text-sm text-muted-foreground mt-1">{service.description}</p>
+                          )}
+                          <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
+                            <span>{service.durationMinutes} minutes</span>
+                            <span>${parseFloat(service.price).toFixed(2)}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => openServiceDialog(service)} data-testid={`button-edit-service-${service.id}`}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteService(service.id)} data-testid={`button-delete-service-${service.id}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
                       </div>
                     ))}

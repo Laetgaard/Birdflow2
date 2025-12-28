@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items';
 
@@ -288,6 +288,30 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
       { key: 'columns', label: 'Columns', type: 'select', group: 'content', options: ['2', '3', '4'] },
       { key: 'productLimit', label: 'Max Products', type: 'select', group: 'content', options: ['3', '6', '9', '12'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  booking: {
+    type: 'booking',
+    name: 'Booking Widget',
+    icon: 'calendar',
+    defaultProps: {
+      title: 'Book an Appointment',
+      description: 'Select a service and choose a date that works for you.',
+      buttonText: 'Book Now',
+    },
+    defaultStyles: {
+      backgroundColor: '#f8f9fa',
+      textColor: '#1a1a1a',
+      padding: '60px 24px',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
