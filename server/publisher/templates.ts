@@ -583,8 +583,16 @@ export default function ContactForm({ styles, props }: Props) {
 export function generateBookingForm(): string {
   return `'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase, websiteId } from '@/lib/supabase';
+
+type BookingService = {
+  id: string;
+  name: string;
+  description?: string;
+  duration_minutes: number;
+  price: string;
+};
 
 type Props = {
   styles: {
@@ -594,64 +602,209 @@ type Props = {
   };
   props: {
     title?: string;
-    services?: string[];
+    subtitle?: string;
+    buttonText?: string;
   };
 };
 
 export default function BookingForm({ styles, props }: Props) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', service: '', date: '', time: '', notes: '' });
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [services, setServices] = useState<BookingService[]>([]);
+  const [selectedService, setSelectedService] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedTime, setSelectedTime] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
-  const services = props.services || ['Consultation', 'Service A', 'Service B'];
+  const timeSlots = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+  const today = new Date().toISOString().split('T')[0];
+  const accentColor = '#6366f1';
+
+  useEffect(() => {
+    const fetchServices = async () => {
+      const { data } = await supabase
+        .from('booking_services')
+        .select('*')
+        .eq('website_id', websiteId)
+        .eq('active', true)
+        .order('created_at', { ascending: true });
+      if (data) setServices(data);
+    };
+    fetchServices();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedService || !selectedDate || !selectedTime || !name || !email) {
+      setStatus('error');
+      return;
+    }
     setStatus('loading');
-    
+    const service = services.find(s => s.id === selectedService);
+    const bookingDateTime = new Date(selectedDate + 'T' + selectedTime + ':00').toISOString();
     const { error } = await supabase.from('bookings').insert({
       website_id: websiteId,
-      customer_name: form.name,
-      customer_email: form.email,
-      customer_phone: form.phone,
-      service: form.service,
-      booking_date: form.date,
-      booking_time: form.time,
-      notes: form.notes,
+      service_id: selectedService,
+      service: service?.name || 'Service',
+      customer_name: name,
+      customer_email: email,
+      customer_phone: phone || null,
+      date: bookingDateTime,
+      time: selectedTime,
+      duration_minutes: service?.duration_minutes || null,
+      price: service?.price || null,
+      notes: notes || null,
       status: 'pending',
     });
-    
     if (error) {
       setStatus('error');
     } else {
       setStatus('success');
-      setForm({ name: '', email: '', phone: '', service: '', date: '', time: '', notes: '' });
     }
   };
 
+  const resetForm = () => {
+    setStep(1);
+    setSelectedService('');
+    setSelectedDate('');
+    setSelectedTime('');
+    setName('');
+    setEmail('');
+    setPhone('');
+    setNotes('');
+    setStatus('idle');
+  };
+
+  const selectedServiceData = services.find(s => s.id === selectedService);
+  const canProceedStep1 = selectedService !== '';
+  const canProceedStep2 = selectedDate !== '' && selectedTime !== '';
+  const bgColor = styles.backgroundColor || '#f8fafc';
+  const textColor = styles.textColor || '#1e293b';
+
   return (
-    <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '60px 24px' }}>
-      <div style={{ maxWidth: '500px', margin: '0 auto' }}>
-        <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '32px', textAlign: 'center' }}>{props.title || 'Book an Appointment'}</h2>
-        
+    <section style={{ backgroundColor: bgColor, color: textColor, padding: styles.padding || '80px 24px' }}>
+      <div style={{ maxWidth: '640px', margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', padding: '8px 16px', borderRadius: '20px', marginBottom: '16px' }}>
+            <span style={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}>Book Your Appointment</span>
+          </div>
+          <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '12px' }}>{props.title || 'Schedule a Visit'}</h2>
+          {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7 }}>{props.subtitle}</p>}
+        </div>
+
+        {status !== 'success' && services.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '32px' }}>
+            {[1, 2, 3].map((s) => (
+              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '14px', backgroundColor: step >= s ? accentColor : '#e2e8f0', color: step >= s ? '#fff' : '#94a3b8', transition: 'all 0.2s' }}>{s}</div>
+                {s < 3 && <div style={{ width: '40px', height: '2px', backgroundColor: step > s ? accentColor : '#e2e8f0', transition: 'all 0.2s' }} />}
+              </div>
+            ))}
+          </div>
+        )}
+
         {status === 'success' ? (
-          <p style={{ textAlign: 'center', color: '#22c55e' }}>Booking submitted! We'll confirm shortly.</p>
+          <div style={{ textAlign: 'center', padding: '48px 32px', background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)', borderRadius: '16px', border: '1px solid #a7f3d0' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+              <svg style={{ width: '32px', height: '32px', color: '#fff' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            </div>
+            <h3 style={{ color: '#065f46', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>Booking Confirmed!</h3>
+            <p style={{ color: '#047857', marginBottom: '24px' }}>We'll send a confirmation email to {email}</p>
+            <button onClick={resetForm} style={{ backgroundColor: '#10b981', color: '#fff', padding: '12px 24px', borderRadius: '10px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>Book Another Appointment</button>
+          </div>
         ) : (
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <input type="text" placeholder="Your Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd' }} />
-            <input type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd' }} />
-            <input type="tel" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd' }} />
-            <select value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd' }}>
-              <option value="">Select a Service</option>
-              {services.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd' }} />
-            <input type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} required style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd' }} />
-            <textarea placeholder="Additional Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd', resize: 'vertical' }} />
-            <button type="submit" disabled={status === 'loading'} style={{ padding: '14px 24px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: 600, cursor: 'pointer' }}>
-              {status === 'loading' ? 'Booking...' : 'Book Now'}
-            </button>
-            {status === 'error' && <p style={{ color: '#ef4444', textAlign: 'center' }}>Something went wrong. Please try again.</p>}
-          </form>
+          <div style={{ backgroundColor: '#fff', borderRadius: '20px', padding: '32px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: '1px solid rgba(0,0,0,0.06)' }}>
+            {services.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: '#fefce8', borderRadius: '12px', border: '1px solid #fde047' }}>
+                <p style={{ color: '#854d0e', fontWeight: 500 }}>No services available right now</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit}>
+                {step === 1 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>Choose a Service</p>
+                    {services.map((service) => (
+                      <div key={service.id} onClick={() => setSelectedService(service.id)} style={{ padding: '20px', borderRadius: '12px', border: selectedService === service.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedService === service.id ? '#f0f4ff' : '#fff', cursor: 'pointer', transition: 'all 0.15s ease' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div>
+                            <p style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{service.name}</p>
+                            {service.description && <p style={{ fontSize: '14px', opacity: 0.6, marginBottom: '8px' }}>{service.description}</p>}
+                            <span style={{ fontSize: '13px', opacity: 0.7 }}>{service.duration_minutes} min</span>
+                          </div>
+                          <div style={{ fontSize: '20px', fontWeight: 700, color: accentColor, backgroundColor: '#f0f4ff', padding: '8px 12px', borderRadius: '8px' }}>\${parseFloat(String(service.price || '0')).toFixed(0)}</div>
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => canProceedStep1 && setStep(2)} disabled={!canProceedStep1} style={{ marginTop: '16px', padding: '14px 24px', borderRadius: '12px', fontSize: '16px', fontWeight: 600, backgroundColor: canProceedStep1 ? accentColor : '#e2e8f0', color: canProceedStep1 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep1 ? 'pointer' : 'default' }}>Continue</button>
+                  </div>
+                )}
+
+                {step === 2 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>Select Date & Time</p>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>Date</label>
+                      <input type="date" min={today} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '2px solid #e2e8f0' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>Time</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                        {timeSlots.map((time) => (
+                          <button key={time} type="button" onClick={() => setSelectedTime(time)} style={{ padding: '12px', borderRadius: '8px', border: selectedTime === time ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedTime === time ? '#f0f4ff' : '#fff', color: selectedTime === time ? accentColor : textColor, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}>{time}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                      <button type="button" onClick={() => setStep(1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
+                      <button type="button" onClick={() => canProceedStep2 && setStep(3)} disabled={!canProceedStep2} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: canProceedStep2 ? accentColor : '#e2e8f0', color: canProceedStep2 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep2 ? 'pointer' : 'default' }}>Continue</button>
+                    </div>
+                  </div>
+                )}
+
+                {step === 3 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>Your Details</p>
+                    {selectedServiceData && (
+                      <div style={{ padding: '16px', backgroundColor: '#f8fafc', borderRadius: '10px', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                          <span style={{ opacity: 0.7 }}>Service:</span>
+                          <span style={{ fontWeight: 600 }}>{selectedServiceData.name}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '4px' }}>
+                          <span style={{ opacity: 0.7 }}>Date & Time:</span>
+                          <span style={{ fontWeight: 600 }}>{selectedDate} at {selectedTime}</span>
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Full Name *</label>
+                      <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Email *</label>
+                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Phone (optional)</label>
+                      <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 123-4567" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Notes (optional)</label>
+                      <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Any special requests..." style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '16px', resize: 'none' }} />
+                    </div>
+                    {status === 'error' && <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>Please fill in all required fields and try again.</div>}
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                      <button type="button" onClick={() => setStep(2)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
+                      <button type="submit" disabled={status === 'loading' || !name || !email} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: status === 'loading' || !name || !email ? 'default' : 'pointer', opacity: status === 'loading' || !name || !email ? 0.6 : 1 }}>{status === 'loading' ? 'Booking...' : (props.buttonText || 'Confirm Booking')}</button>
+                    </div>
+                  </div>
+                )}
+              </form>
+            )}
+          </div>
         )}
       </div>
     </section>
@@ -958,6 +1111,7 @@ export default function Page() {
           case 'contact-form':
             return <ContactForm key={component.id} props={component.props} styles={component.styles} />;
           case 'booking-form':
+          case 'booking':
             return <BookingForm key={component.id} props={component.props} styles={component.styles} />;
           case 'product-grid':
             return <ProductGrid key={component.id} props={component.props} styles={component.styles} />;
