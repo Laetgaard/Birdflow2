@@ -494,7 +494,7 @@ export async function registerRoutes(
   app.post("/api/websites", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const { name, setupType } = req.body;
+      const { name, setupType, templateId } = req.body;
 
       if (!name || !setupType) {
         return res.status(400).json({ message: "Name and setup type are required" });
@@ -512,6 +512,17 @@ export async function registerRoutes(
         await storage.createWebsiteInputs({
           websiteId: website.id,
         });
+      }
+
+      // If a template is specified, apply it to the builder state
+      if (templateId) {
+        const { getTemplateById, cloneTemplateState } = await import("@shared/websiteTemplates");
+        const template = getTemplateById(templateId);
+        
+        if (template) {
+          const builderState = cloneTemplateState(template);
+          await storage.createBuilderState(website.id, builderState);
+        }
       }
 
       res.status(201).json(website);
