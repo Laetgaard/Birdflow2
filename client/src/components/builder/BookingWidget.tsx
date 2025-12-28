@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Calendar, Clock, User, Mail, Phone, FileText, CheckCircle, ArrowRight, Sparkles } from 'lucide-react';
+import { Calendar, Clock, User, Mail, Phone, FileText, CheckCircle, ArrowRight, Sparkles, Play, X } from 'lucide-react';
 
 type BookingService = {
   id: string;
@@ -46,6 +46,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [testMode, setTestMode] = useState(false);
 
   const { data: services = [] } = useQuery({
     queryKey: ['booking-services', websiteId],
@@ -58,12 +59,12 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
   ];
 
   const handleSectionClick = (e: React.MouseEvent) => {
-    if (!isPreview && onClick) {
+    if (!isPreview && !testMode && onClick) {
       onClick(e);
     }
   };
 
-  const isBuilderMode = !isPreview;
+  const isBuilderMode = !isPreview && !testMode;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +72,11 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
 
     if (!selectedService || !selectedDate || !selectedTime || !name || !email) {
       setStatus('error');
+      return;
+    }
+
+    if (testMode) {
+      setStatus('success');
       return;
     }
 
@@ -131,14 +137,75 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
         backgroundColor: bgColor,
         color: textColor,
         padding: styles.padding || '80px 24px',
-        cursor: isBuilderMode ? 'pointer' : 'default',
+        cursor: !isPreview && !testMode ? 'pointer' : 'default',
         outline: isSelected ? '3px solid #3b82f6' : 'none',
         outlineOffset: '-3px',
         position: 'relative',
-        pointerEvents: isBuilderMode ? 'auto' : 'auto',
       }}
       data-testid="booking-widget"
     >
+      {!isPreview && (
+        <div 
+          style={{ 
+            position: 'absolute', 
+            top: '16px', 
+            right: '16px', 
+            zIndex: 10,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              setTestMode(!testMode);
+              if (testMode) {
+                resetForm();
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              backgroundColor: testMode ? '#ef4444' : '#10b981',
+              color: '#fff',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              transition: 'all 0.2s ease',
+            }}
+            data-testid="button-toggle-test-mode"
+          >
+            {testMode ? (
+              <>
+                <X style={{ width: '14px', height: '14px' }} />
+                Exit Test Mode
+              </>
+            ) : (
+              <>
+                <Play style={{ width: '14px', height: '14px' }} />
+                Test Booking
+              </>
+            )}
+          </button>
+          {testMode && (
+            <div style={{
+              marginTop: '8px',
+              padding: '8px 12px',
+              backgroundColor: '#fef3c7',
+              border: '1px solid #f59e0b',
+              borderRadius: '6px',
+              fontSize: '12px',
+              color: '#92400e',
+              textAlign: 'center',
+            }}>
+              Test mode - no real bookings
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ maxWidth: '640px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
           <div style={{ 
@@ -162,7 +229,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
           </p>
         </div>
 
-        {!isPreview && (
+        {(isPreview || testMode) && (
           <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '32px' }}>
             {[1, 2, 3].map((s) => (
               <div
@@ -207,15 +274,15 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
           <div style={{ 
             textAlign: 'center', 
             padding: '48px 32px', 
-            background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)',
+            background: testMode ? 'linear-gradient(135deg, #fef3c7, #fde68a)' : 'linear-gradient(135deg, #ecfdf5, #d1fae5)',
             borderRadius: '16px',
-            border: '1px solid #a7f3d0',
+            border: testMode ? '1px solid #f59e0b' : '1px solid #a7f3d0',
           }}>
             <div style={{
               width: '64px',
               height: '64px',
               borderRadius: '50%',
-              background: '#10b981',
+              background: testMode ? '#f59e0b' : '#10b981',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -223,11 +290,14 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
             }}>
               <CheckCircle style={{ width: '32px', height: '32px', color: '#fff' }} />
             </div>
-            <h3 style={{ color: '#065f46', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>
-              Booking Confirmed!
+            <h3 style={{ color: testMode ? '#92400e' : '#065f46', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>
+              {testMode ? 'Test Booking Complete!' : 'Booking Confirmed!'}
             </h3>
-            <p style={{ color: '#047857', marginBottom: '24px' }}>
-              We'll send a confirmation email to {email}
+            <p style={{ color: testMode ? '#b45309' : '#047857', marginBottom: '24px' }}>
+              {testMode 
+                ? 'This is how the confirmation looks. No actual booking was made.' 
+                : `We'll send a confirmation email to ${email}`
+              }
             </p>
             <Button
               onClick={(e) => {
@@ -235,7 +305,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                 resetForm();
               }}
               style={{ 
-                backgroundColor: '#10b981',
+                backgroundColor: testMode ? '#f59e0b' : '#10b981',
                 color: '#fff',
                 padding: '12px 24px',
                 borderRadius: '10px',
@@ -243,7 +313,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
               }}
               data-testid="button-new-booking"
             >
-              Book Another Appointment
+              {testMode ? 'Test Again' : 'Book Another Appointment'}
             </Button>
           </div>
         ) : (
@@ -264,7 +334,10 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
               }}>
                 <Sparkles style={{ width: '40px', height: '40px', color: '#ca8a04', margin: '0 auto 16px' }} />
                 <p style={{ color: '#854d0e', fontWeight: 500 }}>
-                  {isBuilderMode ? 'Add booking services in the Manage dashboard' : 'No services available right now'}
+                  {!isPreview && !testMode 
+                    ? 'Add booking services in the Manage dashboard to test the booking flow' 
+                    : 'No services available right now'
+                  }
                 </p>
               </div>
             ) : (
