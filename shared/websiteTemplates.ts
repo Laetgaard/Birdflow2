@@ -746,13 +746,26 @@ export function getTemplatesByCategory(category: WebsiteTemplate['category']): W
 }
 
 export function cloneTemplateState(template: WebsiteTemplate): BuilderStateData {
-  const clonedState = JSON.parse(JSON.stringify(template.builderState));
+  const clonedState: BuilderStateData = JSON.parse(JSON.stringify(template.builderState));
+  
+  const pageIdMap: Record<string, string> = {};
   
   clonedState.pages.forEach((page: BuilderPage) => {
+    const oldId = page.id;
+    const newId = Math.random().toString(36).substring(2, 9);
+    pageIdMap[oldId] = newId;
+    page.id = newId;
+    
     page.components.forEach(component => {
       component.id = Math.random().toString(36).substring(2, 9);
     });
   });
+  
+  if (clonedState.activePage && pageIdMap[clonedState.activePage]) {
+    clonedState.activePage = pageIdMap[clonedState.activePage];
+  } else if (clonedState.pages.length > 0) {
+    clonedState.activePage = clonedState.pages[0].id;
+  }
   
   return clonedState;
 }
