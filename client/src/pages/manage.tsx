@@ -52,9 +52,16 @@ type Booking = {
   id: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   service: string;
+  serviceId?: string;
   date: string;
+  time?: string;
+  durationMinutes?: number;
+  price?: string;
+  notes?: string;
   status: 'pending' | 'confirmed' | 'cancelled';
+  createdAt?: string;
 };
 
 type FormSubmission = {
@@ -135,6 +142,11 @@ export default function ManagePage() {
     currency: 'USD',
     isActive: true,
   });
+  
+  const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled'>('all');
+  const [bookingSearch, setBookingSearch] = useState('');
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [isBookingDetailOpen, setIsBookingDetailOpen] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -440,7 +452,12 @@ export default function ManagePage() {
     if (!session || !id) return;
     
     const previousBookings = [...bookings];
+    const previousSelectedBooking = selectedBooking;
+    
     setBookings(bookings.map(b => b.id === bookingId ? { ...b, status: newStatus } : b));
+    if (selectedBooking?.id === bookingId) {
+      setSelectedBooking({ ...selectedBooking, status: newStatus });
+    }
     
     try {
       const res = await fetch(`/api/websites/${id}/bookings/${bookingId}`, {
@@ -454,6 +471,9 @@ export default function ManagePage() {
 
       if (!res.ok) {
         setBookings(previousBookings);
+        if (previousSelectedBooking?.id === bookingId) {
+          setSelectedBooking(previousSelectedBooking);
+        }
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.message || `Failed to update booking (${res.status})`);
       }
@@ -464,6 +484,9 @@ export default function ManagePage() {
       });
     } catch (error: any) {
       setBookings(previousBookings);
+      if (previousSelectedBooking?.id === bookingId) {
+        setSelectedBooking(previousSelectedBooking);
+      }
       toast({
         title: "Error",
         description: error.message,
@@ -683,8 +706,61 @@ export default function ManagePage() {
           <TabsContent value="bookings">
             <Card>
               <CardHeader>
-                <CardTitle>Bookings</CardTitle>
-                <CardDescription>Manage appointment and service bookings</CardDescription>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <CardTitle>Bookings</CardTitle>
+                    <CardDescription>Manage appointment and service bookings</CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button 
+                      variant={bookingFilter === 'all' ? 'default' : 'outline'} 
+                      size="sm"
+                      onClick={() => setBookingFilter('all')}
+                      data-testid="filter-all"
+                    >
+                      All ({bookings.length})
+                    </Button>
+                    <Button 
+                      variant={bookingFilter === 'pending' ? 'default' : 'outline'} 
+                      size="sm"
+                      onClick={() => setBookingFilter('pending')}
+                      className={bookingFilter !== 'pending' ? 'border-yellow-300 text-yellow-700 hover:bg-yellow-50' : 'bg-yellow-500 hover:bg-yellow-600'}
+                      data-testid="filter-pending"
+                    >
+                      <Clock className="w-3 h-3 mr-1" />
+                      Pending ({bookings.filter(b => b.status === 'pending').length})
+                    </Button>
+                    <Button 
+                      variant={bookingFilter === 'confirmed' ? 'default' : 'outline'} 
+                      size="sm"
+                      onClick={() => setBookingFilter('confirmed')}
+                      className={bookingFilter !== 'confirmed' ? 'border-green-300 text-green-700 hover:bg-green-50' : 'bg-green-500 hover:bg-green-600'}
+                      data-testid="filter-confirmed"
+                    >
+                      <CheckCircle className="w-3 h-3 mr-1" />
+                      Confirmed ({bookings.filter(b => b.status === 'confirmed').length})
+                    </Button>
+                    <Button 
+                      variant={bookingFilter === 'cancelled' ? 'default' : 'outline'} 
+                      size="sm"
+                      onClick={() => setBookingFilter('cancelled')}
+                      className={bookingFilter !== 'cancelled' ? 'border-red-300 text-red-700 hover:bg-red-50' : 'bg-red-500 hover:bg-red-600'}
+                      data-testid="filter-cancelled"
+                    >
+                      <XCircle className="w-3 h-3 mr-1" />
+                      Cancelled ({bookings.filter(b => b.status === 'cancelled').length})
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <Input 
+                    placeholder="Search by customer name, email, or service..." 
+                    value={bookingSearch}
+                    onChange={(e) => setBookingSearch(e.target.value)}
+                    className="max-w-md"
+                    data-testid="input-booking-search"
+                  />
+                </div>
               </CardHeader>
               <CardContent>
                 {bookings.length === 0 ? (
@@ -694,39 +770,293 @@ export default function ManagePage() {
                     <p className="text-sm">Bookings will appear here when customers schedule appointments.</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {bookings.map(booking => (
-                      <div key={booking.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`booking-${booking.id}`}>
-                        <div>
-                          <p className="font-medium">{booking.customerName}</p>
-                          <p className="text-sm text-muted-foreground">{booking.customerEmail}</p>
-                          <p className="text-sm text-muted-foreground">{booking.service}</p>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="font-medium">{new Date(booking.date).toLocaleDateString()}</p>
-                            <p className="text-sm text-muted-foreground">{new Date(booking.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                          </div>
-                          <Select 
-                            value={booking.status} 
-                            onValueChange={(value: Booking['status']) => handleUpdateBookingStatus(booking.id, value)}
+                  <div className="space-y-3">
+                    {bookings
+                      .filter(b => bookingFilter === 'all' || b.status === bookingFilter)
+                      .filter(b => {
+                        if (!bookingSearch) return true;
+                        const search = bookingSearch.toLowerCase();
+                        return b.customerName.toLowerCase().includes(search) ||
+                               b.customerEmail.toLowerCase().includes(search) ||
+                               b.service.toLowerCase().includes(search);
+                      })
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                      .map(booking => {
+                        const bookingDate = new Date(booking.date);
+                        const isUpcoming = bookingDate > new Date();
+                        const isToday = bookingDate.toDateString() === new Date().toDateString();
+                        
+                        return (
+                          <div 
+                            key={booking.id} 
+                            className={`p-4 border rounded-xl transition-all hover:shadow-md cursor-pointer ${
+                              booking.status === 'pending' ? 'border-l-4 border-l-yellow-400 bg-yellow-50/30' :
+                              booking.status === 'confirmed' ? 'border-l-4 border-l-green-400 bg-green-50/30' :
+                              'border-l-4 border-l-red-400 bg-red-50/30 opacity-75'
+                            }`}
+                            onClick={() => { setSelectedBooking(booking); setIsBookingDetailOpen(true); }}
+                            data-testid={`booking-${booking.id}`}
                           >
-                            <SelectTrigger className="w-[140px]" data-testid={`select-booking-status-${booking.id}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pending">Pending</SelectItem>
-                              <SelectItem value="confirmed">Confirmed</SelectItem>
-                              <SelectItem value="cancelled">Cancelled</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                              <div className="flex items-start gap-4">
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold ${
+                                  booking.status === 'pending' ? 'bg-yellow-500' :
+                                  booking.status === 'confirmed' ? 'bg-green-500' : 'bg-red-500'
+                                }`}>
+                                  {booking.customerName.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-semibold text-lg">{booking.customerName}</p>
+                                    {isToday && <Badge className="bg-blue-100 text-blue-700 text-xs">Today</Badge>}
+                                    {!isToday && isUpcoming && booking.status !== 'cancelled' && (
+                                      <Badge className="bg-purple-100 text-purple-700 text-xs">Upcoming</Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-muted-foreground">{booking.customerEmail}</p>
+                                  {booking.customerPhone && (
+                                    <p className="text-sm text-muted-foreground">{booking.customerPhone}</p>
+                                  )}
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <Badge variant="secondary" className="font-medium">{booking.service}</Badge>
+                                    {booking.durationMinutes && (
+                                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                        <Clock className="w-3 h-3" /> {booking.durationMinutes} min
+                                      </span>
+                                    )}
+                                    {booking.price && (
+                                      <span className="text-xs font-medium text-green-600">
+                                        ${parseFloat(booking.price).toFixed(2)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex flex-col md:items-end gap-2">
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                                  <span className="font-medium">
+                                    {bookingDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                  </span>
+                                  <span className="text-muted-foreground">at</span>
+                                  <span className="font-medium">
+                                    {bookingDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                                
+                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                  {booking.status === 'pending' && (
+                                    <>
+                                      <Button 
+                                        size="sm" 
+                                        className="bg-green-500 hover:bg-green-600 text-white"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleUpdateBookingStatus(booking.id, 'confirmed');
+                                        }}
+                                        data-testid={`btn-confirm-${booking.id}`}
+                                      >
+                                        <CheckCircle className="w-4 h-4 mr-1" /> Confirm
+                                      </Button>
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline"
+                                        className="border-red-300 text-red-600 hover:bg-red-50"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleUpdateBookingStatus(booking.id, 'cancelled');
+                                        }}
+                                        data-testid={`btn-cancel-${booking.id}`}
+                                      >
+                                        <XCircle className="w-4 h-4 mr-1" /> Cancel
+                                      </Button>
+                                    </>
+                                  )}
+                                  {booking.status === 'confirmed' && (
+                                    <div className="flex items-center gap-2">
+                                      <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3" /> Confirmed
+                                      </Badge>
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost"
+                                        className="text-red-600 hover:bg-red-50 h-7 text-xs"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleUpdateBookingStatus(booking.id, 'cancelled');
+                                        }}
+                                      >
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  )}
+                                  {booking.status === 'cancelled' && (
+                                    <Badge className="bg-red-100 text-red-700 flex items-center gap-1">
+                                      <XCircle className="w-3 h-3" /> Cancelled
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {booking.notes && (
+                              <div className="mt-3 pt-3 border-t">
+                                <p className="text-sm text-muted-foreground">
+                                  <span className="font-medium">Notes:</span> {booking.notes}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    
+                    {bookings.filter(b => bookingFilter === 'all' || b.status === bookingFilter).filter(b => {
+                      if (!bookingSearch) return true;
+                      const search = bookingSearch.toLowerCase();
+                      return b.customerName.toLowerCase().includes(search) ||
+                             b.customerEmail.toLowerCase().includes(search) ||
+                             b.service.toLowerCase().includes(search);
+                    }).length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <p>No bookings match your filters</p>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </CardContent>
             </Card>
+            
+            <Dialog open={isBookingDetailOpen} onOpenChange={setIsBookingDetailOpen}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Booking Details</DialogTitle>
+                </DialogHeader>
+                {selectedBooking && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl ${
+                        selectedBooking.status === 'pending' ? 'bg-yellow-500' :
+                        selectedBooking.status === 'confirmed' ? 'bg-green-500' : 'bg-red-500'
+                      }`}>
+                        {selectedBooking.customerName.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-lg">{selectedBooking.customerName}</h3>
+                        <p className="text-sm text-muted-foreground">{selectedBooking.customerEmail}</p>
+                        {selectedBooking.customerPhone && (
+                          <p className="text-sm text-muted-foreground">{selectedBooking.customerPhone}</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <Separator />
+                    
+                    <div className="grid gap-3">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Service</span>
+                        <span className="font-medium">{selectedBooking.service}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Date</span>
+                        <span className="font-medium">
+                          {new Date(selectedBooking.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Time</span>
+                        <span className="font-medium">
+                          {new Date(selectedBooking.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      {selectedBooking.durationMinutes && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Duration</span>
+                          <span className="font-medium">{selectedBooking.durationMinutes} minutes</span>
+                        </div>
+                      )}
+                      {selectedBooking.price && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Price</span>
+                          <span className="font-medium text-green-600">${parseFloat(selectedBooking.price).toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Status</span>
+                        <Badge className={
+                          selectedBooking.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                          selectedBooking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                          'bg-red-100 text-red-700'
+                        }>
+                          {selectedBooking.status.charAt(0).toUpperCase() + selectedBooking.status.slice(1)}
+                        </Badge>
+                      </div>
+                    </div>
+                    
+                    {selectedBooking.notes && (
+                      <>
+                        <Separator />
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-1">Notes</p>
+                          <p className="text-sm bg-muted p-3 rounded-lg">{selectedBooking.notes}</p>
+                        </div>
+                      </>
+                    )}
+                    
+                    <Separator />
+                    
+                    <div className="flex gap-2">
+                      {selectedBooking.status === 'pending' && (
+                        <>
+                          <Button 
+                            className="flex-1 bg-green-500 hover:bg-green-600"
+                            onClick={() => { 
+                              handleUpdateBookingStatus(selectedBooking.id, 'confirmed');
+                              setSelectedBooking({ ...selectedBooking, status: 'confirmed' });
+                            }}
+                          >
+                            <CheckCircle className="w-4 h-4 mr-2" /> Confirm Booking
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                            onClick={() => { 
+                              handleUpdateBookingStatus(selectedBooking.id, 'cancelled');
+                              setSelectedBooking({ ...selectedBooking, status: 'cancelled' });
+                            }}
+                          >
+                            <XCircle className="w-4 h-4 mr-2" /> Cancel
+                          </Button>
+                        </>
+                      )}
+                      {selectedBooking.status === 'confirmed' && (
+                        <Button 
+                          variant="outline"
+                          className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                          onClick={() => { 
+                            handleUpdateBookingStatus(selectedBooking.id, 'cancelled');
+                            setSelectedBooking({ ...selectedBooking, status: 'cancelled' });
+                          }}
+                        >
+                          <XCircle className="w-4 h-4 mr-2" /> Cancel Booking
+                        </Button>
+                      )}
+                      {selectedBooking.status === 'cancelled' && (
+                        <Button 
+                          className="flex-1"
+                          onClick={() => { 
+                            handleUpdateBookingStatus(selectedBooking.id, 'pending');
+                            setSelectedBooking({ ...selectedBooking, status: 'pending' });
+                          }}
+                        >
+                          Reopen Booking
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="submissions">
@@ -1064,36 +1394,85 @@ export default function ManagePage() {
                     <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
                     <p className="font-medium">No services yet</p>
                     <p className="text-sm">Add booking services that customers can schedule appointments for.</p>
+                    <Button className="mt-4" onClick={() => openServiceDialog()}>
+                      <Plus className="w-4 h-4 mr-2" /> Add Your First Service
+                    </Button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {bookingServices.map(service => (
-                      <div key={service.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`service-${service.id}`}>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">{service.name}</p>
-                            <Badge variant={service.isActive ? 'default' : 'secondary'}>
-                              {service.isActive ? 'Active' : 'Inactive'}
-                            </Badge>
+                      <div 
+                        key={service.id} 
+                        className={`relative p-5 border rounded-xl transition-all hover:shadow-lg ${
+                          service.isActive 
+                            ? 'bg-gradient-to-br from-white to-green-50/30 border-green-200' 
+                            : 'bg-gray-50 border-gray-200 opacity-75'
+                        }`}
+                        data-testid={`service-${service.id}`}
+                      >
+                        <div className="absolute top-3 right-3">
+                          <Badge 
+                            className={service.isActive 
+                              ? 'bg-green-100 text-green-700' 
+                              : 'bg-gray-200 text-gray-600'
+                            }
+                          >
+                            {service.isActive ? '✓ Active' : 'Inactive'}
+                          </Badge>
+                        </div>
+                        
+                        <div className="mb-4">
+                          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mb-3">
+                            <Calendar className="w-6 h-6 text-white" />
                           </div>
+                          <h3 className="font-semibold text-lg">{service.name}</h3>
                           {service.description && (
-                            <p className="text-sm text-muted-foreground mt-1">{service.description}</p>
+                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{service.description}</p>
                           )}
-                          <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                            <span>{service.durationMinutes} minutes</span>
-                            <span>${parseFloat(service.price).toFixed(2)}</span>
+                        </div>
+                        
+                        <div className="flex items-center justify-between py-3 border-t border-dashed">
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                              <Clock className="w-4 h-4" />
+                              <span>{service.durationMinutes} min</span>
+                            </div>
+                            <div className="text-lg font-bold text-green-600">
+                              ${parseFloat(service.price).toFixed(0)}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => openServiceDialog(service)} data-testid={`button-edit-service-${service.id}`}>
-                            <Pencil className="w-4 h-4" />
+                        
+                        <div className="flex gap-2 mt-3">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1"
+                            onClick={() => openServiceDialog(service)} 
+                            data-testid={`button-edit-service-${service.id}`}
+                          >
+                            <Pencil className="w-3 h-3 mr-1" /> Edit
                           </Button>
-                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteService(service.id)} data-testid={`button-delete-service-${service.id}`}>
-                            <Trash2 className="w-4 h-4" />
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            onClick={() => handleDeleteService(service.id)} 
+                            data-testid={`button-delete-service-${service.id}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
                           </Button>
                         </div>
                       </div>
                     ))}
+                    
+                    <div 
+                      className="p-5 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary cursor-pointer transition-colors min-h-[200px]"
+                      onClick={() => openServiceDialog()}
+                    >
+                      <Plus className="w-8 h-8 mb-2" />
+                      <span className="font-medium">Add New Service</span>
+                    </div>
                   </div>
                 )}
               </CardContent>
