@@ -126,6 +126,12 @@ The publisher generates a standalone Next.js project from builder_state and depl
 
 ## Recent Changes
 
+- **2024-12-28**: Enhanced BookingWidget with 3-step wizard flow (Service → Date/Time → Details), modern UI with progress indicators
+- **2024-12-28**: Fixed builder/preview mode interaction handling - components selectable in builder but interactive on live sites
+- **2024-12-28**: Updated publisher booking template to fetch services from database and use proper column names
+- **2024-12-27**: Added ImageCropper component with react-image-crop library for image editing
+- **2024-12-27**: Created MediaPanel for managing uploaded images in builder sidebar
+- **2024-12-27**: Added booking_services table and booking services management in manage dashboard
 - **2024-12-26**: Added multi-page support to builder - create, rename, delete pages with unique URL slugs
 - **2024-12-26**: Updated Next.js generator to create separate routes for each page
 - **2024-12-25**: Implemented publishing system with Next.js generator and Vercel deployment
