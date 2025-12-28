@@ -47,7 +47,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       NEXT_PUBLIC_SUPABASE_URL: config.supabaseUrl,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: config.supabaseAnonKey,
       SUPABASE_SERVICE_ROLE_KEY: config.supabaseServiceRoleKey,
-      WEBSITE_ID: config.websiteId,
+      NEXT_PUBLIC_WEBSITE_ID: config.websiteId,
     };
     
     if (config.stripeSecretKey) {

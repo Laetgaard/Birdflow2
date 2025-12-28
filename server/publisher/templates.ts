@@ -79,7 +79,7 @@ export function generateEnvExample(): string {
   return `NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-WEBSITE_ID=your-website-id
+NEXT_PUBLIC_WEBSITE_ID=your-website-id
 STRIPE_SECRET_KEY=your-stripe-secret-key
 `;
 }
@@ -90,7 +90,7 @@ export function generateCheckoutApiRoute(): string {
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const WEBSITE_ID = process.env.WEBSITE_ID || '';
+const WEBSITE_ID = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
 
 export async function POST(request: NextRequest) {
   try {
@@ -208,7 +208,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export const websiteId = process.env.WEBSITE_ID || '';
+export const websiteId = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
 `;
 }
 
