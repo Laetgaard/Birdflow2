@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@shared/componentRegistry';
 import BookingWidget from './BookingWidget';
+import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
 
 type Product = {
   id: string;
@@ -34,11 +35,21 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
-  const backgroundImage = props.imageUrl ? { backgroundImage: `url(${props.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
+  const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
+  const backgroundImage = imageValue?.url ? { backgroundImage: `url(${imageValue.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
   
   return (
-    <section style={{ ...baseStyle, ...backgroundImage }} onClick={onClick}>
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+    <section style={{ ...baseStyle, ...backgroundImage, position: 'relative', overflow: 'hidden' }} onClick={onClick}>
+      {imageValue?.crop && imageValue.url && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
+          <CroppedImage 
+            image={imageValue} 
+            alt="" 
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        </div>
+      )}
+      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 1 }}>
         <h1 style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h1>
         {props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{props.subtitle}</p>}
         {props.description && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
@@ -58,9 +69,16 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   return (
     <section style={baseStyle} onClick={onClick}>
       <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', padding: '20px 0' }}>
-        {props.images?.map((img, i) => (
-          <img key={i} src={img} alt={`Slide ${i + 1}`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
-        ))}
+        {props.images?.map((img, i) => {
+          const imageValue = parseImageValue(img);
+          return imageValue.crop ? (
+            <div key={i} style={{ width: '300px', height: '200px', borderRadius: '8px', flexShrink: 0, overflow: 'hidden' }}>
+              <CroppedImage image={imageValue} alt={`Slide ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            </div>
+          ) : (
+            <img key={i} src={imageValue.url} alt={`Slide ${i + 1}`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+          );
+        })}
       </div>
     </section>
   );
@@ -69,6 +87,7 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
 function TextImageComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const isImageLeft = props.imageSide === 'left';
+  const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   
   return (
     <section style={baseStyle} onClick={onClick}>
@@ -77,9 +96,13 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview }: {
           <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
           <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{props.description}</p>
         </div>
-        {props.imageUrl && (
-          <div style={{ flex: 1, minWidth: '300px' }}>
-            <img src={props.imageUrl} alt="" style={{ width: '100%', borderRadius: '12px' }} />
+        {imageValue?.url && (
+          <div style={{ flex: 1, minWidth: '300px', overflow: 'hidden', borderRadius: '12px' }}>
+            {imageValue.crop ? (
+              <CroppedImage image={imageValue} alt="" style={{ width: '100%' }} />
+            ) : (
+              <img src={imageValue.url} alt="" style={{ width: '100%', borderRadius: '12px' }} />
+            )}
           </div>
         )}
       </div>
