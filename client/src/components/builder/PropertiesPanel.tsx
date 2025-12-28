@@ -1,3 +1,4 @@
+import { useState, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { Trash2, Plus, Move, GripVertical } from "lucide-react";
+import { Trash2, Plus, GripVertical, Upload, Crop, Loader2, Move } from "lucide-react";
 import { 
   componentRegistry, 
   type BuilderComponentData, 
@@ -18,16 +19,106 @@ import {
   type FieldDefinition,
   type ComponentItem 
 } from "@shared/componentRegistry";
+import ImageCropper from "./ImageCropper";
+
+type CropData = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type ImageValue = {
+  url: string;
+  mediaId?: string;
+  crop?: CropData;
+};
 
 type Props = {
   component: BuilderComponentData;
   onUpdate: (updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => void;
   onDelete: () => void;
   onMove: (direction: 'up' | 'down') => void;
+  websiteId: string;
+  accessToken: string;
 };
 
-export default function PropertiesPanel({ component, onUpdate, onDelete, onMove }: Props) {
+async function uploadImage(
+  websiteId: string, 
+  accessToken: string, 
+  file: File
+): Promise<{ url: string; mediaId: string }> {
+  const signedUrlRes = await fetch(`/api/websites/${websiteId}/media/upload-url`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ filename: file.name, contentType: file.type }),
+  });
+  
+  if (!signedUrlRes.ok) throw new Error('Failed to get upload URL');
+  const { uploadUrl, storagePath, filename } = await signedUrlRes.json();
+
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+  
+  if (!uploadRes.ok) throw new Error('Upload failed');
+
+  let width: number | undefined;
+  let height: number | undefined;
+  if (file.type.startsWith('image/')) {
+    const img = new Image();
+    await new Promise<void>((resolve) => {
+      img.onload = () => {
+        width = img.naturalWidth;
+        height = img.naturalHeight;
+        resolve();
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  const createRes = await fetch(`/api/websites/${websiteId}/media`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      filename,
+      originalFilename: file.name,
+      storagePath,
+      mimeType: file.type,
+      size: file.size,
+      width,
+      height,
+    }),
+  });
+
+  if (!createRes.ok) throw new Error('Failed to create media record');
+  const media = await createRes.json();
+
+  const urlRes = await fetch(`/api/websites/${websiteId}/media/${media.id}/url`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!urlRes.ok) throw new Error('Failed to get media URL');
+  const { url } = await urlRes.json();
+
+  return { url, mediaId: media.id };
+}
+
+export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken }: Props) {
   const definition = componentRegistry[component.type];
+  const [uploadingField, setUploadingField] = useState<string | null>(null);
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [cropperImage, setCropperImage] = useState<string>('');
+  const [cropperField, setCropperField] = useState<{ field: FieldDefinition; index?: number } | null>(null);
+  const [initialCrop, setInitialCrop] = useState<CropData | undefined>();
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   
   if (!definition) {
     return <div className="p-4 text-muted-foreground">Unknown component type</div>;
@@ -49,6 +140,65 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove 
     } else {
       onUpdate({ props: { [field.key]: value } });
     }
+  };
+
+  const parseImageValue = (value: any): ImageValue => {
+    if (typeof value === 'string') {
+      return { url: value };
+    }
+    if (value && typeof value === 'object' && 'url' in value) {
+      return value as ImageValue;
+    }
+    return { url: '' };
+  };
+
+  const handleFileUpload = async (field: FieldDefinition, file: File, arrayIndex?: number) => {
+    const fieldKey = arrayIndex !== undefined ? `${field.key}-${arrayIndex}` : field.key;
+    setUploadingField(fieldKey);
+    
+    try {
+      const { url, mediaId } = await uploadImage(websiteId, accessToken, file);
+      
+      if (arrayIndex !== undefined) {
+        const currentValue = getValue(field);
+        const images = Array.isArray(currentValue) ? [...currentValue] : [];
+        images[arrayIndex] = { url, mediaId };
+        setValue(field, images);
+      } else {
+        setValue(field, { url, mediaId });
+      }
+    } catch (error) {
+      console.error('Upload failed:', error);
+    } finally {
+      setUploadingField(null);
+    }
+  };
+
+  const openCropper = (imageUrl: string, field: FieldDefinition, index?: number, existingCrop?: CropData) => {
+    setCropperImage(imageUrl);
+    setCropperField({ field, index });
+    setInitialCrop(existingCrop);
+    setCropperOpen(true);
+  };
+
+  const handleCropSave = (crop: CropData) => {
+    if (!cropperField) return;
+    
+    const { field, index } = cropperField;
+    
+    if (index !== undefined) {
+      const currentValue = getValue(field);
+      const images = Array.isArray(currentValue) ? [...currentValue] : [];
+      const current = parseImageValue(images[index]);
+      images[index] = { ...current, crop };
+      setValue(field, images);
+    } else {
+      const current = parseImageValue(getValue(field));
+      setValue(field, { ...current, crop });
+    }
+    
+    setCropperOpen(false);
+    setCropperField(null);
   };
 
   const renderField = (field: FieldDefinition) => {
@@ -121,62 +271,173 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove 
           </div>
         );
 
-      case 'image':
-        return (
-          <div key={field.key} className="space-y-1">
-            <Label className="text-xs">{field.label}</Label>
-            <Input
-              value={value}
-              onChange={(e) => setValue(field, e.target.value)}
-              placeholder="https://..."
-              data-testid={`input-${field.key}`}
-            />
-            {value && (
-              <img src={value} alt="Preview" className="w-full h-24 object-cover rounded-md mt-1" />
-            )}
-          </div>
-        );
-
-      case 'image-array':
-        const images = (value as string[]) || [];
+      case 'image': {
+        const imageValue = parseImageValue(value);
+        const isUploading = uploadingField === field.key;
+        
         return (
           <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
-            {images.map((img, i) => (
-              <div key={i} className="flex gap-1">
-                <Input
-                  value={img}
-                  onChange={(e) => {
-                    const newImages = [...images];
-                    newImages[i] = e.target.value;
-                    setValue(field, newImages);
-                  }}
-                  placeholder="Image URL"
-                  className="flex-1"
-                />
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
+            <div className="flex gap-1">
+              <Input
+                value={imageValue.url}
+                onChange={(e) => setValue(field, { ...imageValue, url: e.target.value })}
+                placeholder="https://... or upload"
+                className="flex-1"
+                data-testid={`input-${field.key}`}
+              />
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                ref={el => { fileInputRefs.current[field.key] = el; }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileUpload(field, file);
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 shrink-0"
+                onClick={() => fileInputRefs.current[field.key]?.click()}
+                disabled={isUploading}
+                data-testid={`button-upload-${field.key}`}
+              >
+                {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              </Button>
+              {imageValue.url && (
+                <Button
+                  variant="outline"
+                  size="icon"
                   className="h-9 w-9 shrink-0"
-                  onClick={() => {
-                    const newImages = images.filter((_, idx) => idx !== i);
-                    setValue(field, newImages);
-                  }}
+                  onClick={() => openCropper(imageValue.url, field, undefined, imageValue.crop)}
+                  data-testid={`button-crop-${field.key}`}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Crop className="h-4 w-4" />
                 </Button>
+              )}
+            </div>
+            {imageValue.url && (
+              <div className="relative">
+                <img 
+                  src={imageValue.url} 
+                  alt="Preview" 
+                  className="w-full h-24 object-cover rounded-md"
+                  style={imageValue.crop ? {
+                    objectFit: 'none',
+                    objectPosition: `-${imageValue.crop.x}px -${imageValue.crop.y}px`,
+                    width: imageValue.crop.width,
+                    height: Math.min(imageValue.crop.height, 96),
+                  } : undefined}
+                />
+                {imageValue.crop && (
+                  <span className="absolute bottom-1 right-1 text-xs bg-black/50 text-white px-1 rounded">
+                    Cropped
+                  </span>
+                )}
               </div>
-            ))}
+            )}
+          </div>
+        );
+      }
+
+      case 'image-array': {
+        const images = Array.isArray(value) ? value.map(parseImageValue) : [];
+        
+        return (
+          <div key={field.key} className="space-y-2">
+            <Label className="text-xs">{field.label}</Label>
+            {images.map((img, i) => {
+              const fieldKey = `${field.key}-${i}`;
+              const isUploading = uploadingField === fieldKey;
+              
+              return (
+                <div key={i} className="space-y-1 p-2 border rounded-md bg-muted/30">
+                  <div className="flex gap-1">
+                    <Input
+                      value={img.url}
+                      onChange={(e) => {
+                        const newImages = [...images];
+                        newImages[i] = { ...img, url: e.target.value };
+                        setValue(field, newImages);
+                      }}
+                      placeholder="Image URL"
+                      className="flex-1"
+                    />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      ref={el => { fileInputRefs.current[fieldKey] = el; }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(field, file, i);
+                        e.target.value = '';
+                      }}
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9 shrink-0"
+                      onClick={() => fileInputRefs.current[fieldKey]?.click()}
+                      disabled={isUploading}
+                      data-testid={`button-upload-${fieldKey}`}
+                    >
+                      {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    </Button>
+                    {img.url && (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9 shrink-0"
+                        onClick={() => openCropper(img.url, field, i, img.crop)}
+                        data-testid={`button-crop-${fieldKey}`}
+                      >
+                        <Crop className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-9 w-9 shrink-0"
+                      onClick={() => {
+                        const newImages = images.filter((_, idx) => idx !== i);
+                        setValue(field, newImages);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {img.url && (
+                    <div className="relative">
+                      <img 
+                        src={img.url} 
+                        alt={`Image ${i + 1}`} 
+                        className="w-full h-16 object-cover rounded"
+                      />
+                      {img.crop && (
+                        <span className="absolute bottom-1 right-1 text-xs bg-black/50 text-white px-1 rounded">
+                          Cropped
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             <Button
               variant="outline"
               size="sm"
               className="w-full"
-              onClick={() => setValue(field, [...images, ''])}
+              onClick={() => setValue(field, [...images, { url: '' }])}
             >
               <Plus className="h-4 w-4 mr-1" /> Add Image
             </Button>
           </div>
         );
+      }
 
       case 'items':
         const items = (value as ComponentItem[]) || [];
@@ -292,6 +553,19 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove 
             {styleFields.map(renderField)}
           </div>
         </>
+      )}
+
+      {cropperOpen && cropperImage && (
+        <ImageCropper
+          imageSrc={cropperImage}
+          open={cropperOpen}
+          onClose={() => {
+            setCropperOpen(false);
+            setCropperField(null);
+          }}
+          onSave={handleCropSave}
+          initialCrop={initialCrop}
+        />
       )}
     </div>
   );

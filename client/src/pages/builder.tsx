@@ -702,6 +702,8 @@ export default function BuilderPage() {
                       onUpdate={(updates) => updateComponent(selectedComponent.id, updates)}
                       onDelete={() => deleteComponent(selectedComponent.id)}
                       onMove={(dir) => moveComponent(selectedComponent.id, dir)}
+                      websiteId={id || ''}
+                      accessToken={session?.access_token || ''}
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
