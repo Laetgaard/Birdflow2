@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { getSupabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -223,6 +224,59 @@ export default function ManagePage() {
 
     fetchData();
   }, [id, session]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const supabase = getSupabase();
+    
+    const channel = supabase
+      .channel(`bookings-${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'bookings',
+          filter: `website_id=eq.${id}`,
+        },
+        (payload) => {
+          const newBooking = payload.new as any;
+          const formattedBooking: Booking = {
+            id: newBooking.id,
+            customerName: newBooking.customer_name,
+            customerEmail: newBooking.customer_email,
+            customerPhone: newBooking.customer_phone,
+            service: newBooking.service,
+            serviceId: newBooking.service_id,
+            date: newBooking.date,
+            time: newBooking.time,
+            durationMinutes: newBooking.duration_minutes,
+            price: newBooking.price,
+            notes: newBooking.notes,
+            status: newBooking.status,
+            createdAt: newBooking.created_at,
+          };
+          
+          setBookings((prev) => {
+            if (prev.some(b => b.id === formattedBooking.id)) {
+              return prev;
+            }
+            return [formattedBooking, ...prev];
+          });
+          
+          toast({
+            title: "New Booking!",
+            description: `${formattedBooking.customerName} booked ${formattedBooking.service}`,
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, toast]);
 
   const displayName = profile?.fullName || user?.user_metadata?.full_name || user?.email || "User";
   const displayEmail = profile?.email || user?.email || "";
