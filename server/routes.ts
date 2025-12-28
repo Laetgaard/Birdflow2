@@ -1162,6 +1162,21 @@ export async function registerRoutes(
 
       const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
       
+      // Ensure the media bucket exists
+      const { data: buckets } = await adminClient.storage.listBuckets();
+      const mediaBucketExists = buckets?.some(b => b.name === 'media');
+      
+      if (!mediaBucketExists) {
+        const { error: createBucketError } = await adminClient.storage.createBucket('media', {
+          public: true,
+          fileSizeLimit: 10485760, // 10MB
+        });
+        if (createBucketError && !createBucketError.message.includes('already exists')) {
+          console.error('Failed to create media bucket:', createBucketError);
+          return res.status(500).json({ message: "Failed to create storage bucket" });
+        }
+      }
+      
       const { data, error } = await adminClient.storage
         .from('media')
         .createSignedUploadUrl(storagePath);
