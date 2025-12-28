@@ -124,8 +124,25 @@ The publisher generates a standalone Next.js project from builder_state and depl
 - Environment variables: `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional)
 - Published sites receive `SUPABASE_SERVICE_ROLE_KEY` as encrypted Vercel env var
 
+### Website Templates System
+Pre-built website templates that users can select when creating a new website:
+
+**Template Registry** (`shared/websiteTemplates.ts`):
+- 6 templates: Blank, Modern Business, Creative Portfolio, E-Commerce Store, Service Booking, Startup Landing
+- Each template has: id, name, description, category, thumbnail, and complete builderState
+- Categories: landing, business, portfolio, ecommerce, services, blog
+- `getTemplateById(id)` and `cloneTemplateState(template)` for applying templates
+
+**Create Website Modal** (`client/src/components/create-website-modal.tsx`):
+- Multi-step wizard: Name → Setup Type → Template Selection
+- Visual template grid with thumbnails and descriptions
+- Template selection applies full builder state on creation
+
 ## Recent Changes
 
+- **2024-12-28**: Added customizable pre-built website templates with 6 starter templates (business, portfolio, ecommerce, services, landing)
+- **2024-12-28**: Created multi-step website creation wizard with template selection UI
+- **2024-12-28**: Added real-time booking updates via Supabase Realtime subscription in manage dashboard
 - **2024-12-28**: Redesigned booking management UI with status-colored cards, quick action buttons, and visual improvements
 - **2024-12-28**: Added booking filtering (All/Pending/Confirmed/Cancelled) and search by customer name/email/service
 - **2024-12-28**: Improved services management with visual card grid, gradient icons, and inline add/edit/delete
