@@ -18,7 +18,6 @@ export function generatePackageJson(siteName: string): string {
       react: '^18.0.0',
       'react-dom': '^18.0.0',
       '@supabase/supabase-js': '^2.0.0',
-      stripe: '^14.0.0',
     },
     devDependencies: {
       typescript: '^5.0.0',
@@ -121,7 +120,6 @@ STRIPE_SECRET_KEY=your-stripe-secret-key
 export function generateCheckoutApiRoute(): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const WEBSITE_ID = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
@@ -131,8 +129,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const items = body.items;
     const customerEmail = body.customerEmail;
-    const successUrl = body.successUrl;
-    const cancelUrl = body.cancelUrl;
     
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ message: 'Invalid request: no items' }, { status: 400 });
@@ -142,15 +138,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Email is required' }, { status: 400 });
     }
 
-    if (!STRIPE_SECRET_KEY) {
-      return NextResponse.json({ message: 'Stripe not configured' }, { status: 500 });
-    }
-
-    // Dynamically import Stripe and Supabase to avoid build issues
-    const Stripe = (await import('stripe')).default;
     const { createClient } = await import('@supabase/supabase-js');
-    
-    const stripe = new Stripe(STRIPE_SECRET_KEY);
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     // Validate items against database products
@@ -183,38 +171,13 @@ export async function POST(request: NextRequest) {
 
     const total = validatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-    const lineItems = validatedItems.map(item => ({
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: item.name,
-        },
-        unit_amount: Math.round(item.price * 100),
-      },
-      quantity: item.quantity,
-    }));
-
-    const origin = request.headers.get('origin') || '';
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: lineItems,
-      mode: 'payment',
-      success_url: successUrl || origin + '?success=true',
-      cancel_url: cancelUrl || origin + '?canceled=true',
-      customer_email: customerEmail,
-      metadata: {
-        websiteId: WEBSITE_ID,
-      },
-    });
-
-    // Create order with pending payment status
-    await supabase.from('orders').insert({
+    // Create order as inquiry (no payment processing yet)
+    const { error: orderError } = await supabase.from('orders').insert({
       website_id: WEBSITE_ID,
       customer_name: customerEmail.split('@')[0] || 'Customer',
       customer_email: customerEmail,
       status: 'pending',
-      payment_status: 'pending',
-      stripe_session_id: session.id,
+      payment_status: 'inquiry',
       total: total.toFixed(2),
       currency: 'USD',
       items: validatedItems.map(item => ({
@@ -225,7 +188,17 @@ export async function POST(request: NextRequest) {
       })),
     });
 
-    return NextResponse.json({ sessionId: session.id, url: session.url });
+    if (orderError) {
+      console.error('Order creation error:', orderError);
+      return NextResponse.json({ message: 'Failed to create order' }, { status: 500 });
+    }
+
+    // Return success - order created as inquiry
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Order submitted! We will contact you shortly.',
+      total: total.toFixed(2)
+    });
   } catch (err) {
     console.error('Checkout error:', err);
     return NextResponse.json({ message: 'Checkout failed' }, { status: 500 });
@@ -1289,7 +1262,7 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { cart, cartCount, cartTotal, isCartOpen, setIsCartOpen, updateQuantity, removeFromCart } = useCart();
   const [customerEmail, setCustomerEmail] = useState('');
-  const [checkoutStatus, setCheckoutStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [checkoutStatus, setCheckoutStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1310,14 +1283,12 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
         body: JSON.stringify({
           items,
           customerEmail,
-          successUrl: window.location.origin + '?success=true',
-          cancelUrl: window.location.origin + '?canceled=true',
         }),
       });
 
       const data = await response.json();
-      if (data.url) {
-        window.location.href = data.url;
+      if (data.success) {
+        setCheckoutStatus('success');
       } else {
         setCheckoutStatus('error');
       }
@@ -1486,23 +1457,26 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
               />
               <button
                 type="submit"
-                disabled={checkoutStatus === 'loading'}
+                disabled={checkoutStatus === 'loading' || checkoutStatus === 'success'}
                 style={{
                   width: '100%',
                   padding: '14px',
-                  backgroundColor: checkoutStatus === 'loading' ? '#9ca3af' : '#4f46e5',
+                  backgroundColor: checkoutStatus === 'loading' ? '#9ca3af' : checkoutStatus === 'success' ? '#22c55e' : '#4f46e5',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '8px',
                   fontWeight: 600,
                   fontSize: '16px',
-                  cursor: checkoutStatus === 'loading' ? 'not-allowed' : 'pointer',
+                  cursor: checkoutStatus === 'loading' || checkoutStatus === 'success' ? 'not-allowed' : 'pointer',
                 }}
               >
-                {checkoutStatus === 'loading' ? 'Redirecting...' : 'Checkout with Stripe'}
+                {checkoutStatus === 'loading' ? 'Submitting...' : checkoutStatus === 'success' ? 'Order Submitted!' : 'Submit Order'}
               </button>
+              {checkoutStatus === 'success' && (
+                <p style={{ color: '#22c55e', fontSize: '14px', marginTop: '8px', textAlign: 'center' }}>Thank you! We will contact you shortly.</p>
+              )}
               {checkoutStatus === 'error' && (
-                <p style={{ color: '#ef4444', fontSize: '14px', marginTop: '8px', textAlign: 'center' }}>Checkout failed. Please try again.</p>
+                <p style={{ color: '#ef4444', fontSize: '14px', marginTop: '8px', textAlign: 'center' }}>Order failed. Please try again.</p>
               )}
             </form>
           </div>
