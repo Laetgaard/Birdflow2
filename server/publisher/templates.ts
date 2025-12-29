@@ -10,7 +10,7 @@ export function generatePackageJson(siteName: string): string {
     },
     scripts: {
       dev: 'next dev',
-      build: 'SKIP_ENV_VALIDATION=1 next build',
+      build: 'next build --no-lint',
       start: 'next start',
     },
     dependencies: {
@@ -101,12 +101,7 @@ export function generateVercelJson(): string {
   return JSON.stringify({
     buildCommand: "npm run build",
     framework: null,
-    installCommand: "npm install",
-    build: {
-      env: {
-        NEXT_TELEMETRY_DISABLED: "1"
-      }
-    }
+    installCommand: "npm install"
   }, null, 2);
 }
 
@@ -1108,9 +1103,7 @@ a {
 }
 
 export function generatePageFile(page: PageData, websiteId: string): string {
-  const componentsImport = `'use client';
-
-import ComponentRenderer from '@/components/ComponentRenderer';
+  const componentsImport = `import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';
