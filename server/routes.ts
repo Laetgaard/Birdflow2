@@ -1105,6 +1105,7 @@ export async function registerRoutes(
           deploymentUrl: result.deploymentUrl,
           deploymentId: result.deploymentId,
           platformSlug: result.platformSlug,
+          platformDomain: result.platformDomain,
           platformUrl: result.platformUrl,
         } as any);
 
