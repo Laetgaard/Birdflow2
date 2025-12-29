@@ -225,6 +225,109 @@ export async function POST(request: NextRequest) {
 `;
 }
 
+export function generateBookingServicesApiRoute(): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WEBSITE_ID = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
+
+export async function GET(request: NextRequest) {
+  try {
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Supabase not configured' }, { status: 500 });
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    
+    const { data, error } = await supabase
+      .from('booking_services')
+      .select('*')
+      .eq('website_id', WEBSITE_ID)
+      .eq('active', true)
+      .order('created_at', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching services:', error);
+      return NextResponse.json({ message: 'Failed to fetch services' }, { status: 500 });
+    }
+    
+    return NextResponse.json(data || []);
+  } catch (err) {
+    console.error('Booking services error:', err);
+    return NextResponse.json({ message: 'Internal error' }, { status: 500 });
+  }
+}
+`;
+}
+
+export function generateCreateBookingApiRoute(): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WEBSITE_ID = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
+
+export async function POST(request: NextRequest) {
+  try {
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Supabase not configured' }, { status: 500 });
+    }
+
+    const body = await request.json();
+    const { serviceId, serviceName, date, time, durationMinutes, price, customerName, customerEmail, customerPhone, notes } = body;
+    
+    if (!serviceId || !date || !time || !customerName || !customerEmail) {
+      return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    
+    // Verify the service exists and belongs to this website
+    const { data: service, error: serviceError } = await supabase
+      .from('booking_services')
+      .select('*')
+      .eq('id', serviceId)
+      .eq('website_id', WEBSITE_ID)
+      .single();
+    
+    if (serviceError || !service) {
+      return NextResponse.json({ message: 'Service not found' }, { status: 404 });
+    }
+
+    const bookingDateTime = new Date(date + 'T' + time + ':00').toISOString();
+    
+    const { data, error } = await supabase.from('bookings').insert({
+      website_id: WEBSITE_ID,
+      service_id: serviceId,
+      service: serviceName || service.name,
+      customer_name: customerName,
+      customer_email: customerEmail,
+      customer_phone: customerPhone || null,
+      date: bookingDateTime,
+      time: time,
+      duration_minutes: durationMinutes || service.duration_minutes,
+      price: price || service.price,
+      notes: notes || null,
+      status: 'pending',
+    }).select().single();
+
+    if (error) {
+      console.error('Error creating booking:', error);
+      return NextResponse.json({ message: 'Failed to create booking' }, { status: 500 });
+    }
+    
+    return NextResponse.json({ success: true, booking: data });
+  } catch (err) {
+    console.error('Booking creation error:', err);
+    return NextResponse.json({ message: 'Internal error' }, { status: 500 });
+  }
+}
+`;
+}
+
 export function generateSupabaseClient(): string {
   return `import { createClient } from '@supabase/supabase-js';
 
@@ -622,7 +725,6 @@ export function generateBookingForm(): string {
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase, websiteId } from '@/lib/supabase';
 
 type BookingService = {
   id: string;
@@ -663,13 +765,15 @@ export default function BookingForm({ styles, props }: Props) {
 
   useEffect(() => {
     const fetchServices = async () => {
-      const { data } = await supabase
-        .from('booking_services')
-        .select('*')
-        .eq('website_id', websiteId)
-        .eq('active', true)
-        .order('created_at', { ascending: true });
-      if (data) setServices(data);
+      try {
+        const res = await fetch('/api/booking-services');
+        if (res.ok) {
+          const data = await res.json();
+          setServices(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch services:', err);
+      }
     };
     fetchServices();
   }, []);
@@ -682,25 +786,32 @@ export default function BookingForm({ styles, props }: Props) {
     }
     setStatus('loading');
     const service = services.find(s => s.id === selectedService);
-    const bookingDateTime = new Date(selectedDate + 'T' + selectedTime + ':00').toISOString();
-    const { error } = await supabase.from('bookings').insert({
-      website_id: websiteId,
-      service_id: selectedService,
-      service: service?.name || 'Service',
-      customer_name: name,
-      customer_email: email,
-      customer_phone: phone || null,
-      date: bookingDateTime,
-      time: selectedTime,
-      duration_minutes: service?.duration_minutes || null,
-      price: service?.price || null,
-      notes: notes || null,
-      status: 'pending',
-    });
-    if (error) {
+    
+    try {
+      const res = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceId: selectedService,
+          serviceName: service?.name,
+          date: selectedDate,
+          time: selectedTime,
+          durationMinutes: service?.duration_minutes,
+          price: service?.price,
+          customerName: name,
+          customerEmail: email,
+          customerPhone: phone || null,
+          notes: notes || null,
+        }),
+      });
+      
+      if (res.ok) {
+        setStatus('success');
+      } else {
+        setStatus('error');
+      }
+    } catch (err) {
       setStatus('error');
-    } else {
-      setStatus('success');
     }
   };
 

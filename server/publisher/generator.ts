@@ -21,6 +21,8 @@ import {
   generateGlobalsCss,
   generatePageFile,
   generateCheckoutApiRoute,
+  generateBookingServicesApiRoute,
+  generateCreateBookingApiRoute,
   generateCartContext,
   generateSiteShell,
   generateProductDetailPage,
@@ -75,6 +77,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/layout.tsx', content: generateRootLayout(siteName) },
     { path: 'app/globals.css', content: generateGlobalsCss() },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute() },
+    { path: 'app/api/booking-services/route.ts', content: generateBookingServicesApiRoute() },
+    { path: 'app/api/bookings/route.ts', content: generateCreateBookingApiRoute() },
     { path: 'app/product/[productId]/page.tsx', content: generateProductDetailPage() },
   ];
   
