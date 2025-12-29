@@ -10,7 +10,7 @@ export function generatePackageJson(siteName: string): string {
     },
     scripts: {
       dev: 'next dev',
-      build: 'next build --no-lint',
+      build: 'SKIP_ENV_VALIDATION=1 next build',
       start: 'next start',
     },
     dependencies: {
@@ -101,7 +101,12 @@ export function generateVercelJson(): string {
   return JSON.stringify({
     buildCommand: "npm run build",
     framework: null,
-    installCommand: "npm install"
+    installCommand: "npm install",
+    build: {
+      env: {
+        NEXT_TELEMETRY_DISABLED: "1"
+      }
+    }
   }, null, 2);
 }
 
