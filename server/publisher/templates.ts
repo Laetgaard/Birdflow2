@@ -120,22 +120,26 @@ STRIPE_SECRET_KEY=your-stripe-secret-key
 export function generateCheckoutApiRoute(): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const WEBSITE_ID = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
-
 export async function POST(request: NextRequest) {
   try {
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const WEBSITE_ID = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
+
     const body = await request.json();
     const items = body.items;
     const customerEmail = body.customerEmail;
     
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ message: 'Invalid request: no items' }, { status: 400 });
+      return NextResponse.json({ success: false, message: 'Invalid request: no items' }, { status: 400 });
     }
 
     if (!customerEmail) {
-      return NextResponse.json({ message: 'Email is required' }, { status: 400 });
+      return NextResponse.json({ success: false, message: 'Email is required' }, { status: 400 });
+    }
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ success: false, message: 'Service temporarily unavailable' }, { status: 503 });
     }
 
     const { createClient } = await import('@supabase/supabase-js');
@@ -1289,6 +1293,10 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
       const data = await response.json();
       if (data.success) {
         setCheckoutStatus('success');
+        // Clear cart after successful order
+        setTimeout(() => {
+          window.location.href = window.location.origin + '?success=true';
+        }, 2000);
       } else {
         setCheckoutStatus('error');
       }
