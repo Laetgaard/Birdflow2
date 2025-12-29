@@ -6,6 +6,7 @@ import {
   generatePackageJson,
   generateTsConfig,
   generateNextConfig,
+  generateEslintConfig,
   generateThemeJson,
   generateEnvExample,
   generateNvmrc,
@@ -55,7 +56,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   const files: Array<{ path: string; content: string }> = [
     { path: 'package.json', content: generatePackageJson(siteName) },
     { path: 'tsconfig.json', content: generateTsConfig() },
-    { path: 'next.config.js', content: generateNextConfig() },
+    { path: 'next.config.mjs', content: generateNextConfig() },
+    { path: '.eslintrc.json', content: generateEslintConfig() },
     { path: 'theme.json', content: generateThemeJson(theme) },
     { path: '.env.example', content: generateEnvExample() },
     { path: '.nvmrc', content: generateNvmrc() },

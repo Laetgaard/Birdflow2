@@ -73,8 +73,16 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;
 `;
+}
+
+export function generateEslintConfig(): string {
+  return JSON.stringify({
+    extends: ["next/core-web-vitals"],
+    rules: {},
+    ignorePatterns: ["**/*"]
+  }, null, 2);
 }
 
 export function generateThemeJson(theme: ThemeConfig): string {
