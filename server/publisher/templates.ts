@@ -1103,7 +1103,9 @@ a {
 }
 
 export function generatePageFile(page: PageData, websiteId: string): string {
-  const componentsImport = `import ComponentRenderer from '@/components/ComponentRenderer';
+  const componentsImport = `'use client';
+
+import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';
