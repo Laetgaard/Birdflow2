@@ -1500,13 +1500,18 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const websiteId = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
 
-export default async function ProductPage({ params }: { params: { productId: string } }) {
+type PageProps = {
+  params: Promise<{ productId: string }>;
+};
+
+export default async function ProductPage({ params }: PageProps) {
+  const { productId } = await params;
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
   
   const { data: product, error } = await supabase
     .from('products')
     .select('*')
-    .eq('id', params.productId)
+    .eq('id', productId)
     .eq('website_id', websiteId)
     .eq('status', 'active')
     .single();
