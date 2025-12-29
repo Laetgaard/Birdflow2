@@ -33,6 +33,15 @@ export function generateNvmrc(): string {
   return '20';
 }
 
+export function generateNextEnvDts(): string {
+  return `/// <reference types="next" />
+/// <reference types="next/image-types/global" />
+
+// NOTE: This file should not be edited
+// see https://nextjs.org/docs/basic-features/typescript for more information.
+`;
+}
+
 export function generateTsConfig(): string {
   return JSON.stringify({
     compilerOptions: {
