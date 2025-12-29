@@ -6,7 +6,7 @@ export function generatePackageJson(siteName: string): string {
     version: '1.0.0',
     private: true,
     engines: {
-      node: '>=18.0.0',
+      node: '20.x',
     },
     scripts: {
       dev: 'next dev',
@@ -92,8 +92,7 @@ export function generateVercelJson(): string {
   return JSON.stringify({
     buildCommand: "npm run build",
     framework: null,
-    installCommand: "npm install",
-    nodeVersion: "18.x"
+    installCommand: "npm install"
   }, null, 2);
 }
 
