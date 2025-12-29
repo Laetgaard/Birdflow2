@@ -1,24 +1,10 @@
-import { useState, useEffect } from 'react';
 import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@shared/componentRegistry';
-import BookingWidget from './BookingWidget';
-import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
-
-type Product = {
-  id: string;
-  name: string;
-  description?: string;
-  price: string;
-  imageUrl?: string;
-  status: string;
-  category?: string;
-};
 
 type RenderProps = {
   component: BuilderComponentData;
   isSelected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   isPreview?: boolean;
-  websiteId?: string;
 };
 
 function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: boolean): React.CSSProperties {
@@ -35,21 +21,11 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
-  const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
-  const backgroundImage = imageValue?.url ? { backgroundImage: `url(${imageValue.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
+  const backgroundImage = props.imageUrl ? { backgroundImage: `url(${props.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
   
   return (
-    <section style={{ ...baseStyle, ...backgroundImage, position: 'relative', overflow: 'hidden' }} onClick={onClick}>
-      {imageValue?.crop && imageValue.url && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
-          <CroppedImage 
-            image={imageValue} 
-            alt="" 
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        </div>
-      )}
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 1 }}>
+    <section style={{ ...baseStyle, ...backgroundImage }} onClick={onClick}>
+      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
         <h1 style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h1>
         {props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{props.subtitle}</p>}
         {props.description && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
@@ -69,16 +45,9 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   return (
     <section style={baseStyle} onClick={onClick}>
       <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', padding: '20px 0' }}>
-        {props.images?.map((img, i) => {
-          const imageValue = parseImageValue(img);
-          return imageValue.crop ? (
-            <div key={i} style={{ width: '300px', height: '200px', borderRadius: '8px', flexShrink: 0, overflow: 'hidden' }}>
-              <CroppedImage image={imageValue} alt={`Slide ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            </div>
-          ) : (
-            <img key={i} src={imageValue.url} alt={`Slide ${i + 1}`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
-          );
-        })}
+        {props.images?.map((img, i) => (
+          <img key={i} src={img} alt={`Slide ${i + 1}`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+        ))}
       </div>
     </section>
   );
@@ -87,7 +56,6 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
 function TextImageComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const isImageLeft = props.imageSide === 'left';
-  const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   
   return (
     <section style={baseStyle} onClick={onClick}>
@@ -96,13 +64,9 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview }: {
           <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
           <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{props.description}</p>
         </div>
-        {imageValue?.url && (
-          <div style={{ flex: 1, minWidth: '300px', overflow: 'hidden', borderRadius: '12px' }}>
-            {imageValue.crop ? (
-              <CroppedImage image={imageValue} alt="" style={{ width: '100%' }} />
-            ) : (
-              <img src={imageValue.url} alt="" style={{ width: '100%', borderRadius: '12px' }} />
-            )}
+        {props.imageUrl && (
+          <div style={{ flex: 1, minWidth: '300px' }}>
+            <img src={props.imageUrl} alt="" style={{ width: '100%', borderRadius: '12px' }} />
           </div>
         )}
       </div>
@@ -200,70 +164,7 @@ function FooterComponent({ props, styles, isSelected, onClick, isPreview }: { pr
   );
 }
 
-function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, websiteId }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean; websiteId?: string }) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
-  const columns = props.columns || 3;
-  const limit = props.productLimit || 6;
-  
-  useEffect(() => {
-    if (!websiteId) {
-      setLoading(false);
-      return;
-    }
-    
-    fetch(`/api/public/websites/${websiteId}/products`)
-      .then(res => res.json())
-      .then(data => {
-        setProducts((data as Product[]).slice(0, limit));
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [websiteId, limit]);
-
-  return (
-    <section style={baseStyle} onClick={onClick}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
-        {props.description && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', textAlign: 'center' }}>{props.description}</p>}
-        
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: styles.textColor, opacity: 0.6 }}>
-            Loading products...
-          </div>
-        ) : products.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: styles.textColor, opacity: 0.6 }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📦</div>
-            <p>No products yet. Add products in the manage dashboard.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '24px' }}>
-            {products.map(product => (
-              <div key={product.id} style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)' }}>
-                {product.imageUrl ? (
-                  <img src={product.imageUrl} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
-                    📦
-                  </div>
-                )}
-                <div style={{ padding: '16px' }}>
-                  <h3 style={{ fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
-                  {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
-                  {product.description && <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{product.description}</p>}
-                  <p style={{ fontSize: '20px', fontWeight: 700 }}>${parseFloat(product.price).toFixed(2)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -301,10 +202,6 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
       return <div {...wrapperProps}><HeaderComponent {...commonProps} /></div>;
     case 'footer':
       return <div {...wrapperProps}><FooterComponent {...commonProps} /></div>;
-    case 'product-grid':
-      return <div {...wrapperProps}><ProductGridComponent {...commonProps} websiteId={websiteId} /></div>;
-    case 'booking':
-      return <div {...wrapperProps}><BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} /></div>;
     default:
       return null;
   }
