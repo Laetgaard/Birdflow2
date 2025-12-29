@@ -119,13 +119,60 @@ The publisher generates a standalone Next.js project from builder_state and depl
 - `framer-motion`: Animation library used on landing page
 - `bcryptjs`: Password hashing utilities
 
-### Deployment
-- **Vercel**: Hosts published Next.js sites via REST API
-- Environment variables: `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional)
-- Published sites receive `SUPABASE_SERVICE_ROLE_KEY` as encrypted Vercel env var
+### Deployment (Multi-Tenant Architecture)
+- **Vercel**: Hosts all published sites in a single shared Vercel project
+- **Platform Domain**: All sites get `{slug}.bird-flow.com` subdomains
+- **Environment variables**:
+  - `VERCEL_TOKEN` - Vercel API token (required)
+  - `VERCEL_PROJECT_ID` - Shared Vercel project ID (required)
+  - `VERCEL_TEAM_ID` - Vercel team ID (optional)
+- Published sites receive per-deployment env vars (not project-level)
+
+**Publishing Flow**:
+1. Generate Next.js project from builder_state
+2. Deploy to shared Vercel project with website-specific env vars
+3. Create/reuse domain `{slug}.bird-flow.com` on the project
+4. Alias deployment to the subdomain
+5. Store platformSlug and platformUrl in database
+
+**Slug Generation**: `{sanitized-name}-{websiteId[0:8]}` ensures uniqueness
+**Re-publishing**: Reuses existing slug, updates alias to new deployment
+
+### Website Templates System
+Pre-built website templates that users can select when creating a new website:
+
+**Template Registry** (`shared/websiteTemplates.ts`):
+- 6 templates: Blank, Modern Business, Creative Portfolio, E-Commerce Store, Service Booking, Startup Landing
+- Each template has: id, name, description, category, thumbnail, and complete builderState
+- Categories: landing, business, portfolio, ecommerce, services, blog
+- `getTemplateById(id)` and `cloneTemplateState(template)` for applying templates
+
+**Create Website Modal** (`client/src/components/create-website-modal.tsx`):
+- Multi-step wizard: Name → Setup Type → Template Selection
+- Visual template grid with thumbnails and descriptions
+- Template selection applies full builder state on creation
 
 ## Recent Changes
 
+- **2024-12-29**: Enhanced multi-tenant publishing - "View Live" button now links to {slug}.bird-flow.com subdomain
+- **2024-12-29**: Added quick service toggle in manage page - activate/deactivate booking services with Switch component
+- **2024-12-29**: Builder and manage pages now display platformUrl after publishing for easy access to live site
+- **2024-12-29**: Fixed platformDomain storage in database after publishing for complete deployment metadata
+- **2024-12-28**: Added customizable pre-built website templates with 6 starter templates (business, portfolio, ecommerce, services, landing)
+- **2024-12-28**: Created multi-step website creation wizard with template selection UI
+- **2024-12-28**: Added real-time booking updates via Supabase Realtime subscription in manage dashboard
+- **2024-12-28**: Redesigned booking management UI with status-colored cards, quick action buttons, and visual improvements
+- **2024-12-28**: Added booking filtering (All/Pending/Confirmed/Cancelled) and search by customer name/email/service
+- **2024-12-28**: Improved services management with visual card grid, gradient icons, and inline add/edit/delete
+- **2024-12-28**: Fixed click propagation in booking cards - quick actions don't trigger detail dialog
+- **2024-12-28**: Enhanced BookingWidget with 3-step wizard flow (Service → Date/Time → Details), modern UI with progress indicators
+- **2024-12-28**: Fixed builder/preview mode interaction handling - components selectable in builder but interactive on live sites
+- **2024-12-28**: Updated publisher booking template to fetch services from database and use proper column names
+- **2024-12-27**: Added ImageCropper component with react-image-crop library for image editing
+- **2024-12-27**: Created MediaPanel for managing uploaded images in builder sidebar
+- **2024-12-27**: Added booking_services table and booking services management in manage dashboard
+- **2024-12-26**: Added multi-page support to builder - create, rename, delete pages with unique URL slugs
+- **2024-12-26**: Updated Next.js generator to create separate routes for each page
 - **2024-12-25**: Implemented publishing system with Next.js generator and Vercel deployment
 - **2024-12-25**: Added management dashboard for orders, bookings, and form submissions
 - **2024-12-25**: Added component system with registry, renderer, and dynamic properties panel for builder
