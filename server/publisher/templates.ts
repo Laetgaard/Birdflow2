@@ -6,7 +6,7 @@ export function generatePackageJson(siteName: string): string {
     version: '1.0.0',
     private: true,
     engines: {
-      node: '20.x',
+      node: '>=18.0.0',
     },
     scripts: {
       dev: 'next dev',
@@ -31,15 +31,6 @@ export function generatePackageJson(siteName: string): string {
 
 export function generateNvmrc(): string {
   return '20';
-}
-
-export function generateNextEnvDts(): string {
-  return `/// <reference types="next" />
-/// <reference types="next/image-types/global" />
-
-// NOTE: This file should not be edited
-// see https://nextjs.org/docs/basic-features/typescript for more information.
-`;
 }
 
 export function generateTsConfig(): string {
@@ -101,7 +92,8 @@ export function generateVercelJson(): string {
   return JSON.stringify({
     buildCommand: "npm run build",
     framework: null,
-    installCommand: "npm install"
+    installCommand: "npm install",
+    nodeVersion: "18.x"
   }, null, 2);
 }
 
