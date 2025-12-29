@@ -945,6 +945,16 @@ export async function registerRoutes(
     }
   });
 
+  // Check Stripe configuration status
+  app.get("/api/stripe/status", async (req, res) => {
+    try {
+      await getStripeSecretKey();
+      res.json({ configured: true });
+    } catch {
+      res.json({ configured: false });
+    }
+  });
+
   // Create Stripe checkout session for cart
   app.post("/api/checkout/create-session", async (req, res) => {
     try {
