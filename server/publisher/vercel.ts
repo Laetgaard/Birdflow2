@@ -193,6 +193,31 @@ export async function deployProject(
   };
 }
 
+async function fetchBuildLogs(deploymentId: string, config: VercelConfig): Promise<string> {
+  try {
+    const res = await vercelFetch(`/v2/deployments/${deploymentId}/events`, config);
+    if (!res.ok) {
+      return 'Could not fetch build logs';
+    }
+    
+    const events = await res.json();
+    
+    if (!Array.isArray(events)) {
+      return 'No build events available';
+    }
+    
+    const buildLogs = events
+      .filter((e: any) => e.type === 'stdout' || e.type === 'stderr')
+      .map((e: any) => e.payload?.text || e.text || '')
+      .filter((text: string) => text.trim())
+      .join('\n');
+    
+    return buildLogs || 'No build output captured';
+  } catch (err) {
+    return `Error fetching logs: ${err}`;
+  }
+}
+
 export async function waitForDeployment(
   deploymentId: string,
   config: VercelConfig,
@@ -218,7 +243,12 @@ export async function waitForDeployment(
     }
     
     if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
-      // Try to get build logs for more details
+      // Fetch build logs for detailed error info
+      const buildLogs = await fetchBuildLogs(deploymentId, config);
+      console.error('=== VERCEL BUILD LOGS ===');
+      console.error(buildLogs);
+      console.error('=== END BUILD LOGS ===');
+      
       let errorDetails = deployment.readyState;
       if (deployment.errorMessage) {
         errorDetails += `: ${deployment.errorMessage}`;
