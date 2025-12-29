@@ -41,45 +41,47 @@ export async function runSupabaseMigrations(): Promise<void> {
   try {
     const client = await pool.connect();
     try {
-      // Check if slug column exists
-      const columnCheck = await client.query(`
-        SELECT column_name FROM information_schema.columns 
-        WHERE table_name = 'websites' AND column_name = 'slug';
+      console.log('Running Supabase schema migrations...');
+      
+      // Add all potentially missing columns to websites table
+      await client.query(`
+        ALTER TABLE websites ADD COLUMN IF NOT EXISTS slug TEXT;
+        ALTER TABLE websites ADD COLUMN IF NOT EXISTS platform_slug TEXT;
+        ALTER TABLE websites ADD COLUMN IF NOT EXISTS platform_domain TEXT;
+        ALTER TABLE websites ADD COLUMN IF NOT EXISTS platform_url TEXT;
+        ALTER TABLE websites ADD COLUMN IF NOT EXISTS deployment_url TEXT;
+        ALTER TABLE websites ADD COLUMN IF NOT EXISTS deployment_id TEXT;
+        ALTER TABLE websites ADD COLUMN IF NOT EXISTS last_published_at TIMESTAMP;
       `);
       
-      if (columnCheck.rows.length === 0) {
-        console.log('Running Supabase schema migrations...');
-        
-        // Add slug column
-        await client.query(`ALTER TABLE websites ADD COLUMN IF NOT EXISTS slug TEXT;`);
-        
-        // Add platform_domain column
-        await client.query(`ALTER TABLE websites ADD COLUMN IF NOT EXISTS platform_domain TEXT;`);
-        
-        // Backfill slugs with fallback for empty names
-        await client.query(`
-          UPDATE websites 
-          SET slug = COALESCE(
-            NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(name, '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
-            'website-' || LEFT(id::text, 8)
-          )
-          WHERE slug IS NULL OR slug = '';
-        `);
-        
-        // Set NOT NULL constraint
-        await client.query(`ALTER TABLE websites ALTER COLUMN slug SET NOT NULL;`);
-        
-        // Add unique constraint if not exists
-        await client.query(`
-          DO $$ BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'websites_slug_unique') THEN
-              ALTER TABLE websites ADD CONSTRAINT websites_slug_unique UNIQUE (slug);
-            END IF;
-          END $$;
-        `);
-        
-        console.log('Supabase schema migrations completed');
-      }
+      // Backfill slugs with fallback for empty names
+      await client.query(`
+        UPDATE websites 
+        SET slug = COALESCE(
+          NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(name, '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
+          'website-' || LEFT(id::text, 8)
+        )
+        WHERE slug IS NULL OR slug = '';
+      `);
+      
+      // Set NOT NULL constraint on slug if not already set
+      await client.query(`
+        DO $$ BEGIN
+          ALTER TABLE websites ALTER COLUMN slug SET NOT NULL;
+        EXCEPTION WHEN others THEN NULL;
+        END $$;
+      `);
+      
+      // Add unique constraints if not exists
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'websites_slug_unique') THEN
+            ALTER TABLE websites ADD CONSTRAINT websites_slug_unique UNIQUE (slug);
+          END IF;
+        END $$;
+      `);
+      
+      console.log('Supabase schema migrations completed');
     } finally {
       client.release();
     }
