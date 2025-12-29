@@ -6,8 +6,6 @@ import {
   generatePackageJson,
   generateTsConfig,
   generateNextConfig,
-  generateEslintConfig,
-  generateVercelJson,
   generateThemeJson,
   generateEnvExample,
   generateNvmrc,
@@ -21,12 +19,6 @@ import {
   generateGlobalsCss,
   generatePageFile,
   generateCheckoutApiRoute,
-  generateBookingServicesApiRoute,
-  generateCreateBookingApiRoute,
-  generateCartContext,
-  generateSiteShell,
-  generateProductDetailPage,
-  generateProductDetailClient,
 } from './templates';
 
 export type GeneratorConfig = {
@@ -45,7 +37,6 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   await fs.promises.mkdir(outputDir, { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout', 'create-session'), { recursive: true });
-  await fs.promises.mkdir(path.join(outputDir, 'app', 'product', '[productId]'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'components'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'lib'), { recursive: true });
   
@@ -59,27 +50,19 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   const files: Array<{ path: string; content: string }> = [
     { path: 'package.json', content: generatePackageJson(siteName) },
     { path: 'tsconfig.json', content: generateTsConfig() },
-    { path: 'next.config.mjs', content: generateNextConfig() },
-    { path: '.eslintrc.json', content: generateEslintConfig() },
-    { path: 'vercel.json', content: generateVercelJson() },
+    { path: 'next.config.js', content: generateNextConfig() },
     { path: 'theme.json', content: generateThemeJson(theme) },
     { path: '.env.example', content: generateEnvExample() },
     { path: '.nvmrc', content: generateNvmrc() },
     { path: 'lib/supabase.ts', content: generateSupabaseClient() },
     { path: 'lib/supabase-admin.ts', content: generateServerSupabase() },
-    { path: 'lib/CartContext.tsx', content: generateCartContext() },
     { path: 'components/ComponentRenderer.tsx', content: generateComponentRenderer() },
     { path: 'components/ContactForm.tsx', content: generateContactForm() },
     { path: 'components/BookingForm.tsx', content: generateBookingForm() },
     { path: 'components/ProductGrid.tsx', content: generateProductGrid() },
-    { path: 'components/SiteShell.tsx', content: generateSiteShell() },
-    { path: 'components/ProductDetailClient.tsx', content: generateProductDetailClient() },
     { path: 'app/layout.tsx', content: generateRootLayout(siteName) },
     { path: 'app/globals.css', content: generateGlobalsCss() },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute() },
-    { path: 'app/api/booking-services/route.ts', content: generateBookingServicesApiRoute() },
-    { path: 'app/api/bookings/route.ts', content: generateCreateBookingApiRoute() },
-    { path: 'app/product/[productId]/page.tsx', content: generateProductDetailPage() },
   ];
   
   for (const page of builderState.pages) {
