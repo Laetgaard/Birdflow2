@@ -10,10 +10,7 @@ import {
   orders, type Order, type InsertOrder,
   bookings, type Booking, type InsertBooking,
   formSubmissions, type FormSubmission, type InsertFormSubmission,
-  customers, type Customer, type InsertCustomer,
-  products, type Product, type InsertProduct,
-  mediaAssets, type MediaAsset, type InsertMediaAsset,
-  bookingServices, type BookingService, type InsertBookingService
+  customers, type Customer, type InsertCustomer
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
@@ -30,65 +27,6 @@ const pool = new Pool({
 });
 
 const db = drizzle(pool);
-
-// Run database migrations on startup
-export async function runSupabaseMigrations(): Promise<void> {
-  if (!supabaseDbUrl) {
-    console.log('Skipping Supabase migrations - no database URL configured');
-    return;
-  }
-  
-  try {
-    const client = await pool.connect();
-    try {
-      console.log('Running Supabase schema migrations...');
-      
-      // Add all potentially missing columns to websites table
-      await client.query(`
-        ALTER TABLE websites ADD COLUMN IF NOT EXISTS slug TEXT;
-        ALTER TABLE websites ADD COLUMN IF NOT EXISTS platform_slug TEXT;
-        ALTER TABLE websites ADD COLUMN IF NOT EXISTS platform_domain TEXT;
-        ALTER TABLE websites ADD COLUMN IF NOT EXISTS platform_url TEXT;
-        ALTER TABLE websites ADD COLUMN IF NOT EXISTS deployment_url TEXT;
-        ALTER TABLE websites ADD COLUMN IF NOT EXISTS deployment_id TEXT;
-        ALTER TABLE websites ADD COLUMN IF NOT EXISTS last_published_at TIMESTAMP;
-      `);
-      
-      // Backfill slugs with fallback for empty names
-      await client.query(`
-        UPDATE websites 
-        SET slug = COALESCE(
-          NULLIF(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(name, '[^a-zA-Z0-9]+', '-', 'g'), '^-+|-+$', '', 'g')), ''),
-          'website-' || LEFT(id::text, 8)
-        )
-        WHERE slug IS NULL OR slug = '';
-      `);
-      
-      // Set NOT NULL constraint on slug if not already set
-      await client.query(`
-        DO $$ BEGIN
-          ALTER TABLE websites ALTER COLUMN slug SET NOT NULL;
-        EXCEPTION WHEN others THEN NULL;
-        END $$;
-      `);
-      
-      // Add unique constraints if not exists
-      await client.query(`
-        DO $$ BEGIN
-          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'websites_slug_unique') THEN
-            ALTER TABLE websites ADD CONSTRAINT websites_slug_unique UNIQUE (slug);
-          END IF;
-        END $$;
-      `);
-      
-      console.log('Supabase schema migrations completed');
-    } finally {
-      client.release();
-    }
-  } catch (error: any) {
-    console.error('Supabase migration error:', error.message);
-  }
-}
 
 // Default builder state for new websites (component-based structure)
 const defaultBuilderState: BuilderStateData = {
@@ -179,12 +117,10 @@ export interface IStorage {
   
   // Website methods
   getWebsite(id: string): Promise<Website | undefined>;
-  getWebsiteBySlug(slug: string): Promise<Website | undefined>;
   getWebsitesByOwner(ownerId: string): Promise<Website[]>;
   createWebsite(website: InsertWebsite): Promise<Website>;
   updateWebsite(id: string, ownerId: string, data: Partial<InsertWebsite>): Promise<Website | undefined>;
   deleteWebsite(id: string, ownerId: string): Promise<boolean>;
-  generateUniqueSlug(baseSlug: string): Promise<string>;
   
   // Website inputs methods
   getWebsiteInputs(websiteId: string): Promise<WebsiteInputs | undefined>;
@@ -227,25 +163,6 @@ export class DatabaseStorage implements IStorage {
 
   async getWebsitesByOwner(ownerId: string): Promise<Website[]> {
     return await db.select().from(websites).where(eq(websites.ownerId, ownerId));
-  }
-
-  async getWebsiteBySlug(slug: string): Promise<Website | undefined> {
-    const result = await db.select().from(websites).where(eq(websites.slug, slug)).limit(1);
-    return result[0];
-  }
-
-  async generateUniqueSlug(baseSlug: string): Promise<string> {
-    let slug = baseSlug;
-    let suffix = 0;
-    
-    while (true) {
-      const existing = await this.getWebsiteBySlug(slug);
-      if (!existing) {
-        return slug;
-      }
-      suffix++;
-      slug = `${baseSlug}-${suffix}`;
-    }
   }
 
   async createWebsite(website: InsertWebsite): Promise<Website> {
@@ -343,20 +260,6 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getOrderByStripeSessionId(sessionId: string): Promise<Order | undefined> {
-    const result = await db.select().from(orders).where(eq(orders.stripeSessionId, sessionId));
-    return result[0];
-  }
-
-  async updateOrderByStripeSessionId(sessionId: string, data: Partial<InsertOrder>): Promise<Order | undefined> {
-    const result = await db
-      .update(orders)
-      .set({ ...data, updatedAt: new Date() } as any)
-      .where(eq(orders.stripeSessionId, sessionId))
-      .returning();
-    return result[0];
-  }
-
   // Bookings methods
   async getBookings(websiteId: string): Promise<Booking[]> {
     return db.select().from(bookings).where(eq(bookings.websiteId, websiteId));
@@ -403,132 +306,6 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(customers.id, customerId), eq(customers.websiteId, websiteId)))
       .returning();
     return result[0];
-  }
-
-  // Products methods
-  async getProducts(websiteId: string): Promise<Product[]> {
-    return db.select().from(products).where(eq(products.websiteId, websiteId));
-  }
-
-  async getActiveProducts(websiteId: string): Promise<Product[]> {
-    return db.select().from(products).where(
-      and(eq(products.websiteId, websiteId), eq(products.status, 'active'))
-    );
-  }
-
-  async getProduct(productId: string, websiteId?: string): Promise<Product | undefined> {
-    if (websiteId) {
-      const result = await db.select().from(products).where(
-        and(eq(products.id, productId), eq(products.websiteId, websiteId))
-      ).limit(1);
-      return result[0];
-    }
-    const result = await db.select().from(products).where(eq(products.id, productId)).limit(1);
-    return result[0];
-  }
-
-  async createProduct(product: InsertProduct): Promise<Product> {
-    const result = await db.insert(products).values(product as any).returning();
-    return result[0];
-  }
-
-  async updateProduct(productId: string, websiteId: string, data: Partial<InsertProduct>): Promise<Product | undefined> {
-    const result = await db
-      .update(products)
-      .set({ ...data, updatedAt: new Date() } as any)
-      .where(and(eq(products.id, productId), eq(products.websiteId, websiteId)))
-      .returning();
-    return result[0];
-  }
-
-  async deleteProduct(productId: string, websiteId: string): Promise<boolean> {
-    const result = await db
-      .delete(products)
-      .where(and(eq(products.id, productId), eq(products.websiteId, websiteId)))
-      .returning();
-    return result.length > 0;
-  }
-
-  // Media assets methods
-  async getMediaAssets(websiteId: string): Promise<MediaAsset[]> {
-    return db.select().from(mediaAssets).where(eq(mediaAssets.websiteId, websiteId));
-  }
-
-  async getMediaAsset(mediaId: string, websiteId?: string): Promise<MediaAsset | undefined> {
-    if (websiteId) {
-      const result = await db.select().from(mediaAssets).where(
-        and(eq(mediaAssets.id, mediaId), eq(mediaAssets.websiteId, websiteId))
-      ).limit(1);
-      return result[0];
-    }
-    const result = await db.select().from(mediaAssets).where(eq(mediaAssets.id, mediaId)).limit(1);
-    return result[0];
-  }
-
-  async createMediaAsset(asset: InsertMediaAsset): Promise<MediaAsset> {
-    const result = await db.insert(mediaAssets).values(asset as any).returning();
-    return result[0];
-  }
-
-  async updateMediaAsset(mediaId: string, websiteId: string, data: Partial<InsertMediaAsset>): Promise<MediaAsset | undefined> {
-    const result = await db
-      .update(mediaAssets)
-      .set({ ...data, updatedAt: new Date() } as any)
-      .where(and(eq(mediaAssets.id, mediaId), eq(mediaAssets.websiteId, websiteId)))
-      .returning();
-    return result[0];
-  }
-
-  async deleteMediaAsset(mediaId: string, websiteId: string): Promise<boolean> {
-    const result = await db
-      .delete(mediaAssets)
-      .where(and(eq(mediaAssets.id, mediaId), eq(mediaAssets.websiteId, websiteId)))
-      .returning();
-    return result.length > 0;
-  }
-
-  // Booking services methods
-  async getBookingServices(websiteId: string): Promise<BookingService[]> {
-    return db.select().from(bookingServices).where(eq(bookingServices.websiteId, websiteId));
-  }
-
-  async getActiveBookingServices(websiteId: string): Promise<BookingService[]> {
-    return db.select().from(bookingServices).where(
-      and(eq(bookingServices.websiteId, websiteId), eq(bookingServices.active, 'true'))
-    );
-  }
-
-  async getBookingService(serviceId: string, websiteId?: string): Promise<BookingService | undefined> {
-    if (websiteId) {
-      const result = await db.select().from(bookingServices).where(
-        and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId))
-      ).limit(1);
-      return result[0];
-    }
-    const result = await db.select().from(bookingServices).where(eq(bookingServices.id, serviceId)).limit(1);
-    return result[0];
-  }
-
-  async createBookingService(service: InsertBookingService): Promise<BookingService> {
-    const result = await db.insert(bookingServices).values(service as any).returning();
-    return result[0];
-  }
-
-  async updateBookingService(serviceId: string, websiteId: string, data: Partial<InsertBookingService>): Promise<BookingService | undefined> {
-    const result = await db
-      .update(bookingServices)
-      .set({ ...data, updatedAt: new Date() } as any)
-      .where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId)))
-      .returning();
-    return result[0];
-  }
-
-  async deleteBookingService(serviceId: string, websiteId: string): Promise<boolean> {
-    const result = await db
-      .delete(bookingServices)
-      .where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId)))
-      .returning();
-    return result.length > 0;
   }
 }
 

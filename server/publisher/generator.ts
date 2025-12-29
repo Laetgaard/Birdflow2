@@ -8,7 +8,6 @@ import {
   generateNextConfig,
   generateThemeJson,
   generateEnvExample,
-  generateNvmrc,
   generateSupabaseClient,
   generateServerSupabase,
   generateComponentRenderer,
@@ -18,7 +17,6 @@ import {
   generateRootLayout,
   generateGlobalsCss,
   generatePageFile,
-  generateCheckoutApiRoute,
 } from './templates';
 
 export type GeneratorConfig = {
@@ -36,7 +34,6 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   
   await fs.promises.mkdir(outputDir, { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app'), { recursive: true });
-  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout', 'create-session'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'components'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'lib'), { recursive: true });
   
@@ -53,7 +50,6 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'next.config.js', content: generateNextConfig() },
     { path: 'theme.json', content: generateThemeJson(theme) },
     { path: '.env.example', content: generateEnvExample() },
-    { path: '.nvmrc', content: generateNvmrc() },
     { path: 'lib/supabase.ts', content: generateSupabaseClient() },
     { path: 'lib/supabase-admin.ts', content: generateServerSupabase() },
     { path: 'components/ComponentRenderer.tsx', content: generateComponentRenderer() },
@@ -62,7 +58,6 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/ProductGrid.tsx', content: generateProductGrid() },
     { path: 'app/layout.tsx', content: generateRootLayout(siteName) },
     { path: 'app/globals.css', content: generateGlobalsCss() },
-    { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute() },
   ];
   
   for (const page of builderState.pages) {
