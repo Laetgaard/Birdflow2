@@ -6,11 +6,11 @@ export function generatePackageJson(siteName: string): string {
     version: '1.0.0',
     private: true,
     engines: {
-      node: '22.x',
+      node: '>=18.0.0',
     },
     scripts: {
       dev: 'next dev',
-      build: 'next build --no-lint',
+      build: 'next build',
       start: 'next start',
     },
     dependencies: {
@@ -30,7 +30,7 @@ export function generatePackageJson(siteName: string): string {
 }
 
 export function generateNvmrc(): string {
-  return '22';
+  return '20';
 }
 
 export function generateTsConfig(): string {
@@ -40,7 +40,7 @@ export function generateTsConfig(): string {
       lib: ['dom', 'dom.iterable', 'esnext'],
       allowJs: true,
       skipLibCheck: true,
-      strict: false,
+      strict: true,
       noEmit: true,
       esModuleInterop: true,
       module: 'esnext',
@@ -51,9 +51,6 @@ export function generateTsConfig(): string {
       incremental: true,
       plugins: [{ name: 'next' }],
       paths: { '@/*': ['./*'] },
-      noImplicitAny: false,
-      noUnusedLocals: false,
-      noUnusedParameters: false,
     },
     include: ['next-env.d.ts', '**/*.ts', '**/*.tsx', '.next/types/**/*.ts'],
     exclude: ['node_modules'],
@@ -68,32 +65,10 @@ const nextConfig = {
       { protocol: 'https', hostname: '**' },
     ],
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
 `;
-}
-
-export function generateEslintConfig(): string {
-  return JSON.stringify({
-    extends: ["next/core-web-vitals"],
-    rules: {},
-    ignorePatterns: ["**/*"]
-  }, null, 2);
-}
-
-export function generateVercelJson(): string {
-  return JSON.stringify({
-    buildCommand: "npm run build",
-    framework: null,
-    installCommand: "npm install"
-  }, null, 2);
 }
 
 export function generateThemeJson(theme: ThemeConfig): string {
@@ -855,9 +830,19 @@ export function generateProductGrid(): string {
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { supabase, websiteId } from '@/lib/supabase';
-import { useCart, type Product } from '@/lib/CartContext';
+
+type Product = {
+  id: string;
+  name: string;
+  description?: string;
+  price: string;
+  currency?: string;
+  image_url?: string;
+  category?: string;
+};
+
+type CartItem = { product: Product; quantity: number };
 
 type Props = {
   styles: {
@@ -873,13 +858,15 @@ type Props = {
   };
 };
 
-const dollarSign = '$';
-
 export default function ProductGrid({ styles, props }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [showCart, setShowCart] = useState(false);
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [fetchError, setFetchError] = useState(false);
-  const { addToCart, setIsCartOpen, clearCart } = useCart();
+  const [checkoutMessage, setCheckoutMessage] = useState('');
 
   const columns = props.columns || 3;
   const limit = props.productLimit || 6;
@@ -887,9 +874,13 @@ export default function ProductGrid({ styles, props }: Props) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('success') === 'true') {
-      clearCart();
+      setStatus('success');
+      setCheckoutMessage('Payment successful! Your order has been placed.');
+      setCart([]);
+    } else if (params.get('canceled') === 'true') {
+      setCheckoutMessage('Payment was canceled.');
     }
-  }, [clearCart]);
+  }, []);
 
   useEffect(() => {
     async function fetchProducts() {
@@ -916,20 +907,129 @@ export default function ProductGrid({ styles, props }: Props) {
     fetchProducts();
   }, [limit]);
 
-  const handleAddToCart = (e: React.MouseEvent, product: Product) => {
+  const addToCart = (product: Product) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+      }
+      return [...prev, { product, quantity: 1 }];
+    });
+  };
+
+  const removeFromCart = (productId: string) => {
+    setCart(prev => prev.filter(item => item.product.id !== productId));
+  };
+
+  const updateQuantity = (productId: string, quantity: number) => {
+    if (quantity < 1) {
+      removeFromCart(productId);
+      return;
+    }
+    setCart(prev => prev.map(item => 
+      item.product.id === productId ? { ...item, quantity } : item
+    ));
+  };
+
+  const total = cart.reduce((sum, item) => sum + parseFloat(item.product.price || '0') * item.quantity, 0);
+
+  const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    addToCart(product);
-    setIsCartOpen(true);
+    if (cart.length === 0) return;
+    
+    setStatus('loading');
+    setCheckoutMessage('');
+    
+    try {
+      const items = cart.map(item => ({
+        productId: item.product.id,
+        name: item.product.name,
+        price: parseFloat(item.product.price || '0'),
+        quantity: item.quantity,
+      }));
+
+      const response = await fetch('/api/checkout/create-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          websiteId,
+          items,
+          customerEmail,
+          successUrl: window.location.href.split('?')[0] + '?success=true',
+          cancelUrl: window.location.href.split('?')[0] + '?canceled=true',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setStatus('error');
+        setCheckoutMessage(data.message || 'Checkout failed');
+      }
+    } catch (err) {
+      console.error('Checkout error:', err);
+      setStatus('error');
+      setCheckoutMessage('Failed to start checkout');
+    }
   };
 
   return (
     <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '60px 24px' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ marginBottom: '32px', textAlign: 'center' }}>
-          <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
-          {props.description && <p style={{ opacity: 0.7, marginTop: '8px' }}>{props.description}</p>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+          <div>
+            <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
+            {props.description && <p style={{ opacity: 0.7, marginTop: '8px' }}>{props.description}</p>}
+          </div>
+          <button onClick={() => setShowCart(!showCart)} style={{ padding: '10px 20px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', position: 'relative' }}>
+            🛒 Cart ({cart.reduce((sum, item) => sum + item.quantity, 0)})
+          </button>
         </div>
+
+        {checkoutMessage && (
+          <div style={{ marginBottom: '24px', padding: '16px', borderRadius: '8px', backgroundColor: status === 'success' ? '#dcfce7' : '#fef2f2', color: status === 'success' ? '#166534' : '#991b1b', textAlign: 'center' }}>
+            {checkoutMessage}
+          </div>
+        )}
+        
+        {showCart && (
+          <div style={{ marginBottom: '32px', padding: '24px', backgroundColor: '#f8f9fa', borderRadius: '12px' }}>
+            <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '16px', color: '#1a1a1a' }}>Shopping Cart</h3>
+            {cart.length === 0 ? (
+              <p style={{ color: '#1a1a1a' }}>Your cart is empty.</p>
+            ) : (
+              <>
+                {cart.map(item => (
+                  <div key={item.product.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', color: '#1a1a1a', padding: '12px', backgroundColor: '#fff', borderRadius: '8px' }}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontWeight: 500 }}>{item.product.name}</span>
+                      <span style={{ marginLeft: '12px', opacity: 0.6 }}>\${parseFloat(item.product.price || '0').toFixed(2)} each</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} style={{ width: '28px', height: '28px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', backgroundColor: '#fff' }}>-</button>
+                      <span style={{ minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} style={{ width: '28px', height: '28px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', backgroundColor: '#fff' }}>+</button>
+                      <span style={{ marginLeft: '16px', fontWeight: 600, minWidth: '60px', textAlign: 'right' }}>\${(parseFloat(item.product.price || '0') * item.quantity).toFixed(2)}</span>
+                      <button onClick={() => removeFromCart(item.product.id)} style={{ marginLeft: '8px', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>×</button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ borderTop: '2px solid #ddd', paddingTop: '16px', marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#1a1a1a' }}>
+                  <span style={{ fontSize: '18px', fontWeight: 700 }}>Total:</span>
+                  <span style={{ fontSize: '24px', fontWeight: 700 }}>\${total.toFixed(2)}</span>
+                </div>
+                <form onSubmit={handleCheckout} style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <input type="email" placeholder="Your email for order confirmation" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} required style={{ padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px' }} />
+                  <button type="submit" disabled={status === 'loading' || cart.length === 0} style={{ padding: '14px', backgroundColor: status === 'loading' ? '#9ca3af' : '#22c55e', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '16px', cursor: status === 'loading' ? 'not-allowed' : 'pointer' }}>
+                    {status === 'loading' ? 'Redirecting to checkout...' : 'Checkout with Stripe'}
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+        )}
         
         {loading ? (
           <div style={{ textAlign: 'center', padding: '40px' }}>Loading products...</div>
@@ -938,26 +1038,24 @@ export default function ProductGrid({ styles, props }: Props) {
         ) : products.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>No products available.</div>
         ) : (
-          <div className="product-grid" style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: '24px' }}>
             {products.map(product => (
-              <Link key={product.id} href={\`/product/\${product.id}\`} style={{ textDecoration: 'none' }}>
-                <div style={{ backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', transition: 'transform 0.2s, box-shadow 0.2s', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)'; }} onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; }}>
-                  {product.image_url ? (
-                    <img src={product.image_url} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
-                  ) : (
-                    <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: '#f8f9fa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>📦</div>
-                  )}
-                  <div style={{ padding: '16px', color: '#1a1a1a' }}>
-                    <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
-                    {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
-                    {product.description && <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{product.description}</p>}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '20px', fontWeight: 700 }}>{dollarSign}{parseFloat(product.price).toFixed(2)}</span>
-                      <button onClick={(e) => handleAddToCart(e, product)} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
-                    </div>
+              <div key={product.id} style={{ backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                {product.image_url ? (
+                  <img src={product.image_url} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: '#f8f9fa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>📦</div>
+                )}
+                <div style={{ padding: '16px', color: '#1a1a1a' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
+                  {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
+                  {product.description && <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px' }}>{product.description}</p>}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '20px', fontWeight: 700 }}>\${parseFloat(product.price).toFixed(2)}</span>
+                    <button onClick={() => addToCart(product)} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
                   </div>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}
@@ -971,7 +1069,6 @@ export default function ProductGrid({ styles, props }: Props) {
 export function generateRootLayout(siteName: string): string {
   return `import type { Metadata } from 'next';
 import './globals.css';
-import { CartProvider } from '@/lib/CartContext';
 
 export const metadata: Metadata = {
   title: '${siteName}',
@@ -981,11 +1078,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        <CartProvider>
-          {children}
-        </CartProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
@@ -1008,89 +1101,6 @@ a {
   color: inherit;
   text-decoration: none;
 }
-
-/* Cart drawer slide animation */
-.cart-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  width: 100%;
-  max-width: 420px;
-  background: #fff;
-  box-shadow: -4px 0 20px rgba(0,0,0,0.15);
-  transform: translateX(100%);
-  transition: transform 0.3s ease;
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-}
-
-.cart-drawer.open {
-  transform: translateX(0);
-}
-
-.cart-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.4);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.3s, visibility 0.3s;
-  z-index: 999;
-}
-
-.cart-overlay.open {
-  opacity: 1;
-  visibility: visible;
-}
-
-/* Mobile menu */
-.mobile-menu {
-  position: fixed;
-  top: 64px;
-  left: 0;
-  right: 0;
-  background: #fff;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-  transform: translateY(-100%);
-  opacity: 0;
-  transition: transform 0.3s ease, opacity 0.3s ease;
-  z-index: 998;
-}
-
-.mobile-menu.open {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-/* Responsive navigation - Desktop first */
-.burger-btn {
-  display: none;
-}
-
-.desktop-nav {
-  display: flex;
-}
-
-/* Mobile: show burger, hide desktop nav */
-@media (max-width: 768px) {
-  .burger-btn {
-    display: block !important;
-  }
-  .desktop-nav {
-    display: none !important;
-  }
-  .product-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-}
-
-@media (max-width: 480px) {
-  .product-grid {
-    grid-template-columns: 1fr !important;
-  }
-}
 `;
 }
 
@@ -1098,8 +1108,7 @@ export function generatePageFile(page: PageData, websiteId: string): string {
   const componentsImport = `import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
-import ProductGrid from '@/components/ProductGrid';
-import SiteShell from '@/components/SiteShell';`;
+import ProductGrid from '@/components/ProductGrid';`;
 
   const componentsJson = JSON.stringify(page.components, null, 2);
   
@@ -1108,548 +1117,22 @@ import SiteShell from '@/components/SiteShell';`;
 const pageComponents = ${componentsJson};
 
 export default function Page() {
-  // Extract header component for SiteShell
-  const headerComponent = pageComponents.find((c: any) => c.type === 'header');
-  const navItems = headerComponent?.props?.items || [];
-  const siteName = headerComponent?.props?.title || '';
-  
   return (
-    <>
-      <SiteShell siteName={siteName} navItems={navItems} />
-      <main style={{ paddingTop: '64px' }}>
-        {pageComponents.map((component: any) => {
-          if (component.type === 'header') return null; // Header is now in SiteShell
-          switch (component.type) {
-            case 'contact-form':
-              return <ContactForm key={component.id} props={component.props} styles={component.styles} />;
-            case 'booking-form':
-            case 'booking':
-              return <BookingForm key={component.id} props={component.props} styles={component.styles} />;
-            case 'product-grid':
-              return <ProductGrid key={component.id} props={component.props} styles={component.styles} />;
-            default:
-              return <ComponentRenderer key={component.id} component={component} />;
-          }
-        })}
-      </main>
-    </>
-  );
-}
-`;
-}
-
-export function generateCartContext(): string {
-  return `'use client';
-
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
-const WEBSITE_ID = process.env.NEXT_PUBLIC_WEBSITE_ID || 'default';
-const CART_KEY = \`cart-\${WEBSITE_ID}\`;
-
-export type Product = {
-  id: string;
-  name: string;
-  description?: string;
-  price: string;
-  currency?: string;
-  image_url?: string;
-  category?: string;
-};
-
-export type CartItem = {
-  product: Product;
-  quantity: number;
-};
-
-type CartContextType = {
-  cart: CartItem[];
-  addToCart: (product: Product) => void;
-  removeFromCart: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
-  clearCart: () => void;
-  isCartOpen: boolean;
-  setIsCartOpen: (open: boolean) => void;
-  cartTotal: number;
-  cartCount: number;
-};
-
-const CartContext = createContext<CartContextType | undefined>(undefined);
-
-export function CartProvider({ children }: { children: ReactNode }) {
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [isCartOpen, setIsCartOpen] = useState(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(CART_KEY);
-    if (saved) {
-      try {
-        setCart(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load cart');
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  }, [cart]);
-
-  const addToCart = (product: Product) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) {
-        return prev.map(item => 
-          item.product.id === product.id 
-            ? { ...item, quantity: item.quantity + 1 } 
-            : item
-        );
-      }
-      return [...prev, { product, quantity: 1 }];
-    });
-  };
-
-  const removeFromCart = (productId: string) => {
-    setCart(prev => prev.filter(item => item.product.id !== productId));
-  };
-
-  const updateQuantity = (productId: string, quantity: number) => {
-    if (quantity < 1) {
-      removeFromCart(productId);
-      return;
-    }
-    setCart(prev => prev.map(item => 
-      item.product.id === productId ? { ...item, quantity } : item
-    ));
-  };
-
-  const clearCart = () => setCart([]);
-
-  const cartTotal = cart.reduce(
-    (sum, item) => sum + parseFloat(item.product.price || '0') * item.quantity, 
-    0
-  );
-
-  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-
-  return (
-    <CartContext.Provider value={{
-      cart,
-      addToCart,
-      removeFromCart,
-      updateQuantity,
-      clearCart,
-      isCartOpen,
-      setIsCartOpen,
-      cartTotal,
-      cartCount,
-    }}>
-      {children}
-    </CartContext.Provider>
-  );
-}
-
-export function useCart() {
-  const context = useContext(CartContext);
-  if (!context) {
-    throw new Error('useCart must be used within CartProvider');
-  }
-  return context;
-}
-`;
-}
-
-export function generateSiteShell(): string {
-  return `'use client';
-
-import React, { useState } from 'react';
-import Link from 'next/link';
-import { useCart } from '@/lib/CartContext';
-
-type NavItem = {
-  id: string;
-  title: string;
-  description: string;
-};
-
-type SiteShellProps = {
-  siteName: string;
-  navItems: NavItem[];
-};
-
-const dollarSign = '$';
-
-export default function SiteShell({ siteName, navItems }: SiteShellProps) {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { cart, cartCount, cartTotal, isCartOpen, setIsCartOpen, updateQuantity, removeFromCart } = useCart();
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [checkoutStatus, setCheckoutStatus] = useState<'idle' | 'loading' | 'error'>('idle');
-
-  const handleCheckout = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (cart.length === 0 || !customerEmail) return;
-    
-    setCheckoutStatus('loading');
-    try {
-      const items = cart.map(item => ({
-        productId: item.product.id,
-        name: item.product.name,
-        price: parseFloat(item.product.price || '0'),
-        quantity: item.quantity,
-      }));
-
-      const response = await fetch('/api/checkout/create-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items,
-          customerEmail,
-          successUrl: window.location.origin + '?success=true',
-          cancelUrl: window.location.origin + '?canceled=true',
-        }),
-      });
-
-      const data = await response.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        setCheckoutStatus('error');
-      }
-    } catch {
-      setCheckoutStatus('error');
-    }
-  };
-
-  return (
-    <>
-      <header style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: '64px',
-        backgroundColor: '#fff',
-        borderBottom: '1px solid #e5e7eb',
-        zIndex: 100,
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 24px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', maxWidth: '1200px', margin: '0 auto' }}>
-          <Link href="/" style={{ fontSize: '20px', fontWeight: 700, color: '#1a1a1a' }}>
-            {siteName || 'Site'}
-          </Link>
-
-          <nav style={{ display: 'flex', gap: '32px', alignItems: 'center' }} className="desktop-nav">
-            {navItems.map(item => (
-              <Link key={item.id} href={item.description || '#'} style={{ color: '#4b5563', fontSize: '15px', fontWeight: 500 }}>
-                {item.title}
-              </Link>
-            ))}
-          </nav>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button
-              onClick={() => setIsCartOpen(true)}
-              style={{
-                position: 'relative',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '8px',
-                fontSize: '24px',
-              }}
-              aria-label="Open cart"
-            >
-              🛒
-              {cartCount > 0 && (
-                <span style={{
-                  position: 'absolute',
-                  top: 0,
-                  right: 0,
-                  backgroundColor: '#ef4444',
-                  color: '#fff',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  borderRadius: '50%',
-                  minWidth: '20px',
-                  height: '20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  {cartCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '8px',
-                fontSize: '24px',
-              }}
-              className="burger-btn"
-              aria-label="Toggle menu"
-            >
-              {mobileMenuOpen ? '✕' : '☰'}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className={\`mobile-menu \${mobileMenuOpen ? "open" : ""}\`}>
-        <nav style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {navItems.map(item => (
-            <Link 
-              key={item.id} 
-              href={item.description || '#'} 
-              onClick={() => setMobileMenuOpen(false)}
-              style={{ color: '#1a1a1a', fontSize: '16px', fontWeight: 500, padding: '8px 0' }}
-            >
-              {item.title}
-            </Link>
-          ))}
-        </nav>
-      </div>
-
-      <div 
-        className={\`cart-overlay \${isCartOpen ? "open" : ""}\`}
-        onClick={() => setIsCartOpen(false)}
-      />
-
-      <div className={\`cart-drawer \${isCartOpen ? "open" : ""}\`}>
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#1a1a1a' }}>Your Cart ({cartCount})</h2>
-          <button 
-            onClick={() => setIsCartOpen(false)}
-            style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#6b7280' }}
-          >
-            ✕
-          </button>
-        </div>
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
-          {cart.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '48px 0', color: '#9ca3af' }}>
-              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🛒</div>
-              <p>Your cart is empty</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {cart.map(item => (
-                <div key={item.product.id} style={{ display: 'flex', gap: '16px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '12px' }}>
-                  {item.product.image_url ? (
-                    <img src={item.product.image_url} alt={item.product.name} style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px' }} />
-                  ) : (
-                    <div style={{ width: '80px', height: '80px', backgroundColor: '#e5e7eb', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>📦</div>
-                  )}
-                  <div style={{ flex: 1 }}>
-                    <h3 style={{ fontWeight: 600, color: '#1a1a1a', marginBottom: '4px' }}>{item.product.name}</h3>
-                    <p style={{ color: '#6b7280', fontSize: '14px', marginBottom: '8px' }}>{dollarSign}{parseFloat(item.product.price || '0').toFixed(2)}</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} style={{ width: '28px', height: '28px', border: '1px solid #d1d5db', borderRadius: '6px', backgroundColor: '#fff', cursor: 'pointer' }}>−</button>
-                      <span style={{ minWidth: '24px', textAlign: 'center', color: '#1a1a1a' }}>{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} style={{ width: '28px', height: '28px', border: '1px solid #d1d5db', borderRadius: '6px', backgroundColor: '#fff', cursor: 'pointer' }}>+</button>
-                      <button onClick={() => removeFromCart(item.product.id)} style={{ marginLeft: 'auto', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px' }}>Remove</button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {cart.length > 0 && (
-          <div style={{ padding: '20px 24px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <span style={{ fontSize: '16px', fontWeight: 500, color: '#4b5563' }}>Subtotal</span>
-              <span style={{ fontSize: '20px', fontWeight: 700, color: '#1a1a1a' }}>{dollarSign}{cartTotal.toFixed(2)}</span>
-            </div>
-            <form onSubmit={handleCheckout}>
-              <input
-                type="email"
-                placeholder="Enter your email"
-                value={customerEmail}
-                onChange={(e) => setCustomerEmail(e.target.value)}
-                required
-                style={{ width: '100%', padding: '12px 16px', marginBottom: '12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '16px' }}
-              />
-              <button
-                type="submit"
-                disabled={checkoutStatus === 'loading'}
-                style={{
-                  width: '100%',
-                  padding: '14px',
-                  backgroundColor: checkoutStatus === 'loading' ? '#9ca3af' : '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: 600,
-                  fontSize: '16px',
-                  cursor: checkoutStatus === 'loading' ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {checkoutStatus === 'loading' ? 'Redirecting...' : 'Checkout with Stripe'}
-              </button>
-              {checkoutStatus === 'error' && (
-                <p style={{ color: '#ef4444', fontSize: '14px', marginTop: '8px', textAlign: 'center' }}>Checkout failed. Please try again.</p>
-              )}
-            </form>
-          </div>
-        )}
-      </div>
-
-      <style dangerouslySetInnerHTML={{ __html: \`
-        @media (min-width: 769px) {
-          .burger-btn { display: none !important; }
-          .mobile-menu { display: none !important; }
+    <main>
+      {pageComponents.map((component: any) => {
+        switch (component.type) {
+          case 'contact-form':
+            return <ContactForm key={component.id} props={component.props} styles={component.styles} />;
+          case 'booking-form':
+          case 'booking':
+            return <BookingForm key={component.id} props={component.props} styles={component.styles} />;
+          case 'product-grid':
+            return <ProductGrid key={component.id} props={component.props} styles={component.styles} />;
+          default:
+            return <ComponentRenderer key={component.id} component={component} />;
         }
-        @media (max-width: 768px) {
-          .desktop-nav { display: none !important; }
-          .burger-btn { display: block !important; }
-        }
-      \` }} />
-    </>
-  );
-}
-`;
-}
-
-export function generateProductDetailPage(): string {
-  return `import { notFound } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
-import ProductDetailClient from '@/components/ProductDetailClient';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const websiteId = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
-
-type PageProps = {
-  params: Promise<{ productId: string }>;
-};
-
-export default async function ProductPage({ params }: PageProps) {
-  const { productId } = await params;
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
-  
-  const { data: product, error } = await supabase
-    .from('products')
-    .select('*')
-    .eq('id', productId)
-    .eq('website_id', websiteId)
-    .eq('status', 'active')
-    .single();
-
-  if (error || !product) {
-    notFound();
-  }
-
-  return <ProductDetailClient product={product} />;
-}
-`;
-}
-
-export function generateProductDetailClient(): string {
-  return `'use client';
-
-import React from 'react';
-import Link from 'next/link';
-import { useCart, type Product } from '@/lib/CartContext';
-
-type ProductDetailClientProps = {
-  product: Product;
-};
-
-const dollarSign = '$';
-
-export default function ProductDetailClient({ product }: ProductDetailClientProps) {
-  const { addToCart, setIsCartOpen } = useCart();
-
-  const handleAddToCart = () => {
-    addToCart(product);
-    setIsCartOpen(true);
-  };
-
-  return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 24px' }}>
-      <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#6b7280', marginBottom: '32px', fontSize: '14px' }}>
-        ← Back to products
-      </Link>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '48px', alignItems: 'start' }} className="product-detail-grid">
-        <div style={{ position: 'sticky', top: '100px' }}>
-          {product.image_url ? (
-            <img 
-              src={product.image_url} 
-              alt={product.name} 
-              style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover', borderRadius: '16px' }} 
-            />
-          ) : (
-            <div style={{ width: '100%', aspectRatio: '1/1', backgroundColor: '#f3f4f6', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '80px' }}>
-              📦
-            </div>
-          )}
-        </div>
-
-        <div>
-          {product.category && (
-            <span style={{ display: 'inline-block', padding: '4px 12px', backgroundColor: '#f3f4f6', borderRadius: '20px', fontSize: '12px', color: '#6b7280', marginBottom: '16px' }}>
-              {product.category}
-            </span>
-          )}
-          
-          <h1 style={{ fontSize: '36px', fontWeight: 700, color: '#1a1a1a', marginBottom: '16px' }}>
-            {product.name}
-          </h1>
-          
-          <p style={{ fontSize: '32px', fontWeight: 700, color: '#4f46e5', marginBottom: '24px' }}>
-            {dollarSign}{parseFloat(product.price).toFixed(2)}
-          </p>
-          
-          {product.description && (
-            <p style={{ fontSize: '16px', lineHeight: 1.7, color: '#4b5563', marginBottom: '32px' }}>
-              {product.description}
-            </p>
-          )}
-
-          <button
-            onClick={handleAddToCart}
-            style={{
-              width: '100%',
-              padding: '16px 32px',
-              backgroundColor: '#4f46e5',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '12px',
-              fontSize: '18px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              marginBottom: '16px',
-            }}
-          >
-            Add to Cart
-          </button>
-
-          <div style={{ padding: '24px', backgroundColor: '#f9fafb', borderRadius: '12px', marginTop: '24px' }}>
-            <h3 style={{ fontWeight: 600, marginBottom: '12px', color: '#1a1a1a' }}>Shipping & Returns</h3>
-            <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.6 }}>
-              Free shipping on orders over {dollarSign}50. Easy returns within 30 days.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <style dangerouslySetInnerHTML={{ __html: \`
-        @media (max-width: 768px) {
-          .product-detail-grid {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      \` }} />
-    </div>
+      })}
+    </main>
   );
 }
 `;

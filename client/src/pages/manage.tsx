@@ -23,7 +23,7 @@ import {
   Globe, ArrowLeft, Loader2, Settings, User, LogOut,
   ShoppingCart, Calendar, Mail, Users, Palette,
   Package, Clock, CheckCircle, XCircle, AlertCircle,
-  Plus, Pencil, Trash2, DollarSign, Image, CreditCard, ExternalLink
+  Plus, Pencil, Trash2, DollarSign, Image
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -153,7 +153,6 @@ export default function ManagePage() {
   const [bookingSearch, setBookingSearch] = useState('');
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [isBookingDetailOpen, setIsBookingDetailOpen] = useState(false);
-  const [stripeConfigured, setStripeConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -216,18 +215,6 @@ export default function ManagePage() {
           headers: { "Authorization": `Bearer ${session.access_token}` },
         });
         if (servicesRes.ok) setBookingServices(await servicesRes.json());
-
-        try {
-          const stripeRes = await fetch('/api/stripe/status');
-          if (stripeRes.ok) {
-            const stripeData = await stripeRes.json();
-            setStripeConfigured(stripeData.configured);
-          } else {
-            setStripeConfigured(false);
-          }
-        } catch {
-          setStripeConfigured(false);
-        }
 
       } catch (error: any) {
         toast({
@@ -1601,154 +1588,41 @@ export default function ManagePage() {
           </TabsContent>
 
           <TabsContent value="settings">
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Website Settings</CardTitle>
-                  <CardDescription>Configure your website settings and preferences</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <Label>Website Name</Label>
-                      <Input value={website.name} readOnly data-testid="input-website-name" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Status</Label>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={website.status === 'published' ? 'default' : 'secondary'}>
-                          {website.status}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          {website.status === 'draft' ? 'Your website is not yet published.' : 'Your website is live!'}
-                        </span>
-                      </div>
-                    </div>
-                    {website.platformUrl && (
-                      <div className="space-y-2">
-                        <Label>Live URL</Label>
-                        <div className="flex items-center gap-2">
-                          <Input value={website.platformUrl} readOnly data-testid="input-platform-url" />
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => window.open(website.platformUrl, '_blank')}
-                            data-testid="button-open-live-site"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Website Settings</CardTitle>
+                <CardDescription>Configure your website settings and preferences</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <Label>Website Name</Label>
+                    <Input value={website.name} readOnly />
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                      <CreditCard className="w-5 h-5 text-purple-600" />
-                    </div>
-                    <div>
-                      <CardTitle>Payment Processing</CardTitle>
-                      <CardDescription>Stripe integration for accepting payments</CardDescription>
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={website.status === 'published' ? 'default' : 'secondary'}>
+                        {website.status}
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        {website.status === 'draft' ? 'Your website is not yet published.' : 'Your website is live!'}
+                      </span>
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {stripeConfigured === null ? (
-                      <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                        <div className="flex items-center gap-2 text-gray-600">
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          <span>Checking Stripe configuration...</span>
-                        </div>
-                      </div>
-                    ) : stripeConfigured ? (
-                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                        <div className="flex items-center gap-2 text-green-700 font-medium mb-2">
-                          <CheckCircle className="w-5 h-5" />
-                          Stripe Configured
-                        </div>
-                        <p className="text-sm text-green-600">
-                          Your website is connected to Stripe for payment processing. 
-                          Customers can add products to their cart and checkout securely.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                        <div className="flex items-center gap-2 text-amber-700 font-medium mb-2">
-                          <AlertCircle className="w-5 h-5" />
-                          Stripe Not Configured
-                        </div>
-                        <p className="text-sm text-amber-600">
-                          Payment processing is not set up. To accept payments, configure the 
-                          Stripe integration in the Integrations panel.
-                        </p>
-                      </div>
-                    )}
-                    
-                    <div className="space-y-3">
-                      <h4 className="font-medium text-sm">How payments work:</h4>
-                      <ul className="space-y-2 text-sm text-muted-foreground">
-                        <li className="flex items-start gap-2">
-                          <ShoppingCart className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                          <span>Customers browse your products and add items to their cart</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <CreditCard className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                          <span>Secure checkout powered by Stripe processes the payment</span>
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <Package className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                          <span>Orders appear in your Orders tab for fulfillment</span>
-                        </li>
-                      </ul>
-                    </div>
-
-                    {stripeConfigured && (
-                      <>
-                        <Separator />
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-sm">Manage your Stripe account</p>
-                            <p className="text-xs text-muted-foreground">View transactions, payouts, and settings</p>
-                          </div>
-                          <Button 
-                            variant="outline" 
-                            onClick={() => window.open('https://dashboard.stripe.com', '_blank')}
-                            data-testid="button-open-stripe-dashboard"
-                          >
-                            <ExternalLink className="w-4 h-4 mr-2" />
-                            Stripe Dashboard
-                          </Button>
-                        </div>
-                      </>
-                    )}
+                  <Separator />
+                  <div className="text-sm text-muted-foreground">
+                    <p>More settings will be available here including:</p>
+                    <ul className="list-disc list-inside mt-2 space-y-1">
+                      <li>Custom domain configuration</li>
+                      <li>SEO settings</li>
+                      <li>Analytics integration</li>
+                      <li>Email notification preferences</li>
+                    </ul>
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Coming Soon</CardTitle>
-                  <CardDescription>Additional features in development</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2 text-sm text-muted-foreground">
-                    <li className="flex items-center gap-2">
-                      <Globe className="w-4 h-4" />
-                      Custom domain configuration
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Mail className="w-4 h-4" />
-                      Email notification preferences
-                    </li>
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </main>
