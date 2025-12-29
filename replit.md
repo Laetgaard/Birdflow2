@@ -154,6 +154,10 @@ Pre-built website templates that users can select when creating a new website:
 
 ## Recent Changes
 
+- **2024-12-29**: Enhanced multi-tenant publishing - "View Live" button now links to {slug}.bird-flow.com subdomain
+- **2024-12-29**: Added quick service toggle in manage page - activate/deactivate booking services with Switch component
+- **2024-12-29**: Builder and manage pages now display platformUrl after publishing for easy access to live site
+- **2024-12-29**: Fixed platformDomain storage in database after publishing for complete deployment metadata
 - **2024-12-28**: Added customizable pre-built website templates with 6 starter templates (business, portfolio, ecommerce, services, landing)
 - **2024-12-28**: Created multi-step website creation wizard with template selection UI
 - **2024-12-28**: Added real-time booking updates via Supabase Realtime subscription in manage dashboard
