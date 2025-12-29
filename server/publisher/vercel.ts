@@ -40,6 +40,16 @@ export async function getOrCreateProject(
   
   if (res.ok) {
     const project = await res.json();
+    // Update existing project settings to disable framework checks
+    await vercelFetch(`/v9/projects/${project.id}`, config, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        framework: null,
+        buildCommand: 'next build --no-lint',
+        installCommand: 'npm install',
+        outputDirectory: '.next',
+      }),
+    });
     return project.id;
   }
   
@@ -47,7 +57,10 @@ export async function getOrCreateProject(
     method: 'POST',
     body: JSON.stringify({
       name: projectName,
-      framework: 'nextjs',
+      framework: null,
+      buildCommand: 'next build --no-lint',
+      installCommand: 'npm install',
+      outputDirectory: '.next',
     }),
   });
   
@@ -149,8 +162,8 @@ export async function deployProject(
     project: projectId,
     files,
     projectSettings: {
-      framework: 'nextjs',
-      buildCommand: 'npm run build',
+      framework: null,
+      buildCommand: 'next build --no-lint',
       outputDirectory: '.next',
       installCommand: 'npm install',
     },

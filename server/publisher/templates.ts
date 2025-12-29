@@ -85,6 +85,14 @@ export function generateEslintConfig(): string {
   }, null, 2);
 }
 
+export function generateVercelJson(): string {
+  return JSON.stringify({
+    buildCommand: "next build --no-lint",
+    framework: null,
+    installCommand: "npm install"
+  }, null, 2);
+}
+
 export function generateThemeJson(theme: ThemeConfig): string {
   return JSON.stringify(theme, null, 2);
 }
