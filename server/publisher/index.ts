@@ -1,6 +1,9 @@
 import { generateNextJsProject, cleanupProject } from './generator';
-import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, type VercelConfig } from './vercel';
+import { deployProject, waitForDeployment, ensureDomainExists, aliasDeployment, type VercelConfig } from './vercel';
 import type { BuilderStateData } from '../../shared/schema';
+import { generatePlatformSlug } from '../../shared/schema';
+
+const PLATFORM_DOMAIN = 'bird-flow.com';
 
 export type PublishConfig = {
   websiteId: string;
@@ -12,13 +15,17 @@ export type PublishConfig = {
   stripeSecretKey?: string;
   vercelToken: string;
   vercelTeamId?: string;
-  customDomain?: string;
+  vercelProjectId: string;
+  existingPlatformSlug?: string;
 };
 
 export type PublishResult = {
   success: boolean;
   deploymentUrl?: string;
   deploymentId?: string;
+  platformSlug?: string;
+  platformDomain?: string;
+  platformUrl?: string;
   error?: string;
 };
 
@@ -26,7 +33,8 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
   let projectDir: string | null = null;
   
   try {
-    const projectName = `site-${config.websiteId}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const slug = config.existingPlatformSlug || `${generatePlatformSlug(config.siteName)}-${config.websiteId.slice(0, 8)}`;
+    const platformSubdomain = `${slug}.${PLATFORM_DOMAIN}`;
     
     projectDir = await generateNextJsProject({
       websiteId: config.websiteId,
@@ -41,8 +49,6 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       teamId: config.vercelTeamId,
     };
     
-    const projectId = await getOrCreateProject(projectName, vercelConfig);
-    
     const envVars: Record<string, string> = {
       NEXT_PUBLIC_SUPABASE_URL: config.supabaseUrl,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: config.supabaseAnonKey,
@@ -54,20 +60,43 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       envVars.STRIPE_SECRET_KEY = config.stripeSecretKey;
     }
     
-    await setProjectEnvVars(projectId, vercelConfig, envVars);
-    
-    const deployment = await deployProject(projectId, projectDir, projectName, vercelConfig);
+    const deployment = await deployProject(
+      config.vercelProjectId,
+      projectDir,
+      `site-${config.websiteId}`,
+      vercelConfig,
+      envVars
+    );
     
     const readyDeployment = await waitForDeployment(deployment.id, vercelConfig);
     
-    if (config.customDomain) {
-      await addCustomDomain(projectId, config.customDomain, vercelConfig);
+    const domainResult = await ensureDomainExists(
+      config.vercelProjectId,
+      platformSubdomain,
+      vercelConfig
+    );
+    
+    if (!domainResult.success) {
+      console.warn(`Domain setup warning: ${domainResult.error}`);
+    }
+    
+    const aliasResult = await aliasDeployment(
+      readyDeployment.id,
+      platformSubdomain,
+      vercelConfig
+    );
+    
+    if (!aliasResult.success) {
+      console.warn(`Alias setup warning: ${aliasResult.error}`);
     }
     
     return {
       success: true,
       deploymentUrl: readyDeployment.url,
       deploymentId: readyDeployment.id,
+      platformSlug: slug,
+      platformDomain: platformSubdomain,
+      platformUrl: `https://${platformSubdomain}`,
     };
   } catch (error) {
     console.error('Publish error:', error);
