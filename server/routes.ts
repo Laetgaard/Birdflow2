@@ -500,15 +500,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Name and setup type are required" });
       }
 
-      // Generate unique slug from name
-      const { generateWebsiteSlug } = await import("@shared/schema");
-      const baseSlug = generateWebsiteSlug(name);
-      const slug = await storage.generateUniqueSlug(baseSlug);
-
       const website = await storage.createWebsite({
         ownerId: user.id,
         name,
-        slug,
         setupType,
         status: "draft",
       });
@@ -1060,15 +1054,10 @@ export async function registerRoutes(
       }
 
       const vercelToken = process.env.VERCEL_TOKEN;
-      const vercelProjectId = process.env.VERCEL_PROJECT_ID;
       const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
       if (!vercelToken) {
         return res.status(400).json({ message: "Vercel token not configured. Please add VERCEL_TOKEN to secrets." });
-      }
-
-      if (!vercelProjectId) {
-        return res.status(400).json({ message: "Vercel project ID not configured. Please add VERCEL_PROJECT_ID to environment variables." });
       }
 
       if (!supabaseUrl || !supabaseAnonKey) {
@@ -1095,8 +1084,6 @@ export async function registerRoutes(
         stripeSecretKey,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
-        vercelProjectId,
-        existingPlatformSlug: website.platformSlug || undefined,
       });
 
       if (result.success) {
@@ -1104,16 +1091,11 @@ export async function registerRoutes(
           status: 'published',
           deploymentUrl: result.deploymentUrl,
           deploymentId: result.deploymentId,
-          platformSlug: result.platformSlug,
-          platformDomain: result.platformDomain,
-          platformUrl: result.platformUrl,
         } as any);
 
         res.json({
           success: true,
           deploymentUrl: result.deploymentUrl,
-          platformUrl: result.platformUrl,
-          platformDomain: result.platformDomain,
           message: stripeWarning ? `Website published successfully. Warning: ${stripeWarning}` : "Website published successfully",
           warning: stripeWarning,
         });

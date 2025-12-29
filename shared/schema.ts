@@ -24,36 +24,14 @@ export const websites = pgTable("websites", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ownerId: varchar("owner_id").notNull(),
   name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
   status: text("status").notNull().default("draft"),
   setupType: text("setup_type").notNull(),
   deploymentUrl: text("deployment_url"),
   deploymentId: text("deployment_id"),
-  platformSlug: text("platform_slug").unique(),
-  platformDomain: text("platform_domain").unique(),
-  platformUrl: text("platform_url"),
   lastPublishedAt: timestamp("last_published_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
-
-export function generateWebsiteSlug(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
-  return slug || 'website';
-}
-
-export function generatePlatformSlug(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
-  return slug || 'site';
-}
 
 export const insertWebsiteSchema = createInsertSchema(websites).omit({
   id: true,
