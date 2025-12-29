@@ -120,10 +120,12 @@ export interface IStorage {
   
   // Website methods
   getWebsite(id: string): Promise<Website | undefined>;
+  getWebsiteBySlug(slug: string): Promise<Website | undefined>;
   getWebsitesByOwner(ownerId: string): Promise<Website[]>;
   createWebsite(website: InsertWebsite): Promise<Website>;
   updateWebsite(id: string, ownerId: string, data: Partial<InsertWebsite>): Promise<Website | undefined>;
   deleteWebsite(id: string, ownerId: string): Promise<boolean>;
+  generateUniqueSlug(baseSlug: string): Promise<string>;
   
   // Website inputs methods
   getWebsiteInputs(websiteId: string): Promise<WebsiteInputs | undefined>;
@@ -166,6 +168,25 @@ export class DatabaseStorage implements IStorage {
 
   async getWebsitesByOwner(ownerId: string): Promise<Website[]> {
     return await db.select().from(websites).where(eq(websites.ownerId, ownerId));
+  }
+
+  async getWebsiteBySlug(slug: string): Promise<Website | undefined> {
+    const result = await db.select().from(websites).where(eq(websites.slug, slug)).limit(1);
+    return result[0];
+  }
+
+  async generateUniqueSlug(baseSlug: string): Promise<string> {
+    let slug = baseSlug;
+    let suffix = 0;
+    
+    while (true) {
+      const existing = await this.getWebsiteBySlug(slug);
+      if (!existing) {
+        return slug;
+      }
+      suffix++;
+      slug = `${baseSlug}-${suffix}`;
+    }
   }
 
   async createWebsite(website: InsertWebsite): Promise<Website> {

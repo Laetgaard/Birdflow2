@@ -500,9 +500,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Name and setup type are required" });
       }
 
+      // Generate unique slug from name
+      const { generateWebsiteSlug } = await import("@shared/schema");
+      const baseSlug = generateWebsiteSlug(name);
+      const slug = await storage.generateUniqueSlug(baseSlug);
+
       const website = await storage.createWebsite({
         ownerId: user.id,
         name,
+        slug,
         setupType,
         status: "draft",
       });
