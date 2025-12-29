@@ -28,7 +28,6 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 
 type Website = {
   id: string;
@@ -36,10 +35,6 @@ type Website = {
   status: string;
   setupType: string;
   ownerId: string;
-  deploymentUrl?: string;
-  platformUrl?: string;
-  platformDomain?: string;
-  platformSlug?: string;
 };
 
 type Order = {
@@ -478,39 +473,6 @@ export default function ManagePage() {
     }
   };
 
-  const handleToggleServiceActive = async (service: BookingService) => {
-    if (!session || !id) return;
-    
-    try {
-      const res = await fetch(`/api/websites/${id}/booking-services/${service.id}`, {
-        method: 'PATCH',
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ isActive: !service.isActive }),
-      });
-
-      if (!res.ok) throw new Error("Failed to update service");
-
-      const updatedService = await res.json();
-      setBookingServices(bookingServices.map(s => 
-        s.id === service.id ? updatedService : s
-      ));
-      
-      toast({
-        title: updatedService.isActive ? "Service Activated" : "Service Deactivated",
-        description: `${updatedService.name} is now ${updatedService.isActive ? 'available' : 'hidden'} for booking.`,
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
   const handleDeleteService = async (serviceId: string) => {
     if (!session || !id) return;
     
@@ -614,17 +576,6 @@ export default function ManagePage() {
           <span className={`text-xs px-2 py-0.5 rounded ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
             {website.status}
           </span>
-          {(website.platformUrl || website.deploymentUrl) && (
-            <a 
-              href={website.platformUrl || website.deploymentUrl} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-xs text-blue-600 hover:underline"
-              data-testid="link-live-site"
-            >
-              View Live
-            </a>
-          )}
         </div>
 
         <div className="flex-1" />
@@ -1513,12 +1464,7 @@ export default function ManagePage() {
                         }`}
                         data-testid={`service-${service.id}`}
                       >
-                        <div className="absolute top-3 right-3 flex items-center gap-2">
-                          <Switch
-                            checked={service.isActive}
-                            onCheckedChange={() => handleToggleServiceActive(service)}
-                            data-testid={`switch-service-active-${service.id}`}
-                          />
+                        <div className="absolute top-3 right-3">
                           <Badge 
                             className={service.isActive 
                               ? 'bg-green-100 text-green-700' 
