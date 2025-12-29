@@ -77,6 +77,9 @@ type Website = {
   setupType: string;
   ownerId: string;
   deploymentUrl?: string;
+  platformUrl?: string;
+  platformDomain?: string;
+  platformSlug?: string;
 };
 
 type DeviceType = 'desktop' | 'tablet' | 'mobile';
@@ -236,11 +239,17 @@ export default function BuilderPage() {
         throw new Error(data.error || data.message || "Failed to publish");
       }
 
-      setWebsite(prev => prev ? { ...prev, status: 'published', deploymentUrl: data.deploymentUrl } : prev);
+      setWebsite(prev => prev ? { 
+        ...prev, 
+        status: 'published', 
+        deploymentUrl: data.deploymentUrl,
+        platformUrl: data.platformUrl,
+        platformDomain: data.platformDomain,
+      } : prev);
       
       toast({ 
         title: "Published!", 
-        description: `Your site is live at ${data.deploymentUrl}`,
+        description: `Your site is live at ${data.platformUrl || data.deploymentUrl}`,
       });
     } catch (error: any) {
       toast({ title: "Publish failed", description: error.message, variant: "destructive" });
@@ -469,9 +478,9 @@ export default function BuilderPage() {
           <span className={`text-xs px-2 py-0.5 rounded ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`} data-testid="text-website-status">
             {website.status}
           </span>
-          {website.deploymentUrl && (
+          {(website.platformUrl || website.deploymentUrl) && (
             <a 
-              href={website.deploymentUrl} 
+              href={website.platformUrl || website.deploymentUrl} 
               target="_blank" 
               rel="noopener noreferrer" 
               className="text-xs text-blue-600 hover:underline"
