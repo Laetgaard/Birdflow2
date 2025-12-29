@@ -48,7 +48,7 @@ export async function getOrCreateProject(
         buildCommand: 'npm run build',
         installCommand: 'npm install',
         outputDirectory: '.next',
-        nodeVersion: '18.x',
+        nodeVersion: '22.x',
       }),
     });
     return project.id;
@@ -62,7 +62,7 @@ export async function getOrCreateProject(
       buildCommand: 'npm run build',
       installCommand: 'npm install',
       outputDirectory: '.next',
-      nodeVersion: '18.x',
+      nodeVersion: '22.x',
     }),
   });
   
@@ -168,7 +168,7 @@ export async function deployProject(
       buildCommand: 'npm run build',
       outputDirectory: '.next',
       installCommand: 'npm install',
-      nodeVersion: '18.x',
+      nodeVersion: '22.x',
     },
   };
   
