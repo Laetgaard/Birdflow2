@@ -852,7 +852,6 @@ export default function BookingForm({ styles, props }: Props) {
 }
 
 export function generateProductGrid(): string {
-  const dollarSign = '$';
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -873,6 +872,8 @@ type Props = {
     productLimit?: number;
   };
 };
+
+const dollarSign = '$';
 
 export default function ProductGrid({ styles, props }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
@@ -937,9 +938,9 @@ export default function ProductGrid({ styles, props }: Props) {
         ) : products.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>No products available.</div>
         ) : (
-          <div className="product-grid" style={{ display: 'grid', gridTemplateColumns: ` + '`repeat(${columns}, 1fr)`' + `, gap: '24px' }}>
+          <div className="product-grid" style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: '24px' }}>
             {products.map(product => (
-              <Link key={product.id} href={` + '`/product/${product.id}`' + `} style={{ textDecoration: 'none' }}>
+              <Link key={product.id} href={\`/product/\${product.id}\`} style={{ textDecoration: 'none' }}>
                 <div style={{ backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', transition: 'transform 0.2s, box-shadow 0.2s', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)'; }} onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; }}>
                   {product.image_url ? (
                     <img src={product.image_url} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
@@ -951,7 +952,7 @@ export default function ProductGrid({ styles, props }: Props) {
                     {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
                     {product.description && <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{product.description}</p>}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '20px', fontWeight: 700 }}>${dollarSign}{parseFloat(product.price).toFixed(2)}</span>
+                      <span style={{ fontSize: '20px', fontWeight: 700 }}>{dollarSign}{parseFloat(product.price).toFixed(2)}</span>
                       <button onClick={(e) => handleAddToCart(e, product)} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
                     </div>
                   </div>
@@ -1258,7 +1259,6 @@ export function useCart() {
 }
 
 export function generateSiteShell(): string {
-  const dollarSign = '$';
   return `'use client';
 
 import React, { useState } from 'react';
@@ -1275,6 +1275,8 @@ type SiteShellProps = {
   siteName: string;
   navItems: NavItem[];
 };
+
+const dollarSign = '$';
 
 export default function SiteShell({ siteName, navItems }: SiteShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1398,7 +1400,7 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
         </div>
       </header>
 
-      <div className={` + '`mobile-menu ${mobileMenuOpen ? "open" : ""}`' + `}>
+      <div className={\`mobile-menu \${mobileMenuOpen ? "open" : ""}\`}>
         <nav style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {navItems.map(item => (
             <Link 
@@ -1414,11 +1416,11 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
       </div>
 
       <div 
-        className={` + '`cart-overlay ${isCartOpen ? "open" : ""}`' + `}
+        className={\`cart-overlay \${isCartOpen ? "open" : ""}\`}
         onClick={() => setIsCartOpen(false)}
       />
 
-      <div className={` + '`cart-drawer ${isCartOpen ? "open" : ""}`' + `}>
+      <div className={\`cart-drawer \${isCartOpen ? "open" : ""}\`}>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#1a1a1a' }}>Your Cart ({cartCount})</h2>
           <button 
@@ -1446,7 +1448,7 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
                   )}
                   <div style={{ flex: 1 }}>
                     <h3 style={{ fontWeight: 600, color: '#1a1a1a', marginBottom: '4px' }}>{item.product.name}</h3>
-                    <p style={{ color: '#6b7280', fontSize: '14px', marginBottom: '8px' }}>${dollarSign}{parseFloat(item.product.price || '0').toFixed(2)}</p>
+                    <p style={{ color: '#6b7280', fontSize: '14px', marginBottom: '8px' }}>{dollarSign}{parseFloat(item.product.price || '0').toFixed(2)}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} style={{ width: '28px', height: '28px', border: '1px solid #d1d5db', borderRadius: '6px', backgroundColor: '#fff', cursor: 'pointer' }}>−</button>
                       <span style={{ minWidth: '24px', textAlign: 'center', color: '#1a1a1a' }}>{item.quantity}</span>
@@ -1464,7 +1466,7 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
           <div style={{ padding: '20px 24px', borderTop: '1px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
               <span style={{ fontSize: '16px', fontWeight: 500, color: '#4b5563' }}>Subtotal</span>
-              <span style={{ fontSize: '20px', fontWeight: 700, color: '#1a1a1a' }}>${dollarSign}{cartTotal.toFixed(2)}</span>
+              <span style={{ fontSize: '20px', fontWeight: 700, color: '#1a1a1a' }}>{dollarSign}{cartTotal.toFixed(2)}</span>
             </div>
             <form onSubmit={handleCheckout}>
               <input
@@ -1500,7 +1502,7 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
         )}
       </div>
 
-      <style>{\`` + '`' + `
+      <style dangerouslySetInnerHTML={{ __html: \`
         @media (min-width: 769px) {
           .burger-btn { display: none !important; }
           .mobile-menu { display: none !important; }
@@ -1509,7 +1511,7 @@ export default function SiteShell({ siteName, navItems }: SiteShellProps) {
           .desktop-nav { display: none !important; }
           .burger-btn { display: block !important; }
         }
-      ` + '`' + `}</style>
+      \` }} />
     </>
   );
 }
@@ -1551,7 +1553,6 @@ export default async function ProductPage({ params }: PageProps) {
 }
 
 export function generateProductDetailClient(): string {
-  const dollarSign = '$';
   return `'use client';
 
 import React from 'react';
@@ -1561,6 +1562,8 @@ import { useCart, type Product } from '@/lib/CartContext';
 type ProductDetailClientProps = {
   product: Product;
 };
+
+const dollarSign = '$';
 
 export default function ProductDetailClient({ product }: ProductDetailClientProps) {
   const { addToCart, setIsCartOpen } = useCart();
@@ -1603,7 +1606,7 @@ export default function ProductDetailClient({ product }: ProductDetailClientProp
           </h1>
           
           <p style={{ fontSize: '32px', fontWeight: 700, color: '#4f46e5', marginBottom: '24px' }}>
-            ${dollarSign}{parseFloat(product.price).toFixed(2)}
+            {dollarSign}{parseFloat(product.price).toFixed(2)}
           </p>
           
           {product.description && (
@@ -1633,19 +1636,19 @@ export default function ProductDetailClient({ product }: ProductDetailClientProp
           <div style={{ padding: '24px', backgroundColor: '#f9fafb', borderRadius: '12px', marginTop: '24px' }}>
             <h3 style={{ fontWeight: 600, marginBottom: '12px', color: '#1a1a1a' }}>Shipping & Returns</h3>
             <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.6 }}>
-              Free shipping on orders over ${dollarSign}50. Easy returns within 30 days.
+              Free shipping on orders over {dollarSign}50. Easy returns within 30 days.
             </p>
           </div>
         </div>
       </div>
 
-      <style>{\`` + '`' + `
+      <style dangerouslySetInnerHTML={{ __html: \`
         @media (max-width: 768px) {
           .product-detail-grid {
             grid-template-columns: 1fr !important;
           }
         }
-      ` + '`' + `}</style>
+      \` }} />
     </div>
   );
 }
