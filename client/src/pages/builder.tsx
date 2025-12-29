@@ -19,8 +19,27 @@ import {
   Globe, ArrowLeft, Loader2, Save, Eye, Upload,
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
-  Type, MousePointer, ChevronRight, User
+  Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2, ShoppingBag
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   componentRegistry, 
   createComponent,
@@ -58,6 +77,9 @@ type Website = {
   setupType: string;
   ownerId: string;
   deploymentUrl?: string;
+  platformUrl?: string;
+  platformDomain?: string;
+  platformSlug?: string;
 };
 
 type DeviceType = 'desktop' | 'tablet' | 'mobile';
@@ -74,6 +96,7 @@ const ICON_MAP: Record<string, any> = {
   type: Type,
   'mouse-pointer': MousePointer,
   user: User,
+  'shopping-bag': ShoppingBag,
 };
 
 export default function BuilderPage() {
@@ -90,6 +113,10 @@ export default function BuilderPage() {
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai">("components");
   const [device, setDevice] = useState<DeviceType>('desktop');
+  const [pageDialogOpen, setPageDialogOpen] = useState(false);
+  const [editingPage, setEditingPage] = useState<BuilderPage | null>(null);
+  const [deletePageId, setDeletePageId] = useState<string | null>(null);
+  const [newPageName, setNewPageName] = useState("");
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -130,13 +157,14 @@ export default function BuilderPage() {
         if (builderRes.ok) {
           const builderData = await builderRes.json();
           const state = builderData.state as BuilderStateData;
-          if (!state.pages?.[0]?.components) {
+          if (!state.pages || state.pages.length === 0) {
+            const legacyComponents = (state as any).components || [];
             const migratedState: BuilderStateData = {
               pages: [{
                 id: 'home',
                 name: 'Home',
                 path: '/',
-                components: [],
+                components: legacyComponents,
               }],
               activePage: 'home',
               globalStyles: state.globalStyles || {
@@ -211,11 +239,17 @@ export default function BuilderPage() {
         throw new Error(data.error || data.message || "Failed to publish");
       }
 
-      setWebsite(prev => prev ? { ...prev, status: 'published', deploymentUrl: data.deploymentUrl } : prev);
+      setWebsite(prev => prev ? { 
+        ...prev, 
+        status: 'published', 
+        deploymentUrl: data.deploymentUrl,
+        platformUrl: data.platformUrl,
+        platformDomain: data.platformDomain,
+      } : prev);
       
       toast({ 
         title: "Published!", 
-        description: `Your site is live at ${data.deploymentUrl}`,
+        description: `Your site is live at ${data.platformUrl || data.deploymentUrl}`,
       });
     } catch (error: any) {
       toast({ title: "Publish failed", description: error.message, variant: "destructive" });
@@ -316,6 +350,102 @@ export default function BuilderPage() {
     return activePage?.components.find(c => c.id === selectedComponentId) || null;
   })();
 
+  const switchPage = (pageId: string) => {
+    if (!builderState) return;
+    setBuilderState({ ...builderState, activePage: pageId });
+    setSelectedComponentId(null);
+  };
+
+  const generateUniqueSlug = (name: string, existingPaths: string[], excludePath?: string): string => {
+    let baseSlug = name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!baseSlug) baseSlug = 'page';
+    
+    const reservedPaths = ['/', '/api', '/manage', '/auth', '/dashboard'];
+    let slug = baseSlug;
+    let counter = 1;
+    
+    while (
+      reservedPaths.includes(`/${slug}`) ||
+      (existingPaths.includes(`/${slug}`) && `/${slug}` !== excludePath)
+    ) {
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+    
+    return slug;
+  };
+
+  const createPage = () => {
+    if (!builderState || !newPageName.trim()) return;
+
+    const existingPaths = builderState.pages.map(p => p.path);
+    const slug = generateUniqueSlug(newPageName, existingPaths);
+    
+    const newPage: BuilderPage = {
+      id: slug,
+      name: newPageName.trim(),
+      path: `/${slug}`,
+      components: [],
+    };
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: [...builderState.pages, newPage],
+      activePage: newPage.id,
+    };
+
+    setBuilderState(newState);
+    setNewPageName("");
+    setPageDialogOpen(false);
+    setSelectedComponentId(null);
+  };
+
+  const updatePageName = () => {
+    if (!builderState || !editingPage || !newPageName.trim()) return;
+
+    const existingPaths = builderState.pages.map(p => p.path);
+    const newPath = editingPage.path === '/' 
+      ? '/' 
+      : `/${generateUniqueSlug(newPageName, existingPaths, editingPage.path)}`;
+    
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map(page =>
+        page.id === editingPage.id
+          ? { ...page, name: newPageName.trim(), path: newPath }
+          : page
+      ),
+    };
+
+    setBuilderState(newState);
+    setNewPageName("");
+    setEditingPage(null);
+  };
+
+  const deletePage = (pageId: string) => {
+    if (!builderState || builderState.pages.length <= 1) return;
+
+    const remainingPages = builderState.pages.filter(p => p.id !== pageId);
+    const newActivePage = builderState.activePage === pageId 
+      ? remainingPages[0].id 
+      : builderState.activePage;
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: remainingPages,
+      activePage: newActivePage,
+    };
+
+    setBuilderState(newState);
+    setDeletePageId(null);
+    if (selectedComponentId) {
+      const activePageData = remainingPages.find(p => p.id === newActivePage);
+      if (!activePageData?.components.find(c => c.id === selectedComponentId)) {
+        setSelectedComponentId(null);
+      }
+    }
+  };
+
   const displayName = profile?.fullName || user?.user_metadata?.full_name || user?.email || "User";
   const displayEmail = profile?.email || user?.email || "";
 
@@ -348,9 +478,9 @@ export default function BuilderPage() {
           <span className={`text-xs px-2 py-0.5 rounded ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`} data-testid="text-website-status">
             {website.status}
           </span>
-          {website.deploymentUrl && (
+          {(website.platformUrl || website.deploymentUrl) && (
             <a 
-              href={website.deploymentUrl} 
+              href={website.platformUrl || website.deploymentUrl} 
               target="_blank" 
               rel="noopener noreferrer" 
               className="text-xs text-blue-600 hover:underline"
@@ -429,6 +559,65 @@ export default function BuilderPage() {
         </DropdownMenu>
       </header>
 
+      {/* Page Tabs */}
+      <div className="border-b bg-card px-4 py-2 flex items-center gap-2 shrink-0">
+        <FileText className="w-4 h-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground mr-2">Pages:</span>
+        <div className="flex items-center gap-1 flex-wrap">
+          {builderState.pages.map((page) => (
+            <div
+              key={page.id}
+              className={`group flex items-center gap-1 px-3 py-1.5 rounded-md text-sm cursor-pointer transition-colors ${
+                builderState.activePage === page.id
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted hover:bg-muted/80'
+              }`}
+              data-testid={`page-tab-${page.id}`}
+            >
+              <span onClick={() => switchPage(page.id)}>{page.name}</span>
+              <span className="text-xs opacity-60 ml-1">({page.path})</span>
+              <div className="hidden group-hover:flex items-center ml-1 gap-0.5">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingPage(page);
+                    setNewPageName(page.name);
+                  }}
+                  className="p-0.5 rounded hover:bg-black/10"
+                  data-testid={`edit-page-${page.id}`}
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+                {builderState.pages.length > 1 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeletePageId(page.id);
+                    }}
+                    className="p-0.5 rounded hover:bg-black/10"
+                    data-testid={`delete-page-${page.id}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2"
+            onClick={() => {
+              setNewPageName("");
+              setPageDialogOpen(true);
+            }}
+            data-testid="button-add-page"
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
       <div className="flex-1 flex overflow-hidden">
         {/* Canvas / Preview */}
         <main className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center" onClick={() => setSelectedComponentId(null)}>
@@ -461,6 +650,7 @@ export default function BuilderPage() {
                     setSelectedComponentId(comp.id);
                     setSidebarTab("properties");
                   }}
+                  websiteId={id}
                 />
               ))
             )}
@@ -521,6 +711,8 @@ export default function BuilderPage() {
                       onUpdate={(updates) => updateComponent(selectedComponent.id, updates)}
                       onDelete={() => deleteComponent(selectedComponent.id)}
                       onMove={(dir) => moveComponent(selectedComponent.id, dir)}
+                      websiteId={id || ''}
+                      accessToken={session?.access_token || ''}
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
@@ -542,6 +734,97 @@ export default function BuilderPage() {
           </Tabs>
         </aside>
       </div>
+
+      {/* Create Page Dialog */}
+      <Dialog open={pageDialogOpen} onOpenChange={setPageDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Page</DialogTitle>
+            <DialogDescription>
+              Add a new page to your website. The URL will be generated from the name.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Page name (e.g., About, Contact)"
+              value={newPageName}
+              onChange={(e) => setNewPageName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && createPage()}
+              data-testid="input-new-page-name"
+            />
+            {newPageName.trim() && (
+              <p className="text-sm text-muted-foreground mt-2">
+                URL: /{newPageName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPageDialogOpen(false)}>Cancel</Button>
+            <Button onClick={createPage} disabled={!newPageName.trim()} data-testid="button-create-page">
+              Create Page
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Page Dialog */}
+      <Dialog open={!!editingPage} onOpenChange={(open) => !open && setEditingPage(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Page</DialogTitle>
+            <DialogDescription>
+              Update the page name. The URL will be updated automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Page name"
+              value={newPageName}
+              onChange={(e) => setNewPageName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && updatePageName()}
+              data-testid="input-edit-page-name"
+            />
+            {editingPage?.path !== '/' && newPageName.trim() && (
+              <p className="text-sm text-muted-foreground mt-2">
+                URL: /{newPageName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}
+              </p>
+            )}
+            {editingPage?.path === '/' && (
+              <p className="text-sm text-muted-foreground mt-2">
+                URL: / (home page URL cannot be changed)
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingPage(null)}>Cancel</Button>
+            <Button onClick={updatePageName} disabled={!newPageName.trim()} data-testid="button-save-page-name">
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Page Confirmation */}
+      <AlertDialog open={!!deletePageId} onOpenChange={(open) => !open && setDeletePageId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Page?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this page and all its components. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletePageId && deletePage(deletePageId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-page"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

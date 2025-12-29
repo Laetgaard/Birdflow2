@@ -40,8 +40,10 @@ waitForPort = 5000
 
 [agent]
 mockupState = "FULLSTACK"
+integrations = ["stripe:2.0.0"]
 
 [userenv]
 
 [userenv.shared]
 SUPABASE_DB_URL = "postgresql://postgres.rarsmkuqivfashuwxawl:UCPchRf7wFM7w0Az@aws-1-eu-central-1.pooler.supabase.com:6543/postgres"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhcnNta3VxaXZmYXNodXd4YXdsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjUzMDIwMywiZXhwIjoyMDgyMTA2MjAzfQ.Hl6FqzimWGlZKlkdSlIqSc6jSn_53JnONUMWTql1p3k"

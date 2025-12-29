@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent } from "@shared/schema";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
+import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -493,15 +494,21 @@ export async function registerRoutes(
   app.post("/api/websites", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const { name, setupType } = req.body;
+      const { name, setupType, templateId } = req.body;
 
       if (!name || !setupType) {
         return res.status(400).json({ message: "Name and setup type are required" });
       }
 
+      // Generate unique slug from name
+      const { generateWebsiteSlug } = await import("@shared/schema");
+      const baseSlug = generateWebsiteSlug(name);
+      const slug = await storage.generateUniqueSlug(baseSlug);
+
       const website = await storage.createWebsite({
         ownerId: user.id,
         name,
+        slug,
         setupType,
         status: "draft",
       });
@@ -511,6 +518,17 @@ export async function registerRoutes(
         await storage.createWebsiteInputs({
           websiteId: website.id,
         });
+      }
+
+      // If a template is specified, apply it to the builder state
+      if (templateId) {
+        const { getTemplateById, cloneTemplateState } = await import("@shared/websiteTemplates");
+        const template = getTemplateById(templateId);
+        
+        if (template) {
+          const builderState = cloneTemplateState(template);
+          await storage.createBuilderState(website.id, builderState);
+        }
       }
 
       res.status(201).json(website);
@@ -805,6 +823,221 @@ export async function registerRoutes(
     }
   });
 
+  // ============ PRODUCTS ROUTES ============
+
+  // Get products for a website
+  app.get("/api/websites/:id/products", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const products = await storage.getProducts(req.params.id);
+      res.json(products);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a product
+  app.post("/api/websites/:id/products", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const product = await storage.createProduct({
+        websiteId: req.params.id,
+        name: req.body.name,
+        description: req.body.description,
+        price: req.body.price || "0",
+        currency: req.body.currency || "USD",
+        imageUrl: req.body.imageUrl,
+        status: req.body.status || "active",
+        inventory: req.body.inventory,
+        category: req.body.category,
+      });
+      res.status(201).json(product);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update a product
+  app.patch("/api/websites/:id/products/:productId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const product = await storage.updateProduct(req.params.productId, req.params.id, req.body);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      res.json(product);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a product
+  app.delete("/api/websites/:id/products/:productId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const deleted = await storage.deleteProduct(req.params.productId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Public endpoint to get active products (for published sites)
+  app.get("/api/public/websites/:id/products", async (req, res) => {
+    try {
+      const products = await storage.getActiveProducts(req.params.id);
+      res.json(products);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get Stripe publishable key
+  app.get("/api/stripe/config", async (req, res) => {
+    try {
+      const publishableKey = await getStripePublishableKey();
+      res.json({ publishableKey });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create Stripe checkout session for cart
+  app.post("/api/checkout/create-session", async (req, res) => {
+    try {
+      const { websiteId, items, customerEmail, successUrl, cancelUrl } = req.body;
+      
+      if (!websiteId || !items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Invalid request" });
+      }
+
+      if (!customerEmail) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      // Validate items against database products to prevent price tampering
+      const validatedItems: Array<{ productId: string; name: string; price: number; quantity: number }> = [];
+      
+      for (const item of items) {
+        const product = await storage.getProduct(item.productId);
+        if (!product) {
+          return res.status(400).json({ message: `Product not found: ${item.productId}` });
+        }
+        if (product.websiteId !== websiteId) {
+          return res.status(400).json({ message: "Invalid product for this website" });
+        }
+        if (product.status !== 'active') {
+          return res.status(400).json({ message: `Product not available: ${product.name}` });
+        }
+        
+        // Use database price, not client-provided price
+        validatedItems.push({
+          productId: product.id,
+          name: product.name,
+          price: parseFloat(product.price),
+          quantity: Math.max(1, Math.floor(item.quantity || 1)),
+        });
+      }
+
+      const stripe = await getUncachableStripeClient();
+
+      // Calculate total from validated items
+      const total = validatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+      // Create line items from validated cart
+      const lineItems = validatedItems.map(item => ({
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: item.name,
+            metadata: { productId: item.productId },
+          },
+          unit_amount: Math.round(item.price * 100),
+        },
+        quantity: item.quantity,
+      }));
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: lineItems,
+        mode: 'payment',
+        success_url: successUrl || `${req.headers.origin}?success=true`,
+        cancel_url: cancelUrl || `${req.headers.origin}?canceled=true`,
+        customer_email: customerEmail,
+        metadata: {
+          websiteId,
+          itemsJson: JSON.stringify(validatedItems),
+        },
+      });
+
+      // Create order with pending payment status
+      await storage.createOrder({
+        websiteId,
+        customerName: customerEmail.split('@')[0] || 'Customer',
+        customerEmail,
+        status: 'pending',
+        paymentStatus: 'pending',
+        stripeSessionId: session.id,
+        total: total.toFixed(2),
+        currency: 'USD',
+        items: validatedItems.map(item => ({
+          id: item.productId,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+        })),
+      });
+
+      res.json({ sessionId: session.id, url: session.url });
+    } catch (error: any) {
+      console.error('Stripe checkout error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ============ PUBLISH ROUTE ============
 
   // Publish a website to Vercel
@@ -827,14 +1060,29 @@ export async function registerRoutes(
       }
 
       const vercelToken = process.env.VERCEL_TOKEN;
+      const vercelProjectId = process.env.VERCEL_PROJECT_ID;
       const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
       if (!vercelToken) {
         return res.status(400).json({ message: "Vercel token not configured. Please add VERCEL_TOKEN to secrets." });
       }
 
+      if (!vercelProjectId) {
+        return res.status(400).json({ message: "Vercel project ID not configured. Please add VERCEL_PROJECT_ID to environment variables." });
+      }
+
       if (!supabaseUrl || !supabaseAnonKey) {
         return res.status(400).json({ message: "Supabase not configured" });
+      }
+
+      // Fetch Stripe secret key from Replit connector
+      let stripeSecretKey: string | undefined;
+      let stripeWarning: string | undefined;
+      try {
+        stripeSecretKey = await getStripeSecretKey();
+      } catch (err) {
+        console.log('Stripe not configured - checkout will not work on published site');
+        stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Configure Stripe in the integrations panel to enable payments.';
       }
 
       const result = await publishWebsite({
@@ -844,8 +1092,11 @@ export async function registerRoutes(
         supabaseUrl,
         supabaseAnonKey,
         supabaseServiceRoleKey: supabaseServiceRoleKey || '',
+        stripeSecretKey,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
+        vercelProjectId,
+        existingPlatformSlug: website.platformSlug || undefined,
       });
 
       if (result.success) {
@@ -853,12 +1104,18 @@ export async function registerRoutes(
           status: 'published',
           deploymentUrl: result.deploymentUrl,
           deploymentId: result.deploymentId,
+          platformSlug: result.platformSlug,
+          platformDomain: result.platformDomain,
+          platformUrl: result.platformUrl,
         } as any);
 
         res.json({
           success: true,
           deploymentUrl: result.deploymentUrl,
-          message: "Website published successfully",
+          platformUrl: result.platformUrl,
+          platformDomain: result.platformDomain,
+          message: stripeWarning ? `Website published successfully. Warning: ${stripeWarning}` : "Website published successfully",
+          warning: stripeWarning,
         });
       } else {
         res.status(500).json({
@@ -866,6 +1123,327 @@ export async function registerRoutes(
           error: result.error,
         });
       }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ MEDIA ASSETS ROUTES ============
+
+  // Get all media assets for a website
+  app.get("/api/websites/:id/media", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const assets = await storage.getMediaAssets(req.params.id);
+      res.json(assets);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a signed upload URL for Supabase Storage
+  app.post("/api/websites/:id/media/upload-url", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { filename, contentType } = req.body;
+      if (!filename || !contentType) {
+        return res.status(400).json({ message: "Filename and content type are required" });
+      }
+
+      const uniqueFilename = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      const storagePath = `${req.params.id}/${uniqueFilename}`;
+
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseServiceRoleKey || !supabaseUrl) {
+        return res.status(500).json({ message: "Supabase service role key not configured" });
+      }
+
+      const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+      
+      // Ensure the media bucket exists
+      const { data: buckets } = await adminClient.storage.listBuckets();
+      const mediaBucketExists = buckets?.some(b => b.name === 'media');
+      
+      if (!mediaBucketExists) {
+        const { error: createBucketError } = await adminClient.storage.createBucket('media', {
+          public: true,
+          fileSizeLimit: 10485760, // 10MB
+        });
+        if (createBucketError && !createBucketError.message.includes('already exists')) {
+          console.error('Failed to create media bucket:', createBucketError);
+          return res.status(500).json({ message: "Failed to create storage bucket" });
+        }
+      }
+      
+      const { data, error } = await adminClient.storage
+        .from('media')
+        .createSignedUploadUrl(storagePath);
+
+      if (error) {
+        console.error('Supabase storage error:', error);
+        return res.status(500).json({ message: "Failed to create upload URL" });
+      }
+
+      res.json({
+        uploadUrl: data.signedUrl,
+        token: data.token,
+        storagePath,
+        filename: uniqueFilename,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a media asset record after upload
+  app.post("/api/websites/:id/media", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { filename, originalFilename, storagePath, mimeType, size, width, height, crop, altText } = req.body;
+      
+      if (!filename || !originalFilename || !storagePath || !mimeType || size === undefined) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const asset = await storage.createMediaAsset({
+        websiteId: req.params.id,
+        filename,
+        originalFilename,
+        storagePath,
+        mimeType,
+        size,
+        width,
+        height,
+        crop,
+        altText,
+      });
+
+      res.status(201).json(asset);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update a media asset (for cropping, alt text, etc.)
+  app.patch("/api/websites/:id/media/:mediaId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const asset = await storage.updateMediaAsset(req.params.mediaId, req.params.id, req.body);
+      if (!asset) {
+        return res.status(404).json({ message: "Media asset not found" });
+      }
+      res.json(asset);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a media asset
+  app.delete("/api/websites/:id/media/:mediaId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Also delete from Supabase Storage
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (supabaseServiceRoleKey && supabaseUrl) {
+        const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
+        if (asset) {
+          const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+          await adminClient.storage.from('media').remove([asset.storagePath]);
+        }
+      }
+
+      const deleted = await storage.deleteMediaAsset(req.params.mediaId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Media asset not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get public URL for a media asset
+  app.get("/api/websites/:id/media/:mediaId/url", async (req, res) => {
+    try {
+      const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
+      if (!asset) {
+        return res.status(404).json({ message: "Media asset not found" });
+      }
+
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseServiceRoleKey || !supabaseUrl) {
+        return res.status(500).json({ message: "Storage not configured" });
+      }
+
+      const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+      const { data } = adminClient.storage.from('media').getPublicUrl(asset.storagePath);
+      
+      res.json({ url: data.publicUrl, asset });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ BOOKING SERVICES ROUTES ============
+
+  // Get all booking services for a website
+  app.get("/api/websites/:id/booking-services", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const services = await storage.getBookingServices(req.params.id);
+      res.json(services);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a booking service
+  app.post("/api/websites/:id/booking-services", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { name, description, durationMinutes, price, currency } = req.body;
+      if (!name) {
+        return res.status(400).json({ message: "Service name is required" });
+      }
+
+      const service = await storage.createBookingService({
+        websiteId: req.params.id,
+        name,
+        description,
+        durationMinutes: durationMinutes || 30,
+        price: price || '0',
+        currency: currency || 'USD',
+      });
+
+      res.status(201).json(service);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update a booking service
+  app.patch("/api/websites/:id/booking-services/:serviceId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const service = await storage.updateBookingService(req.params.serviceId, req.params.id, req.body);
+      if (!service) {
+        return res.status(404).json({ message: "Booking service not found" });
+      }
+      res.json(service);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a booking service
+  app.delete("/api/websites/:id/booking-services/:serviceId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const deleted = await storage.deleteBookingService(req.params.serviceId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Booking service not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Public endpoint to get active booking services (for published sites)
+  app.get("/api/public/websites/:id/booking-services", async (req, res) => {
+    try {
+      const services = await storage.getActiveBookingServices(req.params.id);
+      res.json(services);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
