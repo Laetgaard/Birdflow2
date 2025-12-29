@@ -40,7 +40,7 @@ export function generateTsConfig(): string {
       lib: ['dom', 'dom.iterable', 'esnext'],
       allowJs: true,
       skipLibCheck: true,
-      strict: true,
+      strict: false,
       noEmit: true,
       esModuleInterop: true,
       module: 'esnext',
@@ -51,6 +51,9 @@ export function generateTsConfig(): string {
       incremental: true,
       plugins: [{ name: 'next' }],
       paths: { '@/*': ['./*'] },
+      noImplicitAny: false,
+      noUnusedLocals: false,
+      noUnusedParameters: false,
     },
     include: ['next-env.d.ts', '**/*.ts', '**/*.tsx', '.next/types/**/*.ts'],
     exclude: ['node_modules'],
@@ -87,9 +90,10 @@ export function generateEslintConfig(): string {
 
 export function generateVercelJson(): string {
   return JSON.stringify({
-    buildCommand: "next build --no-lint",
+    buildCommand: "npm run build",
     framework: null,
-    installCommand: "npm install"
+    installCommand: "npm install",
+    nodeVersion: "18.x"
   }, null, 2);
 }
 

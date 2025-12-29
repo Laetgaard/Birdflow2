@@ -45,9 +45,10 @@ export async function getOrCreateProject(
       method: 'PATCH',
       body: JSON.stringify({
         framework: null,
-        buildCommand: 'next build --no-lint',
+        buildCommand: 'npm run build',
         installCommand: 'npm install',
         outputDirectory: '.next',
+        nodeVersion: '18.x',
       }),
     });
     return project.id;
@@ -58,9 +59,10 @@ export async function getOrCreateProject(
     body: JSON.stringify({
       name: projectName,
       framework: null,
-      buildCommand: 'next build --no-lint',
+      buildCommand: 'npm run build',
       installCommand: 'npm install',
       outputDirectory: '.next',
+      nodeVersion: '18.x',
     }),
   });
   
@@ -163,9 +165,10 @@ export async function deployProject(
     files,
     projectSettings: {
       framework: null,
-      buildCommand: 'next build --no-lint',
+      buildCommand: 'npm run build',
       outputDirectory: '.next',
       installCommand: 'npm install',
+      nodeVersion: '18.x',
     },
   };
   
