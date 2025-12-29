@@ -28,10 +28,21 @@ export const websites = pgTable("websites", {
   setupType: text("setup_type").notNull(),
   deploymentUrl: text("deployment_url"),
   deploymentId: text("deployment_id"),
+  platformSlug: text("platform_slug").unique(),
+  platformUrl: text("platform_url"),
   lastPublishedAt: timestamp("last_published_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+export function generatePlatformSlug(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+  return slug || 'site';
+}
 
 export const insertWebsiteSchema = createInsertSchema(websites).omit({
   id: true,
