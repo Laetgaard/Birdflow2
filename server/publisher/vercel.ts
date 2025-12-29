@@ -40,6 +40,16 @@ export async function getOrCreateProject(
   
   if (res.ok) {
     const project = await res.json();
+    // Update existing project settings to disable framework checks
+    await vercelFetch(`/v9/projects/${project.id}`, config, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        framework: null,
+        buildCommand: 'npm run build',
+        installCommand: 'npm install',
+        outputDirectory: '.next',
+      }),
+    });
     return project.id;
   }
   
@@ -47,7 +57,10 @@ export async function getOrCreateProject(
     method: 'POST',
     body: JSON.stringify({
       name: projectName,
-      framework: 'nextjs',
+      framework: null,
+      buildCommand: 'npm run build',
+      installCommand: 'npm install',
+      outputDirectory: '.next',
     }),
   });
   
@@ -65,36 +78,43 @@ export async function setProjectEnvVars(
   config: VercelConfig,
   envVars: Record<string, string>
 ): Promise<void> {
+  const existingRes = await vercelFetch(`/v9/projects/${projectId}/env`, config);
+  const existingEnvVars: Array<{ id: string; key: string }> = existingRes.ok 
+    ? (await existingRes.json()).envs || [] 
+    : [];
+  
+  const existingByKey = new Map(existingEnvVars.map(e => [e.key, e.id]));
   const errors: string[] = [];
   
   for (const [key, value] of Object.entries(envVars)) {
-    const res = await vercelFetch(`/v10/projects/${projectId}/env`, config, {
-      method: 'POST',
-      body: JSON.stringify({
-        key,
-        value,
-        target: ['production', 'preview', 'development'],
-        type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
-      }),
-    });
+    const existingId = existingByKey.get(key);
     
-    if (!res.ok) {
-      const errorText = await res.text();
-      if (res.status === 409) {
-        const updateRes = await vercelFetch(`/v10/projects/${projectId}/env`, config, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            key,
-            value,
-            target: ['production', 'preview', 'development'],
-            type: key.includes('SERVICE_ROLE') ? 'encrypted' : 'plain',
-          }),
-        });
-        if (!updateRes.ok) {
-          errors.push(`Failed to update ${key}: ${await updateRes.text()}`);
-        }
-      } else {
-        errors.push(`Failed to set ${key}: ${errorText}`);
+    const isSecret = key.includes('SERVICE_ROLE') || key.includes('SECRET');
+    
+    if (existingId) {
+      const updateRes = await vercelFetch(`/v9/projects/${projectId}/env/${existingId}`, config, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          value,
+          target: ['production', 'preview', 'development'],
+          type: isSecret ? 'encrypted' : 'plain',
+        }),
+      });
+      if (!updateRes.ok) {
+        errors.push(`Failed to update ${key}: ${await updateRes.text()}`);
+      }
+    } else {
+      const res = await vercelFetch(`/v10/projects/${projectId}/env`, config, {
+        method: 'POST',
+        body: JSON.stringify({
+          key,
+          value,
+          target: ['production', 'preview', 'development'],
+          type: isSecret ? 'encrypted' : 'plain',
+        }),
+      });
+      if (!res.ok) {
+        errors.push(`Failed to set ${key}: ${await res.text()}`);
       }
     }
   }
@@ -132,23 +152,31 @@ export async function deployProject(
   projectId: string,
   projectDir: string,
   projectName: string,
-  config: VercelConfig
+  config: VercelConfig,
+  envVars?: Record<string, string>
 ): Promise<DeploymentResult> {
   const files = await collectFiles(projectDir);
   
+  const deploymentPayload: any = {
+    name: projectName,
+    project: projectId,
+    files,
+    projectSettings: {
+      framework: null,
+      buildCommand: 'npm run build',
+      outputDirectory: '.next',
+      installCommand: 'npm install',
+    },
+  };
+  
+  if (envVars && Object.keys(envVars).length > 0) {
+    deploymentPayload.env = envVars;
+    deploymentPayload.build = { env: envVars };
+  }
+  
   const res = await vercelFetch('/v13/deployments', config, {
     method: 'POST',
-    body: JSON.stringify({
-      name: projectName,
-      project: projectId,
-      files,
-      projectSettings: {
-        framework: 'nextjs',
-        buildCommand: 'npm run build',
-        outputDirectory: '.next',
-        installCommand: 'npm install',
-      },
-    }),
+    body: JSON.stringify(deploymentPayload),
   });
   
   if (!res.ok) {
@@ -190,7 +218,16 @@ export async function waitForDeployment(
     }
     
     if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
-      throw new Error(`Deployment failed: ${deployment.readyState}`);
+      // Try to get build logs for more details
+      let errorDetails = deployment.readyState;
+      if (deployment.errorMessage) {
+        errorDetails += `: ${deployment.errorMessage}`;
+      }
+      if (deployment.errorCode) {
+        errorDetails += ` (${deployment.errorCode})`;
+      }
+      console.error('Vercel deployment error details:', JSON.stringify(deployment, null, 2));
+      throw new Error(`Deployment failed: ${errorDetails}`);
     }
     
     await new Promise(resolve => setTimeout(resolve, 5000));
@@ -213,4 +250,51 @@ export async function addCustomDomain(
     const error = await res.text();
     console.warn(`Could not add domain ${domain}: ${error}`);
   }
+}
+
+export async function ensureDomainExists(
+  projectId: string,
+  domain: string,
+  config: VercelConfig
+): Promise<{ success: boolean; error?: string }> {
+  const res = await vercelFetch(`/v10/projects/${projectId}/domains`, config, {
+    method: 'POST',
+    body: JSON.stringify({ name: domain }),
+  });
+  
+  if (res.ok) {
+    return { success: true };
+  }
+  
+  const errorData = await res.json().catch(() => ({}));
+  
+  if (res.status === 409 || errorData?.error?.code === 'domain_already_exists') {
+    return { success: true };
+  }
+  
+  return { 
+    success: false, 
+    error: errorData?.error?.message || `Failed to add domain: ${res.status}` 
+  };
+}
+
+export async function aliasDeployment(
+  deploymentId: string,
+  alias: string,
+  config: VercelConfig
+): Promise<{ success: boolean; error?: string }> {
+  const res = await vercelFetch(`/v2/deployments/${deploymentId}/aliases`, config, {
+    method: 'POST',
+    body: JSON.stringify({ alias }),
+  });
+  
+  if (res.ok) {
+    return { success: true };
+  }
+  
+  const errorData = await res.json().catch(() => ({}));
+  return { 
+    success: false, 
+    error: errorData?.error?.message || `Failed to alias deployment: ${res.status}` 
+  };
 }
