@@ -119,10 +119,24 @@ The publisher generates a standalone Next.js project from builder_state and depl
 - `framer-motion`: Animation library used on landing page
 - `bcryptjs`: Password hashing utilities
 
-### Deployment
-- **Vercel**: Hosts published Next.js sites via REST API
-- Environment variables: `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional)
-- Published sites receive `SUPABASE_SERVICE_ROLE_KEY` as encrypted Vercel env var
+### Deployment (Multi-Tenant Architecture)
+- **Vercel**: Hosts all published sites in a single shared Vercel project
+- **Platform Domain**: All sites get `{slug}.bird-flow.com` subdomains
+- **Environment variables**:
+  - `VERCEL_TOKEN` - Vercel API token (required)
+  - `VERCEL_PROJECT_ID` - Shared Vercel project ID (required)
+  - `VERCEL_TEAM_ID` - Vercel team ID (optional)
+- Published sites receive per-deployment env vars (not project-level)
+
+**Publishing Flow**:
+1. Generate Next.js project from builder_state
+2. Deploy to shared Vercel project with website-specific env vars
+3. Create/reuse domain `{slug}.bird-flow.com` on the project
+4. Alias deployment to the subdomain
+5. Store platformSlug and platformUrl in database
+
+**Slug Generation**: `{sanitized-name}-{websiteId[0:8]}` ensures uniqueness
+**Re-publishing**: Reuses existing slug, updates alias to new deployment
 
 ### Website Templates System
 Pre-built website templates that users can select when creating a new website:
