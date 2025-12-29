@@ -10,7 +10,7 @@ export function generatePackageJson(siteName: string): string {
     },
     scripts: {
       dev: 'next dev',
-      build: 'next build',
+      build: 'next build --no-lint',
       start: 'next start',
     },
     dependencies: {
