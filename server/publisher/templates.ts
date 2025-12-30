@@ -84,6 +84,73 @@ STRIPE_SECRET_KEY=your-stripe-secret-key
 `;
 }
 
+export function generateBookingApiRoute(): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WEBSITE_ID = process.env.NEXT_PUBLIC_WEBSITE_ID || '';
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { customerName, customerEmail, customerPhone, serviceId, service, date, time, notes } = body;
+    
+    if (!customerName || !customerEmail || !service || !date) {
+      return NextResponse.json({ message: 'Customer name, email, service, and date are required' }, { status: 400 });
+    }
+
+    if (!SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
+    }
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    // Get service details if serviceId provided
+    let durationMinutes = null;
+    let price = null;
+    if (serviceId) {
+      const { data: serviceData } = await supabase
+        .from('booking_services')
+        .select('duration_minutes, price')
+        .eq('id', serviceId)
+        .single();
+      if (serviceData) {
+        durationMinutes = serviceData.duration_minutes;
+        price = serviceData.price;
+      }
+    }
+
+    const { data, error } = await supabase.from('bookings').insert({
+      website_id: WEBSITE_ID,
+      service_id: serviceId || null,
+      service: service,
+      customer_name: customerName,
+      customer_email: customerEmail,
+      customer_phone: customerPhone || null,
+      date: new Date(date).toISOString(),
+      time: time || null,
+      duration_minutes: durationMinutes,
+      price: price,
+      notes: notes || null,
+      status: 'pending',
+    }).select().single();
+
+    if (error) {
+      console.error('Booking error:', error);
+      return NextResponse.json({ message: 'Failed to create booking' }, { status: 500 });
+    }
+
+    return NextResponse.json(data);
+  } catch (err) {
+    console.error('Booking error:', err);
+    return NextResponse.json({ message: 'Booking failed' }, { status: 500 });
+  }
+}
+`;
+}
+
 export function generateCheckoutApiRoute(): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
@@ -658,24 +725,30 @@ export default function BookingForm({ styles, props }: Props) {
     setStatus('loading');
     const service = services.find(s => s.id === selectedService);
     const bookingDateTime = new Date(selectedDate + 'T' + selectedTime + ':00').toISOString();
-    const { error } = await supabase.from('bookings').insert({
-      website_id: websiteId,
-      service_id: selectedService,
-      service: service?.name || 'Service',
-      customer_name: name,
-      customer_email: email,
-      customer_phone: phone || null,
-      date: bookingDateTime,
-      time: selectedTime,
-      duration_minutes: service?.duration_minutes || null,
-      price: service?.price || null,
-      notes: notes || null,
-      status: 'pending',
-    });
-    if (error) {
+    
+    try {
+      const res = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: name,
+          customerEmail: email,
+          customerPhone: phone || null,
+          serviceId: selectedService,
+          service: service?.name || 'Service',
+          date: bookingDateTime,
+          time: selectedTime,
+          notes: notes || null,
+        }),
+      });
+      
+      if (!res.ok) {
+        setStatus('error');
+      } else {
+        setStatus('success');
+      }
+    } catch (err) {
       setStatus('error');
-    } else {
-      setStatus('success');
     }
   };
 
