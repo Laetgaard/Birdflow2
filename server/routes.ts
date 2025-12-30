@@ -1339,7 +1339,12 @@ export async function registerRoutes(
       }
 
       const services = await storage.getBookingServices(req.params.id);
-      res.json(services);
+      // Convert 'active' string to 'isActive' boolean for frontend
+      const servicesWithIsActive = services.map(s => ({
+        ...s,
+        isActive: s.active === 'true',
+      }));
+      res.json(servicesWithIsActive);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1359,7 +1364,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const { name, description, durationMinutes, price, currency } = req.body;
+      const { name, description, durationMinutes, price, currency, isActive } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Service name is required" });
       }
@@ -1371,9 +1376,11 @@ export async function registerRoutes(
         durationMinutes: durationMinutes || 30,
         price: price || '0',
         currency: currency || 'USD',
+        active: isActive !== false ? 'true' : 'false',
       });
 
-      res.status(201).json(service);
+      // Return with isActive boolean for frontend
+      res.status(201).json({ ...service, isActive: service.active === 'true' });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1393,11 +1400,19 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const service = await storage.updateBookingService(req.params.serviceId, req.params.id, req.body);
+      // Convert isActive boolean to active string for database
+      const { isActive, ...rest } = req.body;
+      const updateData = {
+        ...rest,
+        ...(isActive !== undefined ? { active: isActive ? 'true' : 'false' } : {}),
+      };
+
+      const service = await storage.updateBookingService(req.params.serviceId, req.params.id, updateData);
       if (!service) {
         return res.status(404).json({ message: "Booking service not found" });
       }
-      res.json(service);
+      // Return with isActive boolean for frontend
+      res.json({ ...service, isActive: service.active === 'true' });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

@@ -711,7 +711,7 @@ export default function BookingForm({ styles, props }: Props) {
         .from('booking_services')
         .select('*')
         .eq('website_id', websiteId)
-        .eq('active', true)
+        .eq('active', 'true')
         .order('created_at', { ascending: true });
       if (data) setServices(data);
     };
