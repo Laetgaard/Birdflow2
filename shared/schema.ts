@@ -24,6 +24,7 @@ export const websites = pgTable("websites", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ownerId: varchar("owner_id").notNull(),
   name: text("name").notNull(),
+  slug: text("slug").notNull(),
   status: text("status").notNull().default("draft"),
   setupType: text("setup_type").notNull(),
   deploymentUrl: text("deployment_url"),

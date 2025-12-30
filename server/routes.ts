@@ -500,9 +500,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Name and setup type are required" });
       }
 
+      // Generate a URL-friendly slug from the name
+      const baseSlug = name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'website';
+      const timestamp = Date.now().toString(36);
+      const slug = `${baseSlug}-${timestamp}`;
+
       const website = await storage.createWebsite({
         ownerId: user.id,
         name,
+        slug,
         setupType,
         status: "draft",
       });
