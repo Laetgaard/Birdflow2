@@ -56,16 +56,16 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'theme.json', content: generateThemeJson(theme) },
     { path: '.env.example', content: generateEnvExample() },
     { path: '.nvmrc', content: generateNvmrc() },
-    { path: 'lib/supabase.ts', content: generateSupabaseClient() },
-    { path: 'lib/supabase-admin.ts', content: generateServerSupabase() },
+    { path: 'lib/supabase.ts', content: generateSupabaseClient(websiteId) },
+    { path: 'lib/supabase-admin.ts', content: generateServerSupabase(websiteId) },
     { path: 'components/ComponentRenderer.tsx', content: generateComponentRenderer() },
     { path: 'components/ContactForm.tsx', content: generateContactForm() },
     { path: 'components/BookingForm.tsx', content: generateBookingForm() },
     { path: 'components/ProductGrid.tsx', content: generateProductGrid() },
     { path: 'app/layout.tsx', content: generateRootLayout(siteName) },
     { path: 'app/globals.css', content: generateGlobalsCss() },
-    { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute() },
-    { path: 'app/api/bookings/route.ts', content: generateBookingApiRoute() },
+    { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
+    { path: 'app/api/bookings/route.ts', content: generateBookingApiRoute(websiteId) },
   ];
   
   for (const page of builderState.pages) {
