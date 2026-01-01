@@ -91,9 +91,9 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
 
-// Look up website_id from deployment URL stored in database
+// Look up website_id from deployment URL or slug stored in database
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
-  // Handle localhost - use build-time ID
+  // Handle localhost - use build-time ID (baked in at deploy time)
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
     return BUILD_TIME_WEBSITE_ID;
   }
@@ -101,55 +101,50 @@ async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string
   // Normalize host - strip www. prefix and port
   let normalizedHost = host.replace(/^www\\./, '').split(':')[0];
   const urlToMatch = \`https://\${normalizedHost}\`;
-  
-  // Try exact match first
-  let { data, error } = await supabase
-    .from('websites')
-    .select('id')
-    .eq('deployment_url', urlToMatch)
-    .limit(1)
-    .single();
-  
-  if (!error && data) {
-    return data.id;
-  }
-  
-  // Try with www prefix
   const urlWithWww = \`https://www.\${normalizedHost}\`;
-  const result2 = await supabase
+  
+  // Strategy 1: Try exact deployment_url match (with and without www)
+  const { data: exactMatch } = await supabase
     .from('websites')
     .select('id')
-    .eq('deployment_url', urlWithWww)
+    .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
     .limit(1)
     .single();
   
-  if (!result2.error && result2.data) {
-    return result2.data.id;
+  if (exactMatch) {
+    return exactMatch.id;
   }
   
-  // Try matching against the URL without protocol (in case stored differently)
-  const result3 = await supabase
-    .from('websites')
-    .select('id, deployment_url')
-    .not('deployment_url', 'is', null)
-    .limit(100);
+  // Strategy 2: Slug-based lookup for recognized domain patterns only
+  // Only extract slug from known patterns to prevent cross-tenant routing
+  const parts = normalizedHost.split('.');
+  let slug: string | null = null;
   
-  if (!result3.error && result3.data) {
-    for (const website of result3.data) {
-      if (website.deployment_url) {
-        // Extract hostname from stored URL and compare
-        try {
-          const storedHost = new URL(website.deployment_url).hostname.replace(/^www\\./, '');
-          if (storedHost === normalizedHost) {
-            return website.id;
-          }
-        } catch {}
-      }
+  // Pattern 1: slug.bird-flow.com (legacy subdomain pattern)
+  if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
+    slug = parts[0];
+  }
+  // Pattern 2: project-name.vercel.app (Vercel deployment)
+  else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
+    slug = parts[0];
+  }
+  
+  if (slug) {
+    const { data: slugMatch } = await supabase
+      .from('websites')
+      .select('id')
+      .eq('slug', slug)
+      .limit(1)
+      .single();
+    
+    if (slugMatch) {
+      return slugMatch.id;
     }
   }
   
-  // Fallback to build-time ID if no match found
-  console.log('No website found for host:', urlToMatch, 'using build-time ID');
+  // No match found - use build-time ID
+  // This is safe because each deployed site has its own correct ID baked in
+  console.log('No website match for host:', normalizedHost, 'using build-time ID');
   return BUILD_TIME_WEBSITE_ID;
 }
 
@@ -362,58 +357,52 @@ export function getWebsiteId(): string {
 // For backward compatibility
 export const websiteId = '${websiteId}';
 
-// Fetch website by deployment URL from Supabase
+// Fetch website by deployment URL or slug from Supabase
 export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ id: string; name: string } | null> {
   // Normalize hostname - strip www. prefix and port
   const normalizedHost = hostname.replace(/^www\\./, '').split(':')[0];
   const urlToMatch = \`https://\${normalizedHost}\`;
-  
-  // Try exact match first
-  let { data, error } = await supabase
-    .from('websites')
-    .select('id, name')
-    .eq('deployment_url', urlToMatch)
-    .limit(1)
-    .single();
-  
-  if (!error && data) {
-    return data;
-  }
-  
-  // Try with www prefix
   const urlWithWww = \`https://www.\${normalizedHost}\`;
-  const result2 = await supabase
+  
+  // Strategy 1: Try exact deployment_url match (with and without www)
+  const { data: exactMatch } = await supabase
     .from('websites')
     .select('id, name')
-    .eq('deployment_url', urlWithWww)
+    .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
     .limit(1)
     .single();
   
-  if (!result2.error && result2.data) {
-    return result2.data;
+  if (exactMatch) {
+    return exactMatch;
   }
   
-  // Try matching against the URL without protocol (in case stored differently)
-  const result3 = await supabase
-    .from('websites')
-    .select('id, name, deployment_url')
-    .not('deployment_url', 'is', null)
-    .limit(100);
+  // Strategy 2: Slug-based lookup for recognized domain patterns only
+  const parts = normalizedHost.split('.');
+  let slug: string | null = null;
   
-  if (!result3.error && result3.data) {
-    for (const website of result3.data) {
-      if (website.deployment_url) {
-        try {
-          const storedHost = new URL(website.deployment_url).hostname.replace(/^www\\./, '');
-          if (storedHost === normalizedHost) {
-            return { id: website.id, name: website.name };
-          }
-        } catch {}
-      }
+  // Pattern 1: slug.bird-flow.com (legacy subdomain pattern)
+  if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
+    slug = parts[0];
+  }
+  // Pattern 2: project-name.vercel.app (Vercel deployment)
+  else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
+    slug = parts[0];
+  }
+  
+  if (slug) {
+    const { data: slugMatch } = await supabase
+      .from('websites')
+      .select('id, name')
+      .eq('slug', slug)
+      .limit(1)
+      .single();
+    
+    if (slugMatch) {
+      return slugMatch;
     }
   }
   
-  console.log('Failed to fetch website by deployment URL:', urlToMatch);
+  console.log('No website found for host:', normalizedHost);
   return null;
 }
 
