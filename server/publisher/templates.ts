@@ -216,6 +216,96 @@ export async function POST(request: NextRequest) {
 `;
 }
 
+export function generateBookingServicesApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+
+// Look up website_id from deployment URL or slug stored in database
+async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  let normalizedHost = host.replace(/^www\\./, '').split(':')[0];
+  const urlToMatch = \`https://\${normalizedHost}\`;
+  const urlWithWww = \`https://www.\${normalizedHost}\`;
+  
+  const { data: exactMatch } = await supabase
+    .from('websites')
+    .select('id')
+    .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
+    .limit(1)
+    .single();
+  
+  if (exactMatch) {
+    return exactMatch.id;
+  }
+  
+  const parts = normalizedHost.split('.');
+  let slug: string | null = null;
+  
+  if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
+    slug = parts[0];
+  } else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
+    slug = parts[0];
+  }
+  
+  if (slug) {
+    const { data: slugMatch } = await supabase
+      .from('websites')
+      .select('id')
+      .eq('slug', slug)
+      .limit(1)
+      .single();
+    
+    if (slugMatch) {
+      return slugMatch.id;
+    }
+  }
+  
+  return BUILD_TIME_WEBSITE_ID;
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    if (!SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
+    }
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const host = request.headers.get('host') || '';
+    const websiteId = await getWebsiteIdFromHost(host, supabase);
+    
+    if (!websiteId) {
+      return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from('booking_services')
+      .select('id, name, description, duration_minutes, price, currency')
+      .eq('website_id', websiteId)
+      .eq('active', 'true')
+      .order('sort_order', { ascending: true });
+
+    if (error) {
+      console.error('Services fetch error:', error);
+      return NextResponse.json({ message: 'Failed to fetch services' }, { status: 500 });
+    }
+
+    return NextResponse.json(data || []);
+  } catch (err) {
+    console.error('Services error:', err);
+    return NextResponse.json({ message: 'Failed to fetch services' }, { status: 500 });
+  }
+}
+`;
+}
+
 export function generateCheckoutApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
@@ -875,8 +965,6 @@ export function generateBookingForm(): string {
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { useWebsite } from '@/components/WebsiteProvider';
 
 type BookingService = {
   id: string;
@@ -900,7 +988,6 @@ type Props = {
 };
 
 export default function BookingForm({ styles, props }: Props) {
-  const { websiteId, isLoading: websiteLoading } = useWebsite();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [services, setServices] = useState<BookingService[]>([]);
   const [selectedService, setSelectedService] = useState('');
@@ -917,19 +1004,19 @@ export default function BookingForm({ styles, props }: Props) {
   const accentColor = '#6366f1';
 
   useEffect(() => {
-    if (!websiteId || websiteLoading) return;
-    
     const fetchServices = async () => {
-      const { data } = await supabase
-        .from('booking_services')
-        .select('*')
-        .eq('website_id', websiteId)
-        .eq('active', 'true')
-        .order('created_at', { ascending: true });
-      if (data) setServices(data);
+      try {
+        const res = await fetch('/api/booking-services');
+        if (res.ok) {
+          const data = await res.json();
+          setServices(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch services:', err);
+      }
     };
     fetchServices();
-  }, [websiteId, websiteLoading]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
