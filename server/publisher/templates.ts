@@ -91,40 +91,66 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
 
-// Extract slug from hostname and look up website_id
+// Look up website_id from deployment URL stored in database
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
   // Handle localhost - use build-time ID
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
     return BUILD_TIME_WEBSITE_ID;
   }
   
-  // Extract subdomain from hostname
-  const parts = host.split('.');
-  let slug: string | null = null;
+  // Normalize host - strip www. prefix and port
+  let normalizedHost = host.replace(/^www\\./, '').split(':')[0];
+  const urlToMatch = \`https://\${normalizedHost}\`;
   
-  if (parts.length >= 3) {
-    slug = parts[0];
-  } else if (host.endsWith('.vercel.app')) {
-    slug = parts[0];
-  }
-  
-  if (!slug) {
-    return BUILD_TIME_WEBSITE_ID;
-  }
-  
-  // Look up website by slug
-  const { data, error } = await supabase
+  // Try exact match first
+  let { data, error } = await supabase
     .from('websites')
     .select('id')
-    .eq('slug', slug)
+    .eq('deployment_url', urlToMatch)
     .limit(1)
     .single();
   
-  if (error || !data) {
-    return BUILD_TIME_WEBSITE_ID;
+  if (!error && data) {
+    return data.id;
   }
   
-  return data.id;
+  // Try with www prefix
+  const urlWithWww = \`https://www.\${normalizedHost}\`;
+  const result2 = await supabase
+    .from('websites')
+    .select('id')
+    .eq('deployment_url', urlWithWww)
+    .limit(1)
+    .single();
+  
+  if (!result2.error && result2.data) {
+    return result2.data.id;
+  }
+  
+  // Try matching against the URL without protocol (in case stored differently)
+  const result3 = await supabase
+    .from('websites')
+    .select('id, deployment_url')
+    .not('deployment_url', 'is', null)
+    .limit(100);
+  
+  if (!result3.error && result3.data) {
+    for (const website of result3.data) {
+      if (website.deployment_url) {
+        // Extract hostname from stored URL and compare
+        try {
+          const storedHost = new URL(website.deployment_url).hostname.replace(/^www\\./, '');
+          if (storedHost === normalizedHost) {
+            return website.id;
+          }
+        } catch {}
+      }
+    }
+  }
+  
+  // Fallback to build-time ID if no match found
+  console.log('No website found for host:', urlToMatch, 'using build-time ID');
+  return BUILD_TIME_WEBSITE_ID;
 }
 
 export async function POST(request: NextRequest) {
@@ -336,42 +362,64 @@ export function getWebsiteId(): string {
 // For backward compatibility
 export const websiteId = '${websiteId}';
 
-// Fetch website by slug from Supabase
-export async function fetchWebsiteBySlug(slug: string): Promise<{ id: string; name: string } | null> {
-  const { data, error } = await supabase
+// Fetch website by deployment URL from Supabase
+export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ id: string; name: string } | null> {
+  // Normalize hostname - strip www. prefix and port
+  const normalizedHost = hostname.replace(/^www\\./, '').split(':')[0];
+  const urlToMatch = \`https://\${normalizedHost}\`;
+  
+  // Try exact match first
+  let { data, error } = await supabase
     .from('websites')
     .select('id, name')
-    .eq('slug', slug)
+    .eq('deployment_url', urlToMatch)
     .limit(1)
     .single();
   
-  if (error || !data) {
-    console.error('Failed to fetch website by slug:', error);
-    return null;
+  if (!error && data) {
+    return data;
   }
   
-  return data;
+  // Try with www prefix
+  const urlWithWww = \`https://www.\${normalizedHost}\`;
+  const result2 = await supabase
+    .from('websites')
+    .select('id, name')
+    .eq('deployment_url', urlWithWww)
+    .limit(1)
+    .single();
+  
+  if (!result2.error && result2.data) {
+    return result2.data;
+  }
+  
+  // Try matching against the URL without protocol (in case stored differently)
+  const result3 = await supabase
+    .from('websites')
+    .select('id, name, deployment_url')
+    .not('deployment_url', 'is', null)
+    .limit(100);
+  
+  if (!result3.error && result3.data) {
+    for (const website of result3.data) {
+      if (website.deployment_url) {
+        try {
+          const storedHost = new URL(website.deployment_url).hostname.replace(/^www\\./, '');
+          if (storedHost === normalizedHost) {
+            return { id: website.id, name: website.name };
+          }
+        } catch {}
+      }
+    }
+  }
+  
+  console.log('Failed to fetch website by deployment URL:', urlToMatch);
+  return null;
 }
 
-// Extract slug from hostname (e.g., mysite.bird-flow.com -> mysite)
-export function extractSlugFromHostname(hostname: string): string | null {
-  // Handle localhost for development
-  if (hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
-    return null;
-  }
-  
-  // Extract subdomain from hostname like "mysite.bird-flow.com"
-  const parts = hostname.split('.');
-  if (parts.length >= 3) {
-    return parts[0];
-  }
-  
-  // Also handle Vercel preview URLs like "site-xxx.vercel.app"
-  if (hostname.endsWith('.vercel.app')) {
-    return parts[0];
-  }
-  
-  return null;
+// Check if we should use runtime detection (not localhost)
+export function shouldDetectWebsite(hostname: string): boolean {
+  return !hostname.includes('localhost') && !hostname.includes('127.0.0.1');
 }
 `;
 }
@@ -386,12 +434,12 @@ export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 export const websiteId = '${websiteId}';
 
-// Fetch website ID by slug using admin client
-export async function getWebsiteIdBySlug(slug: string): Promise<string | null> {
+// Fetch website ID by deployment URL using admin client
+export async function getWebsiteIdByDeploymentUrl(url: string): Promise<string | null> {
   const { data, error } = await supabaseAdmin
     .from('websites')
     .select('id')
-    .eq('slug', slug)
+    .eq('deployment_url', url)
     .limit(1)
     .single();
   
@@ -408,7 +456,7 @@ export function generateWebsiteProvider(): string {
   return `'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { fallbackWebsiteId, setRuntimeWebsiteId, fetchWebsiteBySlug, extractSlugFromHostname } from '@/lib/supabase';
+import { fallbackWebsiteId, setRuntimeWebsiteId, fetchWebsiteByDeploymentUrl, shouldDetectWebsite } from '@/lib/supabase';
 
 type WebsiteContextType = {
   websiteId: string;
@@ -434,10 +482,10 @@ export function WebsiteProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function detectWebsite() {
       try {
-        const slug = extractSlugFromHostname(window.location.hostname);
+        const hostname = window.location.hostname;
         
-        if (slug) {
-          const website = await fetchWebsiteBySlug(slug);
+        if (shouldDetectWebsite(hostname)) {
+          const website = await fetchWebsiteByDeploymentUrl(hostname);
           if (website) {
             setWebsiteIdState(website.id);
             setWebsiteName(website.name);
