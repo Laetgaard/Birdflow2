@@ -89,7 +89,43 @@ export function generateBookingApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+
+// Extract slug from hostname and look up website_id
+async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
+  // Handle localhost - use build-time ID
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  // Extract subdomain from hostname
+  const parts = host.split('.');
+  let slug: string | null = null;
+  
+  if (parts.length >= 3) {
+    slug = parts[0];
+  } else if (host.endsWith('.vercel.app')) {
+    slug = parts[0];
+  }
+  
+  if (!slug) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  // Look up website by slug
+  const { data, error } = await supabase
+    .from('websites')
+    .select('id')
+    .eq('slug', slug)
+    .limit(1)
+    .single();
+  
+  if (error || !data) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  return data.id;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -107,6 +143,14 @@ export async function POST(request: NextRequest) {
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
+    // Derive websiteId from request host (secure - not from client body)
+    const host = request.headers.get('host') || '';
+    const effectiveWebsiteId = await getWebsiteIdFromHost(host, supabase);
+    
+    if (!effectiveWebsiteId) {
+      return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
+    }
+
     // Get service details if serviceId provided
     let durationMinutes = null;
     let price = null;
@@ -123,7 +167,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { data, error } = await supabase.from('bookings').insert({
-      website_id: WEBSITE_ID,
+      website_id: effectiveWebsiteId,
       service_id: serviceId || null,
       service: service,
       customer_name: customerName,
@@ -275,7 +319,60 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Fallback website ID (hardcoded at build time)
+export const fallbackWebsiteId = '${websiteId}';
+
+// Runtime website ID (will be set by WebsiteProvider)
+let runtimeWebsiteId: string | null = null;
+
+export function setRuntimeWebsiteId(id: string) {
+  runtimeWebsiteId = id;
+}
+
+export function getWebsiteId(): string {
+  return runtimeWebsiteId || fallbackWebsiteId;
+}
+
+// For backward compatibility
 export const websiteId = '${websiteId}';
+
+// Fetch website by slug from Supabase
+export async function fetchWebsiteBySlug(slug: string): Promise<{ id: string; name: string } | null> {
+  const { data, error } = await supabase
+    .from('websites')
+    .select('id, name')
+    .eq('slug', slug)
+    .limit(1)
+    .single();
+  
+  if (error || !data) {
+    console.error('Failed to fetch website by slug:', error);
+    return null;
+  }
+  
+  return data;
+}
+
+// Extract slug from hostname (e.g., mysite.bird-flow.com -> mysite)
+export function extractSlugFromHostname(hostname: string): string | null {
+  // Handle localhost for development
+  if (hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
+    return null;
+  }
+  
+  // Extract subdomain from hostname like "mysite.bird-flow.com"
+  const parts = hostname.split('.');
+  if (parts.length >= 3) {
+    return parts[0];
+  }
+  
+  // Also handle Vercel preview URLs like "site-xxx.vercel.app"
+  if (hostname.endsWith('.vercel.app')) {
+    return parts[0];
+  }
+  
+  return null;
+}
 `;
 }
 
@@ -288,6 +385,81 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
 export const websiteId = '${websiteId}';
+
+// Fetch website ID by slug using admin client
+export async function getWebsiteIdBySlug(slug: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from('websites')
+    .select('id')
+    .eq('slug', slug)
+    .limit(1)
+    .single();
+  
+  if (error || !data) {
+    return null;
+  }
+  
+  return data.id;
+}
+`;
+}
+
+export function generateWebsiteProvider(): string {
+  return `'use client';
+
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { fallbackWebsiteId, setRuntimeWebsiteId, fetchWebsiteBySlug, extractSlugFromHostname } from '@/lib/supabase';
+
+type WebsiteContextType = {
+  websiteId: string;
+  isLoading: boolean;
+  websiteName: string | null;
+};
+
+const WebsiteContext = createContext<WebsiteContextType>({
+  websiteId: '',
+  isLoading: true,
+  websiteName: null,
+});
+
+export function useWebsite() {
+  return useContext(WebsiteContext);
+}
+
+export function WebsiteProvider({ children }: { children: ReactNode }) {
+  const [websiteId, setWebsiteIdState] = useState<string>(fallbackWebsiteId);
+  const [websiteName, setWebsiteName] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function detectWebsite() {
+      try {
+        const slug = extractSlugFromHostname(window.location.hostname);
+        
+        if (slug) {
+          const website = await fetchWebsiteBySlug(slug);
+          if (website) {
+            setWebsiteIdState(website.id);
+            setWebsiteName(website.name);
+            setRuntimeWebsiteId(website.id);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to detect website:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    detectWebsite();
+  }, []);
+
+  return (
+    <WebsiteContext.Provider value={{ websiteId, isLoading, websiteName }}>
+      {children}
+    </WebsiteContext.Provider>
+  );
+}
 `;
 }
 
@@ -666,7 +838,8 @@ export function generateBookingForm(): string {
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase, websiteId } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import { useWebsite } from '@/components/WebsiteProvider';
 
 type BookingService = {
   id: string;
@@ -690,6 +863,7 @@ type Props = {
 };
 
 export default function BookingForm({ styles, props }: Props) {
+  const { websiteId, isLoading: websiteLoading } = useWebsite();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [services, setServices] = useState<BookingService[]>([]);
   const [selectedService, setSelectedService] = useState('');
@@ -706,6 +880,8 @@ export default function BookingForm({ styles, props }: Props) {
   const accentColor = '#6366f1';
 
   useEffect(() => {
+    if (!websiteId || websiteLoading) return;
+    
     const fetchServices = async () => {
       const { data } = await supabase
         .from('booking_services')
@@ -716,7 +892,7 @@ export default function BookingForm({ styles, props }: Props) {
       if (data) setServices(data);
     };
     fetchServices();
-  }, []);
+  }, [websiteId, websiteLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -905,7 +1081,8 @@ export function generateProductGrid(): string {
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase, websiteId } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import { useWebsite } from '@/components/WebsiteProvider';
 
 type Product = {
   id: string;
@@ -934,6 +1111,7 @@ type Props = {
 };
 
 export default function ProductGrid({ styles, props }: Props) {
+  const { websiteId, isLoading: websiteLoading } = useWebsite();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -958,6 +1136,8 @@ export default function ProductGrid({ styles, props }: Props) {
   }, []);
 
   useEffect(() => {
+    if (!websiteId || websiteLoading) return;
+    
     async function fetchProducts() {
       try {
         const { data, error } = await supabase
@@ -980,7 +1160,7 @@ export default function ProductGrid({ styles, props }: Props) {
       setLoading(false);
     }
     fetchProducts();
-  }, [limit]);
+  }, [websiteId, websiteLoading, limit]);
 
   const addToCart = (product: Product) => {
     setCart(prev => {
@@ -1144,6 +1324,7 @@ export default function ProductGrid({ styles, props }: Props) {
 export function generateRootLayout(siteName: string): string {
   return `import type { Metadata } from 'next';
 import './globals.css';
+import { WebsiteProvider } from '@/components/WebsiteProvider';
 
 export const metadata: Metadata = {
   title: '${siteName}',
@@ -1153,7 +1334,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <WebsiteProvider>
+          {children}
+        </WebsiteProvider>
+      </body>
     </html>
   );
 }
