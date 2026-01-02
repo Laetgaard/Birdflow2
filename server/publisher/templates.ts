@@ -593,8 +593,14 @@ export function WebsiteProvider({ children }: { children: ReactNode }) {
 export function generateComponentRenderer(): string {
   return `'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import theme from '@/theme.json';
+
+type BuilderPage = {
+  id: string;
+  name: string;
+  path: string;
+};
 
 type ImageValue = string | { url: string; mediaId?: string; crop?: { x: number; y: number; width: number; height: number } };
 
@@ -771,19 +777,76 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
   );
 }
 
-function HeaderSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles: ComponentStyles; pages?: BuilderPage[] }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' });
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  const navItems = pages && pages.length > 0
+    ? pages.map(page => ({ id: page.id, title: page.name, href: page.path }))
+    : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
   
   return (
-    <header style={baseStyle}>
+    <header style={{ ...baseStyle, position: 'relative' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
-        <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
-        <nav style={{ display: 'flex', gap: '24px' }}>
-          {props.items?.map(item => (
-            <a key={item.id} href={item.description} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+        <a href="/" style={{ fontSize: '20px', fontWeight: 700, color: 'inherit', textDecoration: 'none' }}>{props.title}</a>
+        
+        {!isMobile && (
+          <nav style={{ display: 'flex', gap: '24px' }}>
+            {navItems.map(item => (
+              <a key={item.id} href={item.href} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+            ))}
+          </nav>
+        )}
+
+        {isMobile && (
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}
+            aria-label="Toggle menu"
+          >
+            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
+            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', opacity: mobileMenuOpen ? 0 : 1 }} />
+            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
+          </button>
+        )}
+      </div>
+
+      {isMobile && mobileMenuOpen && (
+        <nav
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            backgroundColor: styles.backgroundColor || '#ffffff',
+            padding: '16px 24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            zIndex: 1000,
+          }}
+        >
+          {navItems.map(item => (
+            <a
+              key={item.id}
+              href={item.href}
+              onClick={() => setMobileMenuOpen(false)}
+              style={{ color: styles.textColor || '#1a1a1a', textDecoration: 'none', padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
+            >
+              {item.title}
+            </a>
           ))}
         </nav>
-      </div>
+      )}
     </header>
   );
 }
@@ -843,7 +906,7 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
   );
 }
 
-export default function ComponentRenderer({ component, products = [] }: { component: ComponentData; products?: any[] }) {
+export default function ComponentRenderer({ component, products = [], pages = [] }: { component: ComponentData; products?: any[]; pages?: BuilderPage[] }) {
   switch (component.type) {
     case 'hero':
       return <HeroSection props={component.props} styles={component.styles} />;
@@ -858,7 +921,7 @@ export default function ComponentRenderer({ component, products = [] }: { compon
     case 'testimonials':
       return <TestimonialsSection props={component.props} styles={component.styles} />;
     case 'header':
-      return <HeaderSection props={component.props} styles={component.styles} />;
+      return <HeaderSection props={component.props} styles={component.styles} pages={pages} />;
     case 'footer':
       return <FooterSection props={component.props} styles={component.styles} />;
     case 'product-grid':
@@ -1488,17 +1551,25 @@ a {
 `;
 }
 
-export function generatePageFile(page: PageData, websiteId: string): string {
+type NavPage = { id: string; name: string; path: string };
+
+export function generatePageFile(page: PageData, websiteId: string, allPages?: NavPage[]): string {
   const componentsImport = `import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';`;
 
   const componentsJson = JSON.stringify(page.components, null, 2);
+  const pagesJson = JSON.stringify(
+    (allPages || []).map(p => ({ id: p.id, name: p.name, path: p.path })),
+    null,
+    2
+  );
   
   return `${componentsImport}
 
 const pageComponents = ${componentsJson};
+const sitePages = ${pagesJson};
 
 export default function Page() {
   return (
@@ -1513,7 +1584,7 @@ export default function Page() {
           case 'product-grid':
             return <ProductGrid key={component.id} props={component.props} styles={component.styles} />;
           default:
-            return <ComponentRenderer key={component.id} component={component} />;
+            return <ComponentRenderer key={component.id} component={component} pages={sitePages} />;
         }
       })}
     </main>
