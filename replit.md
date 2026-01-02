@@ -138,8 +138,38 @@ Pre-built website templates that users can select when creating a new website:
 - Visual template grid with thumbnails and descriptions
 - Template selection applies full builder state on creation
 
+### Shopping Cart & Checkout System
+The platform includes a complete e-commerce checkout flow:
+
+**Cart Context** (`client/src/lib/cartContext.tsx`):
+- React Context providing cart state across the app
+- localStorage persistence with website-specific keys (`saasify_cart_${websiteId}`)
+- Functions: addItem, removeItem, updateQuantity, clearCart
+- Automatic total calculation and item count
+
+**Cart UI** (`client/src/components/cart/`):
+- CartDrawer: Slide-out cart with quantity controls, two-step checkout flow
+- CartButton: Header button showing item count badge
+- Email/name collection before checkout
+
+**Checkout Flow**:
+- Server-side product validation to prevent price tampering
+- Currency validation ensures all cart items share same currency (USD/EUR/DKK)
+- Stripe Checkout Session creation with order tracking
+- Webhook handler updates order status (pending → paid) on payment completion
+
+**API Endpoints**:
+- `POST /api/public/websites/:id/checkout` - Create Stripe checkout session (public)
+- `GET /api/public/websites/:id/products` - List active products (public)
+- Stripe webhook at `/api/stripe/webhook` for payment event processing
+
 ## Recent Changes
 
+- **2025-01-02**: Added shopping cart with localStorage persistence and CartDrawer UI
+- **2025-01-02**: Implemented Stripe checkout with customer email collection and currency validation
+- **2025-01-02**: Created checkout success/cancel pages with cart clearing on success
+- **2025-01-02**: Added public checkout endpoint with server-side price validation
+- **2025-01-02**: Updated ProductGrid component props for cart integration (productMode, showAddToCart)
 - **2024-12-28**: Added customizable pre-built website templates with 6 starter templates (business, portfolio, ecommerce, services, landing)
 - **2024-12-28**: Created multi-step website creation wizard with template selection UI
 - **2024-12-28**: Added real-time booking updates via Supabase Realtime subscription in manage dashboard
