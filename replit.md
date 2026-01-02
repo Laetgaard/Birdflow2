@@ -165,6 +165,8 @@ The platform includes a complete e-commerce checkout flow:
 
 ## Recent Changes
 
+- **2025-01-02**: Added multi-image input UI to manage dashboard product form with add/remove functionality
+- **2025-01-02**: Updated publisher product detail page template with ImageGallery, hover zoom, lightbox with keyboard navigation
 - **2025-01-02**: Enhanced product page with image gallery, zoom, and lightbox functionality
 - **2025-01-02**: Added multiple images support to products (images array column)
 - **2025-01-02**: Cart context now supports quantity parameter in addItem function
