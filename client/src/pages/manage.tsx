@@ -98,6 +98,7 @@ type Product = {
   price: string;
   currency: string;
   imageUrl?: string;
+  images?: string[];
   status: 'active' | 'draft' | 'archived';
   inventory?: string;
   category?: string;
@@ -137,6 +138,7 @@ export default function ManagePage() {
     price: '0',
     currency: 'USD',
     imageUrl: '',
+    images: [],
     status: 'active',
     category: '',
   });
@@ -314,6 +316,7 @@ export default function ManagePage() {
       price: '0',
       currency: 'USD',
       imageUrl: '',
+      images: [],
       status: 'active',
       category: '',
     });
@@ -330,6 +333,7 @@ export default function ManagePage() {
         price: product.price,
         currency: product.currency,
         imageUrl: product.imageUrl || '',
+        images: product.images || [],
         status: product.status,
         category: product.category || '',
       });
@@ -1311,7 +1315,7 @@ export default function ManagePage() {
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="imageUrl">Image URL</Label>
+                        <Label htmlFor="imageUrl">Main Image URL</Label>
                         <div className="relative">
                           <Image className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                           <Input 
@@ -1323,6 +1327,48 @@ export default function ManagePage() {
                             data-testid="input-product-image"
                           />
                         </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Additional Images</Label>
+                        <div className="space-y-2">
+                          {(productForm.images || []).map((img, index) => (
+                            <div key={index} className="flex gap-2">
+                              <Input 
+                                value={img}
+                                onChange={(e) => {
+                                  const newImages = [...(productForm.images || [])];
+                                  newImages[index] = e.target.value;
+                                  setProductForm({...productForm, images: newImages});
+                                }}
+                                placeholder="https://example.com/image.jpg"
+                                data-testid={`input-product-additional-image-${index}`}
+                              />
+                              <Button 
+                                type="button"
+                                variant="ghost" 
+                                size="icon"
+                                onClick={() => {
+                                  const newImages = (productForm.images || []).filter((_, i) => i !== index);
+                                  setProductForm({...productForm, images: newImages});
+                                }}
+                                data-testid={`button-remove-image-${index}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button 
+                            type="button"
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => setProductForm({...productForm, images: [...(productForm.images || []), '']})}
+                            data-testid="button-add-image"
+                          >
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add Image
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Add multiple product images for gallery display</p>
                       </div>
                     </div>
                     <DialogFooter>

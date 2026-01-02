@@ -860,6 +860,9 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Access denied" });
       }
 
+      // Sanitize images array - remove empty strings
+      const images = (req.body.images || []).map((img: string) => img?.trim()).filter((img: string) => img);
+      
       const product = await storage.createProduct({
         websiteId: req.params.id,
         name: req.body.name,
@@ -868,6 +871,7 @@ export async function registerRoutes(
         price: req.body.price || "0",
         currency: req.body.currency || "USD",
         imageUrl: req.body.imageUrl,
+        images,
         status: req.body.status || "active",
         inventory: req.body.inventory,
         category: req.body.category,
