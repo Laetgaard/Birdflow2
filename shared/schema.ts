@@ -282,6 +282,7 @@ export const products = pgTable("products", {
   price: text("price").notNull().default("0"),
   currency: text("currency").notNull().default("USD"),
   imageUrl: text("image_url"),
+  images: text("images").array(),
   status: text("status").notNull().default("active"),
   inventory: text("inventory"),
   category: text("category"),
