@@ -959,9 +959,13 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cart is empty" });
       }
 
+      if (!customerEmail) {
+        return res.status(400).json({ message: "Email is required for checkout" });
+      }
+
       // Validate items against database products
       const validatedItems: Array<{ productId: string; name: string; price: number; quantity: number; currency: string }> = [];
-      let primaryCurrency = 'USD';
+      let primaryCurrency: string | null = null;
       
       for (const item of items) {
         const product = await storage.getProduct(item.productId);
@@ -975,14 +979,29 @@ export async function registerRoutes(
           return res.status(400).json({ message: `Product not available: ${product.name}` });
         }
         
-        primaryCurrency = product.currency || 'USD';
+        const productCurrency = product.currency || 'USD';
+        
+        // Validate all items share the same currency
+        if (primaryCurrency === null) {
+          primaryCurrency = productCurrency;
+        } else if (primaryCurrency !== productCurrency) {
+          return res.status(400).json({ 
+            message: `Cannot checkout products with different currencies. Cart contains ${primaryCurrency} and ${productCurrency} items.` 
+          });
+        }
+        
         validatedItems.push({
           productId: product.id,
           name: product.name,
           price: parseFloat(product.price),
           quantity: Math.max(1, Math.floor(item.quantity || 1)),
-          currency: product.currency || 'USD',
+          currency: productCurrency,
         });
+      }
+      
+      // Default to USD if no items (shouldn't happen due to earlier check)
+      if (!primaryCurrency) {
+        primaryCurrency = 'USD';
       }
 
       const stripe = await getUncachableStripeClient();
