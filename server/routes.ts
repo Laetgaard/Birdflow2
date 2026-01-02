@@ -935,6 +935,19 @@ export async function registerRoutes(
     }
   });
 
+  // Public endpoint to get a single product by ID (for product detail pages)
+  app.get("/api/public/websites/:id/products/:productId", async (req, res) => {
+    try {
+      const product = await storage.getProduct(req.params.productId);
+      if (!product || product.websiteId !== req.params.id || product.status !== 'active') {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      res.json(product);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Get Stripe publishable key
   app.get("/api/stripe/config", async (req, res) => {
     try {
