@@ -165,6 +165,10 @@ The platform includes a complete e-commerce checkout flow:
 
 ## Recent Changes
 
+- **2025-01-02**: Enhanced product page with image gallery, zoom, and lightbox functionality
+- **2025-01-02**: Added multiple images support to products (images array column)
+- **2025-01-02**: Cart context now supports quantity parameter in addItem function
+- **2025-01-02**: Product page includes quantity selector, stock status, trust badges
 - **2025-01-02**: Added shopping cart with localStorage persistence and CartDrawer UI
 - **2025-01-02**: Implemented Stripe checkout with customer email collection and currency validation
 - **2025-01-02**: Created checkout success/cancel pages with cart clearing on success

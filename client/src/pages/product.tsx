@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRoute, Link } from 'wouter';
-import { useCart } from '../lib/cartContext';
+import { CartProvider, useCart } from '../lib/cartContext';
 
 type Product = {
   id: string;
@@ -315,7 +315,7 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
   );
 }
 
-export default function ProductDetailPage() {
+function ProductDetailPageContent({ websiteId }: { websiteId: string | null }) {
   const [, params] = useRoute('/product/:id');
   const productId = params?.id;
   const [product, setProduct] = useState<Product | null>(null);
@@ -323,9 +323,6 @@ export default function ProductDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [addedToCart, setAddedToCart] = useState(false);
   const [quantity, setQuantity] = useState(1);
-
-  const searchParams = new URLSearchParams(window.location.search);
-  const websiteId = searchParams.get('website');
 
   const cart = useCart();
 
@@ -613,5 +610,16 @@ export default function ProductDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ProductDetailPage() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const websiteId = searchParams.get('website');
+
+  return (
+    <CartProvider websiteId={websiteId || undefined}>
+      <ProductDetailPageContent websiteId={websiteId} />
+    </CartProvider>
   );
 }
