@@ -1,7 +1,9 @@
 import { useCart, CartItem } from '@/lib/cartContext';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { X, Plus, Minus, ShoppingBag, Trash2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Plus, Minus, ShoppingBag, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 function formatCurrency(amount: number, currency: string = 'USD'): string {
@@ -69,11 +71,36 @@ type CartDrawerProps = {
 export default function CartDrawer({ websiteId, onCheckout }: CartDrawerProps) {
   const { items, isOpen, setIsOpen, updateQuantity, removeItem, totalAmount, totalItems, currency, clearCart } = useCart();
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [showCheckoutForm, setShowCheckoutForm] = useState(false);
+
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const handleProceedToCheckout = () => {
+    setShowCheckoutForm(true);
+  };
 
   const handleCheckout = async () => {
     if (!websiteId || items.length === 0) return;
     
+    if (!customerEmail) {
+      setEmailError('Email is required');
+      return;
+    }
+    
+    if (!validateEmail(customerEmail)) {
+      setEmailError('Please enter a valid email');
+      return;
+    }
+    
+    setEmailError('');
     setIsCheckingOut(true);
+    
     try {
       const response = await fetch(`/api/public/websites/${websiteId}/checkout`, {
         method: 'POST',
@@ -86,21 +113,24 @@ export default function CartDrawer({ websiteId, onCheckout }: CartDrawerProps) {
             quantity: item.quantity,
             currency: item.currency,
           })),
+          customerEmail,
+          customerName: customerName || customerEmail.split('@')[0],
           currency,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create checkout session');
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create checkout session');
       }
 
       const { url } = await response.json();
       if (url) {
         window.location.href = url;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Checkout error:', error);
-      alert('Failed to start checkout. Please try again.');
+      alert(error.message || 'Failed to start checkout. Please try again.');
     } finally {
       setIsCheckingOut(false);
     }
@@ -146,23 +176,72 @@ export default function CartDrawer({ websiteId, onCheckout }: CartDrawerProps) {
                   {formatCurrency(totalAmount, currency)}
                 </span>
               </div>
-              <Button 
-                className="w-full" 
-                size="lg"
-                onClick={handleCheckout}
-                disabled={isCheckingOut}
-                data-testid="checkout-button"
-              >
-                {isCheckingOut ? 'Processing...' : 'Checkout'}
-              </Button>
-              <Button 
-                variant="outline" 
-                className="w-full"
-                onClick={clearCart}
-                data-testid="clear-cart-button"
-              >
-                Clear Cart
-              </Button>
+              
+              {showCheckoutForm ? (
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="checkout-name">Name (optional)</Label>
+                    <Input
+                      id="checkout-name"
+                      placeholder="Your name"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      data-testid="input-checkout-name"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="checkout-email">Email *</Label>
+                    <Input
+                      id="checkout-email"
+                      type="email"
+                      placeholder="your@email.com"
+                      value={customerEmail}
+                      onChange={(e) => {
+                        setCustomerEmail(e.target.value);
+                        setEmailError('');
+                      }}
+                      className={emailError ? 'border-red-500' : ''}
+                      data-testid="input-checkout-email"
+                    />
+                    {emailError && <p className="text-sm text-red-500">{emailError}</p>}
+                  </div>
+                  <Button 
+                    className="w-full" 
+                    size="lg"
+                    onClick={handleCheckout}
+                    disabled={isCheckingOut}
+                    data-testid="checkout-button"
+                  >
+                    {isCheckingOut ? 'Processing...' : 'Pay Now'}
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    className="w-full"
+                    onClick={() => setShowCheckoutForm(false)}
+                  >
+                    Back to Cart
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Button 
+                    className="w-full" 
+                    size="lg"
+                    onClick={handleProceedToCheckout}
+                    data-testid="proceed-checkout-button"
+                  >
+                    Proceed to Checkout
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="w-full"
+                    onClick={clearCart}
+                    data-testid="clear-cart-button"
+                  >
+                    Clear Cart
+                  </Button>
+                </>
+              )}
             </div>
           </SheetFooter>
         )}
