@@ -7,11 +7,20 @@ type Product = {
   id: string;
   name: string;
   description?: string;
+  longDescription?: string;
   price: string;
+  currency?: string;
   imageUrl?: string;
   status: string;
   category?: string;
 };
+
+function formatCurrency(amount: number, currency: string = 'USD'): string {
+  const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
+  const symbol = symbols[currency] || currency;
+  const formatted = currency === 'DKK' ? amount.toFixed(0) : amount.toFixed(2);
+  return currency === 'DKK' ? `${formatted} ${symbol}` : `${symbol}${formatted}`;
+}
 
 type BuilderPage = {
   id: string;
@@ -320,23 +329,41 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '24px' }}>
-            {products.map(product => (
-              <div key={product.id} style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)' }}>
-                {product.imageUrl ? (
-                  <img src={product.imageUrl} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
-                    📦
+            {products.map(product => {
+              const productUrl = `/product/${product.id}?website=${websiteId}`;
+              const cardContent = (
+                <>
+                  {product.imageUrl ? (
+                    <img src={product.imageUrl} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
+                      📦
+                    </div>
+                  )}
+                  <div style={{ padding: '16px' }}>
+                    <h3 style={{ fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
+                    {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
+                    {product.description && <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{product.description}</p>}
+                    <p style={{ fontSize: '20px', fontWeight: 700 }}>{formatCurrency(parseFloat(product.price), product.currency)}</p>
                   </div>
-                )}
-                <div style={{ padding: '16px' }}>
-                  <h3 style={{ fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
-                  {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
-                  {product.description && <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{product.description}</p>}
-                  <p style={{ fontSize: '20px', fontWeight: 700 }}>${parseFloat(product.price).toFixed(2)}</p>
+                </>
+              );
+              
+              return isPreview ? (
+                <a
+                  key={product.id}
+                  href={productUrl}
+                  style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)', textDecoration: 'none', color: 'inherit', display: 'block', transition: 'transform 0.2s, box-shadow 0.2s' }}
+                  data-testid={`product-card-${product.id}`}
+                >
+                  {cardContent}
+                </a>
+              ) : (
+                <div key={product.id} style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)' }}>
+                  {cardContent}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -16,12 +16,14 @@ import {
   generateContactForm,
   generateBookingForm,
   generateProductGrid,
+  generateProductDetailPage,
   generateRootLayout,
   generateGlobalsCss,
   generatePageFile,
   generateCheckoutApiRoute,
   generateBookingApiRoute,
   generateBookingServicesApiRoute,
+  generateProductApiRoute,
 } from './templates';
 
 export type GeneratorConfig = {
@@ -42,6 +44,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout', 'create-session'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'bookings'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'booking-services'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'products'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'product', '[id]'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'components'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'lib'), { recursive: true });
   
@@ -71,6 +75,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
     { path: 'app/api/bookings/route.ts', content: generateBookingApiRoute(websiteId) },
     { path: 'app/api/booking-services/route.ts', content: generateBookingServicesApiRoute(websiteId) },
+    { path: 'app/api/products/route.ts', content: generateProductApiRoute(websiteId) },
+    { path: 'app/product/[id]/page.tsx', content: generateProductDetailPage() },
   ];
   
   for (const page of builderState.pages) {

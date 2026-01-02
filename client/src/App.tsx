@@ -13,6 +13,7 @@ import Dashboard from "@/pages/dashboard";
 import SetupPage from "@/pages/setup";
 import BuilderPage from "@/pages/builder";
 import ManagePage from "@/pages/manage";
+import ProductDetailPage from "@/pages/product";
 
 function Router() {
   return (
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/setup/:id" component={SetupPage} />
       <Route path="/builder/:id" component={BuilderPage} />
       <Route path="/manage/:id" component={ManagePage} />
+      <Route path="/product/:id" component={ProductDetailPage} />
       <Route component={NotFound} />
     </Switch>
   );

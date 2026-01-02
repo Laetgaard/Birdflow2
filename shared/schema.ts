@@ -260,6 +260,7 @@ export const products = pgTable("products", {
   websiteId: varchar("website_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
+  longDescription: text("long_description"),
   price: text("price").notNull().default("0"),
   currency: text("currency").notNull().default("USD"),
   imageUrl: text("image_url"),
