@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'contact-form' | 'booking-form' | 'product-grid';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'contact-form' | 'booking-form' | 'product-grid' | 'booking';
 
 export type ComponentItem = {
   id: string;

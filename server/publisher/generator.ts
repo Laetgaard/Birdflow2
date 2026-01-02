@@ -80,7 +80,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
       await fs.promises.mkdir(path.join(outputDir, 'app', page.path.slice(1)), { recursive: true });
     }
     
-    files.push({ path: pagePath, content: generatePageFile(page, websiteId) });
+    files.push({ path: pagePath, content: generatePageFile(page, websiteId, builderState.pages) });
   }
   
   for (const file of files) {

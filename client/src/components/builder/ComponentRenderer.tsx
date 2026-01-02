@@ -13,12 +13,19 @@ type Product = {
   category?: string;
 };
 
+type BuilderPage = {
+  id: string;
+  name: string;
+  path: string;
+};
+
 type RenderProps = {
   component: BuilderComponentData;
   isSelected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   isPreview?: boolean;
   websiteId?: string;
+  pages?: BuilderPage[];
 };
 
 function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: boolean): React.CSSProperties {
@@ -170,19 +177,93 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview }
   );
 }
 
-function HeaderComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
+function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean; pages?: BuilderPage[] }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  const navItems = pages && pages.length > 0
+    ? pages.map(page => ({ id: page.id, title: page.name, href: page.path }))
+    : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
+
+  const handleNavClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  const handleBurgerClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMobileMenuOpen(!mobileMenuOpen);
+  };
+
+  const handleMobileNavClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setMobileMenuOpen(false);
+  };
   
   return (
-    <header style={baseStyle} onClick={onClick}>
+    <header style={{ ...baseStyle, position: 'relative' }} onClick={onClick}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
         <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
-        <nav style={{ display: 'flex', gap: '24px' }}>
-          {props.items?.map(item => (
-            <a key={item.id} href={isPreview ? item.description : '#'} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+        
+        {!isMobile && (
+          <nav style={{ display: 'flex', gap: '24px' }} onClick={handleNavClick}>
+            {navItems.map(item => (
+              <a key={item.id} href={isPreview ? item.href : '#'} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+            ))}
+          </nav>
+        )}
+
+        {isMobile && (
+          <button
+            onClick={handleBurgerClick}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}
+            aria-label="Toggle menu"
+            data-testid="button-burger-menu"
+          >
+            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
+            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', opacity: mobileMenuOpen ? 0 : 1 }} />
+            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
+          </button>
+        )}
+      </div>
+
+      {isMobile && mobileMenuOpen && (
+        <nav
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            backgroundColor: styles.backgroundColor || '#ffffff',
+            padding: '16px 24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            zIndex: 1000,
+          }}
+          onClick={handleNavClick}
+          data-testid="mobile-menu"
+        >
+          {navItems.map(item => (
+            <a
+              key={item.id}
+              href={isPreview ? item.href : '#'}
+              onClick={handleMobileNavClick}
+              style={{ color: styles.textColor || '#1a1a1a', textDecoration: 'none', padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
+            >
+              {item.title}
+            </a>
           ))}
         </nav>
-      </div>
+      )}
     </header>
   );
 }
@@ -263,7 +344,7 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -277,6 +358,11 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     isSelected,
     onClick: handleClick,
     isPreview,
+  };
+
+  const headerProps = {
+    ...commonProps,
+    pages,
   };
 
   const wrapperProps = {
@@ -298,7 +384,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     case 'testimonials':
       return <div {...wrapperProps}><TestimonialsComponent {...commonProps} /></div>;
     case 'header':
-      return <div {...wrapperProps}><HeaderComponent {...commonProps} /></div>;
+      return <div {...wrapperProps}><HeaderComponent {...headerProps} /></div>;
     case 'footer':
       return <div {...wrapperProps}><FooterComponent {...commonProps} /></div>;
     case 'product-grid':

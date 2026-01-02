@@ -642,6 +642,7 @@ export default function BuilderPage() {
                     setSidebarTab("properties");
                   }}
                   websiteId={id}
+                  pages={builderState?.pages}
                 />
               ))
             )}
