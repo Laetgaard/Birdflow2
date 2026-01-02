@@ -14,6 +14,8 @@ import SetupPage from "@/pages/setup";
 import BuilderPage from "@/pages/builder";
 import ManagePage from "@/pages/manage";
 import ProductDetailPage from "@/pages/product";
+import CheckoutSuccessPage from "@/pages/checkout-success";
+import CheckoutCancelPage from "@/pages/checkout-cancel";
 
 function Router() {
   return (
@@ -27,6 +29,8 @@ function Router() {
       <Route path="/builder/:id" component={BuilderPage} />
       <Route path="/manage/:id" component={ManagePage} />
       <Route path="/product/:id" component={ProductDetailPage} />
+      <Route path="/checkout/success" component={CheckoutSuccessPage} />
+      <Route path="/checkout/cancel" component={CheckoutCancelPage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -864,6 +864,7 @@ export async function registerRoutes(
         websiteId: req.params.id,
         name: req.body.name,
         description: req.body.description,
+        longDescription: req.body.longDescription,
         price: req.body.price || "0",
         currency: req.body.currency || "USD",
         imageUrl: req.body.imageUrl,
@@ -944,6 +945,101 @@ export async function registerRoutes(
       }
       res.json(product);
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Public checkout endpoint for published sites
+  app.post("/api/public/websites/:id/checkout", async (req, res) => {
+    try {
+      const websiteId = req.params.id;
+      const { items, customerEmail, customerName } = req.body;
+      
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "Cart is empty" });
+      }
+
+      // Validate items against database products
+      const validatedItems: Array<{ productId: string; name: string; price: number; quantity: number; currency: string }> = [];
+      let primaryCurrency = 'USD';
+      
+      for (const item of items) {
+        const product = await storage.getProduct(item.productId);
+        if (!product) {
+          return res.status(400).json({ message: `Product not found: ${item.productId}` });
+        }
+        if (product.websiteId !== websiteId) {
+          return res.status(400).json({ message: "Invalid product" });
+        }
+        if (product.status !== 'active') {
+          return res.status(400).json({ message: `Product not available: ${product.name}` });
+        }
+        
+        primaryCurrency = product.currency || 'USD';
+        validatedItems.push({
+          productId: product.id,
+          name: product.name,
+          price: parseFloat(product.price),
+          quantity: Math.max(1, Math.floor(item.quantity || 1)),
+          currency: product.currency || 'USD',
+        });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const total = validatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+      // Convert currency code to lowercase for Stripe
+      const stripeCurrency = primaryCurrency.toLowerCase();
+
+      const lineItems = validatedItems.map(item => ({
+        price_data: {
+          currency: stripeCurrency,
+          product_data: {
+            name: item.name,
+            metadata: { productId: item.productId },
+          },
+          unit_amount: Math.round(item.price * 100),
+        },
+        quantity: item.quantity,
+      }));
+
+      // Determine URLs based on request origin
+      const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || '';
+      
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: lineItems,
+        mode: 'payment',
+        success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&website=${websiteId}`,
+        cancel_url: `${origin}/checkout/cancel?website=${websiteId}`,
+        customer_email: customerEmail,
+        metadata: {
+          websiteId,
+          itemsJson: JSON.stringify(validatedItems),
+        },
+      });
+
+      // Create order with pending payment status
+      await storage.createOrder({
+        websiteId,
+        customerName: customerName || customerEmail?.split('@')[0] || 'Customer',
+        customerEmail: customerEmail || 'guest@checkout.com',
+        status: 'pending',
+        paymentStatus: 'pending',
+        stripeSessionId: session.id,
+        total: total.toFixed(2),
+        currency: primaryCurrency,
+        items: validatedItems.map(item => ({
+          id: item.productId,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+        })),
+      });
+
+      res.json({ url: session.url, sessionId: session.id });
+    } catch (error: any) {
+      console.error('Public checkout error:', error);
       res.status(500).json({ message: error.message });
     }
   });
