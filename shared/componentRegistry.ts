@@ -34,6 +34,9 @@ export type ComponentProps = {
   speed?: number;
   columns?: number;
   productLimit?: number;
+  productMode?: 'all' | 'curated';
+  curatedProductIds?: string[];
+  showAddToCart?: boolean;
 };
 
 export type ComponentStyles = {
@@ -277,6 +280,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       description: 'Browse our selection of products',
       columns: 3,
       productLimit: 6,
+      productMode: 'all',
+      showAddToCart: true,
     },
     defaultStyles: {
       backgroundColor: '#ffffff',

@@ -94,6 +94,7 @@ type Product = {
   id: string;
   name: string;
   description?: string;
+  longDescription?: string;
   price: string;
   currency: string;
   imageUrl?: string;
@@ -132,6 +133,7 @@ export default function ManagePage() {
   const [productForm, setProductForm] = useState<Partial<Product>>({
     name: '',
     description: '',
+    longDescription: '',
     price: '0',
     currency: 'USD',
     imageUrl: '',
@@ -308,6 +310,7 @@ export default function ManagePage() {
     setProductForm({
       name: '',
       description: '',
+      longDescription: '',
       price: '0',
       currency: 'USD',
       imageUrl: '',
@@ -323,6 +326,7 @@ export default function ManagePage() {
       setProductForm({
         name: product.name,
         description: product.description || '',
+        longDescription: product.longDescription || '',
         price: product.price,
         currency: product.currency,
         imageUrl: product.imageUrl || '',
@@ -1224,13 +1228,25 @@ export default function ManagePage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="description">Description</Label>
+                        <Label htmlFor="description">Short Description</Label>
                         <Textarea 
                           id="description"
                           value={productForm.description || ''} 
                           onChange={(e) => setProductForm({...productForm, description: e.target.value})}
-                          placeholder="Product description"
+                          placeholder="Brief product description (shown on cards)"
+                          rows={2}
                           data-testid="input-product-description"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="longDescription">Full Description</Label>
+                        <Textarea 
+                          id="longDescription"
+                          value={productForm.longDescription || ''} 
+                          onChange={(e) => setProductForm({...productForm, longDescription: e.target.value})}
+                          placeholder="Detailed product description (shown on product page)"
+                          rows={4}
+                          data-testid="input-product-long-description"
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -1250,6 +1266,24 @@ export default function ManagePage() {
                           </div>
                         </div>
                         <div className="space-y-2">
+                          <Label htmlFor="currency">Currency</Label>
+                          <Select 
+                            value={productForm.currency || 'USD'} 
+                            onValueChange={(value) => setProductForm({...productForm, currency: value})}
+                          >
+                            <SelectTrigger data-testid="select-product-currency">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="USD">USD ($)</SelectItem>
+                              <SelectItem value="EUR">EUR (€)</SelectItem>
+                              <SelectItem value="DKK">DKK (kr)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
                           <Label htmlFor="status">Status</Label>
                           <Select 
                             value={productForm.status || 'active'} 
@@ -1265,16 +1299,16 @@ export default function ManagePage() {
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="category">Category</Label>
-                        <Input 
-                          id="category"
-                          value={productForm.category || ''} 
-                          onChange={(e) => setProductForm({...productForm, category: e.target.value})}
-                          placeholder="e.g., Electronics, Clothing"
-                          data-testid="input-product-category"
-                        />
+                        <div className="space-y-2">
+                          <Label htmlFor="category">Category</Label>
+                          <Input 
+                            id="category"
+                            value={productForm.category || ''} 
+                            onChange={(e) => setProductForm({...productForm, category: e.target.value})}
+                            placeholder="e.g., Electronics"
+                            data-testid="input-product-category"
+                          />
+                        </div>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="imageUrl">Image URL</Label>
@@ -1337,7 +1371,7 @@ export default function ManagePage() {
                             <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{product.description}</p>
                           )}
                           <div className="flex items-center justify-between mt-4">
-                            <span className="text-lg font-bold">${parseFloat(product.price).toFixed(2)}</span>
+                            <span className="text-lg font-bold">{formatCurrency(parseFloat(product.price), product.currency)}</span>
                             <div className="flex gap-1">
                               <Button variant="ghost" size="icon" onClick={() => openProductDialog(product)} data-testid={`button-edit-${product.id}`}>
                                 <Pencil className="w-4 h-4" />

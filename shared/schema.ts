@@ -111,6 +111,22 @@ export type BookingConfig = {
   }>;
 };
 
+export type CheckoutConfig = {
+  enabled: boolean;
+  defaultCurrency: 'USD' | 'EUR' | 'DKK';
+  successUrl?: string;
+  cancelUrl?: string;
+  collectShipping?: boolean;
+  collectPhone?: boolean;
+};
+
+export type ProductGridConfig = {
+  mode: 'all' | 'curated';
+  curatedProductIds?: string[];
+  columns?: number;
+  limit?: number;
+};
+
 export type BuilderStateData = {
   pages: BuilderPage[];
   activePage: string;
@@ -122,6 +138,8 @@ export type BuilderStateData = {
   };
   media?: MediaReference[];
   bookingConfig?: BookingConfig;
+  checkoutConfig?: CheckoutConfig;
+  productGridConfig?: ProductGridConfig;
 };
 
 // Builder state table
