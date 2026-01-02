@@ -1035,7 +1035,15 @@ type BookingService = {
   description?: string;
   duration_minutes: number;
   price: string;
+  currency: string;
 };
+
+function formatCurrency(amount: number, currency: string = 'USD'): string {
+  const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
+  const symbol = symbols[currency] || currency;
+  const formatted = currency === 'DKK' ? amount.toFixed(0) : amount.toFixed(2);
+  return currency === 'DKK' ? formatted + ' ' + symbol : symbol + formatted;
+}
 
 type Props = {
   styles: {
@@ -1185,7 +1193,7 @@ export default function BookingForm({ styles, props }: Props) {
                             {service.description && <p style={{ fontSize: '14px', opacity: 0.6, marginBottom: '8px' }}>{service.description}</p>}
                             <span style={{ fontSize: '13px', opacity: 0.7 }}>{service.duration_minutes} min</span>
                           </div>
-                          <div style={{ fontSize: '20px', fontWeight: 700, color: accentColor, backgroundColor: '#f0f4ff', padding: '8px 12px', borderRadius: '8px' }}>\${parseFloat(String(service.price || '0')).toFixed(0)}</div>
+                          <div style={{ fontSize: '20px', fontWeight: 700, color: accentColor, backgroundColor: '#f0f4ff', padding: '8px 12px', borderRadius: '8px' }}>{formatCurrency(parseFloat(String(service.price || '0')), service.currency)}</div>
                         </div>
                       </div>
                     ))}
