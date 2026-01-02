@@ -29,6 +29,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
+function formatCurrency(amount: number, currency: string = 'USD'): string {
+  const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
+  const symbol = symbols[currency] || currency;
+  const formatted = amount.toFixed(currency === 'DKK' ? 0 : 2);
+  return currency === 'DKK' ? `${formatted} ${symbol}` : `${symbol}${formatted}`;
+}
+
 type Website = {
   id: string;
   name: string;
@@ -1394,31 +1401,41 @@ export default function ManagePage() {
                           data-testid="input-service-description"
                         />
                       </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="serviceDuration">Duration (minutes)</Label>
+                        <Input 
+                          id="serviceDuration"
+                          type="number"
+                          value={serviceForm.durationMinutes || 60} 
+                          onChange={(e) => setServiceForm({...serviceForm, durationMinutes: parseInt(e.target.value) || 60})}
+                          data-testid="input-service-duration"
+                        />
+                      </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="serviceDuration">Duration (minutes)</Label>
+                          <Label htmlFor="servicePrice">Price</Label>
                           <Input 
-                            id="serviceDuration"
+                            id="servicePrice"
                             type="number"
-                            value={serviceForm.durationMinutes || 60} 
-                            onChange={(e) => setServiceForm({...serviceForm, durationMinutes: parseInt(e.target.value) || 60})}
-                            data-testid="input-service-duration"
+                            step="0.01"
+                            value={serviceForm.price || '0'} 
+                            onChange={(e) => setServiceForm({...serviceForm, price: e.target.value})}
+                            data-testid="input-service-price"
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="servicePrice">Price</Label>
-                          <div className="relative">
-                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <Input 
-                              id="servicePrice"
-                              type="number"
-                              step="0.01"
-                              className="pl-9"
-                              value={serviceForm.price || '0'} 
-                              onChange={(e) => setServiceForm({...serviceForm, price: e.target.value})}
-                              data-testid="input-service-price"
-                            />
-                          </div>
+                          <Label htmlFor="serviceCurrency">Currency</Label>
+                          <select
+                            id="serviceCurrency"
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            value={serviceForm.currency || 'USD'}
+                            onChange={(e) => setServiceForm({...serviceForm, currency: e.target.value})}
+                            data-testid="select-service-currency"
+                          >
+                            <option value="USD">USD ($)</option>
+                            <option value="EUR">EUR (€)</option>
+                            <option value="DKK">DKK (kr)</option>
+                          </select>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1492,7 +1509,7 @@ export default function ManagePage() {
                               <span>{service.durationMinutes} min</span>
                             </div>
                             <div className="text-lg font-bold text-green-600">
-                              ${parseFloat(service.price).toFixed(0)}
+                              {formatCurrency(parseFloat(service.price), service.currency)}
                             </div>
                           </div>
                         </div>
