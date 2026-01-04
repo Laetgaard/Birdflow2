@@ -3084,6 +3084,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Failed to create order' }, { status: 500 });
     }
 
+    // Insert order items into normalized table
+    const orderItems = items.map((item: any) => ({
+      order_id: order.id,
+      website_id: websiteId,
+      product_id: item.productId || item.id,
+      product_name: item.productName || item.name,
+      quantity: item.quantity,
+      price_at_purchase: String(item.priceAtPurchase || item.price),
+      currency: item.currency || currency || 'USD',
+    }));
+
+    const { error: itemsError } = await supabase
+      .from('order_items')
+      .insert(orderItems);
+
+    if (itemsError) {
+      console.error('Order items creation error:', itemsError);
+      // Order was created, just log the error for items
+    }
+
     return NextResponse.json({ id: order.id, message: 'Order created successfully' });
   } catch (err) {
     console.error('Order error:', err);
