@@ -86,13 +86,13 @@ Includes a full e-commerce checkout flow:
 - `bcryptjs`: Password hashing.
 
 ### Custom Domain Support
-Secure custom domain connection with DNS verification:
-- **Domain Management**: `custom_domains` table tracks domain, status (pending/verified/active/error), and verification tokens.
-- **DNS Verification**: TXT record verification at `_saasify-verification.<domain>` subdomain using Node.js DNS module.
-- **Vercel Integration**: After DNS verification, domains are connected via Vercel Domains API (v10).
-- **Status Flow**: pending (add domain) → verified (DNS check passed) → active (Vercel connected).
-- **Security**: All domain routes verify website ownership before operations.
-- **UI**: DomainsCard in Manage page provides add/verify/delete with copyable DNS instructions.
+Low-friction custom domain connection with minimal user steps:
+- **Simplified Flow**: Domains are added directly to Vercel on creation, showing just ONE DNS record to add.
+- **DNS Config**: CNAME for subdomains (www, shop, etc.), A record for apex domains (example.com).
+- **Status Flow**: pending (add DNS) → verifying (checking) → active (connected).
+- **Vercel Integration**: Uses existing Vercel project from website deployment for domain management.
+- **Security**: All domain routes verify website ownership; requires website to be published first.
+- **UI**: DomainsCard shows single DNS record with copy buttons, "Check Status" button polls Vercel.
 
 ### Deployment
 - **Vercel**: Hosts published Next.js sites via its REST API, including custom domain connections.

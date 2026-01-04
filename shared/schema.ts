@@ -371,15 +371,18 @@ export const insertBookingServiceSchema = createInsertSchema(bookingServices).om
 export type InsertBookingService = z.infer<typeof insertBookingServiceSchema>;
 export type BookingService = typeof bookingServices.$inferSelect;
 
-// Custom domains table
+// Custom domains table - simplified flow using Vercel for verification
 export const customDomains = pgTable("custom_domains", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   websiteId: varchar("website_id").notNull(),
   domain: text("domain").notNull().unique(),
-  status: text("status").notNull().default("pending"),
-  verificationToken: text("verification_token").notNull(),
-  vercelDomainId: text("vercel_domain_id"),
-  sslStatus: text("ssl_status"),
+  status: text("status").notNull().default("pending"), // pending | verifying | active | error
+  vercelProjectId: text("vercel_project_id"),
+  // Store the single DNS record users need to add (from Vercel response)
+  dnsType: text("dns_type"), // CNAME or A
+  dnsName: text("dns_name"), // the record name (e.g., "www" or "@")
+  dnsValue: text("dns_value"), // the target (e.g., "cname.vercel-dns.com")
+  errorMessage: text("error_message"),
   verifiedAt: timestamp("verified_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -395,4 +398,4 @@ export const insertCustomDomainSchema = createInsertSchema(customDomains).omit({
 export type InsertCustomDomain = z.infer<typeof insertCustomDomainSchema>;
 export type CustomDomain = typeof customDomains.$inferSelect;
 
-export type DomainStatus = 'pending' | 'verified' | 'active' | 'error';
+export type DomainStatus = 'pending' | 'verifying' | 'active' | 'error';
