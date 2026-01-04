@@ -1552,9 +1552,12 @@ function GallerySection({ props, styles }: { props: ComponentProps; styles: Comp
         {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
         {props.description && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '32px', textAlign: 'center' }}>{props.description}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: styles.gap || '16px' }}>
-          {images.map((image: string, index: number) => (
-            <img key={index} src={image} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: styles.borderRadius || '8px' }} />
-          ))}
+          {images.map((image: ImageValue, index: number) => {
+            const imageUrl = getImageUrl(image);
+            return imageUrl ? (
+              <img key={index} src={imageUrl} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: styles.borderRadius || '8px' }} />
+            ) : null;
+          })}
         </div>
       </div>
     </section>
