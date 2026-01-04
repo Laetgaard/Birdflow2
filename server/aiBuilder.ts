@@ -105,11 +105,21 @@ Standard mutations for managing pages.
 
 ### Content Components  
 - **text-image**: title, description, imageUrl, imageSide (left|right)
-- **features**: title, subtitle, items (array with icon, title, description)
-- **testimonials**: title, items (array with title, description, imageUrl)
+- **features**: title, subtitle, items (array - EACH item MUST have: id, title, description; optional: icon)
+- **testimonials**: title, items (array - EACH item MUST have: id, title, description; optional: imageUrl)
 - **cta**: title, description, buttonText, buttonLink
 - **image-slider**: images (array of URLs), autoPlay, speed
 - **gallery**: title, description, images, columns (2-4), layout (grid|masonry|carousel)
+
+### CRITICAL: items array format
+Every component with an "items" array MUST use this exact structure for EACH item:
+{
+  "id": "unique-string",
+  "title": "Required string",
+  "description": "Required string",
+  ...other optional fields
+}
+NEVER omit title or description - they are REQUIRED.
 
 ### Business Components
 - **product-grid**: title, description, columns, productLimit, showAddToCart
@@ -190,6 +200,119 @@ function getSystemPrompt(mode: 'safe' | 'creative'): string {
     : BASE_SYSTEM_PROMPT + SAFE_MODE_STYLES;
 }
 
+/**
+ * Sanitizes props by filling in missing required fields with defaults.
+ */
+function sanitizeProps(props: any): any {
+  if (!props) return props;
+  
+  const sanitized = { ...props };
+  
+  // Sanitize items array - ensure each item has required title and description
+  if (Array.isArray(sanitized.items)) {
+    sanitized.items = sanitized.items.map((item: any, index: number) => ({
+      id: item.id || `item-${index + 1}`,
+      title: item.title || item.name || item.label || item.question || 'Untitled',
+      description: item.description || item.answer || item.text || item.content || '',
+      ...item, // Preserve other fields like icon, imageUrl, price, etc.
+    }));
+  }
+  
+  // Sanitize stats array - ensure each stat has required fields
+  if (Array.isArray(sanitized.stats)) {
+    sanitized.stats = sanitized.stats.map((stat: any, index: number) => ({
+      id: stat.id || `stat-${index + 1}`,
+      value: stat.value || stat.number || '0',
+      label: stat.label || stat.title || 'Stat',
+      ...stat,
+    }));
+  }
+  
+  // Sanitize formFields array
+  if (Array.isArray(sanitized.formFields)) {
+    sanitized.formFields = sanitized.formFields.map((field: any, index: number) => ({
+      id: field.id || `field-${index + 1}`,
+      label: field.label || field.name || 'Field',
+      type: field.type || 'text',
+      ...field,
+    }));
+  }
+  
+  return sanitized;
+}
+
+/**
+ * Sanitizes AI-generated mutations to fill in missing required fields with defaults.
+ * This prevents Zod validation errors when the AI forgets required fields in items arrays.
+ */
+function sanitizeMutations(parsed: any): any {
+  if (!parsed || !parsed.mutations || !Array.isArray(parsed.mutations)) {
+    return parsed;
+  }
+
+  const sanitizedMutations = parsed.mutations.map((mutation: any) => {
+    const clonedMutation = { ...mutation };
+    
+    // Sanitize component props for add_component
+    if (clonedMutation.component?.props) {
+      clonedMutation.component = {
+        ...clonedMutation.component,
+        props: sanitizeProps(clonedMutation.component.props),
+      };
+    }
+    
+    // Sanitize props for update_component
+    if (clonedMutation.props) {
+      clonedMutation.props = sanitizeProps(clonedMutation.props);
+    }
+    
+    return clonedMutation;
+  });
+
+  return {
+    ...parsed,
+    mutations: sanitizedMutations,
+  };
+}
+
+/**
+ * Sanitizes AI-generated thinking mode response to fill in missing required fields.
+ * Thinking mode has mutations nested inside plan[].mutation
+ */
+function sanitizeThinkingMutations(parsed: any): any {
+  if (!parsed || !parsed.plan || !Array.isArray(parsed.plan)) {
+    return parsed;
+  }
+
+  const sanitizedPlan = parsed.plan.map((step: any) => {
+    if (!step.mutation) return step;
+    
+    const clonedStep = { ...step };
+    const clonedMutation = { ...step.mutation };
+    
+    // Sanitize component props for add_component
+    if (clonedMutation.component?.props) {
+      clonedMutation.component = {
+        ...clonedMutation.component,
+        props: sanitizeProps(clonedMutation.component.props),
+      };
+    }
+    
+    // Sanitize props for update_component
+    if (clonedMutation.props) {
+      clonedMutation.props = sanitizeProps(clonedMutation.props);
+    }
+    
+    clonedStep.mutation = clonedMutation;
+    return clonedStep;
+  });
+
+  return {
+    ...parsed,
+    plan: sanitizedPlan,
+  };
+}
+
 const SAFE_STYLE_PROPERTIES = new Set([
   'backgroundColor',
   'textColor',
@@ -240,7 +363,7 @@ function filterMutationStyles(mutation: BuilderMutation, mode: CreativeMode): Bu
     case 'update_global_styles':
       return {
         ...mutation,
-        styles: filterStylesForMode(mutation.styles, mode),
+        styles: filterStylesForMode(mutation.styles, mode) as typeof mutation.styles,
       };
     default:
       return mutation;
@@ -304,8 +427,11 @@ Generate unique component IDs using: componenttype-${Date.now()}`
 
   const parsed = JSON.parse(content);
   
+  // Sanitize the AI response to fill in missing required fields
+  const sanitized = sanitizeMutations(parsed);
+  
   try {
-    const validated = AIResponseSchema.parse(parsed);
+    const validated = AIResponseSchema.parse(sanitized);
     
     // Semantic validation: check page/component existence
     const semanticErrors = validateMutationsInternal(validated.mutations, currentState);
@@ -495,8 +621,11 @@ Generate unique component IDs using: componenttype-${Date.now()}`
 
   const parsed = JSON.parse(content);
   
+  // Sanitize the AI response - for thinking mode, mutations are in plan[].mutation
+  const sanitized = sanitizeThinkingMutations(parsed);
+  
   try {
-    const validated = AIThinkingResponseSchema.parse(parsed);
+    const validated = AIThinkingResponseSchema.parse(sanitized);
     
     // Semantic validation: check page/component existence
     const mutations = validated.plan.map(step => step.mutation);
