@@ -38,9 +38,22 @@ The `shared/` directory centralizes database schemas, Zod validation schemas, Ty
 
 ### Component System
 The website builder uses a registry-based component system:
-- **Component Registry**: Defines 8 component types with editable properties (e.g., text, image, color).
+- **Component Registry**: Defines 18 component types with editable properties (e.g., text, image, color).
+- **Component Types**: hero, header, footer, cta, features, testimonials, text-image, image-slider, product-grid, booking, gallery, pricing-table, faq, stats-counter, contact-form, video-embed, divider, spacer.
 - **ComponentRenderer**: Renders components from `builder_state` for both preview and published sites.
 - **PropertiesPanel**: Dynamically generates UI for editing component properties based on their definitions.
+
+### AI Builder Assistant
+AI-powered website modification through structured JSON mutations:
+- **Build Mode**: Directly applies AI-generated changes to the website.
+- **Thinking Mode**: Shows a step-by-step plan requiring explicit user approval before mutations apply.
+- **Creative Mode vs Safe Mode**: Two-tier styling system:
+  - **Safe Mode**: Restricts styles to basics (colors, padding, margin). Server-side filtering strips creative-only properties.
+  - **Creative Mode**: Full CSS freedom including gradients, shadows, animations, transforms, advanced layouts.
+- **Undo/Redo**: Version history with undo/redo support for AI changes.
+- **Component Mutations**: add_component, update_component, remove_component, move_component, duplicate_component.
+- **Page Mutations**: add_page, remove_page, update_page.
+- **Global Styles**: update_global_styles for site-wide theme changes.
 
 ### Inline Editing System
 Webflow-style inline editing for direct text manipulation in the builder canvas:
