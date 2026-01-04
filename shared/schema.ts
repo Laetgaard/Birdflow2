@@ -199,6 +199,26 @@ export const insertOrderSchema = createInsertSchema(orders).omit({
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof orders.$inferSelect;
 
+// Order items table (normalized order line items)
+export const orderItems = pgTable("order_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull(),
+  productId: varchar("product_id").notNull(),
+  productName: text("product_name").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  priceAtPurchase: text("price_at_purchase").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
+export type OrderItem = typeof orderItems.$inferSelect;
+
 // Bookings table (for appointments/services)
 export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
