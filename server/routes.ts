@@ -5,6 +5,7 @@ import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, ty
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -223,6 +224,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  
+  // Register object storage routes for file uploads
+  registerObjectStorageRoutes(app);
   
   // Inject Supabase config into HTML for client (anon key only - safe for client)
   app.get("/api/config", (req, res) => {
