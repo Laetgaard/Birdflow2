@@ -172,6 +172,9 @@ The platform includes a complete e-commerce checkout flow:
 
 ## Recent Changes
 
+- **2025-01-04**: Added /checkout page to published sites with cart summary, customer info form, and order creation
+- **2025-01-04**: Added /api/orders endpoint for creating orders without payment (status=pending, payment_status=unpaid)
+- **2025-01-04**: Simplified CartDrawer to navigate to /checkout instead of handling checkout in drawer
 - **2025-01-04**: Added CartProvider and CartDrawer components to published Next.js sites for shared cart state
 - **2025-01-04**: Integrated cart button in header section with item count badge and drawer toggle
 - **2025-01-04**: Updated ProductGrid and ProductDetailPage to use shared cart context instead of local state
