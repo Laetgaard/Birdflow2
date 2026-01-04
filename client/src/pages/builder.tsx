@@ -115,6 +115,7 @@ export default function BuilderPage() {
   const [deletePageId, setDeletePageId] = useState<string | null>(null);
   const [newPageName, setNewPageName] = useState("");
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [customDomain, setCustomDomain] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -175,6 +176,17 @@ export default function BuilderPage() {
             setBuilderState(migratedState);
           } else {
             setBuilderState(state);
+          }
+        }
+
+        const domainsRes = await fetch(`/api/websites/${id}/domains`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (domainsRes.ok) {
+          const domainsData = await domainsRes.json();
+          const activeDomain = domainsData.find((d: any) => d.status === 'active');
+          if (activeDomain) {
+            setCustomDomain(activeDomain.domain);
           }
         }
       } catch (error: any) {
@@ -493,13 +505,14 @@ export default function BuilderPage() {
           </span>
           {website.deploymentUrl && (
             <a 
-              href={website.deploymentUrl} 
+              href={customDomain ? `https://${customDomain}` : website.deploymentUrl} 
               target="_blank" 
               rel="noopener noreferrer" 
-              className="text-xs text-blue-600 hover:underline"
+              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
               data-testid="link-live-site"
             >
               View Live
+              {customDomain && <span className="text-green-600">({customDomain})</span>}
             </a>
           )}
         </div>
