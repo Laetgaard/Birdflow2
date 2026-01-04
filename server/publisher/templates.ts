@@ -1,8 +1,30 @@
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 
 export function generatePackageJson(siteName: string): string {
+  // Sanitize siteName for npm package name requirements:
+  // - Must be lowercase
+  // - Can only contain letters, numbers, and hyphens
+  // - Cannot start with a hyphen or number
+  // - Must not be empty
+  let packageName = (siteName || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-\s]/g, '') // Remove invalid characters
+    .replace(/\s+/g, '-')          // Replace spaces with hyphens
+    .replace(/-+/g, '-')           // Collapse multiple hyphens
+    .replace(/^-+|-+$/g, '');      // Trim leading/trailing hyphens
+  
+  // Ensure name doesn't start with a number
+  if (/^[0-9]/.test(packageName)) {
+    packageName = 'site-' + packageName;
+  }
+  
+  // Fallback if empty
+  if (!packageName) {
+    packageName = 'my-website';
+  }
+  
   return JSON.stringify({
-    name: siteName.toLowerCase().replace(/\s+/g, '-'),
+    name: packageName,
     version: '1.0.0',
     private: true,
     engines: {
