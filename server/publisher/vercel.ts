@@ -155,6 +155,7 @@ export async function deployProject(
         buildCommand: 'npm run build',
         outputDirectory: '.next',
         installCommand: 'npm install',
+        nodeVersion: '20.x',
       },
     }),
   });
