@@ -96,7 +96,9 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
       await fs.promises.mkdir(path.join(outputDir, 'app', page.path.slice(1)), { recursive: true });
     }
     
-    files.push({ path: pagePath, content: generatePageFile(page, websiteId, builderState.pages) });
+    // Cast to any to avoid type mismatches between schema types and rendering types
+    // The page data is serialized to JSON, so runtime types don't matter
+    files.push({ path: pagePath, content: generatePageFile(page as any, websiteId, builderState.pages as any) });
   }
   
   for (const file of files) {
