@@ -2,6 +2,75 @@ export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'fe
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items';
 
+// Theme-based color presets
+export const themeColors = {
+  backgrounds: [
+    { name: 'White', value: '#ffffff' },
+    { name: 'Light Gray', value: '#f8fafc' },
+    { name: 'Gray', value: '#e2e8f0' },
+    { name: 'Dark', value: '#1a1a2e' },
+    { name: 'Black', value: '#0f0f0f' },
+    { name: 'Primary', value: '#4f46e5' },
+    { name: 'Primary Light', value: '#6366f1' },
+    { name: 'Success', value: '#10b981' },
+    { name: 'Warning', value: '#f59e0b' },
+    { name: 'Danger', value: '#ef4444' },
+  ],
+  text: [
+    { name: 'Black', value: '#0f0f0f' },
+    { name: 'Dark', value: '#1a1a2e' },
+    { name: 'Gray', value: '#64748b' },
+    { name: 'Light', value: '#94a3b8' },
+    { name: 'White', value: '#ffffff' },
+    { name: 'Primary', value: '#4f46e5' },
+  ],
+};
+
+// Theme-based spacing presets
+export const spacingPresets = {
+  padding: [
+    { name: 'None', value: '0' },
+    { name: 'Small', value: '24px' },
+    { name: 'Medium', value: '48px 24px' },
+    { name: 'Large', value: '80px 24px' },
+    { name: 'Extra Large', value: '120px 24px' },
+  ],
+  margin: [
+    { name: 'None', value: '0' },
+    { name: 'Small', value: '16px 0' },
+    { name: 'Medium', value: '32px 0' },
+    { name: 'Large', value: '64px 0' },
+  ],
+};
+
+// Image size and alignment presets
+export const imageSizePresets = [
+  { name: 'Small', value: 'small', width: '25%' },
+  { name: 'Medium', value: 'medium', width: '50%' },
+  { name: 'Large', value: 'large', width: '75%' },
+  { name: 'Full', value: 'full', width: '100%' },
+];
+
+export const alignmentPresets = [
+  { name: 'Left', value: 'left' },
+  { name: 'Center', value: 'center' },
+  { name: 'Right', value: 'right' },
+];
+
+// Editable text fields per component type
+export const editableTextFields: Record<ComponentType, string[]> = {
+  'hero': ['title', 'subtitle', 'description', 'buttonText'],
+  'image-slider': [],
+  'text-image': ['title', 'description'],
+  'cta': ['title', 'description', 'buttonText'],
+  'features': ['title', 'subtitle'],
+  'testimonials': ['title'],
+  'footer': ['title'],
+  'header': ['title'],
+  'product-grid': ['title'],
+  'booking': ['title', 'subtitle'],
+};
+
 export type FieldDefinition = {
   key: string;
   label: string;

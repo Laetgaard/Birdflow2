@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@shared/componentRegistry';
+import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
 import BookingWidget from './BookingWidget';
 import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
 
@@ -35,7 +36,91 @@ type RenderProps = {
   isPreview?: boolean;
   websiteId?: string;
   pages?: BuilderPage[];
+  onTextChange?: (field: string, value: string) => void;
+  editingField?: string | null;
+  onEditField?: (field: string | null) => void;
 };
+
+type EditableTextProps = {
+  value: string;
+  field: string;
+  isEditing: boolean;
+  onEdit: (field: string | null) => void;
+  onChange: (field: string, value: string) => void;
+  style?: React.CSSProperties;
+  as?: 'h1' | 'h2' | 'h3' | 'p' | 'span';
+  isPreview?: boolean;
+};
+
+function EditableText({ value, field, isEditing, onEdit, onChange, style, as = 'span', isPreview }: EditableTextProps) {
+  const ref = useRef<HTMLElement>(null);
+  
+  const handleBlur = useCallback(() => {
+    if (ref.current) {
+      const newValue = ref.current.innerText;
+      if (newValue !== value) {
+        onChange(field, newValue);
+      }
+    }
+    onEdit(null);
+  }, [field, value, onChange, onEdit]);
+  
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleBlur();
+    }
+    if (e.key === 'Escape') {
+      if (ref.current) {
+        ref.current.innerText = value;
+      }
+      onEdit(null);
+    }
+  }, [handleBlur, onEdit, value]);
+  
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (!isPreview) {
+      e.stopPropagation();
+      onEdit(field);
+    }
+  }, [field, onEdit, isPreview]);
+
+  useEffect(() => {
+    if (isEditing && ref.current) {
+      ref.current.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(ref.current);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+  }, [isEditing]);
+
+  const Component = as;
+  const editingStyle: React.CSSProperties = isEditing ? {
+    outline: '2px solid #3b82f6',
+    outlineOffset: '2px',
+    borderRadius: '4px',
+    minWidth: '50px',
+  } : {};
+  const hoverStyle: React.CSSProperties = !isPreview && !isEditing ? { cursor: 'text' } : {};
+
+  return (
+    <Component
+      ref={ref as any}
+      contentEditable={isEditing}
+      suppressContentEditableWarning
+      onClick={handleClick}
+      onBlur={isEditing ? handleBlur : undefined}
+      onKeyDown={isEditing ? handleKeyDown : undefined}
+      style={{ ...style, ...editingStyle, ...hoverStyle }}
+      data-editable-field={field}
+    >
+      {value}
+    </Component>
+  );
+}
 
 function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: boolean): React.CSSProperties {
   return {
@@ -49,10 +134,23 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
   };
 }
 
-function HeroComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
+type ComponentRenderProps = {
+  props: ComponentProps;
+  styles: ComponentStyles;
+  isSelected: boolean;
+  onClick?: (e: React.MouseEvent) => void;
+  isPreview: boolean;
+  onTextChange?: (field: string, value: string) => void;
+  editingField?: string | null;
+  onEditField?: (field: string | null) => void;
+};
+
+function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   const backgroundImage = imageValue?.url ? { backgroundImage: `url(${imageValue.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
+  
+  const canEdit = !isPreview && onTextChange && onEditField;
   
   return (
     <section style={{ ...baseStyle, ...backgroundImage, position: 'relative', overflow: 'hidden' }} onClick={onClick}>
@@ -66,12 +164,88 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview }: { prop
         </div>
       )}
       <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 1 }}>
-        <h1 style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h1>
-        {props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{props.subtitle}</p>}
-        {props.description && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
+        {canEdit ? (
+          <EditableText
+            value={props.title || ''}
+            field="title"
+            isEditing={editingField === 'title'}
+            onEdit={onEditField}
+            onChange={onTextChange}
+            style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px', display: 'block' }}
+            as="h1"
+            isPreview={isPreview}
+          />
+        ) : (
+          <h1 style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h1>
+        )}
+        {props.subtitle && (
+          canEdit ? (
+            <EditableText
+              value={props.subtitle}
+              field="subtitle"
+              isEditing={editingField === 'subtitle'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px', display: 'block' }}
+              as="p"
+              isPreview={isPreview}
+            />
+          ) : (
+            <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{props.subtitle}</p>
+          )
+        )}
+        {props.description && (
+          canEdit ? (
+            <EditableText
+              value={props.description}
+              field="description"
+              isEditing={editingField === 'description'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px', display: 'block' }}
+              as="p"
+              isPreview={isPreview}
+            />
+          ) : (
+            <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>
+          )
+        )}
         {props.buttonText && (
-          <button style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: '#1a1a1a', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-            {props.buttonText}
+          <button 
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: '#1a1a1a', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('buttonText'); } : undefined}
+          >
+            {canEdit && editingField === 'buttonText' ? (
+              <span
+                ref={(el) => {
+                  if (el && editingField === 'buttonText') {
+                    el.focus();
+                  }
+                }}
+                contentEditable
+                suppressContentEditableWarning
+                onBlur={(e) => {
+                  onTextChange!('buttonText', e.currentTarget.innerText);
+                  onEditField!(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onTextChange!('buttonText', e.currentTarget.innerText);
+                    onEditField!(null);
+                  }
+                  if (e.key === 'Escape') {
+                    e.currentTarget.innerText = props.buttonText || '';
+                    onEditField!(null);
+                  }
+                }}
+                style={{ outline: '2px solid #3b82f6', outlineOffset: '2px', borderRadius: '4px' }}
+              >
+                {props.buttonText}
+              </span>
+            ) : (
+              props.buttonText
+            )}
           </button>
         )}
       </div>
@@ -100,17 +274,44 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   );
 }
 
-function TextImageComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
+function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const isImageLeft = props.imageSide === 'left';
   const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
+  const canEdit = !isPreview && onTextChange && onEditField;
   
   return (
     <section style={baseStyle} onClick={onClick}>
       <div style={{ display: 'flex', gap: '48px', alignItems: 'center', flexDirection: isImageLeft ? 'row-reverse' : 'row', flexWrap: 'wrap', maxWidth: '1000px', margin: '0 auto' }}>
         <div style={{ flex: 1, minWidth: '300px' }}>
-          <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
-          <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{props.description}</p>
+          {canEdit ? (
+            <EditableText
+              value={props.title || ''}
+              field="title"
+              isEditing={editingField === 'title'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px', display: 'block' }}
+              as="h2"
+              isPreview={isPreview}
+            />
+          ) : (
+            <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
+          )}
+          {canEdit ? (
+            <EditableText
+              value={props.description || ''}
+              field="description"
+              isEditing={editingField === 'description'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8, display: 'block' }}
+              as="p"
+              isPreview={isPreview}
+            />
+          ) : (
+            <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{props.description}</p>
+          )}
         </div>
         {imageValue?.url && (
           <div style={{ flex: 1, minWidth: '300px', overflow: 'hidden', borderRadius: '12px' }}>
@@ -126,17 +327,77 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview }: {
   );
 }
 
-function CTAComponent({ props, styles, isSelected, onClick, isPreview }: { props: ComponentProps; styles: ComponentStyles; isSelected: boolean; onClick?: (e: React.MouseEvent) => void; isPreview: boolean }) {
+function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const canEdit = !isPreview && onTextChange && onEditField;
   
   return (
     <section style={baseStyle} onClick={onClick}>
       <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
-        <p style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px' }}>{props.description}</p>
+        {canEdit ? (
+          <EditableText
+            value={props.title || ''}
+            field="title"
+            isEditing={editingField === 'title'}
+            onEdit={onEditField}
+            onChange={onTextChange}
+            style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px', display: 'block' }}
+            as="h2"
+            isPreview={isPreview}
+          />
+        ) : (
+          <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
+        )}
+        {canEdit ? (
+          <EditableText
+            value={props.description || ''}
+            field="description"
+            isEditing={editingField === 'description'}
+            onEdit={onEditField}
+            onChange={onTextChange}
+            style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px', display: 'block' }}
+            as="p"
+            isPreview={isPreview}
+          />
+        ) : (
+          <p style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px' }}>{props.description}</p>
+        )}
         {props.buttonText && (
-          <button style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: styles.backgroundColor || '#4f46e5', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-            {props.buttonText}
+          <button 
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: styles.backgroundColor || '#4f46e5', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('buttonText'); } : undefined}
+          >
+            {canEdit && editingField === 'buttonText' ? (
+              <span
+                ref={(el) => {
+                  if (el && editingField === 'buttonText') {
+                    el.focus();
+                  }
+                }}
+                contentEditable
+                suppressContentEditableWarning
+                onBlur={(e) => {
+                  onTextChange!('buttonText', e.currentTarget.innerText);
+                  onEditField!(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onTextChange!('buttonText', e.currentTarget.innerText);
+                    onEditField!(null);
+                  }
+                  if (e.key === 'Escape') {
+                    e.currentTarget.innerText = props.buttonText || '';
+                    onEditField!(null);
+                  }
+                }}
+                style={{ outline: '2px solid #3b82f6', outlineOffset: '2px', borderRadius: '4px' }}
+              >
+                {props.buttonText}
+              </span>
+            ) : (
+              props.buttonText
+            )}
           </button>
         )}
       </div>
@@ -371,7 +632,7 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -379,12 +640,15 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     }
   };
 
-  const commonProps = {
+  const commonProps: ComponentRenderProps = {
     props: component.props,
     styles: component.styles,
     isSelected,
     onClick: handleClick,
     isPreview,
+    onTextChange,
+    editingField,
+    onEditField,
   };
 
   const headerProps = {
