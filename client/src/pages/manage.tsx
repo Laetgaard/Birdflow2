@@ -162,13 +162,12 @@ type BookingService = {
 type CustomDomain = {
   id: string;
   domain: string;
-  status: 'pending' | 'verified' | 'active' | 'error';
-  verificationToken: string;
+  status: 'pending' | 'verifying' | 'active' | 'error';
+  dnsType?: string;
+  dnsName?: string;
+  dnsValue?: string;
+  errorMessage?: string;
   createdAt: string;
-  dnsInstructions?: {
-    txtRecord: { type: string; name: string; value: string };
-    cnameRecord: { type: string; name: string; value: string };
-  };
 };
 
 function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToken: string }) {
@@ -178,7 +177,6 @@ function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToke
   const [isAddingDomain, setIsAddingDomain] = useState(false);
   const [newDomain, setNewDomain] = useState('');
   const [verifyingDomainId, setVerifyingDomainId] = useState<string | null>(null);
-  const [showInstructions, setShowInstructions] = useState<string | null>(null);
 
   const fetchDomains = useCallback(async () => {
     try {
@@ -222,10 +220,9 @@ function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToke
 
       setDomains(prev => [...prev, data]);
       setNewDomain('');
-      setShowInstructions(data.id);
       toast({
         title: "Domain Added",
-        description: "Follow the DNS instructions to verify your domain.",
+        description: "Add the DNS record below to connect your domain.",
       });
     } catch (error: any) {
       toast({
@@ -253,14 +250,16 @@ function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToke
           d.id === domainId ? { ...d, status: data.status as CustomDomain['status'] } : d
         ));
         toast({
-          title: "Domain Verified",
-          description: data.message || "Your domain has been verified successfully.",
+          title: "Domain Connected",
+          description: data.message || "Your domain is now live!",
         });
       } else {
+        setDomains(prev => prev.map(d => 
+          d.id === domainId ? { ...d, status: data.status as CustomDomain['status'] } : d
+        ));
         toast({
-          variant: "destructive",
-          title: "Verification Failed",
-          description: data.error || "Could not verify domain. Please check your DNS settings.",
+          title: "Still Waiting",
+          description: data.message || "DNS changes are still propagating. Try again in a few minutes.",
         });
       }
     } catch (error: any) {
@@ -300,7 +299,7 @@ function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToke
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({
-      title: "Copied",
+      title: "Copied!",
       description: "Value copied to clipboard.",
     });
   };
@@ -309,10 +308,10 @@ function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToke
     switch (status) {
       case 'active':
         return <Badge className="bg-green-100 text-green-800 border-green-200">Active</Badge>;
-      case 'verified':
-        return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Verified</Badge>;
+      case 'verifying':
+        return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Verifying</Badge>;
       case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Pending</Badge>;
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Setup Required</Badge>;
       case 'error':
         return <Badge className="bg-red-100 text-red-800 border-red-200">Error</Badge>;
       default:
@@ -333,7 +332,7 @@ function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToke
         <div className="space-y-6">
           <div className="flex gap-2">
             <Input
-              placeholder="yourdomain.com"
+              placeholder="yourdomain.com or www.yourdomain.com"
               value={newDomain}
               onChange={(e) => setNewDomain(e.target.value)}
               disabled={isAddingDomain}
@@ -379,30 +378,21 @@ function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToke
                           <ExternalLink className="w-4 h-4" />
                         </Button>
                       )}
-                      {domain.status === 'pending' && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowInstructions(showInstructions === domain.id ? null : domain.id)}
-                          >
-                            Instructions
-                          </Button>
-                          <Button
-                            variant="default"
-                            size="sm"
-                            onClick={() => handleVerifyDomain(domain.id)}
-                            disabled={verifyingDomainId === domain.id}
-                            data-testid={`btn-verify-domain-${domain.id}`}
-                          >
-                            {verifyingDomainId === domain.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <RefreshCw className="w-4 h-4 mr-1" />
-                            )}
-                            Verify
-                          </Button>
-                        </>
+                      {(domain.status === 'pending' || domain.status === 'verifying') && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleVerifyDomain(domain.id)}
+                          disabled={verifyingDomainId === domain.id}
+                          data-testid={`btn-verify-domain-${domain.id}`}
+                        >
+                          {verifyingDomainId === domain.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-4 h-4 mr-1" />
+                          )}
+                          Check Status
+                        </Button>
                       )}
                       <Button
                         variant="outline"
@@ -416,77 +406,52 @@ function DomainsCard({ websiteId, accessToken }: { websiteId: string; accessToke
                     </div>
                   </div>
 
-                  {showInstructions === domain.id && domain.status === 'pending' && (
-                    <div className="bg-muted/50 rounded-lg p-4 space-y-4 mt-3">
-                      <div>
-                        <h4 className="font-medium text-sm mb-2">Step 1: Add TXT Record for Verification</h4>
-                        <div className="bg-background rounded border p-3 space-y-2 text-sm">
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Type:</span>
-                            <span className="font-mono">TXT</span>
+                  {(domain.status === 'pending' || domain.status === 'verifying') && domain.dnsType && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-3">
+                      <h4 className="font-medium text-sm mb-3 text-blue-900">Add this DNS record to your domain:</h4>
+                      <div className="bg-white rounded border p-3 space-y-2 text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Type:</span>
+                          <span className="font-mono font-medium">{domain.dnsType}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Name:</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-medium">{domain.dnsName}</span>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-6 w-6 p-0"
+                              onClick={() => copyToClipboard(domain.dnsName || '')}
+                            >
+                              <Copy className="w-3 h-3" />
+                            </Button>
                           </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Name:</span>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs">_saasify-verification</span>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 w-6 p-0"
-                                onClick={() => copyToClipboard(`_saasify-verification.${domain.domain}`)}
-                              >
-                                <Copy className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Value:</span>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs truncate max-w-[200px]">{domain.verificationToken}</span>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 w-6 p-0"
-                                onClick={() => copyToClipboard(domain.verificationToken)}
-                              >
-                                <Copy className="w-3 h-3" />
-                              </Button>
-                            </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-muted-foreground">Value:</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs">{domain.dnsValue}</span>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-6 w-6 p-0"
+                              onClick={() => copyToClipboard(domain.dnsValue || '')}
+                            >
+                              <Copy className="w-3 h-3" />
+                            </Button>
                           </div>
                         </div>
                       </div>
-
-                      <div>
-                        <h4 className="font-medium text-sm mb-2">Step 2: Add CNAME Record (after verification)</h4>
-                        <div className="bg-background rounded border p-3 space-y-2 text-sm">
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Type:</span>
-                            <span className="font-mono">CNAME</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Name:</span>
-                            <span className="font-mono">{domain.domain.split('.')[0] === 'www' ? 'www' : '@'}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-muted-foreground">Value:</span>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs">cname.vercel-dns.com</span>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 w-6 p-0"
-                                onClick={() => copyToClipboard('cname.vercel-dns.com')}
-                              >
-                                <Copy className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <p className="text-xs text-muted-foreground">
-                        DNS changes can take up to 48 hours to propagate. Click "Verify" once you've added the TXT record.
+                      <p className="text-xs text-blue-700 mt-3">
+                        After adding the record, click "Check Status" to verify. DNS changes can take a few minutes to propagate.
                       </p>
+                    </div>
+                  )}
+
+                  {domain.status === 'error' && domain.errorMessage && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-2">
+                      <p className="text-sm text-red-700">{domain.errorMessage}</p>
                     </div>
                   )}
                 </div>
