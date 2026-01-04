@@ -16,45 +16,131 @@ const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
-const SYSTEM_PROMPT = `You are an AI website builder assistant. You help users modify their website by generating structured mutations to the builder state.
+const VALID_ACTIONS = [
+  'add_component',
+  'update_component', 
+  'remove_component',
+  'move_component',
+  'duplicate_component',
+  'add_page',
+  'remove_page',
+  'update_page',
+  'update_global_styles'
+] as const;
 
-CRITICAL RULES:
-1. You can ONLY modify the website through the provided mutation schema
-2. You NEVER edit DOM, code, or database directly
-3. All changes must be valid builder_state mutations
-4. Always generate unique IDs for new components (use format: type-timestamp, e.g., "hero-1704067200000")
-5. The "action" field MUST be EXACTLY one of these strings (case-sensitive):
-   - "add_component"
-   - "update_component" 
-   - "remove_component"
-   - "move_component"
-   - "duplicate_component"
-   - "add_page"
-   - "remove_page"
-   - "update_page"
-   - "update_global_styles"
+const SYSTEM_PROMPT = `You are an AI website builder assistant that generates STRICTLY STRUCTURED JSON mutations to modify websites.
 
-Available component types: ${componentTypes.join(', ')}
+## ABSOLUTE REQUIREMENTS - VIOLATIONS WILL CAUSE ERRORS
 
-Each component has:
-- type: One of the available types
-- props: Content properties (title, subtitle, description, buttonText, etc.)
-- styles: Visual properties (backgroundColor, textColor, padding)
+### ACTION FIELD - MUST BE EXACTLY ONE OF:
+"add_component" | "update_component" | "remove_component" | "move_component" | "duplicate_component" | "add_page" | "remove_page" | "update_page" | "update_global_styles"
 
-MUTATION SCHEMA EXAMPLES:
-1. Add a hero component:
-   {"action": "add_component", "pageId": "home", "component": {"id": "hero-123", "type": "hero", "props": {"title": "Welcome"}, "styles": {"backgroundColor": "#ffffff"}}}
+DO NOT use any other action names like "add", "create", "modify", "change", "insert", etc. ONLY the exact strings above.
 
-2. Update component text:
-   {"action": "update_component", "pageId": "home", "componentId": "hero-123", "props": {"title": "New Title"}}
+### COMPONENT TYPES - MUST BE EXACTLY ONE OF:
+${componentTypes.map(t => `"${t}"`).join(' | ')}
 
-3. Remove component:
-   {"action": "remove_component", "pageId": "home", "componentId": "hero-123"}
+DO NOT invent new component types. ONLY use the types listed above.
 
-4. Update global styles:
-   {"action": "update_global_styles", "styles": {"primaryColor": "#ff0000"}}
+## MUTATION SCHEMAS (copy these structures exactly)
 
-When responding, output valid JSON matching the requested schema. Double-check that "action" is EXACTLY one of the allowed values.`;
+### add_component
+{
+  "action": "add_component",
+  "pageId": "string (existing page ID)",
+  "component": {
+    "id": "string (unique, format: type-timestamp)",
+    "type": "hero|image-slider|text-image|cta|features|testimonials|footer|header|product-grid|booking",
+    "props": { "title": "...", "subtitle": "...", "description": "...", "buttonText": "...", "buttonLink": "..." },
+    "styles": { "backgroundColor": "#hexcolor", "textColor": "#hexcolor", "padding": "60px 24px" }
+  },
+  "position": number (optional, 0-indexed)
+}
+
+### update_component
+{
+  "action": "update_component",
+  "pageId": "string",
+  "componentId": "string (existing component ID)",
+  "props": { ... },
+  "styles": { ... }
+}
+
+### remove_component
+{
+  "action": "remove_component",
+  "pageId": "string",
+  "componentId": "string"
+}
+
+### move_component
+{
+  "action": "move_component",
+  "pageId": "string",
+  "componentId": "string",
+  "newPosition": number
+}
+
+### duplicate_component
+{
+  "action": "duplicate_component",
+  "pageId": "string",
+  "componentId": "string"
+}
+
+### add_page
+{
+  "action": "add_page",
+  "page": {
+    "id": "string (lowercase-with-dashes)",
+    "name": "string",
+    "path": "/path"
+  }
+}
+
+### remove_page
+{
+  "action": "remove_page",
+  "pageId": "string"
+}
+
+### update_page
+{
+  "action": "update_page",
+  "pageId": "string",
+  "name": "string (optional)",
+  "path": "string (optional)"
+}
+
+### update_global_styles
+{
+  "action": "update_global_styles",
+  "styles": {
+    "primaryColor": "#hexcolor",
+    "secondaryColor": "#hexcolor",
+    "fontFamily": "font-stack",
+    "backgroundColor": "#hexcolor"
+  }
+}
+
+## COMPONENT PROPS BY TYPE
+
+- **hero**: title, subtitle, description, buttonText, buttonLink, alignment (left|center|right)
+- **header**: title, items (array of {id, title, description})
+- **footer**: title, description
+- **features**: title, subtitle, items (array of {id, icon, title, description})
+- **testimonials**: title, items (array of {id, title, description, imageUrl})
+- **text-image**: title, description, imageUrl, imageSide (left|right)
+- **cta**: title, subtitle, buttonText, buttonLink
+- **image-slider**: images (array of URLs), autoPlay, speed
+- **product-grid**: title, description, columns, productMode, productLimit, showAddToCart
+- **booking**: title, description, buttonText
+
+## SELF-CHECK BEFORE RESPONDING
+1. Is every "action" field EXACTLY one of the 9 valid action names? 
+2. Is every component "type" EXACTLY one of the 10 valid types?
+3. Does every add_component have all required fields (id, type, props, styles)?
+4. Are all pageIds and componentIds referencing actual existing IDs from the current state?`;
 
 function getCurrentStateContext(state: BuilderStateData): string {
   const pages = state.pages.map(page => ({
@@ -111,8 +197,19 @@ Generate unique component IDs using: componenttype-${Date.now()}`
   
   try {
     const validated = AIResponseSchema.parse(parsed);
+    
+    // Semantic validation: check page/component existence
+    const semanticErrors = validateMutationsInternal(validated.mutations, currentState);
+    if (semanticErrors.length > 0) {
+      throw new Error(`Some AI actions reference invalid targets: ${semanticErrors.join('; ')}`);
+    }
+    
     return validated;
   } catch (validationError: any) {
+    if (validationError.message?.includes('reference invalid targets')) {
+      throw validationError;
+    }
+    
     console.error("AI Build error:", validationError);
     
     const invalidActions = validationError.issues
@@ -126,6 +223,110 @@ Generate unique component IDs using: componenttype-${Date.now()}`
     
     throw new Error("The AI generated an invalid response. Please try again with a different request.");
   }
+}
+
+function validateMutationsInternal(mutations: any[], initialState: BuilderStateData): string[] {
+  const errors: string[] = [];
+  let currentState = structuredClone(initialState);
+  
+  for (let i = 0; i < mutations.length; i++) {
+    const mutation = mutations[i];
+    const action = mutation?.action;
+    
+    if (action === 'add_component') {
+      const componentType = mutation.component?.type;
+      if (componentType && !componentTypes.includes(componentType)) {
+        errors.push(`Step ${i + 1}: Unknown component type "${componentType}"`);
+        continue;
+      }
+      if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
+        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
+        continue;
+      }
+    }
+    
+    if (['update_component', 'remove_component', 'move_component', 'duplicate_component'].includes(action)) {
+      const page = currentState.pages.find(p => p.id === mutation.pageId);
+      if (!page) {
+        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
+        continue;
+      } else if (mutation.componentId && !page.components.some(c => c.id === mutation.componentId)) {
+        errors.push(`Step ${i + 1}: Component "${mutation.componentId}" not found`);
+        continue;
+      }
+    }
+    
+    if (['remove_page', 'update_page'].includes(action)) {
+      if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
+        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
+        continue;
+      }
+    }
+    
+    // Simulate applying this mutation so subsequent steps see the updated state
+    try {
+      currentState = simulateMutation(currentState, mutation);
+    } catch (e) {
+      // If simulation fails, continue checking other mutations
+    }
+  }
+  
+  return errors;
+}
+
+function simulateMutation(state: BuilderStateData, mutation: any): BuilderStateData {
+  const newState = structuredClone(state);
+  const action = mutation?.action;
+  
+  switch (action) {
+    case 'add_component': {
+      const page = newState.pages.find(p => p.id === mutation.pageId);
+      if (page && mutation.component) {
+        const position = mutation.position ?? page.components.length;
+        page.components.splice(position, 0, mutation.component);
+      }
+      break;
+    }
+    case 'add_page': {
+      if (mutation.page) {
+        newState.pages.push({
+          id: mutation.page.id,
+          name: mutation.page.name,
+          path: mutation.page.path,
+          components: [],
+        });
+      }
+      break;
+    }
+    case 'remove_component': {
+      const page = newState.pages.find(p => p.id === mutation.pageId);
+      if (page) {
+        page.components = page.components.filter(c => c.id !== mutation.componentId);
+      }
+      break;
+    }
+    case 'remove_page': {
+      newState.pages = newState.pages.filter(p => p.id !== mutation.pageId);
+      break;
+    }
+    case 'duplicate_component': {
+      const page = newState.pages.find(p => p.id === mutation.pageId);
+      if (page) {
+        const component = page.components.find(c => c.id === mutation.componentId);
+        if (component) {
+          const index = page.components.findIndex(c => c.id === mutation.componentId);
+          const duplicate = {
+            ...structuredClone(component),
+            id: `${component.type}-${Date.now()}`,
+          };
+          page.components.splice(index + 1, 0, duplicate);
+        }
+      }
+      break;
+    }
+  }
+  
+  return newState;
 }
 
 export async function processAIThinkingRequest(
@@ -170,8 +371,20 @@ Generate unique component IDs using: componenttype-${Date.now()}`
   
   try {
     const validated = AIThinkingResponseSchema.parse(parsed);
+    
+    // Semantic validation: check page/component existence
+    const mutations = validated.plan.map(step => step.mutation);
+    const semanticErrors = validateMutationsInternal(mutations, currentState);
+    if (semanticErrors.length > 0) {
+      throw new Error(`Some AI actions reference invalid targets: ${semanticErrors.join('; ')}`);
+    }
+    
     return validated;
   } catch (validationError: any) {
+    if (validationError.message?.includes('reference invalid targets')) {
+      throw validationError;
+    }
+    
     console.error("AI Think error:", validationError);
     
     // Provide a user-friendly error message
@@ -297,4 +510,89 @@ export function applyMutations(
   mutations: BuilderMutation[]
 ): BuilderStateData {
   return mutations.reduce((currentState, mutation) => applyMutation(currentState, mutation), state);
+}
+
+export function validateMutation(
+  mutation: any,
+  state: BuilderStateData
+): { valid: boolean; error?: string } {
+  const action = mutation?.action;
+  
+  if (!action || !VALID_ACTIONS.includes(action)) {
+    return { 
+      valid: false, 
+      error: `Invalid action "${action}". Must be one of: ${VALID_ACTIONS.join(', ')}` 
+    };
+  }
+  
+  if (action === 'add_component') {
+    const componentType = mutation.component?.type;
+    if (!componentType || !componentTypes.includes(componentType)) {
+      return { 
+        valid: false, 
+        error: `Invalid component type "${componentType}". Must be one of: ${componentTypes.join(', ')}` 
+      };
+    }
+    
+    const pageExists = state.pages.some(p => p.id === mutation.pageId);
+    if (!pageExists) {
+      return { 
+        valid: false, 
+        error: `Page "${mutation.pageId}" does not exist. Available pages: ${state.pages.map(p => p.id).join(', ')}` 
+      };
+    }
+  }
+  
+  if (['update_component', 'remove_component', 'move_component', 'duplicate_component'].includes(action)) {
+    const page = state.pages.find(p => p.id === mutation.pageId);
+    if (!page) {
+      return { 
+        valid: false, 
+        error: `Page "${mutation.pageId}" does not exist` 
+      };
+    }
+    
+    const componentExists = page.components.some(c => c.id === mutation.componentId);
+    if (!componentExists) {
+      return { 
+        valid: false, 
+        error: `Component "${mutation.componentId}" does not exist on page "${mutation.pageId}"` 
+      };
+    }
+  }
+  
+  if (['remove_page', 'update_page'].includes(action)) {
+    const pageExists = state.pages.some(p => p.id === mutation.pageId);
+    if (!pageExists) {
+      return { 
+        valid: false, 
+        error: `Page "${mutation.pageId}" does not exist` 
+      };
+    }
+  }
+  
+  return { valid: true };
+}
+
+export function validateMutations(
+  mutations: any[],
+  state: BuilderStateData
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  let currentState = structuredClone(state);
+  
+  for (let i = 0; i < mutations.length; i++) {
+    const result = validateMutation(mutations[i], currentState);
+    if (!result.valid) {
+      errors.push(`Step ${i + 1}: ${result.error}`);
+    } else {
+      try {
+        currentState = applyMutation(currentState, mutations[i] as BuilderMutation);
+      } catch (e) {
+        errors.push(`Step ${i + 1}: Failed to apply mutation`);
+      }
+    }
+  }
+  
+  return { valid: errors.length === 0, errors };
 }
