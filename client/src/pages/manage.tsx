@@ -41,7 +41,8 @@ function ImageUploadButton({ onUpload, "data-testid": testId }: { onUpload: (url
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { uploadFile, isUploading } = useUpload({
     onSuccess: (response) => {
-      onUpload(response.objectPath);
+      const fullUrl = window.location.origin + response.objectPath;
+      onUpload(fullUrl);
     },
   });
 

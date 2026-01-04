@@ -1,10 +1,6 @@
-# SaaSify - SaaS Starter Kit
-
 ## Overview
 
-SaaSify is a full-stack SaaS starter kit designed to accelerate building software-as-a-service applications. It provides authentication, user profiles, and a dashboard out of the box, allowing developers to focus on their core product features rather than boilerplate infrastructure.
-
-The project uses a monorepo structure with a React frontend and Express backend, sharing TypeScript types and schemas between both layers.
+SaaSify is a full-stack SaaS starter kit designed to accelerate the development of software-as-a-service applications. It provides essential features like authentication, user profiles, and a dashboard, enabling developers to focus on core product features. The project utilizes a monorepo structure, sharing TypeScript types and schemas between its React frontend and Express backend.
 
 ## User Preferences
 
@@ -12,211 +8,77 @@ Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Frontend Architecture
+### Frontend
 - **Framework**: React with TypeScript
-- **Routing**: Wouter (lightweight React router)
-- **State Management**: TanStack React Query for server state
-- **Styling**: Tailwind CSS v4 with shadcn/ui component library (new-york style)
+- **Routing**: Wouter
+- **State Management**: TanStack React Query
+- **Styling**: Tailwind CSS v4 with shadcn/ui (new-york style)
 - **Forms**: React Hook Form with Zod validation
 - **Build Tool**: Vite
 
-The frontend lives in `client/src/` with pages in `pages/`, reusable UI components in `components/ui/`, and shared utilities in `lib/`.
-
-### Backend Architecture
+### Backend
 - **Framework**: Express.js with TypeScript
-- **Server**: HTTP server with Vite middleware in development, static file serving in production
-- **API Pattern**: REST endpoints under `/api/` prefix
-- **Build**: esbuild bundles server code for production
-
-Server code is in `server/` with routes defined in `routes.ts` and database operations in `storage.ts`.
+- **API Pattern**: REST endpoints under `/api/`
+- **Build**: esbuild for production bundling
 
 ### Data Storage
-- **Database**: Supabase PostgreSQL via Drizzle ORM (pooled connection)
-- **Schema Location**: `shared/schema.ts` - defines database tables and Zod validation schemas
-- **Migrations**: Drizzle Kit with `db:push` command for schema synchronization
-- **Connection**: Uses transaction pooler for reliable serverless connections
-
-Database tables:
-- `profiles` - User profile data (id, email, fullName, phoneNumber, createdAt)
-- `websites` - User's website projects (id, ownerId, name, status, setupType)
-- `website_inputs` - Onboarding wizard data (businessDescription, pages, features, designPreset)
-- `builder_state` - Website builder state as JSONB (pages, components, globalStyles)
-- `orders` - Ecommerce orders (websiteId, customerName, customerEmail, status, paymentStatus, total, currency, items JSONB)
-- `order_items` - Normalized order line items (orderId, websiteId, productId, productName, quantity, priceAtPurchase, currency)
-- `bookings` - Appointment bookings (customerName, service, date, status)
-- `form_submissions` - Contact form and other form submissions
-- `customers` - Customer profiles aggregated from orders/bookings
-
-**RLS Policies**:
-- Orders and order_items have RLS enabled with permissive policies
-- Website isolation is enforced at application level via website_id column
-- Published sites use service role key which bypasses RLS for full access
+- **Database**: Supabase PostgreSQL via Drizzle ORM
+- **Schema**: Defined in `shared/schema.ts`, with Zod validation.
+- **Migrations**: Drizzle Kit.
+- **Tables**: `profiles`, `websites`, `website_inputs`, `builder_state`, `orders`, `order_items`, `bookings`, `form_submissions`, `customers`.
+- **Row Level Security (RLS)**: Implemented for data isolation, particularly for `orders` and `order_items`, and website-specific data.
 
 ### Authentication
-- **Provider**: Supabase Auth (email/password with email confirmation)
-- **Flow**: Frontend fetches Supabase config from `/api/config`, then uses Supabase JS client for auth operations
-- **Session Handling**: JWT tokens passed via Authorization header, validated on protected routes using `requireAuth` middleware
-- **Profile Sync**: After email verification, user profiles are created/synced in Supabase PostgreSQL database
+- **Provider**: Supabase Auth (email/password with email confirmation).
+- **Session Handling**: JWT tokens validated via `requireAuth` middleware.
+- **Profile Sync**: User profiles are created/synced in the Supabase PostgreSQL database post email verification.
 
 ### Shared Code
-The `shared/` directory contains code used by both frontend and backend:
-- Database schemas with Drizzle
-- Zod validation schemas generated from Drizzle schemas
-- TypeScript types inferred from schemas
-- Component Registry (`shared/componentRegistry.ts`) - defines all website builder component types
+The `shared/` directory centralizes database schemas, Zod validation schemas, TypeScript types, and the Component Registry for the website builder, ensuring consistency across frontend and backend.
 
-### Component System Architecture
+### Component System
 The website builder uses a registry-based component system:
-
-**Component Registry** (`shared/componentRegistry.ts`):
-- Defines 8 component types: hero, image-slider, text-image, cta, features, testimonials, header, footer
-- Each component has: type, name, icon, defaultProps, defaultStyles, and fields array
-- Field definitions specify editable properties with type (text, textarea, color, select, image, image-array, items)
-- `createComponent(type)` creates new component instances with defaults
-
-**ComponentRenderer** (`client/src/components/builder/ComponentRenderer.tsx`):
-- Maps component type to React JSX
-- Renders purely from builder_state data (props + styles)
-- Reusable for both builder preview and published site rendering
-- isPreview flag controls interactive behavior
-
-**PropertiesPanel** (`client/src/components/builder/PropertiesPanel.tsx`):
-- Dynamically renders edit fields based on component's field definitions
-- Supports text, textarea, color picker, select, image URL, image array, and items editors
-- Updates flow through parent to builder_state and Supabase persistence
+- **Component Registry**: Defines 8 component types with editable properties (e.g., text, image, color).
+- **ComponentRenderer**: Renders components from `builder_state` for both preview and published sites.
+- **PropertiesPanel**: Dynamically generates UI for editing component properties based on their definitions.
 
 ### Publishing System
-The publisher generates a standalone Next.js project from builder_state and deploys to Vercel:
+Generates a standalone Next.js project from the `builder_state` and deploys it to Vercel.
+- **Publisher Service**: Orchestrates project generation (using `generator.ts` and `templates.ts`) and Vercel deployment (`vercel.ts`).
+- **Generated Project**: A portable Next.js 14 application that renders content from props, uses `theme.json` for global styling, and interacts with Supabase.
+- **Data Flow**: Published sites write orders, bookings, and forms to Supabase, respecting RLS policies.
 
-**Publisher Service** (`server/publisher/`):
-- `generator.ts` - Creates Next.js App Router project from builder_state
-- `templates.ts` - Template generators for package.json, components, pages, theme.json
-- `vercel.ts` - Vercel REST API integration for deployment
-- `index.ts` - Orchestrates generation and deployment flow
+### Website Templates System
+Provides pre-built website templates for quick setup:
+- **Template Registry**: Stores 6 customizable templates (e.g., Modern Business, E-Commerce Store) with complete `builderState`.
+- **Create Website Modal**: A multi-step wizard allowing users to select and apply templates during website creation.
 
-**Generated Project Structure**:
-- Portable Next.js 14 project with no builder dependencies
-- Components render from props (no hardcoded content)
-- `theme.json` drives global styling from globalStyles
-- Supabase client uses anon key (client) and service role (server-only)
-- Contact/Booking/Product components submit to Supabase tables via RLS
-
-**Data Flow**:
-- Published site writes orders/bookings/forms to Supabase with website_id
-- /manage/:id dashboard reads same tables for website owners
-- RLS policies scope data access by website_id
+### Shopping Cart & Checkout System
+Includes a full e-commerce checkout flow:
+- **Cart Context**: React Context with `localStorage` persistence for managing cart state.
+- **Cart UI**: Components like `CartDrawer` and `CartButton` for user interaction.
+- **Published Site Cart**: Generated Next.js sites include `CartProvider` and `CartDrawer` for consistent e-commerce functionality.
+- **Checkout Flow**: Server-side product validation, Stripe Checkout Session creation, and webhook handling for order status updates.
+- **API Endpoints**: Public endpoints for checkout and product listing, plus a Stripe webhook.
 
 ## External Dependencies
 
 ### Authentication & Authorization
-- **Supabase**: Handles user authentication, email verification, and session management
-- Environment variables: `SUPABASE_URL`, `SUPABASE_ANON_KEY`
+- **Supabase**: Used for user authentication, email verification, and session management.
 
 ### Database
-- **Supabase PostgreSQL**: Primary data store accessed via Drizzle ORM
-- Environment variable: `SUPABASE_DB_URL` (pooled connection string with port 6543)
-- Connection format: `postgresql://postgres.[project-ref]:[password]@aws-[region].pooler.supabase.com:6543/postgres`
+- **Supabase PostgreSQL**: The primary data store, accessed via Drizzle ORM.
 
 ### Key NPM Packages
-- `@supabase/supabase-js`: Supabase client for auth
-- `drizzle-orm` / `drizzle-kit`: Database ORM and migration tooling
-- `@tanstack/react-query`: Server state management
-- `@radix-ui/*`: Headless UI primitives for shadcn components
-- `framer-motion`: Animation library used on landing page
-- `bcryptjs`: Password hashing utilities
+- `@supabase/supabase-js`: Supabase client library.
+- `drizzle-orm` / `drizzle-kit`: ORM and migration tools.
+- `@tanstack/react-query`: Server state management.
+- `@radix-ui/*`: Headless UI primitives.
+- `framer-motion`: Animation library.
+- `bcryptjs`: Password hashing.
 
 ### Deployment
-- **Vercel**: Hosts published Next.js sites via REST API
-- Environment variables: `VERCEL_TOKEN`, `VERCEL_TEAM_ID` (optional)
-- Published sites receive `SUPABASE_SERVICE_ROLE_KEY` as encrypted Vercel env var
+- **Vercel**: Hosts published Next.js sites via its REST API.
 
-### Website Templates System
-Pre-built website templates that users can select when creating a new website:
-
-**Template Registry** (`shared/websiteTemplates.ts`):
-- 6 templates: Blank, Modern Business, Creative Portfolio, E-Commerce Store, Service Booking, Startup Landing
-- Each template has: id, name, description, category, thumbnail, and complete builderState
-- Categories: landing, business, portfolio, ecommerce, services, blog
-- `getTemplateById(id)` and `cloneTemplateState(template)` for applying templates
-
-**Create Website Modal** (`client/src/components/create-website-modal.tsx`):
-- Multi-step wizard: Name → Setup Type → Template Selection
-- Visual template grid with thumbnails and descriptions
-- Template selection applies full builder state on creation
-
-### Shopping Cart & Checkout System
-The platform includes a complete e-commerce checkout flow:
-
-**Cart Context** (`client/src/lib/cartContext.tsx`):
-- React Context providing cart state across the app
-- localStorage persistence with website-specific keys (`saasify_cart_${websiteId}`)
-- Functions: addItem, removeItem, updateQuantity, clearCart
-- Automatic total calculation and item count
-
-**Cart UI** (`client/src/components/cart/`):
-- CartDrawer: Slide-out cart with quantity controls, two-step checkout flow
-- CartButton: Header button showing item count badge
-- Email/name collection before checkout
-
-**Published Site Cart** (generated Next.js sites):
-- CartProvider (`server/publisher/templates.ts` → `generateCartProvider`): React Context with localStorage persistence using `cart_${websiteId}` keys
-- CartDrawer (`server/publisher/templates.ts` → `generateCartDrawer`): Slide-out drawer with two-step checkout (view cart → enter details → Stripe redirect)
-- Header cart button: Shows item count badge, uses `useCart` hook for `totalItems` and `toggleCart`
-- ProductGrid/ProductDetailPage: Use shared cart context via `useCart` hook with `addItem` function
-- Layout includes CartProvider wrapper and CartDrawer for global cart access across all pages
-
-**Checkout Flow**:
-- Server-side product validation to prevent price tampering
-- Currency validation ensures all cart items share same currency (USD/EUR/DKK)
-- Stripe Checkout Session creation with order tracking
-- Webhook handler updates order status (pending → paid) on payment completion
-
-**API Endpoints**:
-- `POST /api/public/websites/:id/checkout` - Create Stripe checkout session (public)
-- `GET /api/public/websites/:id/products` - List active products (public)
-- Stripe webhook at `/api/stripe/webhook` for payment event processing
-
-## Recent Changes
-
-- **2025-01-04**: Enhanced Orders section in Manage page with clickable rows, order details dialog, and status update capability
-- **2025-01-04**: Added Payment Settings section in Settings tab with placeholder Connect Stripe action (prepares for future Stripe integration)
-- **2025-01-04**: Added order_items table (orderId, websiteId, productId, productName, quantity, priceAtPurchase) for normalized order data
-- **2025-01-04**: Applied RLS policies to orders and order_items tables for website isolation
-- **2025-01-04**: Added /checkout page to published sites with cart summary, customer info form, and order creation
-- **2025-01-04**: Added /api/orders endpoint for creating orders without payment (status=pending, payment_status=unpaid)
-- **2025-01-04**: Simplified CartDrawer to navigate to /checkout instead of handling checkout in drawer
-- **2025-01-04**: Added CartProvider and CartDrawer components to published Next.js sites for shared cart state
-- **2025-01-04**: Integrated cart button in header section with item count badge and drawer toggle
-- **2025-01-04**: Updated ProductGrid and ProductDetailPage to use shared cart context instead of local state
-- **2025-01-02**: Added multi-image input UI to manage dashboard product form with add/remove functionality
-- **2025-01-02**: Updated publisher product detail page template with ImageGallery, hover zoom, lightbox with keyboard navigation
-- **2025-01-02**: Enhanced product page with image gallery, zoom, and lightbox functionality
-- **2025-01-02**: Added multiple images support to products (images array column)
-- **2025-01-02**: Cart context now supports quantity parameter in addItem function
-- **2025-01-02**: Product page includes quantity selector, stock status, trust badges
-- **2025-01-02**: Added shopping cart with localStorage persistence and CartDrawer UI
-- **2025-01-02**: Implemented Stripe checkout with customer email collection and currency validation
-- **2025-01-02**: Created checkout success/cancel pages with cart clearing on success
-- **2025-01-02**: Added public checkout endpoint with server-side price validation
-- **2025-01-02**: Updated ProductGrid component props for cart integration (productMode, showAddToCart)
-- **2024-12-28**: Added customizable pre-built website templates with 6 starter templates (business, portfolio, ecommerce, services, landing)
-- **2024-12-28**: Created multi-step website creation wizard with template selection UI
-- **2024-12-28**: Added real-time booking updates via Supabase Realtime subscription in manage dashboard
-- **2024-12-28**: Redesigned booking management UI with status-colored cards, quick action buttons, and visual improvements
-- **2024-12-28**: Added booking filtering (All/Pending/Confirmed/Cancelled) and search by customer name/email/service
-- **2024-12-28**: Improved services management with visual card grid, gradient icons, and inline add/edit/delete
-- **2024-12-28**: Fixed click propagation in booking cards - quick actions don't trigger detail dialog
-- **2024-12-28**: Enhanced BookingWidget with 3-step wizard flow (Service → Date/Time → Details), modern UI with progress indicators
-- **2024-12-28**: Fixed builder/preview mode interaction handling - components selectable in builder but interactive on live sites
-- **2024-12-28**: Updated publisher booking template to fetch services from database and use proper column names
-- **2024-12-27**: Added ImageCropper component with react-image-crop library for image editing
-- **2024-12-27**: Created MediaPanel for managing uploaded images in builder sidebar
-- **2024-12-27**: Added booking_services table and booking services management in manage dashboard
-- **2024-12-26**: Added multi-page support to builder - create, rename, delete pages with unique URL slugs
-- **2024-12-26**: Updated Next.js generator to create separate routes for each page
-- **2024-12-25**: Implemented publishing system with Next.js generator and Vercel deployment
-- **2024-12-25**: Added management dashboard for orders, bookings, and form submissions
-- **2024-12-25**: Added component system with registry, renderer, and dynamic properties panel for builder
-- **2024-12-24**: Migrated all persistent data storage from Replit internal database to Supabase PostgreSQL
-- **2024-12-24**: Added builder page with live preview, element selection, and properties sidebar
-- **2024-12-24**: Implemented website creation with setup wizard and dashboard management
+### File Storage
+- **Replit Object Storage**: Used for image uploads, integrated via a presigned URL flow.
