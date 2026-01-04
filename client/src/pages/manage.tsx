@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { getSupabase } from "@/lib/supabaseClient";
@@ -23,17 +23,60 @@ import {
   Globe, ArrowLeft, Loader2, Settings, User, LogOut,
   ShoppingCart, Calendar, Mail, Users, Palette,
   Package, Clock, CheckCircle, XCircle, AlertCircle,
-  Plus, Pencil, Trash2, DollarSign, Image
+  Plus, Pencil, Trash2, DollarSign, Image, Upload
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useUpload } from "@/hooks/use-upload";
 
 function formatCurrency(amount: number, currency: string = 'USD'): string {
   const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
   const symbol = symbols[currency] || currency;
   const formatted = amount.toFixed(currency === 'DKK' ? 0 : 2);
   return currency === 'DKK' ? `${formatted} ${symbol}` : `${symbol}${formatted}`;
+}
+
+function ImageUploadButton({ onUpload, "data-testid": testId }: { onUpload: (url: string) => void; "data-testid"?: string }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { uploadFile, isUploading } = useUpload({
+    onSuccess: (response) => {
+      onUpload(response.objectPath);
+    },
+  });
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await uploadFile(file);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  return (
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="hidden"
+        data-testid={testId ? `${testId}-input` : undefined}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={isUploading}
+        data-testid={testId}
+      >
+        {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+      </Button>
+    </>
+  );
 }
 
 type Website = {
@@ -1524,60 +1567,80 @@ export default function ManagePage() {
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="imageUrl">Main Image URL</Label>
-                        <div className="relative">
-                          <Image className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                          <Input 
-                            id="imageUrl"
-                            className="pl-9"
-                            value={productForm.imageUrl || ''} 
-                            onChange={(e) => setProductForm({...productForm, imageUrl: e.target.value})}
-                            placeholder="https://example.com/image.jpg"
-                            data-testid="input-product-image"
+                        <Label htmlFor="imageUrl">Main Image</Label>
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <Image className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <Input 
+                              id="imageUrl"
+                              className="pl-9"
+                              value={productForm.imageUrl || ''} 
+                              onChange={(e) => setProductForm({...productForm, imageUrl: e.target.value})}
+                              placeholder="https://example.com/image.jpg or upload"
+                              data-testid="input-product-image"
+                            />
+                          </div>
+                          <ImageUploadButton 
+                            onUpload={(url) => setProductForm({...productForm, imageUrl: url})}
+                            data-testid="button-upload-main-image"
                           />
                         </div>
+                        {productForm.imageUrl && (
+                          <div className="relative w-20 h-20 rounded border overflow-hidden">
+                            <img src={productForm.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => setProductForm({...productForm, imageUrl: ''})}
+                              className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1 hover:bg-black/70"
+                            >
+                              <XCircle className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label>Additional Images</Label>
                         <div className="space-y-2">
-                          {(productForm.images || []).map((img, index) => (
-                            <div key={index} className="flex gap-2">
-                              <Input 
-                                value={img}
-                                onChange={(e) => {
-                                  const newImages = [...(productForm.images || [])];
-                                  newImages[index] = e.target.value;
-                                  setProductForm({...productForm, images: newImages});
-                                }}
-                                placeholder="https://example.com/image.jpg"
-                                data-testid={`input-product-additional-image-${index}`}
-                              />
-                              <Button 
-                                type="button"
-                                variant="ghost" 
-                                size="icon"
-                                onClick={() => {
-                                  const newImages = (productForm.images || []).filter((_, i) => i !== index);
-                                  setProductForm({...productForm, images: newImages});
-                                }}
-                                data-testid={`button-remove-image-${index}`}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          ))}
-                          <Button 
-                            type="button"
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => setProductForm({...productForm, images: [...(productForm.images || []), '']})}
-                            data-testid="button-add-image"
-                          >
-                            <Plus className="w-4 h-4 mr-2" />
-                            Add Image
-                          </Button>
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {(productForm.images || []).filter(img => img).map((img, index) => (
+                              <div key={index} className="relative w-16 h-16 rounded border overflow-hidden group">
+                                <img src={img} alt={`Product ${index + 1}`} className="w-full h-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newImages = (productForm.images || []).filter((_, i) => i !== index);
+                                    setProductForm({...productForm, images: newImages});
+                                  }}
+                                  className="absolute top-0 right-0 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  data-testid={`button-remove-image-${index}`}
+                                >
+                                  <XCircle className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex gap-2">
+                            <Input 
+                              placeholder="Paste image URL..."
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const value = (e.target as HTMLInputElement).value.trim();
+                                  if (value) {
+                                    setProductForm({...productForm, images: [...(productForm.images || []), value]});
+                                    (e.target as HTMLInputElement).value = '';
+                                  }
+                                }
+                              }}
+                              data-testid="input-add-image-url"
+                            />
+                            <ImageUploadButton 
+                              onUpload={(url) => setProductForm({...productForm, images: [...(productForm.images || []), url]})}
+                              data-testid="button-upload-additional-image"
+                            />
+                          </div>
                         </div>
-                        <p className="text-xs text-muted-foreground">Add multiple product images for gallery display</p>
+                        <p className="text-xs text-muted-foreground">Upload or paste URLs. Press Enter to add URL.</p>
                       </div>
                     </div>
                     <DialogFooter>
