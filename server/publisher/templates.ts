@@ -590,11 +590,666 @@ export function WebsiteProvider({ children }: { children: ReactNode }) {
 `;
 }
 
+export function generateCartProvider(): string {
+  return `'use client';
+
+import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import { useWebsite } from './WebsiteProvider';
+
+export type CartProduct = {
+  id: string;
+  name: string;
+  description?: string;
+  price: string;
+  currency?: string;
+  image_url?: string;
+  category?: string;
+};
+
+export type CartItem = {
+  product: CartProduct;
+  quantity: number;
+};
+
+type CartContextType = {
+  items: CartItem[];
+  addItem: (product: CartProduct, quantity?: number) => void;
+  removeItem: (productId: string) => void;
+  updateQuantity: (productId: string, quantity: number) => void;
+  clearCart: () => void;
+  totalItems: number;
+  totalAmount: number;
+  isOpen: boolean;
+  openCart: () => void;
+  closeCart: () => void;
+  toggleCart: () => void;
+};
+
+const CartContext = createContext<CartContextType | undefined>(undefined);
+
+export function useCart() {
+  const context = useContext(CartContext);
+  if (!context) {
+    throw new Error('useCart must be used within a CartProvider');
+  }
+  return context;
+}
+
+function getStorageKey(websiteId: string): string {
+  return 'cart_' + websiteId;
+}
+
+export function CartProvider({ children }: { children: ReactNode }) {
+  const { websiteId } = useWebsite();
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Load cart from localStorage on mount
+  useEffect(() => {
+    if (!websiteId) return;
+    try {
+      const stored = localStorage.getItem(getStorageKey(websiteId));
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setItems(parsed);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load cart:', e);
+    }
+    setIsHydrated(true);
+  }, [websiteId]);
+
+  // Save cart to localStorage whenever it changes
+  useEffect(() => {
+    if (!websiteId || !isHydrated) return;
+    try {
+      localStorage.setItem(getStorageKey(websiteId), JSON.stringify(items));
+    } catch (e) {
+      console.error('Failed to save cart:', e);
+    }
+  }, [items, websiteId, isHydrated]);
+
+  const addItem = useCallback((product: CartProduct, quantity: number = 1) => {
+    setItems(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        return prev.map(item =>
+          item.product.id === product.id
+            ? { ...item, quantity: item.quantity + quantity }
+            : item
+        );
+      }
+      return [...prev, { product, quantity }];
+    });
+    setIsOpen(true);
+  }, []);
+
+  const removeItem = useCallback((productId: string) => {
+    setItems(prev => prev.filter(item => item.product.id !== productId));
+  }, []);
+
+  const updateQuantity = useCallback((productId: string, quantity: number) => {
+    if (quantity < 1) {
+      removeItem(productId);
+      return;
+    }
+    setItems(prev =>
+      prev.map(item =>
+        item.product.id === productId ? { ...item, quantity } : item
+      )
+    );
+  }, [removeItem]);
+
+  const clearCart = useCallback(() => {
+    setItems([]);
+  }, []);
+
+  const openCart = useCallback(() => setIsOpen(true), []);
+  const closeCart = useCallback(() => setIsOpen(false), []);
+  const toggleCart = useCallback(() => setIsOpen(prev => !prev), []);
+
+  const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalAmount = items.reduce(
+    (sum, item) => sum + parseFloat(item.product.price || '0') * item.quantity,
+    0
+  );
+
+  return (
+    <CartContext.Provider
+      value={{
+        items,
+        addItem,
+        removeItem,
+        updateQuantity,
+        clearCart,
+        totalItems,
+        totalAmount,
+        isOpen,
+        openCart,
+        closeCart,
+        toggleCart,
+      }}
+    >
+      {children}
+    </CartContext.Provider>
+  );
+}
+`;
+}
+
+export function generateCartDrawer(): string {
+  return `'use client';
+
+import React, { useEffect, useState } from 'react';
+import { useCart, CartItem } from './CartProvider';
+import { useWebsite } from './WebsiteProvider';
+
+function formatCurrency(amount: number, currency: string = 'USD'): string {
+  const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
+  const symbol = symbols[currency] || currency;
+  const formatted = currency === 'DKK' ? amount.toFixed(0) : amount.toFixed(2);
+  return currency === 'DKK' ? formatted + ' ' + symbol : symbol + formatted;
+}
+
+export default function CartDrawer() {
+  const { items, isOpen, closeCart, removeItem, updateQuantity, totalAmount, clearCart } = useCart();
+  const { websiteId } = useWebsite();
+  const [checkoutStep, setCheckoutStep] = useState<'cart' | 'details'>('cart');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  // Get currency from first item
+  const currency = items.length > 0 ? items[0].product.currency || 'USD' : 'USD';
+
+  // Lock body scroll when open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+      setCheckoutStep('cart');
+      setError('');
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
+  const handleCheckout = async () => {
+    if (!customerEmail) {
+      setError('Please enter your email');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    setError('');
+    
+    try {
+      const response = await fetch('/api/checkout/create-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          websiteId,
+          items: items.map(item => ({
+            productId: item.product.id,
+            name: item.product.name,
+            price: parseFloat(item.product.price || '0'),
+            quantity: item.quantity,
+          })),
+          customerEmail,
+          customerName,
+          successUrl: window.location.origin + '?checkout=success',
+          cancelUrl: window.location.origin + '?checkout=cancelled',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.url) {
+        clearCart();
+        window.location.href = data.url;
+      } else {
+        setError(data.message || 'Checkout failed. Please try again.');
+      }
+    } catch (err) {
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={closeCart}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          zIndex: 9998,
+          transition: 'opacity 0.3s',
+        }}
+      />
+      
+      {/* Drawer */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: '100%',
+          maxWidth: '420px',
+          backgroundColor: '#fff',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '-4px 0 24px rgba(0,0,0,0.15)',
+        }}
+      >
+        {/* Header */}
+        <div style={{ 
+          padding: '20px 24px', 
+          borderBottom: '1px solid #e5e7eb',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#111827' }}>
+            {checkoutStep === 'cart' ? 'Shopping Cart' : 'Checkout Details'}
+          </h2>
+          <button
+            onClick={closeCart}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '24px',
+              cursor: 'pointer',
+              color: '#6b7280',
+              padding: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            aria-label="Close cart"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+          {items.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 24px', color: '#6b7280' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>🛒</div>
+              <p style={{ fontSize: '16px', fontWeight: 500 }}>Your cart is empty</p>
+              <p style={{ fontSize: '14px', marginTop: '8px' }}>Add some products to get started!</p>
+            </div>
+          ) : checkoutStep === 'cart' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {items.map((item: CartItem) => (
+                <div
+                  key={item.product.id}
+                  style={{
+                    display: 'flex',
+                    gap: '16px',
+                    padding: '16px',
+                    backgroundColor: '#f9fafb',
+                    borderRadius: '12px',
+                  }}
+                >
+                  {/* Product Image */}
+                  <div style={{ 
+                    width: '80px', 
+                    height: '80px', 
+                    borderRadius: '8px', 
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                    backgroundColor: '#e5e7eb',
+                  }}>
+                    {item.product.image_url ? (
+                      <img
+                        src={item.product.image_url}
+                        alt={item.product.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div style={{ 
+                        width: '100%', 
+                        height: '100%', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        fontSize: '32px',
+                      }}>
+                        📦
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Product Details */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ 
+                      fontSize: '14px', 
+                      fontWeight: 600, 
+                      margin: 0, 
+                      color: '#111827',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}>
+                      {item.product.name}
+                    </h3>
+                    <p style={{ 
+                      fontSize: '13px', 
+                      color: '#6b7280', 
+                      margin: '4px 0 8px',
+                    }}>
+                      {formatCurrency(parseFloat(item.product.price || '0'), item.product.currency)} each
+                    </p>
+
+                    {/* Quantity Controls */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '6px',
+                          border: '1px solid #d1d5db',
+                          backgroundColor: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        −
+                      </button>
+                      <span style={{ fontSize: '14px', fontWeight: 500, minWidth: '24px', textAlign: 'center' }}>
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => updateQuantity(item.product.id, item.quantity + 1)}
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '6px',
+                          border: '1px solid #d1d5db',
+                          backgroundColor: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        +
+                      </button>
+                      <button
+                        onClick={() => removeItem(item.product.id)}
+                        style={{
+                          marginLeft: 'auto',
+                          background: 'none',
+                          border: 'none',
+                          color: '#ef4444',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Subtotal */}
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{ fontSize: '16px', fontWeight: 700, color: '#111827', margin: 0 }}>
+                      {formatCurrency(parseFloat(item.product.price || '0') * item.quantity, item.product.currency)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '8px' }}>
+                Enter your details to complete checkout
+              </p>
+              <div>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, marginBottom: '6px', color: '#374151' }}>
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  value={customerEmail}
+                  onChange={(e) => setCustomerEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid #d1d5db',
+                    fontSize: '16px',
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, marginBottom: '6px', color: '#374151' }}>
+                  Name (optional)
+                </label>
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Your name"
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid #d1d5db',
+                    fontSize: '16px',
+                  }}
+                />
+              </div>
+              {error && (
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#fef2f2',
+                  borderRadius: '8px',
+                  color: '#dc2626',
+                  fontSize: '14px',
+                }}>
+                  {error}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {items.length > 0 && (
+          <div style={{ 
+            padding: '24px', 
+            borderTop: '1px solid #e5e7eb',
+            backgroundColor: '#f9fafb',
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              marginBottom: '16px',
+            }}>
+              <span style={{ fontSize: '16px', color: '#6b7280' }}>Total</span>
+              <span style={{ fontSize: '24px', fontWeight: 700, color: '#111827' }}>
+                {formatCurrency(totalAmount, currency)}
+              </span>
+            </div>
+            
+            {checkoutStep === 'cart' ? (
+              <button
+                onClick={() => setCheckoutStep('details')}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  backgroundColor: '#4f46e5',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                }}
+              >
+                Proceed to Checkout
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => setCheckoutStep('cart')}
+                  style={{
+                    flex: 1,
+                    padding: '16px',
+                    backgroundColor: '#fff',
+                    color: '#374151',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleCheckout}
+                  disabled={isSubmitting}
+                  style={{
+                    flex: 2,
+                    padding: '16px',
+                    backgroundColor: isSubmitting ? '#9ca3af' : '#22c55e',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 600,
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  {isSubmitting ? 'Processing...' : 'Pay with Stripe'}
+                  {!isSubmitting && (
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                      <path d="M12 3v4a1 1 0 001 1h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      <path d="M17 8v8a2 2 0 01-2 2H5a2 2 0 01-2-2V4a2 2 0 012-2h7l5 5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+`;
+}
+
+export function generateCartButton(): string {
+  return `'use client';
+
+import React from 'react';
+import { useCart } from './CartProvider';
+
+type CartButtonProps = {
+  color?: string;
+};
+
+export default function CartButton({ color = '#1a1a1a' }: CartButtonProps) {
+  const { totalItems, toggleCart } = useCart();
+
+  return (
+    <button
+      onClick={toggleCart}
+      style={{
+        position: 'relative',
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: '8px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      aria-label={'Open cart with ' + totalItems + ' items'}
+    >
+      <svg
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="9" cy="21" r="1" />
+        <circle cx="20" cy="21" r="1" />
+        <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+      </svg>
+      {totalItems > 0 && (
+        <span
+          style={{
+            position: 'absolute',
+            top: '0',
+            right: '0',
+            backgroundColor: '#ef4444',
+            color: '#fff',
+            fontSize: '11px',
+            fontWeight: 700,
+            minWidth: '18px',
+            height: '18px',
+            borderRadius: '9px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0 4px',
+          }}
+        >
+          {totalItems > 99 ? '99+' : totalItems}
+        </span>
+      )}
+    </button>
+  );
+}
+`;
+}
+
 export function generateComponentRenderer(): string {
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
 import theme from '@/theme.json';
+import { useCart } from '@/components/CartProvider';
 
 type BuilderPage = {
   id: string;
@@ -781,6 +1436,7 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' });
+  const { totalItems, toggleCart } = useCart();
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -798,25 +1454,80 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
         <a href="/" style={{ fontSize: '20px', fontWeight: 700, color: 'inherit', textDecoration: 'none' }}>{props.title}</a>
         
-        {!isMobile && (
-          <nav style={{ display: 'flex', gap: '24px' }}>
-            {navItems.map(item => (
-              <a key={item.id} href={item.href} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
-            ))}
-          </nav>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+          {!isMobile && (
+            <nav style={{ display: 'flex', gap: '24px' }}>
+              {navItems.map(item => (
+                <a key={item.id} href={item.href} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+              ))}
+            </nav>
+          )}
 
-        {isMobile && (
+          {/* Cart Button */}
           <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}
-            aria-label="Toggle menu"
+            onClick={toggleCart}
+            style={{
+              position: 'relative',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            aria-label={'Open cart with ' + totalItems + ' items'}
           >
-            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
-            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', opacity: mobileMenuOpen ? 0 : 1 }} />
-            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={styles.textColor || '#1a1a1a'}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+            </svg>
+            {totalItems > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '0',
+                  right: '0',
+                  backgroundColor: '#ef4444',
+                  color: '#fff',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  minWidth: '18px',
+                  height: '18px',
+                  borderRadius: '9px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 4px',
+                }}
+              >
+                {totalItems > 99 ? '99+' : totalItems}
+              </span>
+            )}
           </button>
-        )}
+
+          {isMobile && (
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}
+              aria-label="Toggle menu"
+            >
+              <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
+              <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', opacity: mobileMenuOpen ? 0 : 1 }} />
+              <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
+            </button>
+          )}
+        </div>
       </div>
 
       {isMobile && mobileMenuOpen && (
@@ -1278,6 +1989,7 @@ export function generateProductGrid(): string {
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useWebsite } from '@/components/WebsiteProvider';
+import { useCart } from '@/components/CartProvider';
 
 type Product = {
   id: string;
@@ -1288,8 +2000,6 @@ type Product = {
   image_url?: string;
   category?: string;
 };
-
-type CartItem = { product: Product; quantity: number };
 
 function formatCurrency(amount: number, currency: string = 'USD'): string {
   const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
@@ -1314,26 +2024,19 @@ type Props = {
 
 export default function ProductGrid({ styles, props }: Props) {
   const { websiteId, isLoading: websiteLoading } = useWebsite();
+  const { addItem } = useCart();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [showCart, setShowCart] = useState(false);
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [fetchError, setFetchError] = useState(false);
-  const [checkoutMessage, setCheckoutMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const columns = props.columns || 3;
   const limit = props.productLimit || 6;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('success') === 'true') {
-      setStatus('success');
-      setCheckoutMessage('Payment successful! Your order has been placed.');
-      setCart([]);
-    } else if (params.get('canceled') === 'true') {
-      setCheckoutMessage('Payment was canceled.');
+    if (params.get('checkout') === 'success') {
+      setSuccessMessage('Payment successful! Your order has been placed.');
     }
   }, []);
 
@@ -1364,127 +2067,29 @@ export default function ProductGrid({ styles, props }: Props) {
     fetchProducts();
   }, [websiteId, websiteLoading, limit]);
 
-  const addToCart = (product: Product) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) {
-        return prev.map(item => item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-      }
-      return [...prev, { product, quantity: 1 }];
+  const handleAddToCart = (product: Product) => {
+    addItem({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      currency: product.currency,
+      image_url: product.image_url,
+      category: product.category,
     });
-  };
-
-  const removeFromCart = (productId: string) => {
-    setCart(prev => prev.filter(item => item.product.id !== productId));
-  };
-
-  const updateQuantity = (productId: string, quantity: number) => {
-    if (quantity < 1) {
-      removeFromCart(productId);
-      return;
-    }
-    setCart(prev => prev.map(item => 
-      item.product.id === productId ? { ...item, quantity } : item
-    ));
-  };
-
-  const total = cart.reduce((sum, item) => sum + parseFloat(item.product.price || '0') * item.quantity, 0);
-
-  const handleCheckout = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (cart.length === 0) return;
-    
-    setStatus('loading');
-    setCheckoutMessage('');
-    
-    try {
-      const items = cart.map(item => ({
-        productId: item.product.id,
-        name: item.product.name,
-        price: parseFloat(item.product.price || '0'),
-        quantity: item.quantity,
-      }));
-
-      const response = await fetch('/api/checkout/create-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          websiteId,
-          items,
-          customerEmail,
-          successUrl: window.location.href.split('?')[0] + '?success=true',
-          cancelUrl: window.location.href.split('?')[0] + '?canceled=true',
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        setStatus('error');
-        setCheckoutMessage(data.message || 'Checkout failed');
-      }
-    } catch (err) {
-      console.error('Checkout error:', err);
-      setStatus('error');
-      setCheckoutMessage('Failed to start checkout');
-    }
   };
 
   return (
     <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '60px 24px' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-          <div>
-            <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
-            {props.description && <p style={{ opacity: 0.7, marginTop: '8px' }}>{props.description}</p>}
-          </div>
-          <button onClick={() => setShowCart(!showCart)} style={{ padding: '10px 20px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', position: 'relative' }}>
-            🛒 Cart ({cart.reduce((sum, item) => sum + item.quantity, 0)})
-          </button>
+        <div style={{ marginBottom: '32px' }}>
+          <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
+          {props.description && <p style={{ opacity: 0.7, marginTop: '8px' }}>{props.description}</p>}
         </div>
 
-        {checkoutMessage && (
-          <div style={{ marginBottom: '24px', padding: '16px', borderRadius: '8px', backgroundColor: status === 'success' ? '#dcfce7' : '#fef2f2', color: status === 'success' ? '#166534' : '#991b1b', textAlign: 'center' }}>
-            {checkoutMessage}
-          </div>
-        )}
-        
-        {showCart && (
-          <div style={{ marginBottom: '32px', padding: '24px', backgroundColor: '#f8f9fa', borderRadius: '12px' }}>
-            <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '16px', color: '#1a1a1a' }}>Shopping Cart</h3>
-            {cart.length === 0 ? (
-              <p style={{ color: '#1a1a1a' }}>Your cart is empty.</p>
-            ) : (
-              <>
-                {cart.map(item => (
-                  <div key={item.product.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', color: '#1a1a1a', padding: '12px', backgroundColor: '#fff', borderRadius: '8px' }}>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontWeight: 500 }}>{item.product.name}</span>
-                      <span style={{ marginLeft: '12px', opacity: 0.6 }}>\${parseFloat(item.product.price || '0').toFixed(2)} each</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} style={{ width: '28px', height: '28px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', backgroundColor: '#fff' }}>-</button>
-                      <span style={{ minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} style={{ width: '28px', height: '28px', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer', backgroundColor: '#fff' }}>+</button>
-                      <span style={{ marginLeft: '16px', fontWeight: 600, minWidth: '60px', textAlign: 'right' }}>\${(parseFloat(item.product.price || '0') * item.quantity).toFixed(2)}</span>
-                      <button onClick={() => removeFromCart(item.product.id)} style={{ marginLeft: '8px', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>×</button>
-                    </div>
-                  </div>
-                ))}
-                <div style={{ borderTop: '2px solid #ddd', paddingTop: '16px', marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#1a1a1a' }}>
-                  <span style={{ fontSize: '18px', fontWeight: 700 }}>Total:</span>
-                  <span style={{ fontSize: '24px', fontWeight: 700 }}>\${total.toFixed(2)}</span>
-                </div>
-                <form onSubmit={handleCheckout} style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <input type="email" placeholder="Your email for order confirmation" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} required style={{ padding: '12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px' }} />
-                  <button type="submit" disabled={status === 'loading' || cart.length === 0} style={{ padding: '14px', backgroundColor: status === 'loading' ? '#9ca3af' : '#22c55e', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '16px', cursor: status === 'loading' ? 'not-allowed' : 'pointer' }}>
-                    {status === 'loading' ? 'Redirecting to checkout...' : 'Checkout with Stripe'}
-                  </button>
-                </form>
-              </>
-            )}
+        {successMessage && (
+          <div style={{ marginBottom: '24px', padding: '16px', borderRadius: '8px', backgroundColor: '#dcfce7', color: '#166534', textAlign: 'center' }}>
+            {successMessage}
           </div>
         )}
         
@@ -1509,7 +2114,7 @@ export default function ProductGrid({ styles, props }: Props) {
                   {product.description && <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px' }}>{product.description}</p>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: '20px', fontWeight: 700 }}>{formatCurrency(parseFloat(product.price), product.currency)}</span>
-                    <button onClick={(e) => { e.preventDefault(); addToCart(product); }} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
+                    <button onClick={(e) => { e.preventDefault(); handleAddToCart(product); }} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
                   </div>
                 </div>
               </a>
@@ -1527,6 +2132,8 @@ export function generateRootLayout(siteName: string): string {
   return `import type { Metadata } from 'next';
 import './globals.css';
 import { WebsiteProvider } from '@/components/WebsiteProvider';
+import { CartProvider } from '@/components/CartProvider';
+import CartDrawer from '@/components/CartDrawer';
 
 export const metadata: Metadata = {
   title: '${siteName}',
@@ -1538,7 +2145,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <WebsiteProvider>
-          {children}
+          <CartProvider>
+            {children}
+            <CartDrawer />
+          </CartProvider>
         </WebsiteProvider>
       </body>
     </html>
@@ -1722,6 +2332,7 @@ export function generateProductDetailPage(): string {
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useCart } from '@/components/CartProvider';
 
 type Product = {
   id: string;
@@ -1995,6 +2606,7 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
 export default function ProductDetailPage() {
   const params = useParams();
   const productId = params?.id as string;
+  const { addItem } = useCart();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2024,6 +2636,16 @@ export default function ProductDetailPage() {
   }, [productId]);
 
   const handleAddToCart = () => {
+    if (!product) return;
+    addItem({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      currency: product.currency,
+      image_url: product.image_url,
+      category: product.category,
+    }, quantity);
     setAddedToCart(true);
     setTimeout(() => setAddedToCart(false), 2000);
   };
