@@ -85,8 +85,17 @@ Includes a full e-commerce checkout flow:
 - `framer-motion`: Animation library.
 - `bcryptjs`: Password hashing.
 
+### Custom Domain Support
+Secure custom domain connection with DNS verification:
+- **Domain Management**: `custom_domains` table tracks domain, status (pending/verified/active/error), and verification tokens.
+- **DNS Verification**: TXT record verification at `_saasify-verification.<domain>` subdomain using Node.js DNS module.
+- **Vercel Integration**: After DNS verification, domains are connected via Vercel Domains API (v10).
+- **Status Flow**: pending (add domain) → verified (DNS check passed) → active (Vercel connected).
+- **Security**: All domain routes verify website ownership before operations.
+- **UI**: DomainsCard in Manage page provides add/verify/delete with copyable DNS instructions.
+
 ### Deployment
-- **Vercel**: Hosts published Next.js sites via its REST API.
+- **Vercel**: Hosts published Next.js sites via its REST API, including custom domain connections.
 
 ### File Storage
 - **Replit Object Storage**: Used for image uploads, integrated via a presigned URL flow.
