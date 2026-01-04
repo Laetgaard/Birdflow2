@@ -159,6 +159,9 @@ export default function ManagePage() {
   const [bookingSearch, setBookingSearch] = useState('');
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [isBookingDetailOpen, setIsBookingDetailOpen] = useState(false);
+  
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [isOrderDetailOpen, setIsOrderDetailOpen] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -564,6 +567,53 @@ export default function ManagePage() {
     }
   };
 
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: Order['status']) => {
+    if (!session || !id) return;
+    
+    const previousOrders = [...orders];
+    const previousSelectedOrder = selectedOrder;
+    
+    setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+    if (selectedOrder?.id === orderId) {
+      setSelectedOrder({ ...selectedOrder, status: newStatus });
+    }
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!res.ok) {
+        setOrders(previousOrders);
+        if (previousSelectedOrder?.id === orderId) {
+          setSelectedOrder(previousSelectedOrder);
+        }
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to update order (${res.status})`);
+      }
+
+      toast({
+        title: "Order Updated",
+        description: `Order status changed to ${newStatus}.`,
+      });
+    } catch (error: any) {
+      setOrders(previousOrders);
+      if (previousSelectedOrder?.id === orderId) {
+        setSelectedOrder(previousSelectedOrder);
+      }
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   if (authLoading || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -733,24 +783,37 @@ export default function ManagePage() {
                     <p className="text-sm">Orders will appear here when customers make purchases on your website.</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {orders.map(order => (
-                      <div key={order.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`order-${order.id}`}>
-                        <div className="flex-1">
-                          <p className="font-medium">{order.customerName}</p>
-                          <p className="text-sm text-muted-foreground">{order.customerEmail}</p>
-                          {order.items && order.items.length > 0 && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {order.items.map(item => `${item.name} x${item.quantity}`).join(', ')}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleString()}</p>
+                      <div 
+                        key={order.id} 
+                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors" 
+                        data-testid={`order-${order.id}`}
+                        onClick={() => { setSelectedOrder(order); setIsOrderDetailOpen(true); }}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-medium truncate">{order.customerName}</p>
+                            <span className="text-xs text-muted-foreground">#{order.id.slice(0, 8)}</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground truncate">{order.customerEmail}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {new Date(order.createdAt).toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
                         </div>
-                        <div className="text-right flex flex-col items-end gap-1">
-                          <p className="font-medium text-lg">${typeof order.total === 'number' ? order.total.toFixed(2) : parseFloat(order.total || '0').toFixed(2)}</p>
-                          <div className="flex gap-2">
+                        <div className="text-right flex flex-col items-end gap-2 ml-4">
+                          <p className="font-semibold text-lg">
+                            {formatCurrency(typeof order.total === 'number' ? order.total : parseFloat(order.total || '0'), order.currency || 'USD')}
+                          </p>
+                          <div className="flex gap-2 flex-wrap justify-end">
                             {order.paymentStatus && (
-                              <span className={`text-xs px-2 py-1 rounded-full ${
+                              <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${
                                 order.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
                                 order.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
                                 order.paymentStatus === 'refunded' ? 'bg-purple-100 text-purple-700' :
@@ -770,6 +833,152 @@ export default function ManagePage() {
                 )}
               </CardContent>
             </Card>
+
+            <Dialog open={isOrderDetailOpen} onOpenChange={setIsOrderDetailOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Order Details</DialogTitle>
+                  <DialogDescription>
+                    {selectedOrder && `Order #${selectedOrder.id.slice(0, 8)}`}
+                  </DialogDescription>
+                </DialogHeader>
+                {selectedOrder && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl ${
+                        selectedOrder.status === 'pending' ? 'bg-yellow-500' :
+                        selectedOrder.status === 'completed' || selectedOrder.status === 'confirmed' ? 'bg-green-500' : 
+                        selectedOrder.status === 'processing' ? 'bg-blue-500' : 'bg-red-500'
+                      }`}>
+                        {selectedOrder.customerName.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-lg">{selectedOrder.customerName}</h3>
+                        <p className="text-sm text-muted-foreground">{selectedOrder.customerEmail}</p>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Date</span>
+                        <span className="font-medium">
+                          {new Date(selectedOrder.createdAt).toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total</span>
+                        <span className="font-medium text-lg">
+                          {formatCurrency(typeof selectedOrder.total === 'number' ? selectedOrder.total : parseFloat(selectedOrder.total || '0'), selectedOrder.currency || 'USD')}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Payment Status</span>
+                        <span className={`px-2 py-1 rounded-full text-xs ${
+                          selectedOrder.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' :
+                          selectedOrder.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {selectedOrder.paymentStatus === 'paid' ? '✓ Paid' : 
+                           selectedOrder.paymentStatus === 'pending' ? '⏳ Pending' : 'Unpaid'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Order Status</span>
+                        {getStatusBadge(selectedOrder.status)}
+                      </div>
+                    </div>
+
+                    {selectedOrder.items && selectedOrder.items.length > 0 && (
+                      <>
+                        <Separator />
+                        <div>
+                          <h4 className="font-medium mb-2">Items</h4>
+                          <div className="space-y-2">
+                            {selectedOrder.items.map((item, index) => (
+                              <div key={index} className="flex justify-between text-sm bg-muted/50 p-2 rounded">
+                                <span>{item.name} × {item.quantity}</span>
+                                <span className="font-medium">{formatCurrency(item.price * item.quantity, selectedOrder.currency || 'USD')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <Separator />
+
+                    <div className="flex gap-2 flex-wrap">
+                      {selectedOrder.status === 'pending' && (
+                        <>
+                          <Button 
+                            className="flex-1 bg-green-500 hover:bg-green-600"
+                            onClick={() => { 
+                              handleUpdateOrderStatus(selectedOrder.id, 'completed');
+                              setSelectedOrder({ ...selectedOrder, status: 'completed' });
+                            }}
+                            data-testid="btn-complete-order"
+                          >
+                            <CheckCircle className="w-4 h-4 mr-2" /> Mark Completed
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                            onClick={() => { 
+                              handleUpdateOrderStatus(selectedOrder.id, 'cancelled');
+                              setSelectedOrder({ ...selectedOrder, status: 'cancelled' });
+                            }}
+                            data-testid="btn-cancel-order"
+                          >
+                            <XCircle className="w-4 h-4 mr-2" /> Cancel
+                          </Button>
+                        </>
+                      )}
+                      {selectedOrder.status === 'processing' && (
+                        <>
+                          <Button 
+                            className="flex-1 bg-green-500 hover:bg-green-600"
+                            onClick={() => { 
+                              handleUpdateOrderStatus(selectedOrder.id, 'completed');
+                              setSelectedOrder({ ...selectedOrder, status: 'completed' });
+                            }}
+                          >
+                            <CheckCircle className="w-4 h-4 mr-2" /> Mark Completed
+                          </Button>
+                          <Button 
+                            variant="outline"
+                            className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                            onClick={() => { 
+                              handleUpdateOrderStatus(selectedOrder.id, 'cancelled');
+                              setSelectedOrder({ ...selectedOrder, status: 'cancelled' });
+                            }}
+                          >
+                            <XCircle className="w-4 h-4 mr-2" /> Cancel
+                          </Button>
+                        </>
+                      )}
+                      {(selectedOrder.status === 'completed' || selectedOrder.status === 'confirmed') && (
+                        <Badge className="bg-green-100 text-green-700 flex items-center gap-1 py-2 px-4">
+                          <CheckCircle className="w-4 h-4" /> Order Completed
+                        </Badge>
+                      )}
+                      {selectedOrder.status === 'cancelled' && (
+                        <Button 
+                          className="flex-1"
+                          onClick={() => { 
+                            handleUpdateOrderStatus(selectedOrder.id, 'pending');
+                            setSelectedOrder({ ...selectedOrder, status: 'pending' });
+                          }}
+                        >
+                          Reopen Order
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="bookings">
@@ -1631,41 +1840,108 @@ export default function ManagePage() {
           </TabsContent>
 
           <TabsContent value="settings">
-            <Card>
-              <CardHeader>
-                <CardTitle>Website Settings</CardTitle>
-                <CardDescription>Configure your website settings and preferences</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <Label>Website Name</Label>
-                    <Input value={website.name} readOnly />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={website.status === 'published' ? 'default' : 'secondary'}>
-                        {website.status}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {website.status === 'draft' ? 'Your website is not yet published.' : 'Your website is live!'}
-                      </span>
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Website Settings</CardTitle>
+                  <CardDescription>Configure your website settings and preferences</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <Label>Website Name</Label>
+                      <Input value={website.name} readOnly />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Status</Label>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={website.status === 'published' ? 'default' : 'secondary'}>
+                          {website.status}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {website.status === 'draft' ? 'Your website is not yet published.' : 'Your website is live!'}
+                        </span>
+                      </div>
+                    </div>
+                    <Separator />
+                    <div className="text-sm text-muted-foreground">
+                      <p>More settings will be available here including:</p>
+                      <ul className="list-disc list-inside mt-2 space-y-1">
+                        <li>Custom domain configuration</li>
+                        <li>SEO settings</li>
+                        <li>Analytics integration</li>
+                        <li>Email notification preferences</li>
+                      </ul>
                     </div>
                   </div>
-                  <Separator />
-                  <div className="text-sm text-muted-foreground">
-                    <p>More settings will be available here including:</p>
-                    <ul className="list-disc list-inside mt-2 space-y-1">
-                      <li>Custom domain configuration</li>
-                      <li>SEO settings</li>
-                      <li>Analytics integration</li>
-                      <li>Email notification preferences</li>
-                    </ul>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <DollarSign className="w-5 h-5" />
+                    Payment Settings
+                  </CardTitle>
+                  <CardDescription>Configure payment processing for your online store</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-[#635BFF] rounded-lg flex items-center justify-center">
+                          <svg viewBox="0 0 32 32" className="w-6 h-6" fill="white">
+                            <path d="M13.976 13.176c0-.832.688-1.152 1.824-1.152 1.632 0 3.696.496 5.328 1.376V8.224c-1.776-.704-3.536-.976-5.328-.976-4.352 0-7.248 2.272-7.248 6.064 0 5.92 8.144 4.976 8.144 7.52 0 .992-.864 1.312-2.064 1.312-1.792 0-4.08-.736-5.888-1.728v5.216c2.016.864 4.048 1.232 5.888 1.232 4.464 0 7.536-2.208 7.536-6.048-.016-6.4-8.192-5.248-8.192-7.64z"/>
+                          </svg>
+                        </div>
+                        <div>
+                          <h4 className="font-medium">Stripe</h4>
+                          <p className="text-sm text-muted-foreground">Accept credit cards, Apple Pay, and more</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant="outline" className="text-yellow-600 border-yellow-300 bg-yellow-50">
+                          Not Connected
+                        </Badge>
+                        <Button 
+                          variant="outline"
+                          onClick={() => {
+                            toast({
+                              title: "Coming Soon",
+                              description: "Stripe integration will be available soon. Your orders can still be collected without payment processing.",
+                            });
+                          }}
+                          data-testid="btn-connect-stripe"
+                        >
+                          Connect Stripe
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h4 className="font-medium text-blue-900 mb-2">Orders Without Payment</h4>
+                      <p className="text-sm text-blue-800">
+                        Currently, your website accepts orders without online payment. Customers can place orders 
+                        and you can manage them from the Orders tab. When you connect Stripe, customers will be 
+                        able to pay online during checkout.
+                      </p>
+                    </div>
+
+                    <Separator />
+
+                    <div className="text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground mb-2">Supported Payment Methods (with Stripe):</p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Credit & Debit Cards (Visa, Mastercard, Amex)</li>
+                        <li>Apple Pay & Google Pay</li>
+                        <li>Bank transfers (SEPA, ACH)</li>
+                        <li>Buy Now, Pay Later options</li>
+                      </ul>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </main>

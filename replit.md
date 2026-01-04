@@ -178,6 +178,10 @@ The platform includes a complete e-commerce checkout flow:
 
 ## Recent Changes
 
+- **2025-01-04**: Enhanced Orders section in Manage page with clickable rows, order details dialog, and status update capability
+- **2025-01-04**: Added Payment Settings section in Settings tab with placeholder Connect Stripe action (prepares for future Stripe integration)
+- **2025-01-04**: Added order_items table (orderId, websiteId, productId, productName, quantity, priceAtPurchase) for normalized order data
+- **2025-01-04**: Applied RLS policies to orders and order_items tables for website isolation
 - **2025-01-04**: Added /checkout page to published sites with cart summary, customer info form, and order creation
 - **2025-01-04**: Added /api/orders endpoint for creating orders without payment (status=pending, payment_status=unpaid)
 - **2025-01-04**: Simplified CartDrawer to navigate to /checkout instead of handling checkout in drawer
