@@ -267,15 +267,16 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   
   return (
     <section style={baseStyle} onClick={onClick}>
-      <div className="flex gap-4 overflow-x-auto py-5 justify-start md:justify-center">
+      {/* Mobile: horizontal scroll-snap carousel | Desktop: centered flex row */}
+      <div className="flex gap-3 md:gap-4 overflow-x-auto md:overflow-visible scroll-smooth snap-x snap-mandatory md:snap-none py-5 md:justify-center md:flex-wrap px-4 md:px-0">
         {props.images?.map((img, i) => {
           const imageValue = parseImageValue(img);
           return imageValue.crop ? (
-            <div key={i} style={{ width: '300px', height: '200px', borderRadius: '8px', flexShrink: 0, overflow: 'hidden' }}>
+            <div key={i} className="w-[85vw] md:w-72 h-48 md:h-52 rounded-lg flex-shrink-0 overflow-hidden snap-center">
               <CroppedImage image={imageValue} alt={`Slide ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           ) : (
-            <img key={i} src={imageValue.url} alt={`Slide ${i + 1}`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+            <img key={i} src={imageValue.url} alt={`Slide ${i + 1}`} className="w-[85vw] md:w-72 h-48 md:h-52 object-cover rounded-lg flex-shrink-0 snap-center" />
           );
         })}
       </div>
