@@ -1191,7 +1191,7 @@ function ImageSliderSection({ props, styles }: { props: ComponentProps; styles: 
   
   return (
     <section style={baseStyle}>
-      <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', padding: '20px 0' }}>
+      <div className="flex gap-4 overflow-x-auto py-5 justify-start md:justify-center">
         {props.images?.map((img, i) => {
           const url = getImageUrl(img);
           return url ? (
