@@ -7,7 +7,7 @@ import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig } from "./publisher/vercel";
-import { processAIBuildRequest, processAIThinkingRequest, applyMutations } from "./aiBuilder";
+import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 
 // Helper to migrate legacy element-based state to component-based state
@@ -1931,10 +1931,12 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const { prompt } = req.body;
+      const { prompt, mode = 'creative' } = req.body;
       if (!prompt || typeof prompt !== 'string') {
         return res.status(400).json({ message: "Prompt is required" });
       }
+
+      const creativeMode: CreativeMode = mode === 'safe' ? 'safe' : 'creative';
 
       const builderData = await storage.getBuilderState(req.params.id);
       if (!builderData) {
@@ -1942,7 +1944,7 @@ export async function registerRoutes(
       }
 
       const currentState = builderData.state as BuilderStateData;
-      const aiResponse = await processAIBuildRequest(prompt, currentState);
+      const aiResponse = await processAIBuildRequest(prompt, currentState, creativeMode);
       const newState = applyMutations(currentState, aiResponse.mutations);
       
       await storage.updateBuilderState(req.params.id, newState);
@@ -1970,10 +1972,12 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const { prompt } = req.body;
+      const { prompt, mode = 'creative' } = req.body;
       if (!prompt || typeof prompt !== 'string') {
         return res.status(400).json({ message: "Prompt is required" });
       }
+
+      const creativeMode: CreativeMode = mode === 'safe' ? 'safe' : 'creative';
 
       const builderData = await storage.getBuilderState(req.params.id);
       if (!builderData) {
@@ -1981,7 +1985,7 @@ export async function registerRoutes(
       }
 
       const currentState = builderData.state as BuilderStateData;
-      const thinkingResponse = await processAIThinkingRequest(prompt, currentState);
+      const thinkingResponse = await processAIThinkingRequest(prompt, currentState, creativeMode);
 
       res.json({
         success: true,

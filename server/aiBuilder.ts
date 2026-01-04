@@ -28,7 +28,7 @@ const VALID_ACTIONS = [
   'update_global_styles'
 ] as const;
 
-const SYSTEM_PROMPT = `You are an AI website builder assistant that generates STRICTLY STRUCTURED JSON mutations to modify websites.
+const BASE_SYSTEM_PROMPT = `You are an AI website builder assistant that generates STRICTLY STRUCTURED JSON mutations to modify websites. Be CREATIVE and design beautiful, modern websites.
 
 ## ABSOLUTE REQUIREMENTS - VIOLATIONS WILL CAUSE ERRORS
 
@@ -50,9 +50,9 @@ DO NOT invent new component types. ONLY use the types listed above.
   "pageId": "string (existing page ID)",
   "component": {
     "id": "string (unique, format: type-timestamp)",
-    "type": "hero|image-slider|text-image|cta|features|testimonials|footer|header|product-grid|booking",
-    "props": { "title": "...", "subtitle": "...", "description": "...", "buttonText": "...", "buttonLink": "..." },
-    "styles": { "backgroundColor": "#hexcolor", "textColor": "#hexcolor", "padding": "60px 24px" }
+    "type": "one of the valid component types",
+    "props": { ... component-specific props },
+    "styles": { ... styling properties }
   },
   "position": number (optional, 0-indexed)
 }
@@ -66,53 +66,13 @@ DO NOT invent new component types. ONLY use the types listed above.
   "styles": { ... }
 }
 
-### remove_component
-{
-  "action": "remove_component",
-  "pageId": "string",
-  "componentId": "string"
-}
+### remove_component / move_component / duplicate_component
+Standard mutations for managing components.
 
-### move_component
-{
-  "action": "move_component",
-  "pageId": "string",
-  "componentId": "string",
-  "newPosition": number
-}
+### add_page / remove_page / update_page
+Standard mutations for managing pages.
 
-### duplicate_component
-{
-  "action": "duplicate_component",
-  "pageId": "string",
-  "componentId": "string"
-}
-
-### add_page
-{
-  "action": "add_page",
-  "page": {
-    "id": "string (lowercase-with-dashes)",
-    "name": "string",
-    "path": "/path"
-  }
-}
-
-### remove_page
-{
-  "action": "remove_page",
-  "pageId": "string"
-}
-
-### update_page
-{
-  "action": "update_page",
-  "pageId": "string",
-  "name": "string (optional)",
-  "path": "string (optional)"
-}
-
-### update_global_styles (USE THIS FOR SITE-WIDE COLOR CHANGES)
+### update_global_styles (USE THIS FOR SITE-WIDE COLOR/THEME CHANGES)
 {
   "action": "update_global_styles",
   "styles": {
@@ -124,37 +84,168 @@ DO NOT invent new component types. ONLY use the types listed above.
 }
 
 ## COLOR CHANGE GUIDELINES
-- **Site-wide color changes** (e.g., "change colors to blue", "make it dark theme", "use warm colors"): Use "update_global_styles" to modify primaryColor, secondaryColor, and backgroundColor
+- **Site-wide color changes** (e.g., "change colors to blue", "make it dark theme"): Use "update_global_styles"
 - **Single component color**: Use "update_component" with styles.backgroundColor or styles.textColor
-- primaryColor: Used for buttons, links, and accent elements
-- secondaryColor: Used for secondary buttons and highlights
-- backgroundColor: The main page background color
 
-### Color Examples
+### Theme Examples
 - Dark theme: primaryColor="#3B82F6", secondaryColor="#1E40AF", backgroundColor="#0F172A"
 - Light theme: primaryColor="#2563EB", secondaryColor="#1D4ED8", backgroundColor="#FFFFFF"
 - Warm theme: primaryColor="#EA580C", secondaryColor="#DC2626", backgroundColor="#FEF3C7"
 - Cool theme: primaryColor="#0EA5E9", secondaryColor="#06B6D4", backgroundColor="#F0F9FF"
+- Neon/Cyberpunk: primaryColor="#FF00FF", secondaryColor="#00FFFF", backgroundColor="#0a0a0a"
+- Nature/Organic: primaryColor="#22C55E", secondaryColor="#84CC16", backgroundColor="#ECFDF5"
+- Luxury/Premium: primaryColor="#D4AF37", secondaryColor="#9D7D2F", backgroundColor="#1C1C1C"
 
-## COMPONENT PROPS BY TYPE
+## COMPONENT TYPES AND PROPS
 
-- **hero**: title, subtitle, description, buttonText, buttonLink, alignment (left|center|right)
-- **header**: title, items (array of {id, title, description})
+### Layout Components
+- **hero**: title, subtitle, description, buttonText, buttonLink, alignment (left|center|right), imageUrl
+- **header**: title, items (nav links array)
 - **footer**: title, description
-- **features**: title, subtitle, items (array of {id, icon, title, description})
-- **testimonials**: title, items (array of {id, title, description, imageUrl})
+
+### Content Components  
 - **text-image**: title, description, imageUrl, imageSide (left|right)
-- **cta**: title, subtitle, buttonText, buttonLink
+- **features**: title, subtitle, items (array with icon, title, description)
+- **testimonials**: title, items (array with title, description, imageUrl)
+- **cta**: title, description, buttonText, buttonLink
 - **image-slider**: images (array of URLs), autoPlay, speed
-- **product-grid**: title, description, columns, productMode, productLimit, showAddToCart
+- **gallery**: title, description, images, columns (2-4), layout (grid|masonry|carousel)
+
+### Business Components
+- **product-grid**: title, description, columns, productLimit, showAddToCart
 - **booking**: title, description, buttonText
+- **pricing-table**: title, subtitle, items (array with title, description/price, icon)
+- **contact-form**: title, description, buttonText, formFields (array)
+
+### Data Display
+- **faq**: title, subtitle, items (question/answer pairs)
+- **stats-counter**: title, subtitle, stats (array with value, label, suffix)
+
+### Utility
+- **video-embed**: title, description, videoUrl, videoProvider (youtube|vimeo|custom)
+- **divider**: style (solid|dashed|gradient)
+- **spacer**: height
 
 ## SELF-CHECK BEFORE RESPONDING
 1. Is every "action" field EXACTLY one of the 9 valid action names? 
-2. Is every component "type" EXACTLY one of the 10 valid types?
-3. Does every add_component have all required fields (id, type, props, styles)?
-4. Are all pageIds and componentIds referencing actual existing IDs from the current state?
-5. For color/theme requests: Did I use "update_global_styles" for site-wide changes?`;
+2. Is every component "type" EXACTLY one of the 18 valid types?
+3. Does every add_component have id, type, props, styles?
+4. Are all pageIds and componentIds referencing existing IDs?
+5. For color/theme requests: Did I use "update_global_styles"?`;
+
+const SAFE_MODE_STYLES = `
+## SAFE MODE - Limited Styles
+Only use these style properties:
+- backgroundColor: solid hex colors only (#ffffff, #1a1a1a, etc.)
+- textColor: solid hex colors only
+- padding: standard values like "60px 24px", "80px 24px", "40px 24px"
+- margin: standard values like "0", "24px 0"
+
+Do NOT use: gradients, shadows, animations, transforms, or advanced CSS.`;
+
+const CREATIVE_MODE_STYLES = `
+## CREATIVE MODE - Full Design Freedom
+You can use ALL of these style properties to create stunning, modern designs:
+
+### Colors & Backgrounds
+- backgroundColor: Any hex color
+- textColor: Any hex color  
+- backgroundGradient: CSS gradients like "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+- accentColor: For buttons, links, and UI elements
+
+### Borders & Shadows
+- borderRadius: "0", "8px", "16px", "24px", "9999px" (pill shape)
+- border: "1px solid #e2e8f0", "2px solid #3b82f6"
+- boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)", "0 25px 50px -12px rgba(0,0,0,0.25)"
+
+### Spacing & Layout
+- padding: Any valid CSS padding
+- margin: Any valid CSS margin
+- gap: For spacing between items ("16px", "24px", "32px")
+- maxWidth: "1200px", "800px", "640px" for content width
+- minHeight: "400px", "600px", "100vh" for section height
+
+### Button Styles
+- buttonStyle: "solid" | "outline" | "ghost" | "gradient"
+- buttonRadius: "4px", "8px", "9999px"
+
+### Card Styles  
+- cardStyle: "flat" | "elevated" | "bordered" | "glass"
+
+### Advanced Effects
+- opacity: "0.9", "0.8" for subtle transparency
+- transition: "all 0.3s ease" for smooth interactions
+
+## DESIGN INSPIRATION
+- Use gradients for hero sections and CTAs
+- Add shadows to cards for depth
+- Use rounded corners for a modern feel
+- Combine dark backgrounds with vibrant accent colors
+- Create visual hierarchy with varying section heights
+- Use glass/frosted effects for premium look`;
+
+function getSystemPrompt(mode: 'safe' | 'creative'): string {
+  return mode === 'creative' 
+    ? BASE_SYSTEM_PROMPT + CREATIVE_MODE_STYLES 
+    : BASE_SYSTEM_PROMPT + SAFE_MODE_STYLES;
+}
+
+const SAFE_STYLE_PROPERTIES = new Set([
+  'backgroundColor',
+  'textColor',
+  'padding',
+  'margin',
+  'accentColor',
+]);
+
+function filterStylesForMode(styles: Record<string, any> | undefined, mode: CreativeMode): Record<string, any> | undefined {
+  if (!styles || mode === 'creative') {
+    return styles;
+  }
+  
+  const filtered: Record<string, any> = {};
+  for (const [key, value] of Object.entries(styles)) {
+    if (SAFE_STYLE_PROPERTIES.has(key)) {
+      if (key === 'backgroundColor' || key === 'textColor' || key === 'accentColor') {
+        if (typeof value === 'string' && !value.includes('gradient') && !value.includes('linear') && !value.includes('radial')) {
+          filtered[key] = value;
+        }
+      } else {
+        filtered[key] = value;
+      }
+    }
+  }
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
+}
+
+function filterMutationStyles(mutation: BuilderMutation, mode: CreativeMode): BuilderMutation {
+  if (mode === 'creative') {
+    return mutation;
+  }
+  
+  switch (mutation.action) {
+    case 'add_component':
+      return {
+        ...mutation,
+        component: {
+          ...mutation.component,
+          styles: filterStylesForMode(mutation.component?.styles, mode) || {},
+        },
+      };
+    case 'update_component':
+      return {
+        ...mutation,
+        styles: filterStylesForMode(mutation.styles, mode),
+      };
+    case 'update_global_styles':
+      return {
+        ...mutation,
+        styles: filterStylesForMode(mutation.styles, mode),
+      };
+    default:
+      return mutation;
+  }
+}
 
 function getCurrentStateContext(state: BuilderStateData): string {
   const pages = state.pages.map(page => ({
@@ -175,16 +266,20 @@ function getCurrentStateContext(state: BuilderStateData): string {
 - Page details: ${JSON.stringify(pages, null, 2)}`;
 }
 
+export type CreativeMode = 'safe' | 'creative';
+
 export async function processAIBuildRequest(
   prompt: string,
-  currentState: BuilderStateData
+  currentState: BuilderStateData,
+  mode: CreativeMode = 'creative'
 ): Promise<AIResponse> {
   const stateContext = getCurrentStateContext(currentState);
+  const systemPrompt = getSystemPrompt(mode);
   
   const response = await openai.chat.completions.create({
     model: "gpt-5.1",
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { 
         role: "user", 
         content: `${stateContext}
@@ -218,7 +313,13 @@ Generate unique component IDs using: componenttype-${Date.now()}`
       throw new Error(`Some AI actions reference invalid targets: ${semanticErrors.join('; ')}`);
     }
     
-    return validated;
+    // Apply style filtering for Safe Mode
+    const filteredMutations = validated.mutations.map(m => filterMutationStyles(m, mode));
+    
+    return {
+      ...validated,
+      mutations: filteredMutations,
+    };
   } catch (validationError: any) {
     if (validationError.message?.includes('reference invalid targets')) {
       throw validationError;
@@ -351,14 +452,16 @@ function simulateMutation(state: BuilderStateData, mutation: any): BuilderStateD
 
 export async function processAIThinkingRequest(
   prompt: string,
-  currentState: BuilderStateData
+  currentState: BuilderStateData,
+  mode: CreativeMode = 'creative'
 ): Promise<AIThinkingResponse> {
   const stateContext = getCurrentStateContext(currentState);
+  const systemPrompt = getSystemPrompt(mode);
   
   const response = await openai.chat.completions.create({
     model: "gpt-5.1",
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { 
         role: "user", 
         content: `${stateContext}
@@ -366,14 +469,17 @@ export async function processAIThinkingRequest(
 User request: ${prompt}
 
 THINKING MODE: Do NOT apply changes. Instead, analyze the request and create a step-by-step plan.
+The plan will be shown to the user for approval before any mutations are applied.
 
 Respond with a JSON object containing:
-- analysis: Your analysis of what the user wants
+- analysis: A string explaining your understanding of what the user wants (must be a string, not an object)
 - plan: An array of steps, each with:
-  - step: Step number
-  - description: What this step does
-  - mutation: The mutation that would be applied
-- summary: A summary of all planned changes
+  - step: Step number (integer)
+  - description: A string describing what this step does
+  - mutation: The mutation object that would be applied
+- summary: A string summarizing all planned changes
+
+IMPORTANT: analysis, description, and summary must be strings, not objects.
 
 Generate unique component IDs using: componenttype-${Date.now()}` 
       }
@@ -399,7 +505,16 @@ Generate unique component IDs using: componenttype-${Date.now()}`
       throw new Error(`Some AI actions reference invalid targets: ${semanticErrors.join('; ')}`);
     }
     
-    return validated;
+    // Apply style filtering for Safe Mode to plan mutations
+    const filteredPlan = validated.plan.map(step => ({
+      ...step,
+      mutation: filterMutationStyles(step.mutation, mode),
+    }));
+    
+    return {
+      ...validated,
+      plan: filteredPlan,
+    };
   } catch (validationError: any) {
     if (validationError.message?.includes('reference invalid targets')) {
       throw validationError;

@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items';
 
@@ -105,6 +105,14 @@ export const editableTextFields: Record<ComponentType, string[]> = {
   'header': ['title'],
   'product-grid': ['title'],
   'booking': ['title', 'subtitle'],
+  'gallery': ['title', 'description'],
+  'pricing-table': ['title', 'subtitle'],
+  'faq': ['title', 'subtitle'],
+  'stats-counter': ['title', 'subtitle'],
+  'contact-form': ['title', 'description', 'buttonText'],
+  'video-embed': ['title', 'description'],
+  'divider': [],
+  'spacer': [],
 };
 
 export type FieldDefinition = {
@@ -122,6 +130,27 @@ export type ComponentItem = {
   description: string;
   icon?: string;
   imageUrl?: string;
+};
+
+export type FormField = {
+  id: string;
+  label: string;
+  type: 'text' | 'email' | 'phone' | 'textarea' | 'select';
+  required?: boolean;
+  placeholder?: string;
+};
+
+export type StatItem = {
+  id: string;
+  value: string;
+  label: string;
+  prefix?: string;
+  suffix?: string;
+};
+
+export type PricingItem = ComponentItem & {
+  featured?: boolean;
+  features?: string[];
 };
 
 export type ComponentProps = {
@@ -144,6 +173,13 @@ export type ComponentProps = {
   showAddToCart?: boolean;
   imageWidth?: string;
   imageHeight?: string;
+  videoUrl?: string;
+  videoProvider?: 'youtube' | 'vimeo' | 'custom';
+  layout?: 'grid' | 'masonry' | 'carousel';
+  formFields?: FormField[];
+  stats?: StatItem[];
+  height?: string;
+  style?: 'solid' | 'dashed' | 'gradient';
 };
 
 export type ComponentStyles = {
@@ -155,6 +191,30 @@ export type ComponentStyles = {
   titleFontSize?: string;
   bodyFontSize?: string;
   fontWeight?: string;
+  borderRadius?: string;
+  border?: string;
+  boxShadow?: string;
+  backgroundGradient?: string;
+  backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundPosition?: string;
+  opacity?: string;
+  transform?: string;
+  transition?: string;
+  animation?: string;
+  display?: string;
+  flexDirection?: string;
+  justifyContent?: string;
+  alignItems?: string;
+  gap?: string;
+  gridTemplateColumns?: string;
+  maxWidth?: string;
+  minHeight?: string;
+  overflow?: string;
+  accentColor?: string;
+  buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
+  buttonRadius?: string;
+  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
 };
 
 export type BuilderComponentData = {
@@ -431,6 +491,216 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  gallery: {
+    type: 'gallery',
+    name: 'Image Gallery',
+    icon: 'grid',
+    defaultProps: {
+      title: 'Our Gallery',
+      description: 'Explore our collection',
+      images: [
+        'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600',
+        'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=600',
+        'https://images.unsplash.com/photo-1426604966848-d7adac402bff?w=600',
+        'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=600',
+      ],
+      columns: 2,
+      layout: 'grid',
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      padding: '60px 24px',
+      gap: '16px',
+      borderRadius: '8px',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'images', label: 'Images', type: 'image-array', group: 'content' },
+      { key: 'columns', label: 'Columns', type: 'select', group: 'content', options: ['2', '3', '4'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  'pricing-table': {
+    type: 'pricing-table',
+    name: 'Pricing Table',
+    icon: 'dollar-sign',
+    defaultProps: {
+      title: 'Simple, Transparent Pricing',
+      subtitle: 'Choose the plan that works for you',
+      items: [
+        { id: '1', title: 'Starter', description: '$9/mo', icon: '🚀' },
+        { id: '2', title: 'Pro', description: '$29/mo', icon: '⭐' },
+        { id: '3', title: 'Enterprise', description: '$99/mo', icon: '🏢' },
+      ],
+    },
+    defaultStyles: {
+      backgroundColor: '#f8f9fa',
+      textColor: '#1a1a1a',
+      padding: '80px 24px',
+      cardStyle: 'elevated',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'items', label: 'Pricing Plans', type: 'items', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  faq: {
+    type: 'faq',
+    name: 'FAQ Accordion',
+    icon: 'help-circle',
+    defaultProps: {
+      title: 'Frequently Asked Questions',
+      subtitle: 'Got questions? We have answers.',
+      items: [
+        { id: '1', title: 'How do I get started?', description: 'Simply sign up for a free account and follow our quick start guide.' },
+        { id: '2', title: 'Is there a free trial?', description: 'Yes! We offer a 14-day free trial with full access to all features.' },
+        { id: '3', title: 'Can I cancel anytime?', description: 'Absolutely. You can cancel your subscription at any time with no questions asked.' },
+      ],
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      padding: '60px 24px',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'items', label: 'FAQ Items', type: 'items', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  'stats-counter': {
+    type: 'stats-counter',
+    name: 'Stats Counter',
+    icon: 'bar-chart',
+    defaultProps: {
+      title: 'Our Impact',
+      subtitle: 'Numbers that speak for themselves',
+      stats: [
+        { id: '1', value: '10K', label: 'Happy Customers', suffix: '+' },
+        { id: '2', value: '500', label: 'Projects Completed', suffix: '+' },
+        { id: '3', value: '99', label: 'Satisfaction Rate', suffix: '%' },
+        { id: '4', value: '24/7', label: 'Support Available', prefix: '' },
+      ],
+    },
+    defaultStyles: {
+      backgroundColor: '#1a1a2e',
+      textColor: '#ffffff',
+      padding: '80px 24px',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  'contact-form': {
+    type: 'contact-form',
+    name: 'Contact Form',
+    icon: 'mail',
+    defaultProps: {
+      title: 'Get in Touch',
+      description: 'Fill out the form below and we\'ll get back to you within 24 hours.',
+      buttonText: 'Send Message',
+      formFields: [
+        { id: '1', label: 'Name', type: 'text', required: true, placeholder: 'Your name' },
+        { id: '2', label: 'Email', type: 'email', required: true, placeholder: 'you@example.com' },
+        { id: '3', label: 'Message', type: 'textarea', required: true, placeholder: 'How can we help?' },
+      ],
+    },
+    defaultStyles: {
+      backgroundColor: '#f8f9fa',
+      textColor: '#1a1a1a',
+      padding: '60px 24px',
+      accentColor: '#4f46e5',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  'video-embed': {
+    type: 'video-embed',
+    name: 'Video Embed',
+    icon: 'play-circle',
+    defaultProps: {
+      title: 'Watch Our Story',
+      description: 'Learn more about what we do',
+      videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      videoProvider: 'youtube',
+    },
+    defaultStyles: {
+      backgroundColor: '#0f0f0f',
+      textColor: '#ffffff',
+      padding: '60px 24px',
+      borderRadius: '12px',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'videoUrl', label: 'Video URL', type: 'text', group: 'content', placeholder: 'https://youtube.com/watch?v=...' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  divider: {
+    type: 'divider',
+    name: 'Divider',
+    icon: 'minus',
+    defaultProps: {
+      style: 'solid',
+    },
+    defaultStyles: {
+      backgroundColor: 'transparent',
+      padding: '24px',
+      accentColor: '#e2e8f0',
+    },
+    fields: [
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '24px' },
+    ],
+  },
+
+  spacer: {
+    type: 'spacer',
+    name: 'Spacer',
+    icon: 'move-vertical',
+    defaultProps: {
+      height: '60px',
+    },
+    defaultStyles: {
+      backgroundColor: 'transparent',
+      minHeight: '60px',
+    },
+    fields: [
+      { key: 'height', label: 'Height', type: 'text', group: 'content', placeholder: '60px' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
     ],
   },
 };

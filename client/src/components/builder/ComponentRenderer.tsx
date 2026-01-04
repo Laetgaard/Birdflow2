@@ -671,6 +671,230 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   );
 }
 
+function GalleryComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const images = props.images || [];
+  const columns = props.columns || 2;
+  
+  return (
+    <section style={{ ...baseStyle, borderRadius: styles.borderRadius }} onClick={onClick}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
+        {props.description && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '32px', textAlign: 'center' }}>{props.description}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: styles.gap || '16px' }}>
+          {images.map((image, index) => (
+            <img key={index} src={image} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: styles.borderRadius || '8px' }} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PricingTableComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const items = props.items || [];
+  const cardStyle = styles.cardStyle || 'elevated';
+  
+  const getCardStyles = (): React.CSSProperties => {
+    switch (cardStyle) {
+      case 'elevated': return { boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)' };
+      case 'bordered': return { border: '1px solid rgba(0,0,0,0.1)' };
+      case 'glass': return { background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' };
+      default: return {};
+    }
+  };
+  
+  return (
+    <section style={baseStyle} onClick={onClick}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '48px' }}>{props.subtitle}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${items.length}, 1fr)`, gap: '24px' }}>
+          {items.map((item, index) => (
+            <div key={item.id || index} style={{ padding: '32px', borderRadius: '16px', backgroundColor: 'rgba(255,255,255,0.05)', ...getCardStyles() }}>
+              {item.icon && <div style={{ fontSize: '40px', marginBottom: '16px' }}>{item.icon}</div>}
+              <h3 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px' }}>{item.title}</h3>
+              <p style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px' }}>{item.description}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FAQComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const items = props.items || [];
+  
+  return (
+    <section style={baseStyle} onClick={onClick}>
+      <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '40px', textAlign: 'center' }}>{props.subtitle}</p>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {items.map((item, index) => (
+            <details key={item.id || index} style={{ padding: '20px', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.03)', cursor: 'pointer' }}>
+              <summary style={{ fontWeight: 600, fontSize: '18px' }}>{item.title}</summary>
+              <p style={{ marginTop: '12px', opacity: 0.8 }}>{item.description}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StatsCounterComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const stats = (props as any).stats || [];
+  
+  return (
+    <section style={baseStyle} onClick={onClick}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '48px' }}>{props.subtitle}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stats.length}, 1fr)`, gap: '32px' }}>
+          {stats.map((stat: any, index: number) => (
+            <div key={stat.id || index}>
+              <div style={{ fontSize: '48px', fontWeight: 800, marginBottom: '8px' }}>
+                {stat.prefix}{stat.value}{stat.suffix}
+              </div>
+              <div style={{ fontSize: '16px', opacity: 0.8 }}>{stat.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ContactFormComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const formFields = (props as any).formFields || [
+    { id: '1', label: 'Name', type: 'text', required: true },
+    { id: '2', label: 'Email', type: 'email', required: true },
+    { id: '3', label: 'Message', type: 'textarea', required: true },
+  ];
+  const accentColor = styles.accentColor || '#4f46e5';
+  
+  return (
+    <section style={baseStyle} onClick={onClick}>
+      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
+        {props.description && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '32px', textAlign: 'center' }}>{props.description}</p>}
+        <form style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} onSubmit={e => e.preventDefault()}>
+          {formFields.map((field: any) => (
+            <div key={field.id}>
+              <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>{field.label}{field.required && ' *'}</label>
+              {field.type === 'textarea' ? (
+                <textarea 
+                  placeholder={field.placeholder} 
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.1)', resize: 'vertical', minHeight: '120px' }}
+                />
+              ) : (
+                <input 
+                  type={field.type} 
+                  placeholder={field.placeholder}
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.1)' }}
+                />
+              )}
+            </div>
+          ))}
+          <button type="submit" style={{ padding: '14px 28px', backgroundColor: accentColor, color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+            {props.buttonText || 'Send Message'}
+          </button>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const videoUrl = (props as any).videoUrl || '';
+  
+  const getEmbedUrl = (url: string) => {
+    if (url.includes('youtube.com/watch')) {
+      const videoId = url.split('v=')[1]?.split('&')[0];
+      return `https://www.youtube.com/embed/${videoId}`;
+    }
+    if (url.includes('youtu.be/')) {
+      const videoId = url.split('youtu.be/')[1]?.split('?')[0];
+      return `https://www.youtube.com/embed/${videoId}`;
+    }
+    if (url.includes('vimeo.com/')) {
+      const videoId = url.split('vimeo.com/')[1]?.split('?')[0];
+      return `https://player.vimeo.com/video/${videoId}`;
+    }
+    return url;
+  };
+  
+  return (
+    <section style={{ ...baseStyle, borderRadius: styles.borderRadius }} onClick={onClick}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
+        {props.description && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
+        {videoUrl ? (
+          <div style={{ aspectRatio: '16/9', borderRadius: styles.borderRadius || '12px', overflow: 'hidden' }}>
+            <iframe 
+              src={getEmbedUrl(videoUrl)} 
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        ) : (
+          <div style={{ aspectRatio: '16/9', backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: '48px' }}>▶️</span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function DividerComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const dividerStyle = (props as any).style || 'solid';
+  const accentColor = styles.accentColor || '#e2e8f0';
+  
+  return (
+    <section style={baseStyle} onClick={onClick}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        <hr style={{ 
+          border: 'none', 
+          height: '2px', 
+          background: dividerStyle === 'gradient' 
+            ? 'linear-gradient(90deg, transparent, ' + accentColor + ', transparent)' 
+            : accentColor,
+          borderStyle: dividerStyle === 'dashed' ? 'dashed' : 'solid',
+          borderColor: dividerStyle === 'dashed' ? accentColor : 'transparent',
+          borderWidth: dividerStyle === 'dashed' ? '1px' : '0',
+        }} />
+      </div>
+    </section>
+  );
+}
+
+function SpacerComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const height = (props as any).height || styles.minHeight || '60px';
+  
+  return (
+    <section 
+      style={{ 
+        height, 
+        backgroundColor: styles.backgroundColor || 'transparent',
+        cursor: isPreview ? 'default' : 'pointer',
+        outline: isSelected ? '3px solid #3b82f6' : 'none',
+        outlineOffset: '-3px',
+      }} 
+      onClick={onClick}
+    />
+  );
+}
+
 export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
@@ -723,6 +947,22 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
       return <div {...wrapperProps}><ProductGridComponent {...commonProps} websiteId={websiteId} /></div>;
     case 'booking':
       return <div {...wrapperProps}><BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} /></div>;
+    case 'gallery':
+      return <div {...wrapperProps}><GalleryComponent {...commonProps} /></div>;
+    case 'pricing-table':
+      return <div {...wrapperProps}><PricingTableComponent {...commonProps} /></div>;
+    case 'faq':
+      return <div {...wrapperProps}><FAQComponent {...commonProps} /></div>;
+    case 'stats-counter':
+      return <div {...wrapperProps}><StatsCounterComponent {...commonProps} /></div>;
+    case 'contact-form':
+      return <div {...wrapperProps}><ContactFormComponent {...commonProps} /></div>;
+    case 'video-embed':
+      return <div {...wrapperProps}><VideoEmbedComponent {...commonProps} /></div>;
+    case 'divider':
+      return <div {...wrapperProps}><DividerComponent {...commonProps} /></div>;
+    case 'spacer':
+      return <div {...wrapperProps}><SpacerComponent {...commonProps} /></div>;
     default:
       return null;
   }
