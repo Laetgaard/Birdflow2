@@ -1119,6 +1119,24 @@ type ComponentItem = {
   icon?: string;
   imageUrl?: ImageValue;
   price?: number;
+  featured?: boolean;
+  features?: string[];
+};
+
+type StatItem = {
+  id: string;
+  value: string;
+  label: string;
+  prefix?: string;
+  suffix?: string;
+};
+
+type FormField = {
+  id: string;
+  label: string;
+  type: string;
+  required?: boolean;
+  placeholder?: string;
 };
 
 type ComponentProps = {
@@ -1130,10 +1148,22 @@ type ComponentProps = {
   imageUrl?: ImageValue;
   images?: ImageValue[];
   items?: ComponentItem[];
+  stats?: StatItem[];
+  formFields?: FormField[];
   alignment?: 'left' | 'center' | 'right';
   imageSide?: 'left' | 'right';
   columns?: number;
   productLimit?: number;
+  autoPlay?: boolean;
+  speed?: number;
+  layout?: string;
+  videoUrl?: string;
+  videoProvider?: string;
+  productMode?: string;
+  showAddToCart?: boolean;
+  height?: string;
+  style?: string;
+  [key: string]: any; // Allow additional properties
 };
 
 function getImageUrl(image: ImageValue | undefined): string {
@@ -1147,6 +1177,25 @@ type ComponentStyles = {
   textColor?: string;
   padding?: string;
   margin?: string;
+  borderRadius?: string;
+  border?: string;
+  boxShadow?: string;
+  backgroundGradient?: string;
+  backgroundImage?: string;
+  backgroundSize?: string;
+  backgroundPosition?: string;
+  opacity?: string;
+  transform?: string;
+  transition?: string;
+  animation?: string;
+  gap?: string;
+  maxWidth?: string;
+  minHeight?: string;
+  accentColor?: string;
+  buttonStyle?: string;
+  buttonRadius?: string;
+  cardStyle?: string;
+  [key: string]: any; // Allow additional properties
 };
 
 type ComponentData = {
@@ -2224,13 +2273,45 @@ a {
 
 type NavPage = { id: string; name: string; path: string };
 
+/**
+ * Decodes HTML entities in component data to prevent issues in generated JSX.
+ * Handles common entities like &amp; &lt; &gt; &quot; &#39; etc.
+ */
+function decodeHtmlEntities(obj: any): any {
+  if (typeof obj === 'string') {
+    return obj
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&#x27;/g, "'")
+      .replace(/&#x2F;/g, '/')
+      .replace(/&nbsp;/g, ' ');
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(decodeHtmlEntities);
+  }
+  if (obj && typeof obj === 'object') {
+    const result: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = decodeHtmlEntities(value);
+    }
+    return result;
+  }
+  return obj;
+}
+
 export function generatePageFile(page: PageData, websiteId: string, allPages?: NavPage[]): string {
   const componentsImport = `import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';`;
 
-  const componentsJson = JSON.stringify(page.components, null, 2);
+  // Decode HTML entities in component data before generating the page
+  const cleanedComponents = decodeHtmlEntities(page.components);
+  const componentsJson = JSON.stringify(cleanedComponents, null, 2);
   const pagesJson = JSON.stringify(
     (allPages || []).map(p => ({ id: p.id, name: p.name, path: p.path })),
     null,
