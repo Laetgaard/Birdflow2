@@ -1739,9 +1739,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Please publish your website first before adding a custom domain." });
       }
 
-      // Extract project name from deployment URL (e.g., site-xxx-abc123.vercel.app -> site-xxx-abc123)
-      const deploymentHost = new URL(website.deploymentUrl).hostname;
-      const projectName = deploymentHost.split('.')[0]; // e.g., "site-bcf36377-8456-44cd-baab-f6662a37d454-ozti1gpsr"
+      // Use the canonical project name format: site-{websiteId}
+      // Must match the format used in publisher/index.ts when creating the project
+      const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
       
       const vercelConfig = { 
         token: vercelToken, 
