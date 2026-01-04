@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,16 @@ import {
 } from "@shared/componentRegistry";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
+import AIBuilderPanel from "@/components/AIBuilderPanel";
+import { 
+  createHistory, 
+  pushHistory, 
+  undo as undoHistory, 
+  redo as redoHistory, 
+  canUndo, 
+  canRedo,
+  type BuilderHistory 
+} from "@shared/builderHistory";
 
 type BuilderPage = {
   id: string;
@@ -116,6 +126,92 @@ export default function BuilderPage() {
   const [newPageName, setNewPageName] = useState("");
   const [editingField, setEditingField] = useState<string | null>(null);
   const [customDomain, setCustomDomain] = useState<string | null>(null);
+  const [history, setHistory] = useState<BuilderHistory | null>(null);
+  const historyDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingHistoryDescriptionRef = useRef<string>('');
+  const [hasPendingEdit, setHasPendingEdit] = useState(false);
+
+  const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
+    if (historyDebounceRef.current) {
+      clearTimeout(historyDebounceRef.current);
+      historyDebounceRef.current = null;
+      setHasPendingEdit(false);
+      setHistory(prev => {
+        if (!prev || !builderState) return prev ? pushHistory(prev, newState, description) : createHistory(newState);
+        const withPending = pushHistory(prev, builderState, pendingHistoryDescriptionRef.current || 'Edit');
+        return pushHistory(withPending, newState, description);
+      });
+      setBuilderState(newState);
+    } else {
+      setBuilderState(newState);
+      setHistory(prev => prev ? pushHistory(prev, newState, description) : createHistory(newState));
+    }
+  }, [builderState]);
+
+  const debouncedHistoryPush = useCallback((newState: BuilderStateData, description: string, delay = 1000) => {
+    setBuilderState(newState);
+    pendingHistoryDescriptionRef.current = description;
+    setHasPendingEdit(true);
+    
+    if (historyDebounceRef.current) {
+      clearTimeout(historyDebounceRef.current);
+    }
+    
+    historyDebounceRef.current = setTimeout(() => {
+      setHistory(prev => prev ? pushHistory(prev, newState, pendingHistoryDescriptionRef.current) : createHistory(newState));
+      historyDebounceRef.current = null;
+      setHasPendingEdit(false);
+    }, delay);
+  }, []);
+
+  const flushPendingHistory = useCallback(() => {
+    if (historyDebounceRef.current && builderState) {
+      clearTimeout(historyDebounceRef.current);
+      historyDebounceRef.current = null;
+      setHasPendingEdit(false);
+      setHistory(prev => prev ? pushHistory(prev, builderState, pendingHistoryDescriptionRef.current || 'Edit') : createHistory(builderState));
+    }
+  }, [builderState]);
+
+  const handleUndo = useCallback(() => {
+    flushPendingHistory();
+    
+    setHistory(prev => {
+      if (!prev) return prev;
+      const result = undoHistory(prev);
+      if (result.state) {
+        setBuilderState(result.state);
+        saveState(result.state);
+        toast({ title: "Undone", description: "Reverted to previous state" });
+        return result.history;
+      }
+      return prev;
+    });
+  }, [flushPendingHistory, saveState, toast]);
+
+  const handleRedo = useCallback(() => {
+    flushPendingHistory();
+    
+    setHistory(prev => {
+      if (!prev) return prev;
+      const result = redoHistory(prev);
+      if (result.state) {
+        setBuilderState(result.state);
+        saveState(result.state);
+        toast({ title: "Redone", description: "Restored next state" });
+        return result.history;
+      }
+      return prev;
+    });
+  }, [flushPendingHistory, saveState, toast]);
+
+  useEffect(() => {
+    return () => {
+      if (historyDebounceRef.current) {
+        clearTimeout(historyDebounceRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -174,8 +270,10 @@ export default function BuilderPage() {
               },
             };
             setBuilderState(migratedState);
+            setHistory(createHistory(migratedState));
           } else {
             setBuilderState(state);
+            setHistory(createHistory(state));
           }
         }
 
@@ -266,6 +364,7 @@ export default function BuilderPage() {
     if (!builderState) return;
 
     const newComponent = createComponent(type);
+    const def = componentRegistry[type];
 
     const newState: BuilderStateData = {
       ...builderState,
@@ -276,7 +375,7 @@ export default function BuilderPage() {
       ),
     };
 
-    setBuilderState(newState);
+    updateStateWithHistory(newState, `Add ${def.name}`);
     setSelectedComponentId(newComponent.id);
     setSidebarTab("properties");
   };
@@ -304,13 +403,13 @@ export default function BuilderPage() {
       ),
     };
 
-    setBuilderState(newState);
+    debouncedHistoryPush(newState, 'Update component properties');
   };
 
   const handleTextChange = useCallback((componentId: string) => (field: string, value: string) => {
     setBuilderState(prev => {
       if (!prev) return prev;
-      return {
+      const newState = {
         ...prev,
         pages: prev.pages.map(page =>
           page.id === prev.activePage
@@ -325,6 +424,19 @@ export default function BuilderPage() {
             : page
         ),
       };
+      
+      pendingHistoryDescriptionRef.current = 'Update text content';
+      setHasPendingEdit(true);
+      if (historyDebounceRef.current) {
+        clearTimeout(historyDebounceRef.current);
+      }
+      historyDebounceRef.current = setTimeout(() => {
+        setHistory(h => h ? pushHistory(h, newState, pendingHistoryDescriptionRef.current) : createHistory(newState));
+        historyDebounceRef.current = null;
+        setHasPendingEdit(false);
+      }, 1500);
+      
+      return newState;
     });
   }, []);
 
@@ -340,7 +452,7 @@ export default function BuilderPage() {
       ),
     };
 
-    setBuilderState(newState);
+    updateStateWithHistory(newState, 'Delete component');
     setSelectedComponentId(null);
   };
 
@@ -366,7 +478,7 @@ export default function BuilderPage() {
       ),
     };
 
-    setBuilderState(newState);
+    updateStateWithHistory(newState, `Move component ${direction}`);
   };
 
   const selectedComponent = (() => {
@@ -419,7 +531,7 @@ export default function BuilderPage() {
       activePage: newPage.id,
     };
 
-    setBuilderState(newState);
+    updateStateWithHistory(newState, `Create page: ${newPageName.trim()}`);
     setNewPageName("");
     setPageDialogOpen(false);
     setSelectedComponentId(null);
@@ -442,7 +554,7 @@ export default function BuilderPage() {
       ),
     };
 
-    setBuilderState(newState);
+    updateStateWithHistory(newState, `Rename page: ${newPageName.trim()}`);
     setNewPageName("");
     setEditingPage(null);
   };
@@ -455,13 +567,14 @@ export default function BuilderPage() {
       ? remainingPages[0].id 
       : builderState.activePage;
 
+    const deletedPage = builderState.pages.find(p => p.id === pageId);
     const newState: BuilderStateData = {
       ...builderState,
       pages: remainingPages,
       activePage: newActivePage,
     };
 
-    setBuilderState(newState);
+    updateStateWithHistory(newState, `Delete page: ${deletedPage?.name || pageId}`);
     setDeletePageId(null);
     if (selectedComponentId) {
       const activePageData = remainingPages.find(p => p.id === newActivePage);
@@ -756,12 +869,22 @@ export default function BuilderPage() {
               </ScrollArea>
             </TabsContent>
 
-            <TabsContent value="ai" className="flex-1 p-4 pt-2 overflow-auto">
-              <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                <Sparkles className="w-8 h-8 mb-3 opacity-50" />
-                <p className="font-medium mb-1">AI Assistant</p>
-                <p className="text-sm">AI-powered content generation will be available soon.</p>
-              </div>
+            <TabsContent value="ai" className="flex-1 overflow-hidden">
+              {session && builderState && id && (
+                <AIBuilderPanel
+                  websiteId={id}
+                  session={session}
+                  builderState={builderState}
+                  onStateChange={(newState, description) => {
+                    updateStateWithHistory(newState, description);
+                    saveState(newState);
+                  }}
+                  history={history}
+                  hasPendingEdit={hasPendingEdit}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                />
+              )}
             </TabsContent>
           </Tabs>
         </aside>
