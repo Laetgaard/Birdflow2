@@ -30,7 +30,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-const db = drizzle(pool);
+export const db = drizzle(pool);
 
 // Default builder state for new websites (component-based structure)
 const defaultBuilderState: BuilderStateData = {

@@ -399,3 +399,5 @@ export type InsertCustomDomain = z.infer<typeof insertCustomDomainSchema>;
 export type CustomDomain = typeof customDomains.$inferSelect;
 
 export type DomainStatus = 'pending' | 'verifying' | 'active' | 'error';
+
+export * from "./models/chat";
