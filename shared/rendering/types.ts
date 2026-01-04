@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'contact-form' | 'booking-form' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'video-embed' | 'divider' | 'spacer';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer';
 
 export type ComponentItem = {
   id: string;
@@ -6,17 +6,6 @@ export type ComponentItem = {
   description: string;
   icon?: string;
   imageUrl?: string;
-  price?: number;
-  featured?: boolean;
-  features?: string[];
-};
-
-export type StatItem = {
-  id: string;
-  value: string;
-  label: string;
-  prefix?: string;
-  suffix?: string;
 };
 
 export type FormField = {
@@ -25,6 +14,14 @@ export type FormField = {
   type: 'text' | 'email' | 'phone' | 'textarea' | 'select';
   required?: boolean;
   placeholder?: string;
+};
+
+export type StatItem = {
+  id: string;
+  value: string;
+  label: string;
+  prefix?: string;
+  suffix?: string;
 };
 
 export type PricingItem = ComponentItem & {
@@ -41,26 +38,24 @@ export type ComponentProps = {
   imageUrl?: string;
   images?: string[];
   items?: ComponentItem[];
-  stats?: StatItem[];
   alignment?: 'left' | 'center' | 'right';
   imageSide?: 'left' | 'right';
   autoPlay?: boolean;
   speed?: number;
-  formFields?: FormField[];
-  services?: string[];
   columns?: number;
-  layout?: 'grid' | 'masonry' | 'carousel';
-  videoUrl?: string;
-  videoProvider?: 'youtube' | 'vimeo' | 'custom';
   productLimit?: number;
   productMode?: 'all' | 'curated';
   curatedProductIds?: string[];
   showAddToCart?: boolean;
   imageWidth?: string;
   imageHeight?: string;
+  videoUrl?: string;
+  videoProvider?: 'youtube' | 'vimeo' | 'custom';
+  layout?: 'grid' | 'masonry' | 'carousel';
+  formFields?: FormField[];
+  stats?: StatItem[];
   height?: string;
-  style?: 'solid' | 'dashed' | 'gradient' | string;
-  [key: string]: unknown;
+  style?: 'solid' | 'dashed' | 'gradient';
 };
 
 export type ComponentStyles = {
@@ -96,7 +91,6 @@ export type ComponentStyles = {
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   buttonRadius?: string;
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
-  [key: string]: unknown;
 };
 
 export type BuilderComponentData = {
