@@ -370,3 +370,29 @@ export const insertBookingServiceSchema = createInsertSchema(bookingServices).om
 
 export type InsertBookingService = z.infer<typeof insertBookingServiceSchema>;
 export type BookingService = typeof bookingServices.$inferSelect;
+
+// Custom domains table
+export const customDomains = pgTable("custom_domains", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  domain: text("domain").notNull().unique(),
+  status: text("status").notNull().default("pending"),
+  verificationToken: text("verification_token").notNull(),
+  vercelDomainId: text("vercel_domain_id"),
+  sslStatus: text("ssl_status"),
+  verifiedAt: timestamp("verified_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCustomDomainSchema = createInsertSchema(customDomains).omit({
+  id: true,
+  verifiedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCustomDomain = z.infer<typeof insertCustomDomainSchema>;
+export type CustomDomain = typeof customDomains.$inferSelect;
+
+export type DomainStatus = 'pending' | 'verified' | 'active' | 'error';
