@@ -149,6 +149,7 @@ export async function deployProject(
       name: projectName,
       project: projectId,
       files,
+      target: 'production',
       projectSettings: {
         framework: 'nextjs',
         buildCommand: 'npm run build',
