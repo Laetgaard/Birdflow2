@@ -164,6 +164,30 @@ export default function BuilderPage() {
     }, delay);
   }, []);
 
+  const saveState = useCallback(async (newState: BuilderStateData) => {
+    if (!session || !id) return;
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/websites/${id}/builder`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ state: newState }),
+      });
+
+      if (!response.ok) throw new Error("Failed to save");
+
+      toast({ title: "Saved", description: "Your changes have been saved." });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [session, id, toast]);
+
   const flushPendingHistory = useCallback(() => {
     if (historyDebounceRef.current && builderState) {
       clearTimeout(historyDebounceRef.current);
@@ -301,30 +325,6 @@ export default function BuilderPage() {
 
     fetchData();
   }, [id, session]);
-
-  const saveState = useCallback(async (newState: BuilderStateData) => {
-    if (!session || !id) return;
-
-    setIsSaving(true);
-    try {
-      const response = await fetch(`/api/websites/${id}/builder`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ state: newState }),
-      });
-
-      if (!response.ok) throw new Error("Failed to save");
-
-      toast({ title: "Saved", description: "Your changes have been saved." });
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
-    } finally {
-      setIsSaving(false);
-    }
-  }, [session, id, toast]);
 
   const publishSite = useCallback(async () => {
     if (!session || !id || !builderState) return;
