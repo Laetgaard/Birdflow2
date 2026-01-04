@@ -152,6 +152,13 @@ The platform includes a complete e-commerce checkout flow:
 - CartButton: Header button showing item count badge
 - Email/name collection before checkout
 
+**Published Site Cart** (generated Next.js sites):
+- CartProvider (`server/publisher/templates.ts` → `generateCartProvider`): React Context with localStorage persistence using `cart_${websiteId}` keys
+- CartDrawer (`server/publisher/templates.ts` → `generateCartDrawer`): Slide-out drawer with two-step checkout (view cart → enter details → Stripe redirect)
+- Header cart button: Shows item count badge, uses `useCart` hook for `totalItems` and `toggleCart`
+- ProductGrid/ProductDetailPage: Use shared cart context via `useCart` hook with `addItem` function
+- Layout includes CartProvider wrapper and CartDrawer for global cart access across all pages
+
 **Checkout Flow**:
 - Server-side product validation to prevent price tampering
 - Currency validation ensures all cart items share same currency (USD/EUR/DKK)
@@ -165,6 +172,9 @@ The platform includes a complete e-commerce checkout flow:
 
 ## Recent Changes
 
+- **2025-01-04**: Added CartProvider and CartDrawer components to published Next.js sites for shared cart state
+- **2025-01-04**: Integrated cart button in header section with item count badge and drawer toggle
+- **2025-01-04**: Updated ProductGrid and ProductDetailPage to use shared cart context instead of local state
 - **2025-01-02**: Added multi-image input UI to manage dashboard product form with add/remove functionality
 - **2025-01-02**: Updated publisher product detail page template with ImageGallery, hover zoom, lightbox with keyboard navigation
 - **2025-01-02**: Enhanced product page with image gallery, zoom, and lightbox functionality
