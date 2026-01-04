@@ -1191,12 +1191,11 @@ function ImageSliderSection({ props, styles }: { props: ComponentProps; styles: 
   
   return (
     <section style={baseStyle}>
-      {/* Mobile: horizontal scroll-snap carousel | Desktop: centered flex row */}
-      <div className="flex gap-3 md:gap-4 overflow-x-auto md:overflow-visible scroll-smooth snap-x snap-mandatory md:snap-none py-5 md:justify-center md:flex-wrap px-4 md:px-0">
+      <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', padding: '20px 0' }}>
         {props.images?.map((img, i) => {
           const url = getImageUrl(img);
           return url ? (
-            <img key={i} src={url} alt={\`Slide \${i + 1}\`} className="w-[85vw] md:w-72 h-48 md:h-52 object-cover rounded-lg flex-shrink-0 snap-center" />
+            <img key={i} src={url} alt={\`Slide \${i + 1}\`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
           ) : null;
         })}
       </div>
