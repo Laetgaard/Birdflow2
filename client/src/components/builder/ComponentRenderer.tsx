@@ -267,7 +267,7 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   
   return (
     <section style={baseStyle} onClick={onClick}>
-      <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', padding: '20px 0' }}>
+      <div className="flex gap-4 overflow-x-auto py-5 justify-start md:justify-center">
         {props.images?.map((img, i) => {
           const imageValue = parseImageValue(img);
           return imageValue.crop ? (
