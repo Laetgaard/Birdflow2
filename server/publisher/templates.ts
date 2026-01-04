@@ -755,13 +755,7 @@ function formatCurrency(amount: number, currency: string = 'USD'): string {
 }
 
 export default function CartDrawer() {
-  const { items, isOpen, closeCart, removeItem, updateQuantity, totalAmount, clearCart } = useCart();
-  const { websiteId } = useWebsite();
-  const [checkoutStep, setCheckoutStep] = useState<'cart' | 'details'>('cart');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [customerName, setCustomerName] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const { items, isOpen, closeCart, removeItem, updateQuantity, totalAmount } = useCart();
 
   // Get currency from first item
   const currency = items.length > 0 ? items[0].product.currency || 'USD' : 'USD';
@@ -772,53 +766,13 @@ export default function CartDrawer() {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
-      setCheckoutStep('cart');
-      setError('');
     }
     return () => { document.body.style.overflow = ''; };
   }, [isOpen]);
 
-  const handleCheckout = async () => {
-    if (!customerEmail) {
-      setError('Please enter your email');
-      return;
-    }
-    
-    setIsSubmitting(true);
-    setError('');
-    
-    try {
-      const response = await fetch('/api/checkout/create-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          websiteId,
-          items: items.map(item => ({
-            productId: item.product.id,
-            name: item.product.name,
-            price: parseFloat(item.product.price || '0'),
-            quantity: item.quantity,
-          })),
-          customerEmail,
-          customerName,
-          successUrl: window.location.origin + '?checkout=success',
-          cancelUrl: window.location.origin + '?checkout=cancelled',
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.url) {
-        clearCart();
-        window.location.href = data.url;
-      } else {
-        setError(data.message || 'Checkout failed. Please try again.');
-      }
-    } catch (err) {
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
+  const handleCheckout = () => {
+    closeCart();
+    window.location.href = '/checkout';
   };
 
   if (!isOpen) return null;
@@ -862,7 +816,7 @@ export default function CartDrawer() {
           alignItems: 'center',
         }}>
           <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#111827' }}>
-            {checkoutStep === 'cart' ? 'Shopping Cart' : 'Checkout Details'}
+            Shopping Cart
           </h2>
           <button
             onClick={closeCart}
@@ -891,7 +845,7 @@ export default function CartDrawer() {
               <p style={{ fontSize: '16px', fontWeight: 500 }}>Your cart is empty</p>
               <p style={{ fontSize: '14px', marginTop: '8px' }}>Add some products to get started!</p>
             </div>
-          ) : checkoutStep === 'cart' ? (
+          ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {items.map((item: CartItem) => (
                 <div
@@ -1019,59 +973,6 @@ export default function CartDrawer() {
                 </div>
               ))}
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '8px' }}>
-                Enter your details to complete checkout
-              </p>
-              <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, marginBottom: '6px', color: '#374151' }}>
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  value={customerEmail}
-                  onChange={(e) => setCustomerEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    border: '1px solid #d1d5db',
-                    fontSize: '16px',
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, marginBottom: '6px', color: '#374151' }}>
-                  Name (optional)
-                </label>
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Your name"
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    border: '1px solid #d1d5db',
-                    fontSize: '16px',
-                  }}
-                />
-              </div>
-              {error && (
-                <div style={{
-                  padding: '12px 16px',
-                  backgroundColor: '#fef2f2',
-                  borderRadius: '8px',
-                  color: '#dc2626',
-                  fontSize: '14px',
-                }}>
-                  {error}
-                </div>
-              )}
-            </div>
           )}
         </div>
 
@@ -1094,77 +995,29 @@ export default function CartDrawer() {
               </span>
             </div>
             
-            {checkoutStep === 'cart' ? (
-              <button
-                onClick={() => setCheckoutStep('details')}
-                style={{
-                  width: '100%',
-                  padding: '16px',
-                  backgroundColor: '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '12px',
-                  fontSize: '16px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                }}
-              >
-                Proceed to Checkout
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button
-                  onClick={() => setCheckoutStep('cart')}
-                  style={{
-                    flex: 1,
-                    padding: '16px',
-                    backgroundColor: '#fff',
-                    color: '#374151',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '12px',
-                    fontSize: '16px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleCheckout}
-                  disabled={isSubmitting}
-                  style={{
-                    flex: 2,
-                    padding: '16px',
-                    backgroundColor: isSubmitting ? '#9ca3af' : '#22c55e',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '16px',
-                    fontWeight: 600,
-                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  {isSubmitting ? 'Processing...' : 'Pay with Stripe'}
-                  {!isSubmitting && (
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                      <path d="M12 3v4a1 1 0 001 1h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                      <path d="M17 8v8a2 2 0 01-2 2H5a2 2 0 01-2-2V4a2 2 0 012-2h7l5 5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                    </svg>
-                  )}
-                </button>
-              </div>
-            )}
+            <button
+              onClick={handleCheckout}
+              style={{
+                width: '100%',
+                padding: '16px',
+                backgroundColor: '#4f46e5',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '12px',
+                fontSize: '16px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+              }}
+            >
+              Proceed to Checkout
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
         )}
       </div>
@@ -2892,6 +2745,350 @@ export default function ProductDetailPage() {
       </div>
     </div>
   );
+}
+`;
+}
+
+export function generateCheckoutPage(): string {
+  return `'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useCart } from '@/components/CartProvider';
+import { useWebsite } from '@/components/WebsiteProvider';
+
+function formatCurrency(amount: number, currency: string = 'USD'): string {
+  const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
+  const symbol = symbols[currency] || currency;
+  const formatted = currency === 'DKK' ? amount.toFixed(0) : amount.toFixed(2);
+  return currency === 'DKK' ? formatted + ' ' + symbol : symbol + formatted;
+}
+
+export default function CheckoutPage() {
+  const { items, totalAmount, clearCart } = useCart();
+  const { websiteId, isLoading: websiteLoading } = useWebsite();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [orderId, setOrderId] = useState('');
+
+  const currency = items.length > 0 ? (items[0].currency || 'USD') : 'USD';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    
+    if (!name.trim() || !email.trim()) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    if (!websiteId) {
+      setError('Unable to process order. Please try again.');
+      return;
+    }
+
+    if (items.length === 0) {
+      setError('Your cart is empty');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: name,
+          customerEmail: email,
+          items: items.map(item => ({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity,
+            price: parseFloat(item.price),
+          })),
+          total: totalAmount.toFixed(2),
+          currency,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to create order');
+      }
+
+      setOrderId(data.id);
+      clearCart();
+      setSuccess(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (websiteLoading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' }}>
+        <div style={{ fontSize: '18px', color: '#6b7280' }}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (success) {
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '60px 24px' }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+          <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: '#dcfce7', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
+              <path d="M20 6L9 17l-5-5"/>
+            </svg>
+          </div>
+          <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '16px' }}>Order Confirmed!</h1>
+          <p style={{ fontSize: '18px', color: '#6b7280', marginBottom: '8px' }}>Thank you for your order.</p>
+          {orderId && <p style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '32px' }}>Order ID: {orderId}</p>}
+          <p style={{ fontSize: '16px', color: '#4b5563', marginBottom: '32px' }}>We'll send a confirmation email to <strong>{email}</strong></p>
+          <Link href="/" style={{ display: 'inline-block', padding: '14px 32px', backgroundColor: '#4f46e5', color: '#fff', borderRadius: '12px', fontWeight: 600, textDecoration: 'none' }}>
+            Continue Shopping
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '60px 24px' }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+          <div style={{ fontSize: '64px', marginBottom: '24px' }}>🛒</div>
+          <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#111827', marginBottom: '16px' }}>Your cart is empty</h1>
+          <p style={{ fontSize: '16px', color: '#6b7280', marginBottom: '32px' }}>Add some items to your cart to checkout.</p>
+          <Link href="/" style={{ display: 'inline-block', padding: '14px 32px', backgroundColor: '#4f46e5', color: '#fff', borderRadius: '12px', fontWeight: 600, textDecoration: 'none' }}>
+            Browse Products
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '60px 24px' }}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+        <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#6b7280', marginBottom: '32px', textDecoration: 'none', fontSize: '14px' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to shopping
+        </Link>
+
+        <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '40px' }}>Checkout</h1>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '40px' }}>
+          <div>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Your Information</h2>
+              
+              <form onSubmit={handleSubmit}>
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Full Name *</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="John Doe"
+                    required
+                    style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Email Address *</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="john@example.com"
+                    required
+                    style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none' }}
+                  />
+                </div>
+
+                {error && (
+                  <div style={{ marginBottom: '20px', padding: '14px 16px', backgroundColor: '#fef2f2', borderRadius: '10px', color: '#dc2626', fontSize: '14px' }}>
+                    {error}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    backgroundColor: isSubmitting ? '#a5b4fc' : '#4f46e5',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontSize: '16px',
+                    fontWeight: 600,
+                    cursor: isSubmitting ? 'default' : 'pointer',
+                  }}
+                >
+                  {isSubmitting ? 'Placing Order...' : 'Place Order'}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', position: 'sticky', top: '24px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Order Summary</h2>
+              
+              <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '20px' }}>
+                {items.map((item) => (
+                  <div key={item.id} style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                    {item.image_url ? (
+                      <img src={item.image_url} alt={item.name} style={{ width: '64px', height: '64px', borderRadius: '8px', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ width: '64px', height: '64px', borderRadius: '8px', backgroundColor: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>📦</div>
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 500, color: '#111827', marginBottom: '4px' }}>{item.name}</div>
+                      <div style={{ fontSize: '14px', color: '#6b7280' }}>Qty: {item.quantity}</div>
+                    </div>
+                    <div style={{ fontWeight: 600, color: '#111827' }}>
+                      {formatCurrency(parseFloat(item.price) * item.quantity, item.currency)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#6b7280', marginBottom: '12px' }}>
+                <span>Subtotal</span>
+                <span>{formatCurrency(totalAmount, currency)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#6b7280', marginBottom: '20px' }}>
+                <span>Shipping</span>
+                <span>Free</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: 700, color: '#111827', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
+                <span>Total</span>
+                <span>{formatCurrency(totalAmount, currency)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+`;
+}
+
+export function generateOrderApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+
+async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  let normalizedHost = host.replace(/^www\\./, '').split(':')[0];
+  const urlToMatch = \`https://\${normalizedHost}\`;
+  const urlWithWww = \`https://www.\${normalizedHost}\`;
+  
+  const { data: exactMatch } = await supabase
+    .from('websites')
+    .select('id')
+    .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
+    .limit(1)
+    .single();
+  
+  if (exactMatch) {
+    return exactMatch.id;
+  }
+  
+  const parts = normalizedHost.split('.');
+  let slug: string | null = null;
+  
+  if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
+    slug = parts[0];
+  } else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
+    slug = parts[0];
+  }
+  
+  if (slug) {
+    const { data: slugMatch } = await supabase
+      .from('websites')
+      .select('id')
+      .eq('slug', slug)
+      .limit(1)
+      .single();
+    
+    if (slugMatch) {
+      return slugMatch.id;
+    }
+  }
+  
+  return BUILD_TIME_WEBSITE_ID;
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    if (!SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
+    }
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const host = request.headers.get('host') || '';
+    const websiteId = await getWebsiteIdFromHost(host, supabase);
+    
+    if (!websiteId) {
+      return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const { customerName, customerEmail, items, total, currency } = body;
+
+    if (!customerName || !customerEmail || !items || items.length === 0) {
+      return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
+    }
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .insert({
+        website_id: websiteId,
+        customer_name: customerName,
+        customer_email: customerEmail,
+        status: 'pending',
+        payment_status: 'unpaid',
+        total: total,
+        currency: currency || 'USD',
+        items: items,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Order creation error:', error);
+      return NextResponse.json({ message: 'Failed to create order' }, { status: 500 });
+    }
+
+    return NextResponse.json({ id: order.id, message: 'Order created successfully' });
+  } catch (err) {
+    console.error('Order error:', err);
+    return NextResponse.json({ message: 'Failed to create order' }, { status: 500 });
+  }
 }
 `;
 }
