@@ -203,6 +203,7 @@ export type Order = typeof orders.$inferSelect;
 export const orderItems = pgTable("order_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   orderId: varchar("order_id").notNull(),
+  websiteId: varchar("website_id").notNull(),
   productId: varchar("product_id").notNull(),
   productName: text("product_name").notNull(),
   quantity: integer("quantity").notNull().default(1),

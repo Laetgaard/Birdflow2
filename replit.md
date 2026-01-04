@@ -41,10 +41,16 @@ Database tables:
 - `websites` - User's website projects (id, ownerId, name, status, setupType)
 - `website_inputs` - Onboarding wizard data (businessDescription, pages, features, designPreset)
 - `builder_state` - Website builder state as JSONB (pages, components, globalStyles)
-- `orders` - Ecommerce orders (customerName, customerEmail, status, total, items)
+- `orders` - Ecommerce orders (websiteId, customerName, customerEmail, status, paymentStatus, total, currency, items JSONB)
+- `order_items` - Normalized order line items (orderId, websiteId, productId, productName, quantity, priceAtPurchase, currency)
 - `bookings` - Appointment bookings (customerName, service, date, status)
 - `form_submissions` - Contact form and other form submissions
 - `customers` - Customer profiles aggregated from orders/bookings
+
+**RLS Policies**:
+- Orders and order_items have RLS enabled with permissive policies
+- Website isolation is enforced at application level via website_id column
+- Published sites use service role key which bypasses RLS for full access
 
 ### Authentication
 - **Provider**: Supabase Auth (email/password with email confirmation)
