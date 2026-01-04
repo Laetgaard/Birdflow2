@@ -15,6 +15,9 @@ import {
   componentRegistry, 
   themeColors,
   spacingPresets,
+  fontFamilyPresets,
+  fontSizePresets,
+  fontWeightPresets,
   type BuilderComponentData, 
   type ComponentProps, 
   type ComponentStyles,
@@ -585,6 +588,82 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                 className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.padding === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
                 onClick={() => onUpdate({ styles: { padding: preset.value } })}
                 data-testid={`spacing-padding-${preset.name.toLowerCase().replace(' ', '-')}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <Separator />
+      <div className="space-y-3">
+        <h4 className="font-medium text-sm text-muted-foreground">Typography</h4>
+        
+        <div className="space-y-2">
+          <Label className="text-xs">Font Family</Label>
+          <Select 
+            value={component.styles.fontFamily || 'Inter, system-ui, sans-serif'} 
+            onValueChange={(value) => onUpdate({ styles: { fontFamily: value } })}
+          >
+            <SelectTrigger className="h-8" data-testid="select-font-family">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {fontFamilyPresets.map((font) => (
+                <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
+                  {font.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Heading Size</Label>
+          <div className="flex flex-wrap gap-1">
+            {fontSizePresets.heading.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.titleFontSize === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => onUpdate({ styles: { titleFontSize: preset.value } })}
+                data-testid={`font-heading-${preset.name.toLowerCase().replace(' ', '-')}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Body Size</Label>
+          <div className="flex flex-wrap gap-1">
+            {fontSizePresets.body.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.bodyFontSize === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => onUpdate({ styles: { bodyFontSize: preset.value } })}
+                data-testid={`font-body-${preset.name.toLowerCase().replace(' ', '-')}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Font Weight</Label>
+          <div className="flex flex-wrap gap-1">
+            {fontWeightPresets.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.fontWeight === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => onUpdate({ styles: { fontWeight: preset.value } })}
+                style={{ fontWeight: parseInt(preset.value) }}
+                data-testid={`font-weight-${preset.name.toLowerCase()}`}
               >
                 {preset.name}
               </button>
