@@ -1470,6 +1470,185 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
   );
 }
 
+function GallerySection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const images = props.images || [];
+  const columns = props.columns || 2;
+  
+  return (
+    <section style={{ ...baseStyle, borderRadius: styles.borderRadius }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
+        {props.description && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '32px', textAlign: 'center' }}>{props.description}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: styles.gap || '16px' }}>
+          {images.map((image: string, index: number) => (
+            <img key={index} src={image} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: styles.borderRadius || '8px' }} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PricingTableSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const items = props.items || [];
+  const cardStyle = styles.cardStyle || 'elevated';
+  
+  const getCardStyles = () => {
+    switch (cardStyle) {
+      case 'elevated': return { boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)' };
+      case 'bordered': return { border: '1px solid rgba(0,0,0,0.1)' };
+      case 'glass': return { background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' };
+      default: return {};
+    }
+  };
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '48px' }}>{props.subtitle}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${items.length || 1}, 1fr)\`, gap: '24px' }}>
+          {items.map((item: any, index: number) => (
+            <div key={item.id || index} style={{ padding: '32px', borderRadius: '16px', backgroundColor: 'rgba(255,255,255,0.05)', ...getCardStyles() }}>
+              {item.icon && <div style={{ fontSize: '40px', marginBottom: '16px' }}>{item.icon}</div>}
+              <h3 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px' }}>{item.title}</h3>
+              <p style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px' }}>{item.description}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FAQSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const items = props.items || [];
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '40px', textAlign: 'center' }}>{props.subtitle}</p>}
+        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '16px' }}>
+          {items.map((item: any, index: number) => (
+            <details key={item.id || index} style={{ padding: '20px', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.03)', cursor: 'pointer' }}>
+              <summary style={{ fontWeight: 600, fontSize: '18px' }}>{item.title}</summary>
+              <p style={{ marginTop: '12px', opacity: 0.8 }}>{item.description}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StatsCounterSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const stats = (props as any).stats || [];
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '48px' }}>{props.subtitle}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${stats.length || 1}, 1fr)\`, gap: '32px' }}>
+          {stats.map((stat: any, index: number) => (
+            <div key={stat.id || index}>
+              <div style={{ fontSize: '48px', fontWeight: 800, marginBottom: '8px' }}>
+                {stat.prefix}{stat.value}{stat.suffix}
+              </div>
+              <div style={{ fontSize: '16px', opacity: 0.8 }}>{stat.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function VideoEmbedSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const videoUrl = (props as any).videoUrl || '';
+  
+  const getEmbedUrl = (url: string) => {
+    if (url.includes('youtube.com/watch')) {
+      const videoId = url.split('v=')[1]?.split('&')[0];
+      return \`https://www.youtube.com/embed/\${videoId}\`;
+    }
+    if (url.includes('youtu.be/')) {
+      const videoId = url.split('youtu.be/')[1]?.split('?')[0];
+      return \`https://www.youtube.com/embed/\${videoId}\`;
+    }
+    if (url.includes('vimeo.com/')) {
+      const videoId = url.split('vimeo.com/')[1]?.split('?')[0];
+      return \`https://player.vimeo.com/video/\${videoId}\`;
+    }
+    return url;
+  };
+  
+  return (
+    <section style={{ ...baseStyle, borderRadius: styles.borderRadius }}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
+        {props.description && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
+        {videoUrl ? (
+          <div style={{ aspectRatio: '16/9', borderRadius: styles.borderRadius || '12px', overflow: 'hidden' }}>
+            <iframe 
+              src={getEmbedUrl(videoUrl)} 
+              style={{ width: '100%', height: '100%', border: 'none' }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        ) : (
+          <div style={{ aspectRatio: '16/9', backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: '48px' }}>▶️</span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function DividerSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const dividerStyle = (props as any).style || 'solid';
+  const accentColor = styles.accentColor || '#e2e8f0';
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        <hr style={{ 
+          border: 'none', 
+          height: '2px', 
+          background: dividerStyle === 'gradient' 
+            ? \`linear-gradient(90deg, transparent, \${accentColor}, transparent)\`
+            : accentColor,
+          borderStyle: dividerStyle === 'dashed' ? 'dashed' : 'solid',
+          borderColor: dividerStyle === 'dashed' ? accentColor : 'transparent',
+          borderWidth: dividerStyle === 'dashed' ? '1px' : '0',
+        }} />
+      </div>
+    </section>
+  );
+}
+
+function SpacerSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const height = (props as any).height || styles.minHeight || '60px';
+  
+  return (
+    <section 
+      style={{ 
+        height, 
+        backgroundColor: styles.backgroundColor || 'transparent',
+      }}
+    />
+  );
+}
+
 export default function ComponentRenderer({ component, products = [], pages = [] }: { component: ComponentData; products?: any[]; pages?: BuilderPage[] }) {
   switch (component.type) {
     case 'hero':
@@ -1490,6 +1669,20 @@ export default function ComponentRenderer({ component, products = [], pages = []
       return <FooterSection props={component.props} styles={component.styles} />;
     case 'product-grid':
       return <ProductGridSection props={component.props} styles={component.styles} products={products} />;
+    case 'gallery':
+      return <GallerySection props={component.props} styles={component.styles} />;
+    case 'pricing-table':
+      return <PricingTableSection props={component.props} styles={component.styles} />;
+    case 'faq':
+      return <FAQSection props={component.props} styles={component.styles} />;
+    case 'stats-counter':
+      return <StatsCounterSection props={component.props} styles={component.styles} />;
+    case 'video-embed':
+      return <VideoEmbedSection props={component.props} styles={component.styles} />;
+    case 'divider':
+      return <DividerSection props={component.props} styles={component.styles} />;
+    case 'spacer':
+      return <SpacerSection props={component.props} styles={component.styles} />;
     default:
       return null;
   }

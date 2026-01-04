@@ -3,7 +3,8 @@ import type { ComponentType } from "./componentRegistry";
 
 export const componentTypes: ComponentType[] = [
   'hero', 'image-slider', 'text-image', 'cta', 'features', 
-  'testimonials', 'footer', 'header', 'product-grid', 'booking'
+  'testimonials', 'footer', 'header', 'product-grid', 'booking',
+  'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed', 'divider', 'spacer'
 ];
 
 export const ComponentPropsSchema = z.object({
@@ -21,11 +22,31 @@ export const ComponentPropsSchema = z.object({
     icon: z.string().optional(),
     imageUrl: z.string().optional(),
     price: z.number().optional(),
+    featured: z.boolean().optional(),
+    features: z.array(z.string()).optional(),
   })).optional(),
   alignment: z.enum(['left', 'center', 'right']).optional(),
   imageSide: z.enum(['left', 'right']).optional(),
   autoPlay: z.boolean().optional(),
   speed: z.number().optional(),
+  videoUrl: z.string().optional(),
+  videoProvider: z.enum(['youtube', 'vimeo', 'custom']).optional(),
+  columns: z.number().optional(),
+  layout: z.enum(['grid', 'masonry', 'carousel']).optional(),
+  formFields: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    type: z.enum(['text', 'email', 'phone', 'textarea', 'select']),
+    required: z.boolean().optional(),
+    placeholder: z.string().optional(),
+  })).optional(),
+  stats: z.array(z.object({
+    id: z.string(),
+    value: z.string(),
+    label: z.string(),
+    prefix: z.string().optional(),
+    suffix: z.string().optional(),
+  })).optional(),
 });
 
 export const ComponentStylesSchema = z.object({
@@ -33,11 +54,35 @@ export const ComponentStylesSchema = z.object({
   textColor: z.string().optional(),
   padding: z.string().optional(),
   margin: z.string().optional(),
+  borderRadius: z.string().optional(),
+  border: z.string().optional(),
+  boxShadow: z.string().optional(),
+  backgroundGradient: z.string().optional(),
+  backgroundImage: z.string().optional(),
+  backgroundSize: z.string().optional(),
+  backgroundPosition: z.string().optional(),
+  opacity: z.string().optional(),
+  transform: z.string().optional(),
+  transition: z.string().optional(),
+  animation: z.string().optional(),
+  display: z.string().optional(),
+  flexDirection: z.string().optional(),
+  justifyContent: z.string().optional(),
+  alignItems: z.string().optional(),
+  gap: z.string().optional(),
+  gridTemplateColumns: z.string().optional(),
+  maxWidth: z.string().optional(),
+  minHeight: z.string().optional(),
+  overflow: z.string().optional(),
+  accentColor: z.string().optional(),
+  buttonStyle: z.enum(['solid', 'outline', 'ghost', 'gradient']).optional(),
+  buttonRadius: z.string().optional(),
+  cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass']).optional(),
 });
 
 export const ComponentSchema = z.object({
   id: z.string(),
-  type: z.enum(['hero', 'image-slider', 'text-image', 'cta', 'features', 'testimonials', 'footer', 'header', 'product-grid', 'booking']),
+  type: z.enum(['hero', 'image-slider', 'text-image', 'cta', 'features', 'testimonials', 'footer', 'header', 'product-grid', 'booking', 'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed', 'divider', 'spacer']),
   props: ComponentPropsSchema,
   styles: ComponentStylesSchema,
 });
@@ -123,17 +168,34 @@ export const BuilderMutationSchema = z.discriminatedUnion('action', [
 
 export const AIResponseSchema = z.object({
   mutations: z.array(BuilderMutationSchema),
-  explanation: z.string(),
+  explanation: z.union([z.string(), z.object({}).passthrough()]).transform(v => 
+    typeof v === 'string' ? v : JSON.stringify(v)
+  ),
 });
 
 export const AIThinkingResponseSchema = z.object({
-  analysis: z.string(),
+  analysis: z.union([z.string(), z.object({}).passthrough()]).transform(v => 
+    typeof v === 'string' ? v : JSON.stringify(v)
+  ),
   plan: z.array(z.object({
     step: z.number(),
-    description: z.string(),
+    description: z.union([z.string(), z.object({}).passthrough()]).transform(v => 
+      typeof v === 'string' ? v : JSON.stringify(v)
+    ),
     mutation: BuilderMutationSchema,
   })),
-  summary: z.string(),
+  summary: z.union([z.string(), z.object({}).passthrough()]).transform(v => 
+    typeof v === 'string' ? v : JSON.stringify(v)
+  ),
+});
+
+export type CreativeMode = 'safe' | 'creative';
+
+export const SafeStylesSchema = z.object({
+  backgroundColor: z.string().optional(),
+  textColor: z.string().optional(),
+  padding: z.string().optional(),
+  margin: z.string().optional(),
 });
 
 export type BuilderMutation = z.infer<typeof BuilderMutationSchema>;

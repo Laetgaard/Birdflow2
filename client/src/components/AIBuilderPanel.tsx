@@ -18,7 +18,9 @@ import {
   ChevronUp,
   Undo2,
   Redo2,
-  History
+  History,
+  Palette,
+  Shield
 } from "lucide-react";
 import type { BuilderStateData } from "@shared/schema";
 import type { BuilderMutation, AIThinkingResponse } from "@shared/aiBuilderSchema";
@@ -63,6 +65,7 @@ export default function AIBuilderPanel({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<"build" | "thinking">("build");
+  const [creativeMode, setCreativeMode] = useState<"safe" | "creative">("creative");
   const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -97,7 +100,7 @@ export default function AIBuilderPanel({
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ prompt: input }),
+        body: JSON.stringify({ prompt: input, mode: creativeMode }),
       });
 
       if (!response.ok) {
@@ -244,10 +247,31 @@ export default function AIBuilderPanel({
           </div>
         </div>
 
+        <div className="flex items-center justify-between bg-muted/50 rounded-lg p-2">
+          <div className="flex items-center gap-2">
+            <Shield className={`w-4 h-4 ${creativeMode === 'safe' ? 'text-green-500' : 'text-muted-foreground'}`} />
+            <Label htmlFor="creative-mode" className="text-xs">Safe</Label>
+          </div>
+          <Switch
+            id="creative-mode"
+            checked={creativeMode === "creative"}
+            onCheckedChange={(checked) => setCreativeMode(checked ? "creative" : "safe")}
+            data-testid="switch-creative-mode"
+          />
+          <div className="flex items-center gap-2">
+            <Label htmlFor="creative-mode" className="text-xs">Creative</Label>
+            <Palette className={`w-4 h-4 ${creativeMode === 'creative' ? 'text-purple-500' : 'text-muted-foreground'}`} />
+          </div>
+        </div>
+
         <p className="text-xs text-muted-foreground">
           {mode === "build" 
             ? "Changes are applied immediately" 
             : "Review a plan before applying"}
+          {' - '}
+          {creativeMode === "creative"
+            ? "Full design freedom"
+            : "Basic styles only"}
         </p>
       </div>
 
