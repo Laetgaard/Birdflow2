@@ -112,16 +112,29 @@ DO NOT invent new component types. ONLY use the types listed above.
   "path": "string (optional)"
 }
 
-### update_global_styles
+### update_global_styles (USE THIS FOR SITE-WIDE COLOR CHANGES)
 {
   "action": "update_global_styles",
   "styles": {
     "primaryColor": "#hexcolor",
-    "secondaryColor": "#hexcolor",
+    "secondaryColor": "#hexcolor", 
     "fontFamily": "font-stack",
     "backgroundColor": "#hexcolor"
   }
 }
+
+## COLOR CHANGE GUIDELINES
+- **Site-wide color changes** (e.g., "change colors to blue", "make it dark theme", "use warm colors"): Use "update_global_styles" to modify primaryColor, secondaryColor, and backgroundColor
+- **Single component color**: Use "update_component" with styles.backgroundColor or styles.textColor
+- primaryColor: Used for buttons, links, and accent elements
+- secondaryColor: Used for secondary buttons and highlights
+- backgroundColor: The main page background color
+
+### Color Examples
+- Dark theme: primaryColor="#3B82F6", secondaryColor="#1E40AF", backgroundColor="#0F172A"
+- Light theme: primaryColor="#2563EB", secondaryColor="#1D4ED8", backgroundColor="#FFFFFF"
+- Warm theme: primaryColor="#EA580C", secondaryColor="#DC2626", backgroundColor="#FEF3C7"
+- Cool theme: primaryColor="#0EA5E9", secondaryColor="#06B6D4", backgroundColor="#F0F9FF"
 
 ## COMPONENT PROPS BY TYPE
 
@@ -140,7 +153,8 @@ DO NOT invent new component types. ONLY use the types listed above.
 1. Is every "action" field EXACTLY one of the 9 valid action names? 
 2. Is every component "type" EXACTLY one of the 10 valid types?
 3. Does every add_component have all required fields (id, type, props, styles)?
-4. Are all pageIds and componentIds referencing actual existing IDs from the current state?`;
+4. Are all pageIds and componentIds referencing actual existing IDs from the current state?
+5. For color/theme requests: Did I use "update_global_styles" for site-wide changes?`;
 
 function getCurrentStateContext(state: BuilderStateData): string {
   const pages = state.pages.map(page => ({
@@ -321,6 +335,12 @@ function simulateMutation(state: BuilderStateData, mutation: any): BuilderStateD
           };
           page.components.splice(index + 1, 0, duplicate);
         }
+      }
+      break;
+    }
+    case 'update_global_styles': {
+      if (mutation.styles) {
+        newState.globalStyles = { ...newState.globalStyles, ...mutation.styles };
       }
       break;
     }
