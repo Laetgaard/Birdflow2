@@ -2182,7 +2182,7 @@ export async function GET(request: NextRequest) {
 export function generateProductDetailPage(): string {
   return `'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCart } from '@/components/CartProvider';
@@ -2205,255 +2205,6 @@ function formatCurrency(amount: number, currency: string = 'USD'): string {
   const symbol = symbols[currency] || currency;
   const formatted = currency === 'DKK' ? amount.toFixed(0) : amount.toFixed(2);
   return currency === 'DKK' ? formatted + ' ' + symbol : symbol + formatted;
-}
-
-function ImageGallery({ images, productName }: { images: string[]; productName: string }) {
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [isZoomed, setIsZoomed] = useState(false);
-  const [zoomPosition, setZoomPosition] = useState({ x: 50, y: 50 });
-  const mainImageRef = useRef<HTMLDivElement>(null);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!mainImageRef.current) return;
-    const rect = mainImageRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    setZoomPosition({ x, y });
-  }, []);
-
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (!isLightboxOpen) return;
-    if (e.key === 'Escape') setIsLightboxOpen(false);
-    if (e.key === 'ArrowLeft') setSelectedIndex(prev => (prev > 0 ? prev - 1 : images.length - 1));
-    if (e.key === 'ArrowRight') setSelectedIndex(prev => (prev < images.length - 1 ? prev + 1 : 0));
-  }, [isLightboxOpen, images.length]);
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
-
-  useEffect(() => {
-    if (isLightboxOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [isLightboxOpen]);
-
-  if (images.length === 0) {
-    return (
-      <div style={{ width: '100%', aspectRatio: '1', backgroundColor: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '80px', borderRadius: '16px' }}>
-        📦
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div
-          ref={mainImageRef}
-          onClick={() => setIsLightboxOpen(true)}
-          onMouseEnter={() => setIsZoomed(true)}
-          onMouseLeave={() => setIsZoomed(false)}
-          onMouseMove={handleMouseMove}
-          style={{
-            backgroundColor: '#fff',
-            borderRadius: '16px',
-            overflow: 'hidden',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-            cursor: 'zoom-in',
-            position: 'relative',
-          }}
-        >
-          <img
-            src={images[selectedIndex]}
-            alt={productName + ' - Image ' + (selectedIndex + 1)}
-            style={{
-              width: '100%',
-              aspectRatio: '1',
-              objectFit: 'cover',
-              transition: 'transform 0.2s ease-out',
-              transform: isZoomed ? 'scale(1.5)' : 'scale(1)',
-              transformOrigin: zoomPosition.x + '% ' + zoomPosition.y + '%',
-            }}
-          />
-          <div style={{
-            position: 'absolute',
-            bottom: '16px',
-            right: '16px',
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            color: '#fff',
-            padding: '8px 12px',
-            borderRadius: '8px',
-            fontSize: '12px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            opacity: isZoomed ? 0 : 1,
-            transition: 'opacity 0.2s',
-          }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8" />
-              <path d="M21 21l-4.35-4.35" />
-              <path d="M11 8v6M8 11h6" />
-            </svg>
-            Click to expand
-          </div>
-        </div>
-
-        {images.length > 1 && (
-          <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', padding: '4px' }}>
-            {images.map((img, index) => (
-              <button
-                key={index}
-                onClick={() => setSelectedIndex(index)}
-                style={{
-                  width: '80px',
-                  height: '80px',
-                  flexShrink: 0,
-                  borderRadius: '8px',
-                  overflow: 'hidden',
-                  border: selectedIndex === index ? '3px solid #4f46e5' : '2px solid #e5e7eb',
-                  padding: 0,
-                  cursor: 'pointer',
-                  background: 'none',
-                  transition: 'all 0.2s',
-                  opacity: selectedIndex === index ? 1 : 0.7,
-                }}
-              >
-                <img
-                  src={img}
-                  alt={productName + ' - Thumbnail ' + (index + 1)}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {isLightboxOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.95)',
-            zIndex: 9999,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-          onClick={() => setIsLightboxOpen(false)}
-        >
-          <button
-            onClick={(e) => { e.stopPropagation(); setIsLightboxOpen(false); }}
-            aria-label="Close image viewer"
-            style={{
-              position: 'absolute',
-              top: '20px',
-              right: '20px',
-              background: 'rgba(255,255,255,0.1)',
-              border: 'none',
-              color: '#fff',
-              width: '48px',
-              height: '48px',
-              borderRadius: '50%',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '24px',
-            }}
-          >
-            ✕
-          </button>
-
-          {images.length > 1 && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); setSelectedIndex(prev => (prev > 0 ? prev - 1 : images.length - 1)); }}
-                aria-label="Previous image"
-                style={{
-                  position: 'absolute',
-                  left: '20px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'rgba(255,255,255,0.1)',
-                  border: 'none',
-                  color: '#fff',
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: '50%',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M15 18l-6-6 6-6" />
-                </svg>
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setSelectedIndex(prev => (prev < images.length - 1 ? prev + 1 : 0)); }}
-                aria-label="Next image"
-                style={{
-                  position: 'absolute',
-                  right: '20px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'rgba(255,255,255,0.1)',
-                  border: 'none',
-                  color: '#fff',
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: '50%',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 18l6-6-6-6" />
-                </svg>
-              </button>
-            </>
-          )}
-
-          <img
-            src={images[selectedIndex]}
-            alt={productName + ' - Full size ' + (selectedIndex + 1)}
-            style={{
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              objectFit: 'contain',
-              borderRadius: '8px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-
-          {images.length > 1 && (
-            <div style={{
-              position: 'absolute',
-              bottom: '60px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              color: 'rgba(255,255,255,0.7)',
-              fontSize: '14px',
-            }}>
-              {selectedIndex + 1} / {images.length}
-            </div>
-          )}
-        </div>
-      )}
-    </>
-  );
 }
 
 export default function ProductDetailPage() {
@@ -2503,6 +2254,11 @@ export default function ProductDetailPage() {
     setTimeout(() => setAddedToCart(false), 2000);
   };
 
+  const getMainImage = (): string | null => {
+    if (!product) return null;
+    return product.image_url || null;
+  };
+
   const getAllImages = (): string[] => {
     if (!product) return [];
     const mainImage = product.image_url;
@@ -2549,7 +2305,7 @@ export default function ProductDetailPage() {
     );
   }
 
-  const images = getAllImages();
+  const mainImage = getMainImage();
   const stockStatus = getStockStatus();
   const isOutOfStock = stockStatus?.text === 'Out of Stock';
 
@@ -2564,7 +2320,19 @@ export default function ProductDetailPage() {
         </Link>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 600px) 1fr', gap: '64px', alignItems: 'start' }}>
-          <ImageGallery images={images} productName={product.name} />
+          <div style={{ backgroundColor: '#fff', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+            {mainImage ? (
+              <img
+                src={mainImage}
+                alt={product.name}
+                style={{ width: '100%', aspectRatio: '1', objectFit: 'cover' }}
+              />
+            ) : (
+              <div style={{ width: '100%', aspectRatio: '1', backgroundColor: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '80px' }}>
+                📦
+              </div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'sticky', top: '40px' }}>
             {product.category && (
