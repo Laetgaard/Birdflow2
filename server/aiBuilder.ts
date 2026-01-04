@@ -18,11 +18,21 @@ const openai = new OpenAI({
 
 const SYSTEM_PROMPT = `You are an AI website builder assistant. You help users modify their website by generating structured mutations to the builder state.
 
-IMPORTANT RULES:
+CRITICAL RULES:
 1. You can ONLY modify the website through the provided mutation schema
 2. You NEVER edit DOM, code, or database directly
 3. All changes must be valid builder_state mutations
 4. Always generate unique IDs for new components (use format: type-timestamp, e.g., "hero-1704067200000")
+5. The "action" field MUST be EXACTLY one of these strings (case-sensitive):
+   - "add_component"
+   - "update_component" 
+   - "remove_component"
+   - "move_component"
+   - "duplicate_component"
+   - "add_page"
+   - "remove_page"
+   - "update_page"
+   - "update_global_styles"
 
 Available component types: ${componentTypes.join(', ')}
 
@@ -31,18 +41,20 @@ Each component has:
 - props: Content properties (title, subtitle, description, buttonText, etc.)
 - styles: Visual properties (backgroundColor, textColor, padding)
 
-Available mutations:
-- add_component: Add a new component to a page
-- update_component: Update an existing component's props or styles
-- remove_component: Remove a component from a page
-- move_component: Change component's position
-- duplicate_component: Create a copy of a component
-- add_page: Add a new page
-- remove_page: Remove a page
-- update_page: Update page name or path
-- update_global_styles: Change global theme colors and fonts
+MUTATION SCHEMA EXAMPLES:
+1. Add a hero component:
+   {"action": "add_component", "pageId": "home", "component": {"id": "hero-123", "type": "hero", "props": {"title": "Welcome"}, "styles": {"backgroundColor": "#ffffff"}}}
 
-When responding, output valid JSON matching the requested schema.`;
+2. Update component text:
+   {"action": "update_component", "pageId": "home", "componentId": "hero-123", "props": {"title": "New Title"}}
+
+3. Remove component:
+   {"action": "remove_component", "pageId": "home", "componentId": "hero-123"}
+
+4. Update global styles:
+   {"action": "update_global_styles", "styles": {"primaryColor": "#ff0000"}}
+
+When responding, output valid JSON matching the requested schema. Double-check that "action" is EXACTLY one of the allowed values.`;
 
 function getCurrentStateContext(state: BuilderStateData): string {
   const pages = state.pages.map(page => ({
@@ -96,9 +108,24 @@ Generate unique component IDs using: componenttype-${Date.now()}`
   }
 
   const parsed = JSON.parse(content);
-  const validated = AIResponseSchema.parse(parsed);
   
-  return validated;
+  try {
+    const validated = AIResponseSchema.parse(parsed);
+    return validated;
+  } catch (validationError: any) {
+    console.error("AI Build error:", validationError);
+    
+    const invalidActions = validationError.issues
+      ?.filter((issue: any) => issue.code === 'invalid_union_discriminator')
+      ?.map((issue: any) => `Mutation ${issue.path?.[1] + 1}: Invalid action type`)
+      ?.join(', ');
+    
+    if (invalidActions) {
+      throw new Error(`The AI generated invalid actions. Please try rephrasing your request. (${invalidActions})`);
+    }
+    
+    throw new Error("The AI generated an invalid response. Please try again with a different request.");
+  }
 }
 
 export async function processAIThinkingRequest(
@@ -140,9 +167,25 @@ Generate unique component IDs using: componenttype-${Date.now()}`
   }
 
   const parsed = JSON.parse(content);
-  const validated = AIThinkingResponseSchema.parse(parsed);
   
-  return validated;
+  try {
+    const validated = AIThinkingResponseSchema.parse(parsed);
+    return validated;
+  } catch (validationError: any) {
+    console.error("AI Think error:", validationError);
+    
+    // Provide a user-friendly error message
+    const invalidActions = validationError.issues
+      ?.filter((issue: any) => issue.code === 'invalid_union_discriminator')
+      ?.map((issue: any) => `Step ${issue.path?.[1] + 1}: Invalid action type`)
+      ?.join(', ');
+    
+    if (invalidActions) {
+      throw new Error(`The AI generated invalid actions. Please try rephrasing your request. (${invalidActions})`);
+    }
+    
+    throw new Error("The AI generated an invalid response. Please try again with a different request.");
+  }
 }
 
 export function applyMutation(
