@@ -6,8 +6,9 @@ import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-// DNS verification service no longer needed - using Vercel for verification
 import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig } from "./publisher/vercel";
+import { processAIBuildRequest, processAIThinkingRequest, applyMutations } from "./aiBuilder";
+import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -1915,6 +1916,117 @@ export async function registerRoutes(
       await storage.deleteCustomDomain(req.params.domainId, req.params.id);
       res.json({ success: true });
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // AI Builder - Build mode (directly applies changes)
+  app.post("/api/websites/:id/ai/build", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { prompt } = req.body;
+      if (!prompt || typeof prompt !== 'string') {
+        return res.status(400).json({ message: "Prompt is required" });
+      }
+
+      const builderData = await storage.getBuilderState(req.params.id);
+      if (!builderData) {
+        return res.status(404).json({ message: "Builder state not found" });
+      }
+
+      const currentState = builderData.state as BuilderStateData;
+      const aiResponse = await processAIBuildRequest(prompt, currentState);
+      const newState = applyMutations(currentState, aiResponse.mutations);
+      
+      await storage.updateBuilderState(req.params.id, newState);
+
+      res.json({
+        success: true,
+        explanation: aiResponse.explanation,
+        mutations: aiResponse.mutations,
+        newState,
+      });
+    } catch (error: any) {
+      console.error("AI Build error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // AI Builder - Thinking mode (returns plan without applying)
+  app.post("/api/websites/:id/ai/think", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { prompt } = req.body;
+      if (!prompt || typeof prompt !== 'string') {
+        return res.status(400).json({ message: "Prompt is required" });
+      }
+
+      const builderData = await storage.getBuilderState(req.params.id);
+      if (!builderData) {
+        return res.status(404).json({ message: "Builder state not found" });
+      }
+
+      const currentState = builderData.state as BuilderStateData;
+      const thinkingResponse = await processAIThinkingRequest(prompt, currentState);
+
+      res.json({
+        success: true,
+        ...thinkingResponse,
+      });
+    } catch (error: any) {
+      console.error("AI Think error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // AI Builder - Apply plan (executes mutations from thinking mode)
+  app.post("/api/websites/:id/ai/apply", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { mutations } = req.body;
+      if (!mutations || !Array.isArray(mutations)) {
+        return res.status(400).json({ message: "Mutations array is required" });
+      }
+
+      const validatedMutations = mutations.map(m => BuilderMutationSchema.parse(m));
+
+      const builderData = await storage.getBuilderState(req.params.id);
+      if (!builderData) {
+        return res.status(404).json({ message: "Builder state not found" });
+      }
+
+      const currentState = builderData.state as BuilderStateData;
+      const newState = applyMutations(currentState, validatedMutations);
+      
+      await storage.updateBuilderState(req.params.id, newState);
+
+      res.json({
+        success: true,
+        newState,
+      });
+    } catch (error: any) {
+      console.error("AI Apply error:", error);
       res.status(500).json({ message: error.message });
     }
   });
