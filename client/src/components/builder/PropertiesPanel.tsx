@@ -13,6 +13,8 @@ import {
 import { Trash2, Plus, GripVertical, Upload, Crop, Loader2, Move } from "lucide-react";
 import { 
   componentRegistry, 
+  themeColors,
+  spacingPresets,
   type BuilderComponentData, 
   type ComponentProps, 
   type ComponentStyles,
@@ -232,10 +234,24 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           </div>
         );
 
-      case 'color':
+      case 'color': {
+        const colorPresets = field.key === 'backgroundColor' ? themeColors.backgrounds : themeColors.text;
         return (
-          <div key={field.key} className="space-y-1">
+          <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
+            <div className="flex flex-wrap gap-1">
+              {colorPresets.map((color) => (
+                <button
+                  key={color.value}
+                  type="button"
+                  className={`w-6 h-6 rounded border-2 transition-all ${value === color.value ? 'border-primary ring-2 ring-primary/20' : 'border-transparent hover:border-muted-foreground/30'}`}
+                  style={{ backgroundColor: color.value }}
+                  onClick={() => setValue(field, color.value)}
+                  title={color.name}
+                  data-testid={`color-preset-${field.key}-${color.name.toLowerCase().replace(' ', '-')}`}
+                />
+              ))}
+            </div>
             <div className="flex gap-1">
               <Input
                 type="color"
@@ -253,6 +269,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             </div>
           </div>
         );
+      }
 
       case 'select':
         return (
@@ -554,6 +571,27 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           </div>
         </>
       )}
+
+      <Separator />
+      <div className="space-y-3">
+        <h4 className="font-medium text-sm text-muted-foreground">Spacing</h4>
+        <div className="space-y-2">
+          <Label className="text-xs">Padding</Label>
+          <div className="flex flex-wrap gap-1">
+            {spacingPresets.padding.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.padding === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => onUpdate({ styles: { padding: preset.value } })}
+                data-testid={`spacing-padding-${preset.name.toLowerCase().replace(' ', '-')}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {cropperOpen && cropperImage && (
         <ImageCropper

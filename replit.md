@@ -42,6 +42,14 @@ The website builder uses a registry-based component system:
 - **ComponentRenderer**: Renders components from `builder_state` for both preview and published sites.
 - **PropertiesPanel**: Dynamically generates UI for editing component properties based on their definitions.
 
+### Inline Editing System
+Webflow-style inline editing for direct text manipulation in the builder canvas:
+- **EditableText Component**: Contenteditable-based text editing with Enter to save, Escape to cancel.
+- **Theme Presets**: Color presets (10 backgrounds, 6 text colors) and spacing presets (padding options).
+- **Editable Fields**: Defined per component type in `editableTextFields` mapping (title, subtitle, description, buttonText).
+- **State Management**: Uses `editingField` state in builder.tsx with `handleTextChange` handler for state updates.
+- **Button Editing**: Maintains semantic `<button>` elements while enabling text editing for parity with published sites.
+
 ### Publishing System
 Generates a standalone Next.js project from the `builder_state` and deploys it to Vercel.
 - **Publisher Service**: Orchestrates project generation (using `generator.ts` and `templates.ts`) and Vercel deployment (`vercel.ts`).

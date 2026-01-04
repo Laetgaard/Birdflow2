@@ -114,6 +114,7 @@ export default function BuilderPage() {
   const [editingPage, setEditingPage] = useState<BuilderPage | null>(null);
   const [deletePageId, setDeletePageId] = useState<string | null>(null);
   const [newPageName, setNewPageName] = useState("");
+  const [editingField, setEditingField] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -293,6 +294,27 @@ export default function BuilderPage() {
 
     setBuilderState(newState);
   };
+
+  const handleTextChange = useCallback((componentId: string) => (field: string, value: string) => {
+    setBuilderState(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        pages: prev.pages.map(page =>
+          page.id === prev.activePage
+            ? {
+                ...page,
+                components: page.components.map(comp =>
+                  comp.id === componentId
+                    ? { ...comp, props: { ...comp.props, [field]: value } }
+                    : comp
+                ),
+              }
+            : page
+        ),
+      };
+    });
+  }, []);
 
   const deleteComponent = (componentId: string) => {
     if (!builderState) return;
@@ -643,6 +665,9 @@ export default function BuilderPage() {
                   }}
                   websiteId={id}
                   pages={builderState?.pages}
+                  onTextChange={handleTextChange(comp.id)}
+                  editingField={selectedComponentId === comp.id ? editingField : null}
+                  onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
                 />
               ))
             )}
