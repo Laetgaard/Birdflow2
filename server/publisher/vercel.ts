@@ -40,6 +40,31 @@ export async function getOrCreateProject(
   
   if (res.ok) {
     const project = await res.json();
+    
+    // Update project settings to ensure Node 20.x is used
+    const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        projectSettings: {
+          ...(project.projectSettings || {}),
+          nodeVersion: '20.x',
+        },
+      }),
+    });
+    
+    if (!patchRes.ok) {
+      const errorText = await patchRes.text();
+      console.error('Failed to update project nodeVersion:', errorText);
+      // Continue anyway - the deployment might still work
+    } else {
+      const updatedProject = await patchRes.json();
+      const newNodeVersion = updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion;
+      console.log('Updated project nodeVersion to:', newNodeVersion);
+      if (newNodeVersion !== '20.x') {
+        console.warn('NodeVersion not updated to 20.x, deployment may fail');
+      }
+    }
+    
     return project.id;
   }
   
@@ -57,6 +82,25 @@ export async function getOrCreateProject(
   }
   
   const project = await createRes.json();
+  
+  // Update nodeVersion after creation
+  const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      projectSettings: {
+        ...(project.projectSettings || {}),
+        nodeVersion: '20.x',
+      },
+    }),
+  });
+  
+  if (!patchRes.ok) {
+    console.warn('Failed to set nodeVersion on new project:', await patchRes.text());
+  } else {
+    const updatedProject = await patchRes.json();
+    console.log('Set nodeVersion on new project to:', updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion);
+  }
+  
   return project.id;
 }
 
@@ -208,6 +252,23 @@ export async function waitForDeployment(
         errorDetails += ` (${deployment.errorCode})`;
       }
       console.error('Vercel deployment error details:', JSON.stringify(deployment, null, 2));
+      
+      // Try to fetch build logs
+      try {
+        const eventsRes = await vercelFetch(`/v3/deployments/${deploymentId}/events`, config);
+        if (eventsRes.ok) {
+          const events = await eventsRes.json();
+          const buildLogs = events.filter((e: any) => e.type === 'stdout' || e.type === 'stderr')
+            .map((e: any) => `[${e.type}] ${e.payload?.text || e.text || JSON.stringify(e)}`)
+            .join('\n');
+          if (buildLogs) {
+            console.error('Build logs:\n', buildLogs);
+          }
+        }
+      } catch (logError) {
+        console.error('Failed to fetch build logs:', logError);
+      }
+      
       throw new Error(`Deployment failed: ${errorDetails}`);
     }
     
