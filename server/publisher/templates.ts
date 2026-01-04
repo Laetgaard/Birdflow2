@@ -2774,7 +2774,7 @@ export default function CheckoutPage() {
   const [success, setSuccess] = useState(false);
   const [orderId, setOrderId] = useState('');
 
-  const currency = items.length > 0 ? (items[0].currency || 'USD') : 'USD';
+  const currency = items.length > 0 ? (items[0].product.currency || 'USD') : 'USD';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2805,10 +2805,10 @@ export default function CheckoutPage() {
           customerName: name,
           customerEmail: email,
           items: items.map(item => ({
-            id: item.id,
-            name: item.name,
+            id: item.product.id,
+            name: item.product.name,
             quantity: item.quantity,
-            price: parseFloat(item.price),
+            price: parseFloat(item.product.price),
           })),
           total: totalAmount.toFixed(2),
           currency,
@@ -2950,18 +2950,18 @@ export default function CheckoutPage() {
               
               <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '20px' }}>
                 {items.map((item) => (
-                  <div key={item.id} style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
-                    {item.image_url ? (
-                      <img src={item.image_url} alt={item.name} style={{ width: '64px', height: '64px', borderRadius: '8px', objectFit: 'cover' }} />
+                  <div key={item.product.id} style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                    {item.product.image_url ? (
+                      <img src={item.product.image_url} alt={item.product.name} style={{ width: '64px', height: '64px', borderRadius: '8px', objectFit: 'cover' }} />
                     ) : (
                       <div style={{ width: '64px', height: '64px', borderRadius: '8px', backgroundColor: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>📦</div>
                     )}
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 500, color: '#111827', marginBottom: '4px' }}>{item.name}</div>
+                      <div style={{ fontWeight: 500, color: '#111827', marginBottom: '4px' }}>{item.product.name}</div>
                       <div style={{ fontSize: '14px', color: '#6b7280' }}>Qty: {item.quantity}</div>
                     </div>
                     <div style={{ fontWeight: 600, color: '#111827' }}>
-                      {formatCurrency(parseFloat(item.price) * item.quantity, item.currency)}
+                      {formatCurrency(parseFloat(item.product.price) * item.quantity, item.product.currency)}
                     </div>
                   </div>
                 ))}
