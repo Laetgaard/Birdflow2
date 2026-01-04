@@ -668,6 +668,8 @@ export default function BuilderPage() {
                   onTextChange={handleTextChange(comp.id)}
                   editingField={selectedComponentId === comp.id ? editingField : null}
                   onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
+                  onImageResize={(width, height) => updateComponent(comp.id, { props: { imageWidth: width, imageHeight: height } })}
+                  onStyleChange={(styles) => updateComponent(comp.id, { styles })}
                 />
               ))
             )}

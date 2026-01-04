@@ -3,6 +3,7 @@ import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@sha
 import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
 import BookingWidget from './BookingWidget';
 import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
+import ImageResizer from './ImageResizer';
 
 type Product = {
   id: string;
@@ -39,6 +40,8 @@ type RenderProps = {
   onTextChange?: (field: string, value: string) => void;
   editingField?: string | null;
   onEditField?: (field: string | null) => void;
+  onImageResize?: (width: string, height: string) => void;
+  onStyleChange?: (styles: Partial<ComponentStyles>) => void;
 };
 
 type EditableTextProps = {
@@ -143,6 +146,8 @@ type ComponentRenderProps = {
   onTextChange?: (field: string, value: string) => void;
   editingField?: string | null;
   onEditField?: (field: string | null) => void;
+  onImageResize?: (width: string, height: string) => void;
+  onStyleChange?: (styles: Partial<ComponentStyles>) => void;
 };
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
@@ -151,9 +156,13 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
   const backgroundImage = imageValue?.url ? { backgroundImage: `url(${imageValue.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
   
   const canEdit = !isPreview && onTextChange && onEditField;
+  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const titleFontSize = styles.titleFontSize || '48px';
+  const bodyFontSize = styles.bodyFontSize || '18px';
+  const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
   
   return (
-    <section style={{ ...baseStyle, ...backgroundImage, position: 'relative', overflow: 'hidden' }} onClick={onClick}>
+    <section style={{ ...baseStyle, ...backgroundImage, position: 'relative', overflow: 'hidden', fontFamily }} onClick={onClick}>
       {imageValue?.crop && imageValue.url && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
           <CroppedImage 
@@ -171,12 +180,12 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
             isEditing={editingField === 'title'}
             onEdit={onEditField}
             onChange={onTextChange}
-            style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px', display: 'block' }}
+            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', display: 'block' }}
             as="h1"
             isPreview={isPreview}
           />
         ) : (
-          <h1 style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h1>
+          <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px' }}>{props.title}</h1>
         )}
         {props.subtitle && (
           canEdit ? (
@@ -202,12 +211,12 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
               isEditing={editingField === 'description'}
               onEdit={onEditField}
               onChange={onTextChange}
-              style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px', display: 'block' }}
+              style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', display: 'block' }}
               as="p"
               isPreview={isPreview}
             />
           ) : (
-            <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>
+            <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>
           )
         )}
         {props.buttonText && (
@@ -274,11 +283,27 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   );
 }
 
-function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, onImageResize }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const isImageLeft = props.imageSide === 'left';
   const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   const canEdit = !isPreview && onTextChange && onEditField;
+
+  const titleStyle: React.CSSProperties = {
+    fontSize: styles.titleFontSize || '36px',
+    fontWeight: parseInt(styles.fontWeight || '700'),
+    fontFamily: styles.fontFamily,
+    marginBottom: '16px',
+    display: 'block',
+  };
+
+  const bodyStyle: React.CSSProperties = {
+    fontSize: styles.bodyFontSize || '18px',
+    fontFamily: styles.fontFamily,
+    lineHeight: 1.7,
+    opacity: 0.8,
+    display: 'block',
+  };
   
   return (
     <section style={baseStyle} onClick={onClick}>
@@ -291,12 +316,12 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onT
               isEditing={editingField === 'title'}
               onEdit={onEditField}
               onChange={onTextChange}
-              style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px', display: 'block' }}
+              style={titleStyle}
               as="h2"
               isPreview={isPreview}
             />
           ) : (
-            <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
+            <h2 style={titleStyle}>{props.title}</h2>
           )}
           {canEdit ? (
             <EditableText
@@ -305,20 +330,30 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onT
               isEditing={editingField === 'description'}
               onEdit={onEditField}
               onChange={onTextChange}
-              style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8, display: 'block' }}
+              style={bodyStyle}
               as="p"
               isPreview={isPreview}
             />
           ) : (
-            <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{props.description}</p>
+            <p style={bodyStyle}>{props.description}</p>
           )}
         </div>
         {imageValue?.url && (
           <div style={{ flex: 1, minWidth: '300px', overflow: 'hidden', borderRadius: '12px' }}>
-            {imageValue.crop ? (
-              <CroppedImage image={imageValue} alt="" style={{ width: '100%' }} />
+            {!isPreview && onImageResize && isSelected ? (
+              <ImageResizer
+                imageUrl={imageValue.url}
+                width={props.imageWidth || '100%'}
+                height={props.imageHeight || 'auto'}
+                onResize={onImageResize}
+                isSelected={isSelected}
+                isPreview={isPreview}
+                style={{ borderRadius: '12px' }}
+              />
+            ) : imageValue.crop ? (
+              <CroppedImage image={imageValue} alt="" style={{ width: props.imageWidth || '100%', borderRadius: '12px' }} />
             ) : (
-              <img src={imageValue.url} alt="" style={{ width: '100%', borderRadius: '12px' }} />
+              <img src={imageValue.url} alt="" style={{ width: props.imageWidth || '100%', borderRadius: '12px' }} />
             )}
           </div>
         )}
@@ -330,9 +365,13 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onT
 function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
+  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const titleFontSize = styles.titleFontSize || '36px';
+  const bodyFontSize = styles.bodyFontSize || '18px';
+  const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
   
   return (
-    <section style={baseStyle} onClick={onClick}>
+    <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
       <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
         {canEdit ? (
           <EditableText
@@ -341,12 +380,12 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
             isEditing={editingField === 'title'}
             onEdit={onEditField}
             onChange={onTextChange}
-            style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px', display: 'block' }}
+            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', display: 'block' }}
             as="h2"
             isPreview={isPreview}
           />
         ) : (
-          <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
+          <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px' }}>{props.title}</h2>
         )}
         {canEdit ? (
           <EditableText
@@ -355,12 +394,12 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
             isEditing={editingField === 'description'}
             onEdit={onEditField}
             onChange={onTextChange}
-            style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px', display: 'block' }}
+            style={{ fontSize: bodyFontSize, opacity: 0.9, marginBottom: '32px', display: 'block' }}
             as="p"
             isPreview={isPreview}
           />
         ) : (
-          <p style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px' }}>{props.description}</p>
+          <p style={{ fontSize: bodyFontSize, opacity: 0.9, marginBottom: '32px' }}>{props.description}</p>
         )}
         {props.buttonText && (
           <button 
@@ -632,7 +671,7 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -649,6 +688,8 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     onTextChange,
     editingField,
     onEditField,
+    onImageResize,
+    onStyleChange,
   };
 
   const headerProps = {

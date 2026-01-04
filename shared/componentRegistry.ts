@@ -57,6 +57,42 @@ export const alignmentPresets = [
   { name: 'Right', value: 'right' },
 ];
 
+// Font family presets
+export const fontFamilyPresets = [
+  { name: 'Default', value: 'Inter, system-ui, sans-serif' },
+  { name: 'Serif', value: 'Georgia, Times New Roman, serif' },
+  { name: 'Mono', value: 'SF Mono, Menlo, monospace' },
+  { name: 'Display', value: 'Playfair Display, Georgia, serif' },
+  { name: 'Modern', value: 'Poppins, Inter, sans-serif' },
+  { name: 'Classic', value: 'Merriweather, Georgia, serif' },
+];
+
+// Font size presets
+export const fontSizePresets = {
+  heading: [
+    { name: 'Small', value: '32px' },
+    { name: 'Medium', value: '42px' },
+    { name: 'Large', value: '48px' },
+    { name: 'Extra Large', value: '56px' },
+    { name: 'Huge', value: '72px' },
+  ],
+  body: [
+    { name: 'Small', value: '14px' },
+    { name: 'Medium', value: '16px' },
+    { name: 'Large', value: '18px' },
+    { name: 'Extra Large', value: '20px' },
+  ],
+};
+
+// Font weight presets
+export const fontWeightPresets = [
+  { name: 'Normal', value: '400' },
+  { name: 'Medium', value: '500' },
+  { name: 'Semibold', value: '600' },
+  { name: 'Bold', value: '700' },
+  { name: 'Extra Bold', value: '800' },
+];
+
 // Editable text fields per component type
 export const editableTextFields: Record<ComponentType, string[]> = {
   'hero': ['title', 'subtitle', 'description', 'buttonText'],
@@ -106,6 +142,8 @@ export type ComponentProps = {
   productMode?: 'all' | 'curated';
   curatedProductIds?: string[];
   showAddToCart?: boolean;
+  imageWidth?: string;
+  imageHeight?: string;
 };
 
 export type ComponentStyles = {
@@ -113,6 +151,10 @@ export type ComponentStyles = {
   textColor?: string;
   padding?: string;
   margin?: string;
+  fontFamily?: string;
+  titleFontSize?: string;
+  bodyFontSize?: string;
+  fontWeight?: string;
 };
 
 export type BuilderComponentData = {
