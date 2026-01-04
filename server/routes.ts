@@ -6,6 +6,8 @@ import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { generateVerificationToken, verifyDnsTxtRecord, getDnsInstructions } from "./services/dnsVerification";
+import { addCustomDomain, removeCustomDomain, verifyDomainConfig } from "./publisher/vercel";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -1672,6 +1674,217 @@ export async function registerRoutes(
       });
 
       res.status(201).json(order);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ CUSTOM DOMAINS ROUTES ============
+  
+  // List custom domains for a website
+  app.get("/api/websites/:id/domains", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const domains = await storage.getCustomDomains(req.params.id);
+      res.json(domains);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Add a custom domain
+  app.post("/api/websites/:id/domains", requireAuth, async (req, res) => {
+    try {
+      const { domain } = req.body;
+      
+      if (!domain) {
+        return res.status(400).json({ message: "Domain is required" });
+      }
+
+      const domainRegex = /^(?!:\/\/)([a-zA-Z0-9-_]+\.)*[a-zA-Z0-9][a-zA-Z0-9-_]+\.[a-zA-Z]{2,11}$/;
+      if (!domainRegex.test(domain)) {
+        return res.status(400).json({ message: "Invalid domain format" });
+      }
+
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const existing = await storage.getCustomDomainByDomain(domain);
+      if (existing) {
+        return res.status(400).json({ message: "Domain is already in use" });
+      }
+
+      const verificationToken = generateVerificationToken();
+      
+      const customDomain = await storage.createCustomDomain({
+        websiteId: req.params.id,
+        domain: domain.toLowerCase(),
+        status: 'pending',
+        verificationToken,
+      });
+
+      const vercelProjectDomain = website.deploymentUrl 
+        ? new URL(website.deploymentUrl).hostname 
+        : 'cname.vercel-dns.com';
+
+      const dnsInstructions = getDnsInstructions(domain, verificationToken, vercelProjectDomain);
+
+      res.status(201).json({ 
+        ...customDomain, 
+        dnsInstructions 
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Verify a custom domain (DNS TXT verification)
+  app.post("/api/websites/:id/domains/:domainId/verify", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const domains = await storage.getCustomDomains(req.params.id);
+      const domain = domains.find(d => d.id === req.params.domainId);
+      if (!domain) {
+        return res.status(404).json({ message: "Domain not found" });
+      }
+
+      if (domain.status === 'active') {
+        return res.json({ verified: true, status: 'active' });
+      }
+
+      const result = await verifyDnsTxtRecord(domain.domain, domain.verificationToken);
+      
+      if (!result.verified) {
+        return res.json({ 
+          verified: false, 
+          error: result.error,
+          verificationToken: domain.verificationToken 
+        });
+      }
+
+      await storage.updateCustomDomain(domain.id, req.params.id, { 
+        status: 'verified' 
+      });
+
+      const vercelToken = process.env.VERCEL_TOKEN;
+      if (!vercelToken) {
+        return res.json({ 
+          verified: true, 
+          status: 'verified',
+          message: 'Domain verified, but Vercel is not configured. Please add VERCEL_TOKEN to connect the domain.'
+        });
+      }
+
+      const projectName = `saasify-${req.params.id}`;
+      const vercelConfig = { 
+        token: vercelToken, 
+        teamId: process.env.VERCEL_TEAM_ID 
+      };
+
+      const addResult = await addCustomDomain(projectName, domain.domain, vercelConfig);
+      
+      if (!addResult.success) {
+        return res.json({ 
+          verified: true, 
+          status: 'verified',
+          error: `Domain verified but could not be added to Vercel: ${addResult.error}`
+        });
+      }
+
+      await storage.updateCustomDomain(domain.id, req.params.id, { 
+        status: 'active',
+        vercelDomainId: addResult.domainId 
+      });
+
+      res.json({ 
+        verified: true, 
+        status: 'active',
+        message: 'Domain verified and connected successfully!'
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a custom domain
+  app.delete("/api/websites/:id/domains/:domainId", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const domains = await storage.getCustomDomains(req.params.id);
+      const domain = domains.find(d => d.id === req.params.domainId);
+      if (!domain) {
+        return res.status(404).json({ message: "Domain not found" });
+      }
+
+      if (domain.status === 'active' && domain.vercelDomainId) {
+        const vercelToken = process.env.VERCEL_TOKEN;
+        if (vercelToken) {
+          const projectName = `saasify-${req.params.id}`;
+          const vercelConfig = { 
+            token: vercelToken, 
+            teamId: process.env.VERCEL_TEAM_ID 
+          };
+          await removeCustomDomain(projectName, domain.domain, vercelConfig);
+        }
+      }
+
+      await storage.deleteCustomDomain(req.params.domainId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get DNS instructions for a domain
+  app.get("/api/websites/:id/domains/:domainId/instructions", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const domains = await storage.getCustomDomains(req.params.id);
+      const domain = domains.find(d => d.id === req.params.domainId);
+      if (!domain) {
+        return res.status(404).json({ message: "Domain not found" });
+      }
+
+      const vercelProjectDomain = website.deploymentUrl 
+        ? new URL(website.deploymentUrl).hostname 
+        : 'cname.vercel-dns.com';
+
+      const dnsInstructions = getDnsInstructions(domain.domain, domain.verificationToken, vercelProjectDomain);
+
+      res.json(dnsInstructions);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

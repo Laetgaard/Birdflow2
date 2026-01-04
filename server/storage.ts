@@ -13,7 +13,8 @@ import {
   customers, type Customer, type InsertCustomer,
   products, type Product, type InsertProduct,
   mediaAssets, type MediaAsset, type InsertMediaAsset,
-  bookingServices, type BookingService, type InsertBookingService
+  bookingServices, type BookingService, type InsertBookingService,
+  customDomains, type CustomDomain, type InsertCustomDomain
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
@@ -134,6 +135,14 @@ export interface IStorage {
   getBuilderState(websiteId: string): Promise<BuilderState | undefined>;
   createBuilderState(websiteId: string, state?: BuilderStateData): Promise<BuilderState>;
   updateBuilderState(websiteId: string, state: BuilderStateData): Promise<BuilderState | undefined>;
+  
+  // Custom domain methods
+  getCustomDomains(websiteId: string): Promise<CustomDomain[]>;
+  getCustomDomainByDomain(domain: string): Promise<CustomDomain | undefined>;
+  createCustomDomain(domain: InsertCustomDomain): Promise<CustomDomain>;
+  updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined>;
+  deleteCustomDomain(domainId: string, websiteId: string): Promise<boolean>;
+  getWebsiteByCustomDomain(domain: string): Promise<Website | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -449,6 +458,49 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId)))
       .returning();
     return result.length > 0;
+  }
+
+  // Custom domain methods
+  async getCustomDomains(websiteId: string): Promise<CustomDomain[]> {
+    return db.select().from(customDomains).where(eq(customDomains.websiteId, websiteId));
+  }
+
+  async getCustomDomainByDomain(domain: string): Promise<CustomDomain | undefined> {
+    const result = await db.select().from(customDomains).where(eq(customDomains.domain, domain.toLowerCase())).limit(1);
+    return result[0];
+  }
+
+  async createCustomDomain(domain: InsertCustomDomain): Promise<CustomDomain> {
+    const result = await db.insert(customDomains).values({
+      ...domain,
+      domain: domain.domain.toLowerCase(),
+    } as any).returning();
+    return result[0];
+  }
+
+  async updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined> {
+    const result = await db
+      .update(customDomains)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(customDomains.id, domainId), eq(customDomains.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteCustomDomain(domainId: string, websiteId: string): Promise<boolean> {
+    const result = await db
+      .delete(customDomains)
+      .where(and(eq(customDomains.id, domainId), eq(customDomains.websiteId, websiteId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getWebsiteByCustomDomain(domain: string): Promise<Website | undefined> {
+    const customDomain = await this.getCustomDomainByDomain(domain);
+    if (!customDomain || customDomain.status !== 'active') {
+      return undefined;
+    }
+    return this.getWebsite(customDomain.websiteId);
   }
 }
 

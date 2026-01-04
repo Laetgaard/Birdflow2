@@ -215,18 +215,94 @@ export async function waitForDeployment(
   throw new Error('Deployment timed out');
 }
 
+export type DomainConfig = {
+  verified: boolean;
+  verification?: { type: string; domain: string; value: string; reason: string }[];
+  configured?: boolean;
+  error?: { code: string; message: string };
+};
+
 export async function addCustomDomain(
   projectId: string,
   domain: string,
   config: VercelConfig
-): Promise<void> {
-  const res = await vercelFetch(`/v9/projects/${projectId}/domains`, config, {
+): Promise<{ success: boolean; domainId?: string; error?: string; domainConfig?: DomainConfig }> {
+  const res = await vercelFetch(`/v10/projects/${projectId}/domains`, config, {
     method: 'POST',
     body: JSON.stringify({ name: domain }),
   });
   
+  const data = await res.json();
+  
   if (!res.ok) {
-    const error = await res.text();
-    console.warn(`Could not add domain ${domain}: ${error}`);
+    return { 
+      success: false, 
+      error: data.error?.message || 'Failed to add domain' 
+    };
   }
+  
+  return { 
+    success: true, 
+    domainId: data.name,
+    domainConfig: data
+  };
+}
+
+export async function removeCustomDomain(
+  projectId: string,
+  domain: string,
+  config: VercelConfig
+): Promise<{ success: boolean; error?: string }> {
+  const res = await vercelFetch(`/v9/projects/${projectId}/domains/${domain}`, config, {
+    method: 'DELETE',
+  });
+  
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    return { 
+      success: false, 
+      error: data.error?.message || 'Failed to remove domain' 
+    };
+  }
+  
+  return { success: true };
+}
+
+export async function getDomainConfig(
+  projectId: string,
+  domain: string,
+  config: VercelConfig
+): Promise<DomainConfig | null> {
+  const res = await vercelFetch(`/v9/projects/${projectId}/domains/${domain}`, config);
+  
+  if (!res.ok) {
+    return null;
+  }
+  
+  return res.json();
+}
+
+export async function verifyDomainConfig(
+  projectId: string,
+  domain: string,
+  config: VercelConfig
+): Promise<{ success: boolean; configured: boolean; error?: string }> {
+  const res = await vercelFetch(`/v9/projects/${projectId}/domains/${domain}/verify`, config, {
+    method: 'POST',
+  });
+  
+  const data = await res.json();
+  
+  if (!res.ok) {
+    return { 
+      success: false, 
+      configured: false,
+      error: data.error?.message || 'Failed to verify domain' 
+    };
+  }
+  
+  return { 
+    success: true, 
+    configured: data.verified === true
+  };
 }
