@@ -36,6 +36,7 @@ type Message = {
   content: string;
   type: "text" | "plan";
   plan?: AIThinkingResponse;
+  mutations?: BuilderMutation[];
   applied?: boolean;
 };
 
@@ -115,6 +116,8 @@ export default function AIBuilderPanel({
           role: "assistant",
           content: data.explanation,
           type: "text",
+          mutations: data.mutations,
+          applied: true,
         };
         setMessages(prev => [...prev, assistantMessage]);
         
@@ -353,6 +356,24 @@ export default function AIBuilderPanel({
                         Applied
                       </p>
                     )}
+                  </div>
+                )}
+
+                {message.type === "text" && message.role === "assistant" && message.mutations && message.mutations.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 text-xs"
+                        onClick={() => applyPlan(message.id, message.mutations!)}
+                        disabled={isLoading}
+                        data-testid="button-reapply-changes"
+                      >
+                        <Zap className="w-3 h-3" />
+                        Apply Again ({message.mutations.length} changes)
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
