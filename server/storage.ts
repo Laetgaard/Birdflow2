@@ -165,6 +165,12 @@ export interface IStorage {
   // Shipping config
   getShippingConfig(websiteId: string): Promise<ShippingConfig | undefined>;
   createOrUpdateShippingConfig(config: InsertShippingConfig): Promise<ShippingConfig>;
+
+  // Inventory methods
+  updateProductStock(productId: string, websiteId: string, quantity: number): Promise<Product | undefined>;
+  decrementStock(websiteId: string, items: Array<{ productId: string; quantity: number }>): Promise<{ success: boolean; errors?: string[] }>;
+  checkStockAvailability(websiteId: string, items: Array<{ productId: string; quantity: number }>): Promise<{ available: boolean; outOfStock: Array<{ productId: string; name: string; requested: number; available: number }> }>;
+  decrementProductStock(productId: string, quantity: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -618,6 +624,94 @@ export class DatabaseStorage implements IStorage {
       const result = await db.insert(shippingConfig).values(config as any).returning();
       return result[0];
     }
+  }
+
+  // Inventory methods
+  async updateProductStock(productId: string, websiteId: string, quantity: number): Promise<Product | undefined> {
+    const result = await db
+      .update(products)
+      .set({ stockQuantity: quantity, updatedAt: new Date() } as any)
+      .where(and(eq(products.id, productId), eq(products.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async decrementStock(websiteId: string, items: Array<{ productId: string; quantity: number }>): Promise<{ success: boolean; errors?: string[] }> {
+    const errors: string[] = [];
+    
+    for (const item of items) {
+      const product = await this.getProduct(item.productId, websiteId);
+      if (!product) {
+        errors.push(`Product ${item.productId} not found`);
+        continue;
+      }
+      
+      if (!product.trackInventory) {
+        continue;
+      }
+      
+      if (product.stockQuantity < item.quantity) {
+        errors.push(`Insufficient stock for ${product.name}: requested ${item.quantity}, available ${product.stockQuantity}`);
+        continue;
+      }
+      
+      await db
+        .update(products)
+        .set({ 
+          stockQuantity: product.stockQuantity - item.quantity,
+          updatedAt: new Date() 
+        } as any)
+        .where(and(eq(products.id, item.productId), eq(products.websiteId, websiteId)));
+    }
+    
+    return { success: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
+  }
+
+  async checkStockAvailability(websiteId: string, items: Array<{ productId: string; quantity: number }>): Promise<{ available: boolean; outOfStock: Array<{ productId: string; name: string; requested: number; available: number }> }> {
+    const outOfStock: Array<{ productId: string; name: string; requested: number; available: number }> = [];
+    
+    for (const item of items) {
+      const product = await this.getProduct(item.productId, websiteId);
+      if (!product) {
+        outOfStock.push({ productId: item.productId, name: 'Unknown product', requested: item.quantity, available: 0 });
+        continue;
+      }
+      
+      if (!product.trackInventory) {
+        continue;
+      }
+      
+      if (product.stockQuantity < item.quantity) {
+        outOfStock.push({ 
+          productId: item.productId, 
+          name: product.name, 
+          requested: item.quantity, 
+          available: product.stockQuantity 
+        });
+      }
+    }
+    
+    return { available: outOfStock.length === 0, outOfStock };
+  }
+
+  async decrementProductStock(productId: string, quantity: number): Promise<void> {
+    const result = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+    const product = result[0];
+    
+    if (!product) {
+      console.warn(`Product ${productId} not found for stock decrement`);
+      return;
+    }
+    
+    if (!product.trackInventory) {
+      return;
+    }
+    
+    const newQuantity = Math.max(0, product.stockQuantity - quantity);
+    await db
+      .update(products)
+      .set({ stockQuantity: newQuantity, updatedAt: new Date() } as any)
+      .where(eq(products.id, productId));
   }
 }
 

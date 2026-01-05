@@ -1088,6 +1088,7 @@ export async function registerRoutes(
           id: item.productId,
           name: item.name,
           price: item.price,
+          priceCents: Math.round(item.price * 100),
           quantity: item.quantity,
         })),
         shippingMethodId: shippingMethodId || null,
@@ -1099,6 +1100,299 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error('Public checkout error:', error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Multi-step checkout: Step 1 - Validate cart and customer info
+  app.post("/api/public/websites/:id/checkout/validate", async (req, res) => {
+    try {
+      const websiteId = req.params.id;
+      const { items, customerEmail, customerName, customerPhone, shippingAddress } = req.body;
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, message: "Cart is empty" });
+      }
+
+      if (!customerEmail || !customerEmail.includes('@')) {
+        return res.status(400).json({ success: false, message: "Valid email is required", field: "customerEmail" });
+      }
+
+      if (!customerName || customerName.trim().length < 2) {
+        return res.status(400).json({ success: false, message: "Name is required", field: "customerName" });
+      }
+
+      const validatedItems: Array<{
+        productId: string;
+        name: string;
+        price: number;
+        priceCents: number;
+        quantity: number;
+        currency: string;
+        trackInventory: boolean;
+        stockQuantity: number;
+      }> = [];
+      let primaryCurrency: string | null = null;
+
+      for (const item of items) {
+        const product = await storage.getProduct(item.productId);
+        if (!product) {
+          return res.status(400).json({ success: false, message: `Product not found: ${item.productId}` });
+        }
+        if (product.websiteId !== websiteId) {
+          return res.status(400).json({ success: false, message: "Invalid product" });
+        }
+        if (product.status !== 'active') {
+          return res.status(400).json({ success: false, message: `Product not available: ${product.name}` });
+        }
+
+        const productCurrency = product.currency || 'USD';
+        if (primaryCurrency === null) {
+          primaryCurrency = productCurrency;
+        } else if (primaryCurrency !== productCurrency) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot checkout products with different currencies`
+          });
+        }
+
+        const priceNum = parseFloat(product.price);
+        validatedItems.push({
+          productId: product.id,
+          name: product.name,
+          price: priceNum,
+          priceCents: Math.round(priceNum * 100),
+          quantity: Math.max(1, Math.floor(item.quantity || 1)),
+          currency: productCurrency,
+          trackInventory: product.trackInventory,
+          stockQuantity: product.stockQuantity,
+        });
+      }
+
+      const stockCheck = await storage.checkStockAvailability(
+        websiteId,
+        validatedItems.map(i => ({ productId: i.productId, quantity: i.quantity }))
+      );
+
+      if (!stockCheck.available) {
+        return res.status(400).json({
+          success: false,
+          message: "Some items are out of stock",
+          outOfStock: stockCheck.outOfStock,
+        });
+      }
+
+      const subtotalCents = validatedItems.reduce((sum, item) => sum + (item.priceCents * item.quantity), 0);
+
+      res.json({
+        success: true,
+        validatedItems,
+        subtotalCents,
+        currency: primaryCurrency || 'USD',
+        customer: { email: customerEmail, name: customerName, phone: customerPhone },
+        shippingAddress,
+      });
+    } catch (error: any) {
+      console.error('Checkout validate error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Multi-step checkout: Step 2 - Get shipping options
+  app.post("/api/public/websites/:id/checkout/shipping-options", async (req, res) => {
+    try {
+      const websiteId = req.params.id;
+      const { subtotalCents, shippingAddress } = req.body;
+
+      const shippingMethods = await storage.getActiveShippingMethods(websiteId);
+      const shippingConfig = await storage.getShippingConfig(websiteId);
+
+      const shippingOptions = shippingMethods.map(method => ({
+        id: method.id,
+        name: method.name,
+        description: method.description,
+        priceCents: method.priceAmount,
+        deliveryTime: method.deliveryTime,
+      }));
+
+      res.json({
+        success: true,
+        shippingOptions,
+        shippingMode: shippingConfig?.mode || 'manual',
+      });
+    } catch (error: any) {
+      console.error('Shipping options error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Multi-step checkout: Step 3 - Confirm order and redirect to payment
+  app.post("/api/public/websites/:id/checkout/confirm", async (req, res) => {
+    try {
+      const websiteId = req.params.id;
+      const {
+        items,
+        customerEmail,
+        customerName,
+        customerPhone,
+        shippingAddress,
+        shippingMethodId,
+      } = req.body;
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, message: "Cart is empty" });
+      }
+
+      if (!customerEmail) {
+        return res.status(400).json({ success: false, message: "Email is required" });
+      }
+
+      const validatedItems: Array<{
+        productId: string;
+        name: string;
+        price: number;
+        priceCents: number;
+        quantity: number;
+        currency: string;
+      }> = [];
+      let primaryCurrency: string | null = null;
+
+      for (const item of items) {
+        const product = await storage.getProduct(item.productId);
+        if (!product || product.websiteId !== websiteId || product.status !== 'active') {
+          return res.status(400).json({ success: false, message: `Invalid product: ${item.productId}` });
+        }
+
+        const productCurrency = product.currency || 'USD';
+        if (primaryCurrency === null) {
+          primaryCurrency = productCurrency;
+        } else if (primaryCurrency !== productCurrency) {
+          return res.status(400).json({ success: false, message: "Currency mismatch" });
+        }
+
+        const priceNum = parseFloat(product.price);
+        validatedItems.push({
+          productId: product.id,
+          name: product.name,
+          price: priceNum,
+          priceCents: Math.round(priceNum * 100),
+          quantity: Math.max(1, Math.floor(item.quantity || 1)),
+          currency: productCurrency,
+        });
+      }
+
+      const stockCheck = await storage.checkStockAvailability(
+        websiteId,
+        validatedItems.map(i => ({ productId: i.productId, quantity: i.quantity }))
+      );
+
+      if (!stockCheck.available) {
+        return res.status(400).json({
+          success: false,
+          message: "Some items are out of stock",
+          outOfStock: stockCheck.outOfStock,
+        });
+      }
+
+      let shippingMethod = null;
+      let shippingCostCents = 0;
+      if (shippingMethodId) {
+        shippingMethod = await storage.getShippingMethod(shippingMethodId, websiteId);
+        if (shippingMethod) {
+          shippingCostCents = shippingMethod.priceAmount;
+        }
+      }
+
+      const subtotalCents = validatedItems.reduce((sum, item) => sum + (item.priceCents * item.quantity), 0);
+      const totalAmountCents = subtotalCents + shippingCostCents;
+
+      const stripe = await getUncachableStripeClient();
+      const stripeCurrency = (primaryCurrency || 'USD').toLowerCase();
+
+      const lineItems = validatedItems.map(item => ({
+        price_data: {
+          currency: stripeCurrency,
+          product_data: {
+            name: item.name,
+            metadata: { productId: item.productId },
+          },
+          unit_amount: item.priceCents,
+        },
+        quantity: item.quantity,
+      }));
+
+      if (shippingMethod && shippingCostCents > 0) {
+        lineItems.push({
+          price_data: {
+            currency: stripeCurrency,
+            product_data: {
+              name: `Shipping: ${shippingMethod.name}`,
+              metadata: { productId: 'shipping' },
+            },
+            unit_amount: shippingCostCents,
+          },
+          quantity: 1,
+        });
+      }
+
+      const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || '';
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: lineItems,
+        mode: 'payment',
+        success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&website=${websiteId}`,
+        cancel_url: `${origin}/checkout/cancel?website=${websiteId}`,
+        customer_email: customerEmail,
+        metadata: {
+          websiteId,
+          itemsJson: JSON.stringify(validatedItems),
+        },
+      });
+
+      const stockResult = await storage.decrementStock(
+        websiteId,
+        validatedItems.map(i => ({ productId: i.productId, quantity: i.quantity }))
+      );
+
+      if (!stockResult.success) {
+        console.warn('Stock decrement warnings:', stockResult.errors);
+      }
+
+      await storage.createOrder({
+        websiteId,
+        customerName: customerName || customerEmail?.split('@')[0] || 'Customer',
+        customerEmail,
+        customerPhone: customerPhone || null,
+        status: 'pending',
+        paymentStatus: 'pending',
+        stripeSessionId: session.id,
+        total: (totalAmountCents / 100).toFixed(2),
+        totalAmountCents,
+        subtotalCents,
+        shippingCostCents,
+        currency: primaryCurrency || 'USD',
+        items: validatedItems.map(item => ({
+          id: item.productId,
+          name: item.name,
+          price: item.price,
+          priceCents: item.priceCents,
+          quantity: item.quantity,
+        })),
+        shippingAddress: shippingAddress || null,
+        shippingMethodId: shippingMethodId || null,
+        shippingName: shippingMethod?.name || null,
+        shippingPrice: shippingMethod ? String(shippingCostCents) : null,
+      });
+
+      res.json({
+        success: true,
+        checkoutUrl: session.url,
+        sessionId: session.id,
+        totalAmountCents,
+      });
+    } catch (error: any) {
+      console.error('Checkout confirm error:', error);
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 
@@ -1194,6 +1488,7 @@ export async function registerRoutes(
           id: item.productId,
           name: item.name,
           price: item.price,
+          priceCents: Math.round(item.price * 100),
           quantity: item.quantity,
         })),
       });

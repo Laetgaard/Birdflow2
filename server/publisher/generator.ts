@@ -26,6 +26,9 @@ import {
   generateGlobalsCss,
   generatePageFile,
   generateCheckoutApiRoute,
+  generateCheckoutValidateApiRoute,
+  generateCheckoutConfirmApiRoute,
+  generateStripeWebhookApiRoute,
   generateBookingApiRoute,
   generateBookingServicesApiRoute,
   generateProductApiRoute,
@@ -47,6 +50,9 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   await fs.promises.mkdir(outputDir, { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout', 'create-session'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout', 'validate'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout', 'confirm'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'webhook', 'stripe'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'bookings'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'booking-services'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'products'), { recursive: true });
@@ -83,6 +89,9 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/layout.tsx', content: generateRootLayout(siteName) },
     { path: 'app/globals.css', content: generateGlobalsCss() },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
+    { path: 'app/api/checkout/validate/route.ts', content: generateCheckoutValidateApiRoute(websiteId) },
+    { path: 'app/api/checkout/confirm/route.ts', content: generateCheckoutConfirmApiRoute(websiteId) },
+    { path: 'app/api/webhook/stripe/route.ts', content: generateStripeWebhookApiRoute(websiteId) },
     { path: 'app/api/bookings/route.ts', content: generateBookingApiRoute(websiteId) },
     { path: 'app/api/booking-services/route.ts', content: generateBookingServicesApiRoute(websiteId) },
     { path: 'app/api/products/route.ts', content: generateProductApiRoute(websiteId) },
