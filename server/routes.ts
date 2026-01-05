@@ -1532,14 +1532,24 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Supabase not configured" });
       }
 
-      // Fetch Stripe secret key from Replit connector
+      // Fetch payment settings for this website (owner's own Stripe credentials)
       let stripeSecretKey: string | undefined;
+      let stripePublishableKey: string | undefined;
+      let stripeWebhookSecret: string | undefined;
       let stripeWarning: string | undefined;
-      try {
-        stripeSecretKey = await getStripeSecretKey();
-      } catch (err) {
-        console.log('Stripe not configured - checkout will not work on published site');
-        stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Configure Stripe in the integrations panel to enable payments.';
+      
+      const paymentSettings = await storage.getPaymentSettings(req.params.id);
+      if (paymentSettings?.isConnected && paymentSettings.stripeSecretKey) {
+        stripeSecretKey = paymentSettings.stripeSecretKey;
+        stripePublishableKey = paymentSettings.stripePublishableKey || undefined;
+        stripeWebhookSecret = paymentSettings.stripeWebhookSecret || undefined;
+        
+        if (paymentSettings.testMode) {
+          stripeWarning = 'Your Stripe account is connected with test mode keys. Switch to live keys in Payment Settings to accept real payments.';
+        }
+      } else {
+        console.log('No Stripe payment settings configured for website', req.params.id);
+        stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Connect your Stripe account in Payment Settings to enable payments.';
       }
 
       const result = await publishWebsite({
@@ -1550,6 +1560,8 @@ export async function registerRoutes(
         supabaseAnonKey,
         supabaseServiceRoleKey: supabaseServiceRoleKey || '',
         stripeSecretKey,
+        stripePublishableKey,
+        stripeWebhookSecret,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
       });

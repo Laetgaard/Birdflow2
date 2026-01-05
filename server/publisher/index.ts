@@ -10,6 +10,8 @@ export type PublishConfig = {
   supabaseAnonKey: string;
   supabaseServiceRoleKey: string;
   stripeSecretKey?: string;
+  stripePublishableKey?: string;
+  stripeWebhookSecret?: string;
   vercelToken: string;
   vercelTeamId?: string;
   customDomain?: string;
@@ -52,6 +54,14 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     
     if (config.stripeSecretKey) {
       envVars.STRIPE_SECRET_KEY = config.stripeSecretKey;
+    }
+    
+    if (config.stripePublishableKey) {
+      envVars.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = config.stripePublishableKey;
+    }
+    
+    if (config.stripeWebhookSecret) {
+      envVars.STRIPE_WEBHOOK_SECRET = config.stripeWebhookSecret;
     }
     
     await setProjectEnvVars(projectId, vercelConfig, envVars);
