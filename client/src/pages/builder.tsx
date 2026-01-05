@@ -19,7 +19,8 @@ import {
   Globe, ArrowLeft, Loader2, Save, Eye, Upload,
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
-  Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2, ShoppingBag
+  Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2, ShoppingBag,
+  Undo2, Redo2
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -52,6 +53,9 @@ import {
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
+import FloatingToolbar from "@/components/builder/FloatingToolbar";
+import InspectorSidebar from "@/components/builder/InspectorSidebar";
+import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
 import { 
   createHistory, 
   pushHistory, 
@@ -481,6 +485,41 @@ export default function BuilderPage() {
     updateStateWithHistory(newState, `Move component ${direction}`);
   };
 
+  const duplicateComponent = useCallback((componentId: string) => {
+    if (!builderState) return;
+
+    const activePage = builderState.pages.find(p => p.id === builderState.activePage);
+    if (!activePage) return;
+
+    const componentIndex = activePage.components.findIndex(c => c.id === componentId);
+    if (componentIndex === -1) return;
+
+    const originalComponent = activePage.components[componentIndex];
+    const duplicatedComponent: BuilderComponentData = {
+      ...originalComponent,
+      id: `${originalComponent.type}-${Date.now()}`,
+      props: { ...originalComponent.props },
+      styles: { ...originalComponent.styles },
+    };
+
+    const newComponents = [...activePage.components];
+    newComponents.splice(componentIndex + 1, 0, duplicatedComponent);
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map(page =>
+        page.id === builderState.activePage ? { ...page, components: newComponents } : page
+      ),
+    };
+
+    updateStateWithHistory(newState, `Duplicate component`);
+    setSelectedComponentId(duplicatedComponent.id);
+  }, [builderState, updateStateWithHistory]);
+
+  const handleSelectionUpdate = useCallback((componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
+    updateComponent(componentId, updates);
+  }, []);
+
   const selectedComponent = (() => {
     if (!builderState || !selectedComponentId) return null;
     const activePage = builderState.pages.find(p => p.id === builderState.activePage);
@@ -632,6 +671,32 @@ export default function BuilderPage() {
 
         <div className="flex-1" />
 
+        {/* Undo/Redo */}
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleUndo}
+            disabled={!history || !canUndo(history)}
+            title="Undo"
+            data-testid="button-undo"
+          >
+            <Undo2 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRedo}
+            disabled={!history || !canRedo(history)}
+            title="Redo"
+            data-testid="button-redo"
+          >
+            <Redo2 className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <Separator orientation="vertical" className="h-6" />
+
         {/* Device Switcher */}
         <div className="flex items-center bg-muted rounded-lg p-1">
           <Button variant={device === 'desktop' ? 'secondary' : 'ghost'} size="sm" onClick={() => setDevice('desktop')} data-testid="button-desktop">
@@ -758,49 +823,67 @@ export default function BuilderPage() {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Canvas / Preview */}
-        <main className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center" onClick={() => setSelectedComponentId(null)}>
-          <div 
-            className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
-            style={{ 
-              width: `${DEVICE_WIDTHS[device]}px`, 
-              maxWidth: '100%',
-              minHeight: '600px',
-              borderRadius: device === 'mobile' ? '24px' : '8px',
-            }}
+        <BuilderSelectionProvider
+          isBuilderMode={true}
+          selectedId={selectedComponentId}
+          onSelectChange={(id) => {
+            setSelectedComponentId(id);
+            if (id) setSidebarTab("properties");
+          }}
+          components={activePage?.components}
+          onUpdateComponent={handleSelectionUpdate}
+          onDeleteComponent={deleteComponent}
+          onDuplicateComponent={duplicateComponent}
+          onMoveComponent={moveComponent}
+        >
+          {/* Canvas / Preview */}
+          <main 
+            className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center" 
+            onClick={() => setSelectedComponentId(null)}
+            data-preview-area
           >
-            {activePage?.components.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
-                <Layout className="w-16 h-16 mb-4 opacity-30" />
-                <p className="text-lg font-medium mb-2">No components yet</p>
-                <p className="text-sm text-center mb-4">Add components from the sidebar to start building your page.</p>
-                <Button variant="outline" onClick={() => setSidebarTab("components")}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Component
-                </Button>
-              </div>
-            ) : (
-              activePage?.components.map(comp => (
-                <ComponentRenderer 
-                  key={comp.id}
-                  component={comp}
-                  isSelected={selectedComponentId === comp.id}
-                  onClick={() => {
-                    setSelectedComponentId(comp.id);
-                    setSidebarTab("properties");
-                  }}
-                  websiteId={id}
-                  pages={builderState?.pages}
-                  onTextChange={handleTextChange(comp.id)}
-                  editingField={selectedComponentId === comp.id ? editingField : null}
-                  onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
-                  onImageResize={(width, height) => updateComponent(comp.id, { props: { imageWidth: width, imageHeight: height } })}
-                  onStyleChange={(styles) => updateComponent(comp.id, { styles })}
-                />
-              ))
-            )}
-          </div>
-        </main>
+            <div 
+              className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
+              style={{ 
+                width: `${DEVICE_WIDTHS[device]}px`, 
+                maxWidth: '100%',
+                minHeight: '600px',
+                borderRadius: device === 'mobile' ? '24px' : '8px',
+              }}
+            >
+              {activePage?.components.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
+                  <Layout className="w-16 h-16 mb-4 opacity-30" />
+                  <p className="text-lg font-medium mb-2">No components yet</p>
+                  <p className="text-sm text-center mb-4">Add components from the sidebar to start building your page.</p>
+                  <Button variant="outline" onClick={() => setSidebarTab("components")}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Component
+                  </Button>
+                </div>
+              ) : (
+                activePage?.components.map(comp => (
+                  <ComponentRenderer 
+                    key={comp.id}
+                    component={comp}
+                    isSelected={selectedComponentId === comp.id}
+                    onClick={() => {
+                      setSelectedComponentId(comp.id);
+                      setSidebarTab("properties");
+                    }}
+                    websiteId={id}
+                    pages={builderState?.pages}
+                    onTextChange={handleTextChange(comp.id)}
+                    editingField={selectedComponentId === comp.id ? editingField : null}
+                    onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
+                    onImageResize={(width, height) => updateComponent(comp.id, { props: { imageWidth: width, imageHeight: height } })}
+                    onStyleChange={(styles) => updateComponent(comp.id, { styles })}
+                  />
+                ))
+              )}
+            </div>
+          </main>
+          <FloatingToolbar />
 
         {/* Right Sidebar */}
         <aside className="w-80 border-l bg-card flex flex-col shrink-0">
@@ -888,6 +971,7 @@ export default function BuilderPage() {
             </TabsContent>
           </Tabs>
         </aside>
+        </BuilderSelectionProvider>
       </div>
 
       {/* Create Page Dialog */}

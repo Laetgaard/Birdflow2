@@ -921,9 +921,10 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     pages,
   };
 
-  const wrapperProps = {
+  const wrapperProps: React.HTMLAttributes<HTMLDivElement> & { 'data-testid': string; 'data-component-type': string; 'data-element-id': string } = {
     'data-testid': `component-${component.id}`,
     'data-component-type': component.type,
+    'data-element-id': component.id,
   };
 
   switch (component.type) {
