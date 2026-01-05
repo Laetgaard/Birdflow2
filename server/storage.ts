@@ -14,7 +14,8 @@ import {
   products, type Product, type InsertProduct,
   mediaAssets, type MediaAsset, type InsertMediaAsset,
   bookingServices, type BookingService, type InsertBookingService,
-  customDomains, type CustomDomain, type InsertCustomDomain
+  customDomains, type CustomDomain, type InsertCustomDomain,
+  shippingMethods, type ShippingMethod, type InsertShippingMethod
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
@@ -143,6 +144,14 @@ export interface IStorage {
   updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined>;
   deleteCustomDomain(domainId: string, websiteId: string): Promise<boolean>;
   getWebsiteByCustomDomain(domain: string): Promise<Website | undefined>;
+  
+  // Shipping methods
+  getShippingMethods(websiteId: string): Promise<ShippingMethod[]>;
+  getActiveShippingMethods(websiteId: string): Promise<ShippingMethod[]>;
+  getShippingMethod(id: string, websiteId: string): Promise<ShippingMethod | undefined>;
+  createShippingMethod(method: InsertShippingMethod): Promise<ShippingMethod>;
+  updateShippingMethod(id: string, websiteId: string, data: Partial<InsertShippingMethod>): Promise<ShippingMethod | undefined>;
+  deleteShippingMethod(id: string, websiteId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -501,6 +510,46 @@ export class DatabaseStorage implements IStorage {
       return undefined;
     }
     return this.getWebsite(customDomain.websiteId);
+  }
+
+  // Shipping methods
+  async getShippingMethods(websiteId: string): Promise<ShippingMethod[]> {
+    return db.select().from(shippingMethods).where(eq(shippingMethods.websiteId, websiteId));
+  }
+
+  async getActiveShippingMethods(websiteId: string): Promise<ShippingMethod[]> {
+    return db.select().from(shippingMethods).where(
+      and(eq(shippingMethods.websiteId, websiteId), eq(shippingMethods.isActive, true))
+    );
+  }
+
+  async getShippingMethod(id: string, websiteId: string): Promise<ShippingMethod | undefined> {
+    const result = await db.select().from(shippingMethods)
+      .where(and(eq(shippingMethods.id, id), eq(shippingMethods.websiteId, websiteId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createShippingMethod(method: InsertShippingMethod): Promise<ShippingMethod> {
+    const result = await db.insert(shippingMethods).values(method as any).returning();
+    return result[0];
+  }
+
+  async updateShippingMethod(id: string, websiteId: string, data: Partial<InsertShippingMethod>): Promise<ShippingMethod | undefined> {
+    const result = await db
+      .update(shippingMethods)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(shippingMethods.id, id), eq(shippingMethods.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteShippingMethod(id: string, websiteId: string): Promise<boolean> {
+    const result = await db
+      .delete(shippingMethods)
+      .where(and(eq(shippingMethods.id, id), eq(shippingMethods.websiteId, websiteId)))
+      .returning();
+    return result.length > 0;
   }
 }
 
