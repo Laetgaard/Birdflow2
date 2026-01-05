@@ -964,7 +964,7 @@ export async function registerRoutes(
   app.post("/api/public/websites/:id/checkout", async (req, res) => {
     try {
       const websiteId = req.params.id;
-      const { items, customerEmail, customerName } = req.body;
+      const { items, customerEmail, customerName, shippingMethodId, shippingName, shippingPrice } = req.body;
       
       if (!items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ message: "Cart is empty" });
@@ -1021,7 +1021,14 @@ export async function registerRoutes(
       // Convert currency code to lowercase for Stripe
       const stripeCurrency = primaryCurrency.toLowerCase();
 
-      const lineItems = validatedItems.map(item => ({
+      const lineItems: Array<{
+        price_data: {
+          currency: string;
+          product_data: { name: string; metadata?: Record<string, string> };
+          unit_amount: number;
+        };
+        quantity: number;
+      }> = validatedItems.map(item => ({
         price_data: {
           currency: stripeCurrency,
           product_data: {
@@ -1032,6 +1039,24 @@ export async function registerRoutes(
         },
         quantity: item.quantity,
       }));
+
+      // Add shipping as a line item if present
+      if (shippingName && typeof shippingPrice === 'number' && shippingPrice > 0) {
+        lineItems.push({
+          price_data: {
+            currency: stripeCurrency,
+            product_data: {
+              name: `Shipping: ${shippingName}`,
+            },
+            unit_amount: shippingPrice,
+          },
+          quantity: 1,
+        });
+      }
+
+      // Calculate total including shipping
+      const shippingAmount = typeof shippingPrice === 'number' ? shippingPrice / 100 : 0;
+      const totalWithShipping = total + shippingAmount;
 
       // Determine URLs based on request origin
       const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || '';
@@ -1049,7 +1074,7 @@ export async function registerRoutes(
         },
       });
 
-      // Create order with pending payment status
+      // Create order with pending payment status (including shipping snapshot)
       await storage.createOrder({
         websiteId,
         customerName: customerName || customerEmail?.split('@')[0] || 'Customer',
@@ -1057,7 +1082,7 @@ export async function registerRoutes(
         status: 'pending',
         paymentStatus: 'pending',
         stripeSessionId: session.id,
-        total: total.toFixed(2),
+        total: totalWithShipping.toFixed(2),
         currency: primaryCurrency,
         items: validatedItems.map(item => ({
           id: item.productId,
@@ -1065,6 +1090,9 @@ export async function registerRoutes(
           price: item.price,
           quantity: item.quantity,
         })),
+        shippingMethodId: shippingMethodId || null,
+        shippingName: shippingName || null,
+        shippingPrice: typeof shippingPrice === 'number' ? String(shippingPrice) : null,
       });
 
       res.json({ url: session.url, sessionId: session.id });
@@ -1915,6 +1943,130 @@ export async function registerRoutes(
 
       await storage.deleteCustomDomain(req.params.domainId, req.params.id);
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ SHIPPING METHODS ROUTES ============
+
+  // List all shipping methods for a website
+  app.get("/api/websites/:id/shipping-methods", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const methods = await storage.getShippingMethods(req.params.id);
+      res.json(methods);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a new shipping method
+  app.post("/api/websites/:id/shipping-methods", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { name, description, priceAmount, currency, deliveryTime, isActive, sortOrder } = req.body;
+      if (!name) {
+        return res.status(400).json({ message: "Name is required" });
+      }
+
+      const method = await storage.createShippingMethod({
+        websiteId: req.params.id,
+        name,
+        description: description || null,
+        priceAmount: priceAmount ?? 0,
+        currency: currency || "USD",
+        deliveryTime: deliveryTime || null,
+        isActive: isActive ?? true,
+        sortOrder: sortOrder ?? 0
+      });
+
+      res.status(201).json(method);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update a shipping method
+  app.patch("/api/websites/:id/shipping-methods/:methodId", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const existing = await storage.getShippingMethod(req.params.methodId, req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Shipping method not found" });
+      }
+
+      const { name, description, priceAmount, currency, deliveryTime, isActive, sortOrder } = req.body;
+      const updated = await storage.updateShippingMethod(req.params.methodId, req.params.id, {
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+        ...(priceAmount !== undefined && { priceAmount }),
+        ...(currency !== undefined && { currency }),
+        ...(deliveryTime !== undefined && { deliveryTime }),
+        ...(isActive !== undefined && { isActive }),
+        ...(sortOrder !== undefined && { sortOrder })
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a shipping method
+  app.delete("/api/websites/:id/shipping-methods/:methodId", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const existing = await storage.getShippingMethod(req.params.methodId, req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Shipping method not found" });
+      }
+
+      await storage.deleteShippingMethod(req.params.methodId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Public endpoint: Get active shipping methods for checkout
+  app.get("/api/public/websites/:id/shipping-methods", async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      const methods = await storage.getActiveShippingMethods(req.params.id);
+      res.json(methods);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
