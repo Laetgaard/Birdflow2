@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, serial, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -185,6 +185,9 @@ export const orders = pgTable("orders", {
   currency: text("currency").notNull().default("USD"),
   items: jsonb("items").$type<Array<{ id: string; name: string; quantity: number; price: number }>>(),
   shippingAddress: jsonb("shipping_address").$type<{ street: string; city: string; state: string; zip: string; country: string }>(),
+  shippingMethodId: varchar("shipping_method_id"),
+  shippingName: text("shipping_name"),
+  shippingPrice: text("shipping_price"),
   metadata: jsonb("metadata").$type<Record<string, any>>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -399,5 +402,29 @@ export type InsertCustomDomain = z.infer<typeof insertCustomDomainSchema>;
 export type CustomDomain = typeof customDomains.$inferSelect;
 
 export type DomainStatus = 'pending' | 'verifying' | 'active' | 'error';
+
+// Shipping methods table (for ecommerce delivery options)
+export const shippingMethods = pgTable("shipping_methods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  priceAmount: integer("price_amount").notNull().default(0), // Price in minor units (cents)
+  currency: text("currency").notNull().default("USD"),
+  deliveryTime: text("delivery_time"), // e.g., "3-5 business days"
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertShippingMethodSchema = createInsertSchema(shippingMethods).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertShippingMethod = z.infer<typeof insertShippingMethodSchema>;
+export type ShippingMethod = typeof shippingMethods.$inferSelect;
 
 export * from "./models/chat";
