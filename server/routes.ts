@@ -2541,6 +2541,148 @@ export async function registerRoutes(
     }
   });
 
+  // Payment settings routes
+  app.get("/api/websites/:id/payment-settings", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const settings = await storage.getPaymentSettings(req.params.id);
+      if (!settings) {
+        return res.json({ 
+          websiteId: req.params.id,
+          isConnected: false,
+          testMode: true 
+        });
+      }
+
+      // Mask sensitive keys
+      res.json({
+        ...settings,
+        stripePublishableKey: settings.stripePublishableKey ? `${settings.stripePublishableKey.substring(0, 12)}...` : null,
+        stripeSecretKey: settings.stripeSecretKey ? '••••••••••••••••••••' : null,
+        stripeWebhookSecret: settings.stripeWebhookSecret ? '••••••••••••••••••••' : null,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/websites/:id/payment-settings", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { stripePublishableKey, stripeSecretKey, stripeWebhookSecret, testMode } = req.body;
+      
+      if (!stripePublishableKey || !stripeSecretKey) {
+        return res.status(400).json({ message: "Stripe publishable and secret keys are required" });
+      }
+
+      // Validate the keys format
+      const isTestKey = stripeSecretKey.startsWith('sk_test_');
+      const isLiveKey = stripeSecretKey.startsWith('sk_live_');
+      if (!isTestKey && !isLiveKey) {
+        return res.status(400).json({ message: "Invalid Stripe secret key format" });
+      }
+
+      const publishableIsTest = stripePublishableKey.startsWith('pk_test_');
+      const publishableIsLive = stripePublishableKey.startsWith('pk_live_');
+      if (!publishableIsTest && !publishableIsLive) {
+        return res.status(400).json({ message: "Invalid Stripe publishable key format" });
+      }
+
+      // Check key modes match
+      if ((isTestKey && publishableIsLive) || (isLiveKey && publishableIsTest)) {
+        return res.status(400).json({ message: "Stripe keys must be from the same mode (both test or both live)" });
+      }
+
+      // Verify keys by making a test request to Stripe
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(stripeSecretKey);
+      
+      try {
+        await stripe.balance.retrieve();
+      } catch (stripeError: any) {
+        return res.status(400).json({ 
+          message: "Invalid Stripe credentials. Please check your API keys.",
+          details: stripeError.message 
+        });
+      }
+
+      const existing = await storage.getPaymentSettings(req.params.id);
+      
+      if (existing) {
+        const updated = await storage.updatePaymentSettings(req.params.id, {
+          stripePublishableKey,
+          stripeSecretKey,
+          stripeWebhookSecret: stripeWebhookSecret || null,
+          testMode: isTestKey,
+          isConnected: true,
+        });
+        res.json({
+          ...updated,
+          stripePublishableKey: stripePublishableKey ? `${stripePublishableKey.substring(0, 12)}...` : null,
+          stripeSecretKey: '••••••••••••••••••••',
+          stripeWebhookSecret: stripeWebhookSecret ? '••••••••••••••••••••' : null,
+        });
+      } else {
+        const created = await storage.createPaymentSettings({
+          websiteId: req.params.id,
+          stripePublishableKey,
+          stripeSecretKey,
+          stripeWebhookSecret: stripeWebhookSecret || null,
+          testMode: isTestKey,
+          isConnected: true,
+        });
+        res.json({
+          ...created,
+          stripePublishableKey: stripePublishableKey ? `${stripePublishableKey.substring(0, 12)}...` : null,
+          stripeSecretKey: '••••••••••••••••••••',
+          stripeWebhookSecret: stripeWebhookSecret ? '••••••••••••••••••••' : null,
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/websites/:id/payment-settings", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const existing = await storage.getPaymentSettings(req.params.id);
+      if (existing) {
+        await storage.updatePaymentSettings(req.params.id, {
+          stripePublishableKey: null,
+          stripeSecretKey: null,
+          stripeWebhookSecret: null,
+          isConnected: false,
+        });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // AI Builder - Build mode (directly applies changes)
   app.post("/api/websites/:id/ai/build", requireAuth, async (req, res) => {
     try {
