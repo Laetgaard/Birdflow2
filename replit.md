@@ -119,6 +119,18 @@ Low-friction custom domain connection with minimal user steps:
 - **Security**: All domain routes verify website ownership; requires website to be published first.
 - **UI**: DomainsCard shows single DNS record with copy buttons, "Check Status" button polls Vercel.
 
+### Payment Settings (Website-Owned Stripe)
+Website owners can connect their own Stripe accounts for payment processing:
+- **Database Table**: `website_payment_settings` stores encrypted Stripe credentials per website.
+- **Encryption**: Sensitive keys (secret key, webhook secret) are encrypted using AES-256-CBC before storage.
+- **ENCRYPTION_KEY**: Environment variable required for encryption/decryption (64-char hex string).
+- **API Routes**: GET/POST/DELETE `/api/websites/:id/payment-settings` with owner verification.
+- **Key Validation**: Stripe keys are validated by making a test API call before saving.
+- **Test/Live Mode**: Automatically detects if keys are test or live mode based on key prefix.
+- **Publisher Integration**: Owner's Stripe keys are injected into Vercel environment variables during deployment.
+- **UI**: Settings tab shows connection status with dialog for entering API keys from Stripe Dashboard.
+- **Security**: Keys are masked in API responses; only the key prefix is shown to users.
+
 ### Deployment
 - **Vercel**: Hosts published Next.js sites via its REST API, including custom domain connections.
 
