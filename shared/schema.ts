@@ -482,6 +482,30 @@ export type ShippingConfig = typeof shippingConfig.$inferSelect;
 // Carrier types
 export type CarrierType = 'ups' | 'gls' | 'postnord';
 
+// Website payment settings (Stripe integration)
+export const websitePaymentSettings = pgTable("website_payment_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull().unique(),
+  stripePublishableKey: text("stripe_publishable_key"),
+  stripeSecretKey: text("stripe_secret_key"), // Stored encrypted
+  stripeWebhookSecret: text("stripe_webhook_secret"), // Stored encrypted
+  testMode: boolean("test_mode").notNull().default(true),
+  isConnected: boolean("is_connected").notNull().default(false),
+  connectedAt: timestamp("connected_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertWebsitePaymentSettingsSchema = createInsertSchema(websitePaymentSettings).omit({
+  id: true,
+  connectedAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertWebsitePaymentSettings = z.infer<typeof insertWebsitePaymentSettingsSchema>;
+export type WebsitePaymentSettings = typeof websitePaymentSettings.$inferSelect;
+
 export type ShippingRateRequest = {
   destinationAddress: {
     street?: string;
