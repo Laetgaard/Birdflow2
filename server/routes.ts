@@ -2072,6 +2072,180 @@ export async function registerRoutes(
     }
   });
 
+  // Shipping config routes
+  app.get("/api/websites/:id/shipping-config", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const config = await storage.getShippingConfig(req.params.id);
+      res.json(config || { mode: 'manual', websiteId: req.params.id });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/websites/:id/shipping-config", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { mode } = req.body;
+      
+      if (mode === 'live') {
+        const credentials = await storage.getCarrierCredentials(req.params.id);
+        const activeCredentials = credentials.filter(c => c.isActive);
+        if (activeCredentials.length === 0) {
+          return res.status(400).json({ 
+            message: "Cannot enable live carrier rates without at least one connected carrier. Please add and validate carrier credentials first." 
+          });
+        }
+      }
+
+      const config = await storage.createOrUpdateShippingConfig({
+        websiteId: req.params.id,
+        ...req.body,
+      });
+      res.json(config);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Shipping carrier credentials routes
+  app.get("/api/websites/:id/carrier-credentials", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const credentials = await storage.getCarrierCredentials(req.params.id);
+      const masked = credentials.map(c => ({
+        ...c,
+        credentials: Object.fromEntries(
+          Object.entries(c.credentials).map(([k, v]) => [k, '••••••••'])
+        ),
+      }));
+      res.json(masked);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/websites/:id/carrier-credentials", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { carrier, credentials, testMode = true } = req.body;
+      if (!carrier || !credentials) {
+        return res.status(400).json({ message: "Carrier and credentials are required" });
+      }
+
+      const { ShippingService } = await import('./shipping');
+      const isValid = await ShippingService.validateCredentials(carrier, credentials, testMode);
+      
+      const newCredential = await storage.createCarrierCredential({
+        websiteId: req.params.id,
+        carrier,
+        credentials,
+        testMode,
+        isActive: isValid,
+      });
+
+      res.json({
+        ...newCredential,
+        credentials: Object.fromEntries(
+          Object.entries(newCredential.credentials).map(([k, v]) => [k, '••••••••'])
+        ),
+        validated: isValid,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/websites/:id/carrier-credentials/:credentialId", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const existing = await storage.getCarrierCredential(req.params.credentialId, req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+
+      const updated = await storage.updateCarrierCredential(req.params.credentialId, req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ message: "Update failed" });
+      }
+
+      res.json({
+        ...updated,
+        credentials: Object.fromEntries(
+          Object.entries(updated.credentials).map(([k, v]) => [k, '••••••••'])
+        ),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/websites/:id/carrier-credentials/:credentialId", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      await storage.deleteCarrierCredential(req.params.credentialId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get available carriers info
+  app.get("/api/carriers", requireAuth, async (req, res) => {
+    try {
+      const { CARRIER_INFO, ShippingService } = await import('./shipping');
+      const carriers = Object.values(CARRIER_INFO).map(carrier => ({
+        ...carrier,
+        requiredCredentials: ShippingService.getRequiredCredentials(carrier.id),
+      }));
+      res.json(carriers);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // AI Builder - Build mode (directly applies changes)
   app.post("/api/websites/:id/ai/build", requireAuth, async (req, res) => {
     try {

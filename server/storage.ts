@@ -15,7 +15,9 @@ import {
   mediaAssets, type MediaAsset, type InsertMediaAsset,
   bookingServices, type BookingService, type InsertBookingService,
   customDomains, type CustomDomain, type InsertCustomDomain,
-  shippingMethods, type ShippingMethod, type InsertShippingMethod
+  shippingMethods, type ShippingMethod, type InsertShippingMethod,
+  shippingCarrierCredentials, type ShippingCarrierCredentials, type InsertShippingCarrierCredentials,
+  shippingConfig, type ShippingConfig, type InsertShippingConfig
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
@@ -152,6 +154,17 @@ export interface IStorage {
   createShippingMethod(method: InsertShippingMethod): Promise<ShippingMethod>;
   updateShippingMethod(id: string, websiteId: string, data: Partial<InsertShippingMethod>): Promise<ShippingMethod | undefined>;
   deleteShippingMethod(id: string, websiteId: string): Promise<boolean>;
+
+  // Shipping carrier credentials
+  getCarrierCredentials(websiteId: string): Promise<ShippingCarrierCredentials[]>;
+  getCarrierCredential(id: string, websiteId: string): Promise<ShippingCarrierCredentials | undefined>;
+  createCarrierCredential(credential: InsertShippingCarrierCredentials): Promise<ShippingCarrierCredentials>;
+  updateCarrierCredential(id: string, websiteId: string, data: Partial<InsertShippingCarrierCredentials>): Promise<ShippingCarrierCredentials | undefined>;
+  deleteCarrierCredential(id: string, websiteId: string): Promise<boolean>;
+
+  // Shipping config
+  getShippingConfig(websiteId: string): Promise<ShippingConfig | undefined>;
+  createOrUpdateShippingConfig(config: InsertShippingConfig): Promise<ShippingConfig>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -550,6 +563,61 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(shippingMethods.id, id), eq(shippingMethods.websiteId, websiteId)))
       .returning();
     return result.length > 0;
+  }
+
+  // Shipping carrier credentials methods
+  async getCarrierCredentials(websiteId: string): Promise<ShippingCarrierCredentials[]> {
+    return db.select().from(shippingCarrierCredentials).where(eq(shippingCarrierCredentials.websiteId, websiteId));
+  }
+
+  async getCarrierCredential(id: string, websiteId: string): Promise<ShippingCarrierCredentials | undefined> {
+    const result = await db.select().from(shippingCarrierCredentials)
+      .where(and(eq(shippingCarrierCredentials.id, id), eq(shippingCarrierCredentials.websiteId, websiteId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createCarrierCredential(credential: InsertShippingCarrierCredentials): Promise<ShippingCarrierCredentials> {
+    const result = await db.insert(shippingCarrierCredentials).values(credential as any).returning();
+    return result[0];
+  }
+
+  async updateCarrierCredential(id: string, websiteId: string, data: Partial<InsertShippingCarrierCredentials>): Promise<ShippingCarrierCredentials | undefined> {
+    const result = await db
+      .update(shippingCarrierCredentials)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(shippingCarrierCredentials.id, id), eq(shippingCarrierCredentials.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteCarrierCredential(id: string, websiteId: string): Promise<boolean> {
+    const result = await db
+      .delete(shippingCarrierCredentials)
+      .where(and(eq(shippingCarrierCredentials.id, id), eq(shippingCarrierCredentials.websiteId, websiteId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Shipping config methods
+  async getShippingConfig(websiteId: string): Promise<ShippingConfig | undefined> {
+    const result = await db.select().from(shippingConfig).where(eq(shippingConfig.websiteId, websiteId)).limit(1);
+    return result[0];
+  }
+
+  async createOrUpdateShippingConfig(config: InsertShippingConfig): Promise<ShippingConfig> {
+    const existing = await this.getShippingConfig(config.websiteId);
+    if (existing) {
+      const result = await db
+        .update(shippingConfig)
+        .set({ ...config, updatedAt: new Date() } as any)
+        .where(eq(shippingConfig.websiteId, config.websiteId))
+        .returning();
+      return result[0];
+    } else {
+      const result = await db.insert(shippingConfig).values(config as any).returning();
+      return result[0];
+    }
   }
 }
 

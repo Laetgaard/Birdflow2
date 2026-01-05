@@ -171,6 +171,30 @@ type ShippingMethod = {
   sortOrder: number;
 };
 
+type ShippingConfig = {
+  id?: string;
+  websiteId: string;
+  mode: 'manual' | 'live';
+  fallbackToManual: boolean;
+  defaultCarrier?: string;
+};
+
+type CarrierCredential = {
+  id: string;
+  websiteId: string;
+  carrier: string;
+  credentials: Record<string, string>;
+  testMode: boolean;
+  isActive: boolean;
+};
+
+type CarrierInfo = {
+  id: string;
+  name: string;
+  logo: string;
+  requiredCredentials: { key: string; label: string; type: string }[];
+};
+
 type CustomDomain = {
   id: string;
   domain: string;
@@ -747,6 +771,19 @@ export default function ManagePage() {
     sortOrder: 0,
   });
   
+  const [shippingConfig, setShippingConfig] = useState<ShippingConfig>({
+    websiteId: id || '',
+    mode: 'manual',
+    fallbackToManual: true,
+  });
+  const [carrierCredentials, setCarrierCredentials] = useState<CarrierCredential[]>([]);
+  const [availableCarriers, setAvailableCarriers] = useState<CarrierInfo[]>([]);
+  const [isCarrierDialogOpen, setIsCarrierDialogOpen] = useState(false);
+  const [selectedCarrier, setSelectedCarrier] = useState<string>('');
+  const [carrierForm, setCarrierForm] = useState<Record<string, string>>({});
+  const [carrierTestMode, setCarrierTestMode] = useState(true);
+  const [isSavingCarrier, setIsSavingCarrier] = useState(false);
+  
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled'>('all');
   const [bookingSearch, setBookingSearch] = useState('');
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -821,6 +858,24 @@ export default function ManagePage() {
           headers: { "Authorization": `Bearer ${session.access_token}` },
         });
         if (shippingRes.ok) setShippingMethods(await shippingRes.json());
+
+        const configRes = await fetch(`/api/websites/${id}/shipping-config`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (configRes.ok) {
+          const config = await configRes.json();
+          setShippingConfig({ ...config, websiteId: id });
+        }
+
+        const credentialsRes = await fetch(`/api/websites/${id}/carrier-credentials`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (credentialsRes.ok) setCarrierCredentials(await credentialsRes.json());
+
+        const carriersRes = await fetch(`/api/carriers`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (carriersRes.ok) setAvailableCarriers(await carriersRes.json());
 
       } catch (error: any) {
         toast({
@@ -1058,7 +1113,7 @@ export default function ManagePage() {
       
       const dataToSend = {
         ...shippingForm,
-        priceAmount: Math.round(shippingForm.priceAmount * 100),
+        priceAmount: Math.round((shippingForm.priceAmount ?? 0) * 100),
       };
       
       const res = await fetch(url, {
@@ -1146,6 +1201,140 @@ export default function ManagePage() {
       toast({
         title: updated.isActive ? "Shipping Method Enabled" : "Shipping Method Disabled",
         description: `${updated.name} is now ${updated.isActive ? 'available' : 'unavailable'} at checkout.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleShippingModeChange = async (mode: 'manual' | 'live') => {
+    if (!session || !id) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/shipping-config`, {
+        method: 'PUT',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ...shippingConfig, mode }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || "Failed to update shipping configuration");
+      }
+
+      const updated = await res.json();
+      setShippingConfig({ ...updated, websiteId: id });
+      
+      toast({
+        title: "Shipping Mode Updated",
+        description: mode === 'live' ? "Live carrier rates will be used at checkout." : "Manual shipping rates will be used.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const openCarrierDialog = (carrierId?: string) => {
+    if (carrierId) {
+      setSelectedCarrier(carrierId);
+      const existing = carrierCredentials.find(c => c.carrier === carrierId);
+      if (existing) {
+        setCarrierForm({});
+        setCarrierTestMode(existing.testMode);
+      } else {
+        setCarrierForm({});
+        setCarrierTestMode(true);
+      }
+    } else {
+      setSelectedCarrier('');
+      setCarrierForm({});
+      setCarrierTestMode(true);
+    }
+    setIsCarrierDialogOpen(true);
+  };
+
+  const handleSaveCarrier = async () => {
+    if (!session || !id || !selectedCarrier) return;
+    
+    setIsSavingCarrier(true);
+    try {
+      const res = await fetch(`/api/websites/${id}/carrier-credentials`, {
+        method: 'POST',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          carrier: selectedCarrier,
+          credentials: carrierForm,
+          testMode: carrierTestMode,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to save carrier credentials");
+      }
+
+      const saved = await res.json();
+      setCarrierCredentials(prev => {
+        const existing = prev.findIndex(c => c.carrier === selectedCarrier);
+        if (existing >= 0) {
+          const updated = [...prev];
+          updated[existing] = saved;
+          return updated;
+        }
+        return [...prev, saved];
+      });
+      
+      toast({
+        title: saved.validated ? "Carrier Connected" : "Credentials Saved",
+        description: saved.validated 
+          ? `${selectedCarrier.toUpperCase()} credentials validated successfully.`
+          : `${selectedCarrier.toUpperCase()} credentials saved but could not be validated.`,
+        variant: saved.validated ? "default" : "destructive",
+      });
+
+      setIsCarrierDialogOpen(false);
+      setCarrierForm({});
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingCarrier(false);
+    }
+  };
+
+  const handleDeleteCarrier = async (credentialId: string) => {
+    if (!session || !id) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/carrier-credentials/${credentialId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to remove carrier");
+
+      setCarrierCredentials(carrierCredentials.filter(c => c.id !== credentialId));
+      
+      toast({
+        title: "Carrier Removed",
+        description: "The carrier integration has been removed.",
       });
     } catch (error: any) {
       toast({
@@ -2603,22 +2792,219 @@ export default function ManagePage() {
           </TabsContent>
 
           <TabsContent value="shipping">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Shipping Methods</CardTitle>
-                  <CardDescription>Manage delivery options for your products</CardDescription>
-                </div>
-                <Dialog open={isShippingDialogOpen} onOpenChange={(open) => {
-                  setIsShippingDialogOpen(open);
-                  if (!open) resetShippingForm();
-                }}>
-                  <DialogTrigger asChild>
-                    <Button onClick={() => openShippingDialog()} data-testid="button-add-shipping">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Shipping
-                    </Button>
-                  </DialogTrigger>
+            <div className="space-y-6">
+              {/* Shipping Mode Toggle */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Shipping Mode</CardTitle>
+                  <CardDescription>Choose how shipping rates are calculated at checkout</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div 
+                      onClick={() => handleShippingModeChange('manual')}
+                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                        shippingConfig.mode === 'manual' 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-muted hover:border-primary/50'
+                      }`}
+                      data-testid="shipping-mode-manual"
+                    >
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                          shippingConfig.mode === 'manual' ? 'border-primary' : 'border-muted-foreground'
+                        }`}>
+                          {shippingConfig.mode === 'manual' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                        </div>
+                        <h4 className="font-medium">Manual Rates</h4>
+                      </div>
+                      <p className="text-sm text-muted-foreground pl-7">
+                        Define fixed shipping prices yourself. Simple and straightforward.
+                      </p>
+                    </div>
+                    <div 
+                      onClick={() => handleShippingModeChange('live')}
+                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                        shippingConfig.mode === 'live' 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-muted hover:border-primary/50'
+                      }`}
+                      data-testid="shipping-mode-live"
+                    >
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                          shippingConfig.mode === 'live' ? 'border-primary' : 'border-muted-foreground'
+                        }`}>
+                          {shippingConfig.mode === 'live' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                        </div>
+                        <h4 className="font-medium">Live Carrier Rates</h4>
+                        <Badge variant="secondary" className="text-xs">Advanced</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground pl-7">
+                        Get real-time shipping quotes from UPS, GLS, PostNord.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Carrier Integrations - Only show when in live mode */}
+              {shippingConfig.mode === 'live' && (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle>Carrier Integrations</CardTitle>
+                      <CardDescription>Connect your shipping carrier accounts for live rates</CardDescription>
+                    </div>
+                    <Dialog open={isCarrierDialogOpen} onOpenChange={setIsCarrierDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button onClick={() => openCarrierDialog()} data-testid="button-add-carrier">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Carrier
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Connect Carrier</DialogTitle>
+                          <DialogDescription>
+                            Enter your carrier API credentials to enable live shipping rates.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          {!selectedCarrier ? (
+                            <div className="grid grid-cols-3 gap-3">
+                              {availableCarriers.map(carrier => (
+                                <div
+                                  key={carrier.id}
+                                  onClick={() => setSelectedCarrier(carrier.id)}
+                                  className="p-4 border rounded-lg cursor-pointer hover:border-primary transition-colors text-center"
+                                  data-testid={`carrier-option-${carrier.id}`}
+                                >
+                                  <div className="text-2xl mb-2">{carrier.logo}</div>
+                                  <p className="font-medium text-sm">{carrier.name}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2 mb-4">
+                                <Button variant="ghost" size="sm" onClick={() => setSelectedCarrier('')}>
+                                  ← Back
+                                </Button>
+                                <span className="font-medium">
+                                  {availableCarriers.find(c => c.id === selectedCarrier)?.name}
+                                </span>
+                              </div>
+                              {availableCarriers.find(c => c.id === selectedCarrier)?.requiredCredentials.map(field => (
+                                <div key={field.key} className="space-y-2">
+                                  <Label htmlFor={field.key}>{field.label}</Label>
+                                  <Input
+                                    id={field.key}
+                                    type={field.type === 'password' ? 'password' : 'text'}
+                                    value={carrierForm[field.key] || ''}
+                                    onChange={(e) => setCarrierForm({ ...carrierForm, [field.key]: e.target.value })}
+                                    placeholder={`Enter ${field.label.toLowerCase()}`}
+                                    data-testid={`input-carrier-${field.key}`}
+                                  />
+                                </div>
+                              ))}
+                              <div className="flex items-center gap-2 pt-2">
+                                <input
+                                  type="checkbox"
+                                  id="carrierTestMode"
+                                  checked={carrierTestMode}
+                                  onChange={(e) => setCarrierTestMode(e.target.checked)}
+                                  className="rounded"
+                                  data-testid="checkbox-carrier-test-mode"
+                                />
+                                <Label htmlFor="carrierTestMode">Test/Sandbox Mode</Label>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {selectedCarrier && (
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsCarrierDialogOpen(false)}>Cancel</Button>
+                            <Button onClick={handleSaveCarrier} disabled={isSavingCarrier} data-testid="button-save-carrier">
+                              {isSavingCarrier ? 'Validating...' : 'Connect Carrier'}
+                            </Button>
+                          </DialogFooter>
+                        )}
+                      </DialogContent>
+                    </Dialog>
+                  </CardHeader>
+                  <CardContent>
+                    {carrierCredentials.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Truck className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                        <p className="font-medium">No carriers connected</p>
+                        <p className="text-sm mb-4">Connect carrier accounts to get live shipping rates.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {carrierCredentials.map(cred => (
+                          <div key={cred.id} className="flex items-center justify-between p-4 border rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-lg">
+                                {availableCarriers.find(c => c.id === cred.carrier)?.logo || '📦'}
+                              </div>
+                              <div>
+                                <p className="font-medium">{cred.carrier.toUpperCase()}</p>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  {cred.isActive ? (
+                                    <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
+                                      <CheckCircle className="w-3 h-3 mr-1" /> Connected
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-yellow-600 border-yellow-200 bg-yellow-50">
+                                      <AlertCircle className="w-3 h-3 mr-1" /> Not Validated
+                                    </Badge>
+                                  )}
+                                  {cred.testMode && (
+                                    <Badge variant="secondary" className="text-xs">Test Mode</Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button variant="outline" size="sm" onClick={() => openCarrierDialog(cred.carrier)}>
+                                <Pencil className="w-3 h-3 mr-1" /> Update
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="text-red-600 border-red-200 hover:bg-red-50"
+                                onClick={() => handleDeleteCarrier(cred.id)}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Manual Shipping Methods - Only show when in manual mode */}
+              {shippingConfig.mode === 'manual' && (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle>Shipping Methods</CardTitle>
+                      <CardDescription>Manage delivery options for your products</CardDescription>
+                    </div>
+                    <Dialog open={isShippingDialogOpen} onOpenChange={(open) => {
+                      setIsShippingDialogOpen(open);
+                      if (!open) resetShippingForm();
+                    }}>
+                      <DialogTrigger asChild>
+                        <Button onClick={() => openShippingDialog()} data-testid="button-add-shipping">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Shipping
+                        </Button>
+                      </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
                       <DialogTitle>{editingShipping ? 'Edit Shipping Method' : 'Add Shipping Method'}</DialogTitle>
@@ -2798,6 +3184,8 @@ export default function ManagePage() {
                 )}
               </CardContent>
             </Card>
+              )}
+          </div>
           </TabsContent>
 
           <TabsContent value="settings">

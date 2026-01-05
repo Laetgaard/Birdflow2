@@ -427,4 +427,78 @@ export const insertShippingMethodSchema = createInsertSchema(shippingMethods).om
 export type InsertShippingMethod = z.infer<typeof insertShippingMethodSchema>;
 export type ShippingMethod = typeof shippingMethods.$inferSelect;
 
+// Shipping carrier credentials table (for live carrier rate integrations)
+export const shippingCarrierCredentials = pgTable("shipping_carrier_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  carrier: text("carrier").notNull(), // 'ups', 'gls', 'postnord'
+  credentials: jsonb("credentials").$type<Record<string, string>>().notNull(), // Encrypted credentials
+  isActive: boolean("is_active").notNull().default(true),
+  testMode: boolean("test_mode").notNull().default(true), // Use sandbox/test API
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertShippingCarrierCredentialsSchema = createInsertSchema(shippingCarrierCredentials).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertShippingCarrierCredentials = z.infer<typeof insertShippingCarrierCredentialsSchema>;
+export type ShippingCarrierCredentials = typeof shippingCarrierCredentials.$inferSelect;
+
+// Shipping configuration for a website
+export const shippingConfig = pgTable("shipping_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull().unique(),
+  mode: text("mode").notNull().default("manual"), // 'manual' or 'live'
+  defaultWeight: integer("default_weight").default(1000), // Default package weight in grams
+  defaultDimensions: jsonb("default_dimensions").$type<{ length: number; width: number; height: number }>(),
+  originAddress: jsonb("origin_address").$type<{
+    street: string;
+    city: string;
+    postalCode: string;
+    country: string;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertShippingConfigSchema = createInsertSchema(shippingConfig).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertShippingConfig = z.infer<typeof insertShippingConfigSchema>;
+export type ShippingConfig = typeof shippingConfig.$inferSelect;
+
+// Carrier types
+export type CarrierType = 'ups' | 'gls' | 'postnord';
+
+export type ShippingRateRequest = {
+  destinationAddress: {
+    street?: string;
+    city?: string;
+    postalCode: string;
+    country: string;
+  };
+  packages: Array<{
+    weight: number; // grams
+    dimensions?: { length: number; width: number; height: number }; // cm
+  }>;
+};
+
+export type ShippingRate = {
+  carrierId: string;
+  carrierName: string;
+  serviceName: string;
+  serviceCode: string;
+  price: number; // cents
+  currency: string;
+  deliveryTime?: string;
+  estimatedDeliveryDate?: string;
+};
+
 export * from "./models/chat";

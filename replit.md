@@ -98,6 +98,18 @@ Includes a full e-commerce checkout flow:
 - `framer-motion`: Animation library.
 - `bcryptjs`: Password hashing.
 
+### Shipping System
+Dual-mode shipping management supporting both manual and live carrier rates:
+- **Manual Mode**: Store owners define fixed shipping prices (name, price, delivery time).
+- **Live Mode**: Real-time shipping quotes from integrated carriers (UPS, GLS, PostNord).
+- **Database Tables**: `shipping_methods`, `shipping_carrier_credentials`, `shipping_config`.
+- **Carrier Providers**: Located in `server/shipping/providers/` with common interface.
+- **ShippingService**: Orchestrates multiple carriers in `server/shipping/service.ts`.
+- **Security**: Carrier credentials stored encrypted, masked (••••••••) in API responses.
+- **Fallback**: Live mode falls back to manual rates if carrier APIs fail.
+- **Validation**: Mode switching to live requires at least one validated active carrier.
+- **UI**: Manage page shipping tab with mode toggle and carrier credential management.
+
 ### Custom Domain Support
 Low-friction custom domain connection with minimal user steps:
 - **Simplified Flow**: Domains are added directly to Vercel on creation, showing just ONE DNS record to add.
