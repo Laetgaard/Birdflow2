@@ -974,6 +974,8 @@ export default function ManagePage() {
       images: [],
       status: 'active',
       category: '',
+      stockQuantity: 0,
+      trackInventory: false,
     });
     setEditingProduct(null);
   };
@@ -991,6 +993,8 @@ export default function ManagePage() {
         images: product.images || [],
         status: product.status,
         category: product.category || '',
+        stockQuantity: product.stockQuantity ?? 0,
+        trackInventory: product.trackInventory ?? false,
       });
     } else {
       resetProductForm();
@@ -2455,6 +2459,42 @@ export default function ManagePage() {
                           />
                         </div>
                       </div>
+                      <div className="border-t pt-4 mt-2">
+                        <div className="flex items-center gap-3 mb-3">
+                          <input
+                            type="checkbox"
+                            id="trackInventory"
+                            checked={productForm.trackInventory ?? false}
+                            onChange={(e) => setProductForm({...productForm, trackInventory: e.target.checked})}
+                            className="rounded"
+                            data-testid="checkbox-track-inventory"
+                          />
+                          <Label htmlFor="trackInventory" className="font-normal">Track inventory for this product</Label>
+                        </div>
+                        {productForm.trackInventory && (
+                          <div className="space-y-2 pl-6">
+                            <Label htmlFor="stockQuantity">Stock Quantity</Label>
+                            <Input 
+                              id="stockQuantity"
+                              type="number"
+                              min="0"
+                              value={productForm.stockQuantity ?? 0} 
+                              onChange={(e) => setProductForm({...productForm, stockQuantity: parseInt(e.target.value) || 0})}
+                              data-testid="input-stock-quantity"
+                            />
+                            {(productForm.stockQuantity ?? 0) > 0 && (productForm.stockQuantity ?? 0) <= 5 && (
+                              <p className="text-sm text-yellow-600 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" /> Low stock warning
+                              </p>
+                            )}
+                            {(productForm.stockQuantity ?? 0) === 0 && (
+                              <p className="text-sm text-red-600 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" /> Out of stock
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       <div className="space-y-2">
                         <Label htmlFor="imageUrl">Main Image</Label>
                         <div className="flex gap-2">
@@ -2576,6 +2616,21 @@ export default function ManagePage() {
                           </div>
                           {product.description && (
                             <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{product.description}</p>
+                          )}
+                          {(product as any).trackInventory && (
+                            <div className="mt-2 flex items-center gap-2">
+                              {(product as any).stockQuantity === 0 ? (
+                                <Badge variant="destructive" className="text-xs">Out of stock</Badge>
+                              ) : (product as any).stockQuantity <= 5 ? (
+                                <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-400">
+                                  Low stock: {(product as any).stockQuantity}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs">
+                                  In stock: {(product as any).stockQuantity}
+                                </Badge>
+                              )}
+                            </div>
                           )}
                           <div className="flex items-center justify-between mt-4">
                             <span className="text-lg font-bold">{formatCurrency(parseFloat(product.price), product.currency)}</span>

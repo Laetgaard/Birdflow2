@@ -444,6 +444,367 @@ export async function POST(request: NextRequest) {
 `;
 }
 
+export function generateCheckoutValidateApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WEBSITE_ID = '${websiteId}';
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { items, customerEmail, customerName, customerPhone, shippingAddress } = body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ success: false, message: 'Cart is empty' }, { status: 400 });
+    }
+
+    if (!customerEmail || !customerEmail.includes('@')) {
+      return NextResponse.json({ success: false, message: 'Valid email is required', field: 'customerEmail' }, { status: 400 });
+    }
+
+    if (!customerName || customerName.trim().length < 2) {
+      return NextResponse.json({ success: false, message: 'Name is required', field: 'customerName' }, { status: 400 });
+    }
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const validatedItems: Array<{ productId: string; name: string; price: number; priceCents: number; quantity: number; currency: string; trackInventory: boolean; stockQuantity: number }> = [];
+    let primaryCurrency: string | null = null;
+    const outOfStock: Array<{ productId: string; name: string; requested: number; available: number }> = [];
+
+    for (const item of items) {
+      const { data: product, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', item.productId)
+        .single();
+
+      if (error || !product) {
+        return NextResponse.json({ success: false, message: 'Product not found: ' + item.productId }, { status: 400 });
+      }
+      if (product.website_id !== WEBSITE_ID) {
+        return NextResponse.json({ success: false, message: 'Invalid product' }, { status: 400 });
+      }
+      if (product.status !== 'active') {
+        return NextResponse.json({ success: false, message: 'Product not available: ' + product.name }, { status: 400 });
+      }
+
+      const productCurrency = product.currency || 'USD';
+      if (primaryCurrency === null) {
+        primaryCurrency = productCurrency;
+      } else if (primaryCurrency !== productCurrency) {
+        return NextResponse.json({ success: false, message: 'Cannot checkout products with different currencies' }, { status: 400 });
+      }
+
+      const priceNum = parseFloat(product.price);
+      const qty = Math.max(1, Math.floor(item.quantity || 1));
+      const trackInventory = product.track_inventory || false;
+      const stockQuantity = product.stock_quantity || 0;
+
+      if (trackInventory && stockQuantity < qty) {
+        outOfStock.push({ productId: product.id, name: product.name, requested: qty, available: stockQuantity });
+      }
+
+      validatedItems.push({
+        productId: product.id,
+        name: product.name,
+        price: priceNum,
+        priceCents: Math.round(priceNum * 100),
+        quantity: qty,
+        currency: productCurrency,
+        trackInventory,
+        stockQuantity,
+      });
+    }
+
+    if (outOfStock.length > 0) {
+      return NextResponse.json({ success: false, message: 'Some items are out of stock', outOfStock }, { status: 400 });
+    }
+
+    const subtotalCents = validatedItems.reduce((sum, item) => sum + (item.priceCents * item.quantity), 0);
+
+    return NextResponse.json({
+      success: true,
+      validatedItems,
+      subtotalCents,
+      currency: primaryCurrency || 'USD',
+      customer: { email: customerEmail, name: customerName, phone: customerPhone },
+      shippingAddress,
+    });
+  } catch (err) {
+    console.error('Checkout validate error:', err);
+    return NextResponse.json({ success: false, message: 'Validation failed' }, { status: 500 });
+  }
+}
+`;
+}
+
+export function generateCheckoutConfirmApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WEBSITE_ID = '${websiteId}';
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { items, customerEmail, customerName, customerPhone, shippingAddress, shippingMethodId } = body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ success: false, message: 'Cart is empty' }, { status: 400 });
+    }
+
+    if (!customerEmail) {
+      return NextResponse.json({ success: false, message: 'Email is required' }, { status: 400 });
+    }
+
+    if (!STRIPE_SECRET_KEY) {
+      return NextResponse.json({ success: false, message: 'Stripe not configured' }, { status: 500 });
+    }
+
+    const Stripe = (await import('stripe')).default;
+    const { createClient } = await import('@supabase/supabase-js');
+
+    const stripe = new Stripe(STRIPE_SECRET_KEY);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const validatedItems: Array<{ productId: string; name: string; price: number; priceCents: number; quantity: number; currency: string }> = [];
+    let primaryCurrency: string | null = null;
+    const outOfStock: Array<{ productId: string; name: string; requested: number; available: number }> = [];
+
+    for (const item of items) {
+      const { data: product, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', item.productId)
+        .single();
+
+      if (error || !product || product.website_id !== WEBSITE_ID || product.status !== 'active') {
+        return NextResponse.json({ success: false, message: 'Invalid product: ' + item.productId }, { status: 400 });
+      }
+
+      const productCurrency = product.currency || 'USD';
+      if (primaryCurrency === null) {
+        primaryCurrency = productCurrency;
+      } else if (primaryCurrency !== productCurrency) {
+        return NextResponse.json({ success: false, message: 'Currency mismatch' }, { status: 400 });
+      }
+
+      const priceNum = parseFloat(product.price);
+      const qty = Math.max(1, Math.floor(item.quantity || 1));
+
+      if (product.track_inventory && product.stock_quantity < qty) {
+        outOfStock.push({ productId: product.id, name: product.name, requested: qty, available: product.stock_quantity });
+      }
+
+      validatedItems.push({
+        productId: product.id,
+        name: product.name,
+        price: priceNum,
+        priceCents: Math.round(priceNum * 100),
+        quantity: qty,
+        currency: productCurrency,
+      });
+    }
+
+    if (outOfStock.length > 0) {
+      return NextResponse.json({ success: false, message: 'Some items are out of stock', outOfStock }, { status: 400 });
+    }
+
+    let shippingCostCents = 0;
+    let shippingMethod = null;
+    if (shippingMethodId) {
+      const { data } = await supabase
+        .from('shipping_methods')
+        .select('*')
+        .eq('id', shippingMethodId)
+        .eq('website_id', WEBSITE_ID)
+        .single();
+      if (data) {
+        shippingMethod = data;
+        shippingCostCents = data.price_amount || 0;
+      }
+    }
+
+    const subtotalCents = validatedItems.reduce((sum, item) => sum + (item.priceCents * item.quantity), 0);
+    const totalAmountCents = subtotalCents + shippingCostCents;
+
+    const stripeCurrency = (primaryCurrency || 'USD').toLowerCase();
+
+    const lineItems = validatedItems.map(item => ({
+      price_data: {
+        currency: stripeCurrency,
+        product_data: { name: item.name },
+        unit_amount: item.priceCents,
+      },
+      quantity: item.quantity,
+    }));
+
+    if (shippingMethod && shippingCostCents > 0) {
+      lineItems.push({
+        price_data: {
+          currency: stripeCurrency,
+          product_data: { name: 'Shipping: ' + shippingMethod.name },
+          unit_amount: shippingCostCents,
+        },
+        quantity: 1,
+      });
+    }
+
+    const origin = request.headers.get('origin') || '';
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: lineItems,
+      mode: 'payment',
+      success_url: origin + '/checkout/success?session_id={CHECKOUT_SESSION_ID}',
+      cancel_url: origin + '/checkout/cancel',
+      customer_email: customerEmail,
+      metadata: { websiteId: WEBSITE_ID },
+    });
+
+    // Create order with pending status - stock decrement happens in webhook after payment success
+    await supabase.from('orders').insert({
+      website_id: WEBSITE_ID,
+      customer_name: customerName || customerEmail.split('@')[0] || 'Customer',
+      customer_email: customerEmail,
+      customer_phone: customerPhone || null,
+      status: 'pending',
+      payment_status: 'pending',
+      stripe_session_id: session.id,
+      total: (totalAmountCents / 100).toFixed(2),
+      total_amount_cents: totalAmountCents,
+      subtotal_cents: subtotalCents,
+      shipping_cost_cents: shippingCostCents,
+      currency: primaryCurrency || 'USD',
+      items: validatedItems.map(item => ({
+        id: item.productId,
+        name: item.name,
+        price: item.price,
+        priceCents: item.priceCents,
+        quantity: item.quantity,
+      })),
+      shipping_address: shippingAddress || null,
+      shipping_method_id: shippingMethodId || null,
+      shipping_name: shippingMethod?.name || null,
+      shipping_price: shippingMethod ? String(shippingCostCents) : null,
+    });
+
+    return NextResponse.json({
+      success: true,
+      checkoutUrl: session.url,
+      sessionId: session.id,
+      totalAmountCents,
+    });
+  } catch (err) {
+    console.error('Checkout confirm error:', err);
+    return NextResponse.json({ success: false, message: 'Checkout failed' }, { status: 500 });
+  }
+}
+`;
+}
+
+export function generateStripeWebhookApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+import { headers } from 'next/headers';
+
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WEBSITE_ID = '${websiteId}';
+
+export async function POST(request: NextRequest) {
+  try {
+    if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET) {
+      return NextResponse.json({ message: 'Stripe not configured' }, { status: 500 });
+    }
+
+    const Stripe = (await import('stripe')).default;
+    const { createClient } = await import('@supabase/supabase-js');
+
+    const stripe = new Stripe(STRIPE_SECRET_KEY);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const body = await request.text();
+    const headersList = await headers();
+    const sig = headersList.get('stripe-signature') || '';
+
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(body, sig, STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+      console.error('Webhook signature verification failed:', err);
+      return NextResponse.json({ message: 'Invalid signature' }, { status: 400 });
+    }
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as any;
+      const sessionId = session.id;
+      const paymentIntentId = session.payment_intent;
+
+      // Find the order by Stripe session ID
+      const { data: order } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('stripe_session_id', sessionId)
+        .single();
+
+      if (order) {
+        // Update order status to paid
+        await supabase
+          .from('orders')
+          .update({
+            payment_status: 'paid',
+            status: 'confirmed',
+            stripe_payment_intent_id: paymentIntentId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', order.id);
+
+        console.log('Order ' + order.id + ' marked as paid');
+
+        // Decrement stock for tracked products
+        if (order.items && Array.isArray(order.items)) {
+          for (const item of order.items as Array<{ id: string; quantity: number }>) {
+            if (item.id && item.quantity) {
+              const { data: product } = await supabase
+                .from('products')
+                .select('track_inventory, stock_quantity')
+                .eq('id', item.id)
+                .single();
+
+              if (product?.track_inventory) {
+                const newQty = Math.max(0, product.stock_quantity - item.quantity);
+                await supabase
+                  .from('products')
+                  .update({ 
+                    stock_quantity: newQty,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', item.id);
+                console.log('Decremented stock for product ' + item.id + ': ' + product.stock_quantity + ' -> ' + newQty);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return NextResponse.json({ received: true });
+  } catch (err) {
+    console.error('Webhook error:', err);
+    return NextResponse.json({ message: 'Webhook error' }, { status: 500 });
+  }
+}
+`;
+}
+
 export function generateSupabaseClient(websiteId: string): string {
   return `import { createClient } from '@supabase/supabase-js';
 
@@ -3085,6 +3446,7 @@ export default function CheckoutPage() {
   const [shippingMethods, setShippingMethods] = useState<ShippingMethod[]>([]);
   const [selectedShipping, setSelectedShipping] = useState<ShippingMethod | null>(null);
   const [isLoadingShipping, setIsLoadingShipping] = useState(true);
+  const [outOfStock, setOutOfStock] = useState<Array<{ productId: string; name: string; requested: number; available: number }>>([]);
 
   // Fetch shipping methods
   useEffect(() => {
@@ -3109,6 +3471,7 @@ export default function CheckoutPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setOutOfStock([]);
     
     if (!name.trim() || !email.trim()) {
       setError('Please fill in all required fields');
@@ -3128,33 +3491,53 @@ export default function CheckoutPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('/api/orders', {
+      // First validate stock availability
+      const validateRes = await fetch('/api/checkout/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          items: items.map(item => ({ productId: item.product.id, quantity: item.quantity })),
+          customerEmail: email,
+          customerName: name,
+        }),
+      });
+
+      const validateData = await validateRes.json();
+      if (!validateData.success) {
+        if (validateData.outOfStock) {
+          setOutOfStock(validateData.outOfStock);
+        }
+        throw new Error(validateData.message || 'Validation failed');
+      }
+
+      // Proceed with checkout
+      const response = await fetch('/api/checkout/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: items.map(item => ({ productId: item.product.id, quantity: item.quantity })),
           customerName: name,
           customerEmail: email,
-          items: items.map(item => ({
-            id: item.product.id,
-            name: item.product.name,
-            quantity: item.quantity,
-            price: parseFloat(item.product.price),
-          })),
-          total: grandTotal.toFixed(2),
-          currency,
           shippingMethodId: selectedShipping?.id,
-          shippingName: selectedShipping?.name,
-          shippingPrice: selectedShipping?.priceAmount,
         }),
       });
 
       const data = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || !data.success) {
+        if (data.outOfStock) {
+          setOutOfStock(data.outOfStock);
+        }
         throw new Error(data.message || 'Failed to create order');
       }
 
-      setOrderId(data.id);
+      // Redirect to Stripe checkout if URL provided
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+
+      setOrderId(data.orderId || '');
       clearCart();
       setSuccess(true);
     } catch (err) {
@@ -3253,6 +3636,15 @@ export default function CheckoutPage() {
                 {error && (
                   <div style={{ marginBottom: '20px', padding: '14px 16px', backgroundColor: '#fef2f2', borderRadius: '10px', color: '#dc2626', fontSize: '14px' }}>
                     {error}
+                    {outOfStock.length > 0 && (
+                      <ul style={{ marginTop: '12px', marginLeft: '16px' }}>
+                        {outOfStock.map((item) => (
+                          <li key={item.productId} style={{ marginBottom: '4px' }}>
+                            <strong>{item.name}</strong>: {item.available === 0 ? 'Out of stock' : \`Only \${item.available} available (requested \${item.requested})\`}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 )}
 

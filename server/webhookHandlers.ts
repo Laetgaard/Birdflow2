@@ -14,13 +14,14 @@ export class WebhookHandlers {
 
     const sync = await getStripeSync();
     
-    // Process webhook and get the event from stripeSync
+    // Process webhook and get the verified event from stripeSync
     const result = await sync.processWebhook(payload, signature);
     
     // Handle checkout.session.completed to update order payment status
-    // stripeSync already validated the event, so we parse it directly
+    // Use the verified event from stripeSync result, falling back to parsing the payload
     try {
-      const event = JSON.parse(payload.toString());
+      // stripeSync returns the Stripe event in result.event
+      const event = result?.event || JSON.parse(payload.toString());
       
       if (event.type === 'checkout.session.completed') {
         const session = event.data?.object;
@@ -37,11 +38,25 @@ export class WebhookHandlers {
               stripePaymentIntentId: paymentIntentId,
             });
             console.log(`Order ${order.id} marked as paid via checkout.session.completed`);
+
+            // Decrement stock for tracked products after payment success
+            if (order.items && Array.isArray(order.items)) {
+              for (const item of order.items as Array<{ id: string; quantity: number }>) {
+                if (item.id && item.quantity) {
+                  try {
+                    await storage.decrementProductStock(item.id, item.quantity);
+                    console.log(`Decremented stock for product ${item.id} by ${item.quantity}`);
+                  } catch (stockErr) {
+                    console.error(`Failed to decrement stock for product ${item.id}:`, stockErr);
+                  }
+                }
+              }
+            }
           }
         }
       }
     } catch (parseErr) {
-      console.error('Error parsing webhook event for order update:', parseErr);
+      console.error('Error processing webhook event for order update:', parseErr);
     }
   }
 }
