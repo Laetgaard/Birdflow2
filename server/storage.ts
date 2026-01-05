@@ -17,7 +17,8 @@ import {
   customDomains, type CustomDomain, type InsertCustomDomain,
   shippingMethods, type ShippingMethod, type InsertShippingMethod,
   shippingCarrierCredentials, type ShippingCarrierCredentials, type InsertShippingCarrierCredentials,
-  shippingConfig, type ShippingConfig, type InsertShippingConfig
+  shippingConfig, type ShippingConfig, type InsertShippingConfig,
+  websitePaymentSettings, type WebsitePaymentSettings, type InsertWebsitePaymentSettings
 } from "@shared/schema";
 
 // Use Supabase database as primary storage
@@ -171,6 +172,11 @@ export interface IStorage {
   decrementStock(websiteId: string, items: Array<{ productId: string; quantity: number }>): Promise<{ success: boolean; errors?: string[] }>;
   checkStockAvailability(websiteId: string, items: Array<{ productId: string; quantity: number }>): Promise<{ available: boolean; outOfStock: Array<{ productId: string; name: string; requested: number; available: number }> }>;
   decrementProductStock(productId: string, quantity: number): Promise<void>;
+
+  // Payment settings methods
+  getPaymentSettings(websiteId: string): Promise<WebsitePaymentSettings | undefined>;
+  createPaymentSettings(settings: InsertWebsitePaymentSettings): Promise<WebsitePaymentSettings>;
+  updatePaymentSettings(websiteId: string, data: Partial<InsertWebsitePaymentSettings>): Promise<WebsitePaymentSettings | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -712,6 +718,26 @@ export class DatabaseStorage implements IStorage {
       .update(products)
       .set({ stockQuantity: newQuantity, updatedAt: new Date() } as any)
       .where(eq(products.id, productId));
+  }
+
+  // Payment settings methods
+  async getPaymentSettings(websiteId: string): Promise<WebsitePaymentSettings | undefined> {
+    const result = await db.select().from(websitePaymentSettings).where(eq(websitePaymentSettings.websiteId, websiteId)).limit(1);
+    return result[0];
+  }
+
+  async createPaymentSettings(settings: InsertWebsitePaymentSettings): Promise<WebsitePaymentSettings> {
+    const result = await db.insert(websitePaymentSettings).values(settings).returning();
+    return result[0];
+  }
+
+  async updatePaymentSettings(websiteId: string, data: Partial<InsertWebsitePaymentSettings>): Promise<WebsitePaymentSettings | undefined> {
+    const result = await db
+      .update(websitePaymentSettings)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(websitePaymentSettings.websiteId, websiteId))
+      .returning();
+    return result[0];
   }
 }
 
