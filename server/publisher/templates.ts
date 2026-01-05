@@ -3056,6 +3056,16 @@ import Link from 'next/link';
 import { useCart } from '@/components/CartProvider';
 import { useWebsite } from '@/components/WebsiteProvider';
 
+type ShippingMethod = {
+  id: string;
+  name: string;
+  description?: string;
+  priceAmount: number;
+  currency: string;
+  deliveryTime?: string;
+  isActive: boolean;
+};
+
 function formatCurrency(amount: number, currency: string = 'USD'): string {
   const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
   const symbol = symbols[currency] || currency;
@@ -3072,6 +3082,27 @@ export default function CheckoutPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [orderId, setOrderId] = useState('');
+  const [shippingMethods, setShippingMethods] = useState<ShippingMethod[]>([]);
+  const [selectedShipping, setSelectedShipping] = useState<ShippingMethod | null>(null);
+  const [isLoadingShipping, setIsLoadingShipping] = useState(true);
+
+  // Fetch shipping methods
+  useEffect(() => {
+    if (!websiteId) return;
+    fetch('/api/shipping-methods')
+      .then(res => res.ok ? res.json() : [])
+      .then((methods: ShippingMethod[]) => {
+        setShippingMethods(methods);
+        if (methods.length > 0) {
+          setSelectedShipping(methods[0]);
+        }
+      })
+      .catch(() => setShippingMethods([]))
+      .finally(() => setIsLoadingShipping(false));
+  }, [websiteId]);
+
+  const shippingCost = selectedShipping ? selectedShipping.priceAmount / 100 : 0;
+  const grandTotal = totalAmount + shippingCost;
 
   const currency = items.length > 0 ? (items[0].product.currency || 'USD') : 'USD';
 
@@ -3109,8 +3140,11 @@ export default function CheckoutPage() {
             quantity: item.quantity,
             price: parseFloat(item.product.price),
           })),
-          total: totalAmount.toFixed(2),
+          total: grandTotal.toFixed(2),
           currency,
+          shippingMethodId: selectedShipping?.id,
+          shippingName: selectedShipping?.name,
+          shippingPrice: selectedShipping?.priceAmount,
         }),
       });
 
@@ -3270,13 +3304,69 @@ export default function CheckoutPage() {
                 <span>Subtotal</span>
                 <span>{formatCurrency(totalAmount, currency)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#6b7280', marginBottom: '20px' }}>
-                <span>Shipping</span>
-                <span>Free</span>
-              </div>
+
+              {isLoadingShipping ? (
+                <div style={{ padding: '16px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
+                  Loading shipping options...
+                </div>
+              ) : shippingMethods.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '12px' }}>Shipping Method</div>
+                  {shippingMethods.map((method) => (
+                    <label 
+                      key={method.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '12px',
+                        padding: '14px',
+                        border: selectedShipping?.id === method.id ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                        borderRadius: '10px',
+                        marginBottom: '8px',
+                        cursor: 'pointer',
+                        backgroundColor: selectedShipping?.id === method.id ? '#f5f3ff' : '#fff',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="shipping"
+                        checked={selectedShipping?.id === method.id}
+                        onChange={() => setSelectedShipping(method)}
+                        style={{ marginTop: '4px' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 500, color: '#111827' }}>{method.name}</span>
+                          <span style={{ fontWeight: 600, color: '#111827' }}>
+                            {method.priceAmount === 0 ? 'Free' : formatCurrency(method.priceAmount / 100, method.currency)}
+                          </span>
+                        </div>
+                        {method.deliveryTime && (
+                          <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>{method.deliveryTime}</div>
+                        )}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {!isLoadingShipping && shippingMethods.length === 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#6b7280', marginBottom: '20px' }}>
+                  <span>Shipping</span>
+                  <span>Free</span>
+                </div>
+              )}
+
+              {selectedShipping && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#6b7280', marginBottom: '20px' }}>
+                  <span>Shipping ({selectedShipping.name})</span>
+                  <span>{shippingCost === 0 ? 'Free' : formatCurrency(shippingCost, currency)}</span>
+                </div>
+              )}
+
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: 700, color: '#111827', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
                 <span>Total</span>
-                <span>{formatCurrency(totalAmount, currency)}</span>
+                <span>{formatCurrency(grandTotal, currency)}</span>
               </div>
             </div>
           </div>
@@ -3357,7 +3447,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { customerName, customerEmail, items, total, currency } = body;
+    const { customerName, customerEmail, items, total, currency, shippingMethodId, shippingName, shippingPrice } = body;
 
     if (!customerName || !customerEmail || !items || items.length === 0) {
       return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
@@ -3374,6 +3464,9 @@ export async function POST(request: NextRequest) {
         total: total,
         currency: currency || 'USD',
         items: items,
+        shipping_method_id: shippingMethodId || null,
+        shipping_name: shippingName || null,
+        shipping_price: shippingPrice ? String(shippingPrice) : null,
       })
       .select()
       .single();
@@ -3407,6 +3500,50 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error('Order error:', err);
     return NextResponse.json({ message: 'Failed to create order' }, { status: 500 });
+  }
+}
+`;
+}
+
+export function generateShippingMethodsApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    
+    const { data, error } = await supabase
+      .from('shipping_methods')
+      .select('*')
+      .eq('website_id', BUILD_TIME_WEBSITE_ID)
+      .eq('is_active', true)
+      .order('price_amount', { ascending: true });
+
+    if (error) {
+      console.error('Shipping methods fetch error:', error);
+      return NextResponse.json([], { status: 200 });
+    }
+
+    // Transform snake_case to camelCase for frontend
+    const methods = (data || []).map(m => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      priceAmount: m.price_amount,
+      currency: m.currency,
+      deliveryTime: m.delivery_time,
+      isActive: m.is_active,
+    }));
+
+    return NextResponse.json(methods);
+  } catch (err) {
+    console.error('Shipping methods error:', err);
+    return NextResponse.json([], { status: 200 });
   }
 }
 `;

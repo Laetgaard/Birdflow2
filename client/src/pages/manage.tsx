@@ -24,7 +24,7 @@ import {
   ShoppingCart, Calendar, Mail, Users, Palette,
   Package, Clock, CheckCircle, XCircle, AlertCircle,
   Plus, Pencil, Trash2, DollarSign, Image, Upload,
-  Link2, ExternalLink, Copy, RefreshCw
+  Link2, ExternalLink, Copy, RefreshCw, Truck
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -157,6 +157,18 @@ type BookingService = {
   price: string;
   currency: string;
   isActive: boolean;
+};
+
+type ShippingMethod = {
+  id: string;
+  websiteId: string;
+  name: string;
+  description?: string;
+  priceAmount: number;
+  currency: string;
+  deliveryTime?: string;
+  isActive: boolean;
+  sortOrder: number;
 };
 
 type CustomDomain = {
@@ -721,6 +733,19 @@ export default function ManagePage() {
     currency: 'USD',
     isActive: true,
   });
+
+  const [shippingMethods, setShippingMethods] = useState<ShippingMethod[]>([]);
+  const [editingShipping, setEditingShipping] = useState<ShippingMethod | null>(null);
+  const [isShippingDialogOpen, setIsShippingDialogOpen] = useState(false);
+  const [shippingForm, setShippingForm] = useState<Partial<ShippingMethod>>({
+    name: '',
+    description: '',
+    priceAmount: 0,
+    currency: 'USD',
+    deliveryTime: '',
+    isActive: true,
+    sortOrder: 0,
+  });
   
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled'>('all');
   const [bookingSearch, setBookingSearch] = useState('');
@@ -791,6 +816,11 @@ export default function ManagePage() {
           headers: { "Authorization": `Bearer ${session.access_token}` },
         });
         if (servicesRes.ok) setBookingServices(await servicesRes.json());
+
+        const shippingRes = await fetch(`/api/websites/${id}/shipping-methods`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (shippingRes.ok) setShippingMethods(await shippingRes.json());
 
       } catch (error: any) {
         toast({
@@ -974,6 +1004,148 @@ export default function ManagePage() {
       toast({
         title: "Product Deleted",
         description: "The product has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Shipping methods handlers
+  const resetShippingForm = () => {
+    setShippingForm({
+      name: '',
+      description: '',
+      priceAmount: 0,
+      currency: 'USD',
+      deliveryTime: '',
+      isActive: true,
+      sortOrder: 0,
+    });
+    setEditingShipping(null);
+  };
+
+  const openShippingDialog = (method?: ShippingMethod) => {
+    if (method) {
+      setEditingShipping(method);
+      setShippingForm({
+        name: method.name,
+        description: method.description || '',
+        priceAmount: method.priceAmount / 100,
+        currency: method.currency,
+        deliveryTime: method.deliveryTime || '',
+        isActive: method.isActive,
+        sortOrder: method.sortOrder,
+      });
+    } else {
+      resetShippingForm();
+    }
+    setIsShippingDialogOpen(true);
+  };
+
+  const handleSaveShipping = async () => {
+    if (!session || !id || !shippingForm.name) return;
+    
+    try {
+      const url = editingShipping 
+        ? `/api/websites/${id}/shipping-methods/${editingShipping.id}`
+        : `/api/websites/${id}/shipping-methods`;
+      
+      const method = editingShipping ? 'PATCH' : 'POST';
+      
+      const dataToSend = {
+        ...shippingForm,
+        priceAmount: Math.round(shippingForm.priceAmount * 100),
+      };
+      
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(dataToSend),
+      });
+
+      if (!res.ok) throw new Error("Failed to save shipping method");
+
+      const savedMethod = await res.json();
+      
+      if (editingShipping) {
+        setShippingMethods(shippingMethods.map(m => m.id === savedMethod.id ? savedMethod : m));
+      } else {
+        setShippingMethods([...shippingMethods, savedMethod]);
+      }
+      
+      toast({
+        title: editingShipping ? "Shipping Method Updated" : "Shipping Method Created",
+        description: `${savedMethod.name} has been ${editingShipping ? 'updated' : 'added'}.`,
+      });
+      
+      setIsShippingDialogOpen(false);
+      resetShippingForm();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteShipping = async (methodId: string) => {
+    if (!session || !id) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/shipping-methods/${methodId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Failed to delete shipping method (${res.status})`);
+      }
+      
+      setShippingMethods(shippingMethods.filter(m => m.id !== methodId));
+      
+      toast({
+        title: "Shipping Method Deleted",
+        description: "The shipping method has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleToggleShipping = async (method: ShippingMethod) => {
+    if (!session || !id) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/shipping-methods/${method.id}`, {
+        method: 'PATCH',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ isActive: !method.isActive }),
+      });
+
+      if (!res.ok) throw new Error("Failed to update shipping method");
+
+      const updated = await res.json();
+      setShippingMethods(shippingMethods.map(m => m.id === updated.id ? updated : m));
+      
+      toast({
+        title: updated.isActive ? "Shipping Method Enabled" : "Shipping Method Disabled",
+        description: `${updated.name} is now ${updated.isActive ? 'available' : 'unavailable'} at checkout.`,
       });
     } catch (error: any) {
       toast({
@@ -1329,6 +1501,10 @@ export default function ManagePage() {
             <TabsTrigger value="services" data-testid="tab-services">
               <Clock className="w-4 h-4 mr-2" />
               Services
+            </TabsTrigger>
+            <TabsTrigger value="shipping" data-testid="tab-shipping">
+              <Truck className="w-4 h-4 mr-2" />
+              Shipping
             </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">
               <Settings className="w-4 h-4 mr-2" />
@@ -2419,6 +2595,204 @@ export default function ManagePage() {
                     >
                       <Plus className="w-8 h-8 mb-2" />
                       <span className="font-medium">Add New Service</span>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="shipping">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Shipping Methods</CardTitle>
+                  <CardDescription>Manage delivery options for your products</CardDescription>
+                </div>
+                <Dialog open={isShippingDialogOpen} onOpenChange={(open) => {
+                  setIsShippingDialogOpen(open);
+                  if (!open) resetShippingForm();
+                }}>
+                  <DialogTrigger asChild>
+                    <Button onClick={() => openShippingDialog()} data-testid="button-add-shipping">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Shipping
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{editingShipping ? 'Edit Shipping Method' : 'Add Shipping Method'}</DialogTitle>
+                      <DialogDescription>
+                        {editingShipping ? 'Update the shipping details below.' : 'Enter the details for your new shipping option.'}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="shippingName">Name *</Label>
+                        <Input 
+                          id="shippingName"
+                          value={shippingForm.name || ''} 
+                          onChange={(e) => setShippingForm({...shippingForm, name: e.target.value})}
+                          placeholder="e.g., Standard Shipping"
+                          data-testid="input-shipping-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="shippingDescription">Description</Label>
+                        <Textarea 
+                          id="shippingDescription"
+                          value={shippingForm.description || ''} 
+                          onChange={(e) => setShippingForm({...shippingForm, description: e.target.value})}
+                          placeholder="Delivered to your doorstep"
+                          data-testid="input-shipping-description"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="shippingDeliveryTime">Delivery Time</Label>
+                        <Input 
+                          id="shippingDeliveryTime"
+                          value={shippingForm.deliveryTime || ''} 
+                          onChange={(e) => setShippingForm({...shippingForm, deliveryTime: e.target.value})}
+                          placeholder="e.g., 3-5 business days"
+                          data-testid="input-shipping-delivery-time"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="shippingPrice">Price</Label>
+                          <Input 
+                            id="shippingPrice"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={shippingForm.priceAmount ?? 0} 
+                            onChange={(e) => setShippingForm({...shippingForm, priceAmount: parseFloat(e.target.value) || 0})}
+                            placeholder="e.g., 5.99"
+                            data-testid="input-shipping-price"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {shippingForm.priceAmount === 0 ? 'Free shipping' : `$${(shippingForm.priceAmount || 0).toFixed(2)}`}
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="shippingCurrency">Currency</Label>
+                          <select
+                            id="shippingCurrency"
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            value={shippingForm.currency || 'USD'}
+                            onChange={(e) => setShippingForm({...shippingForm, currency: e.target.value})}
+                            data-testid="select-shipping-currency"
+                          >
+                            <option value="USD">USD ($)</option>
+                            <option value="EUR">EUR (€)</option>
+                            <option value="DKK">DKK (kr)</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="shippingActive"
+                          checked={shippingForm.isActive ?? true}
+                          onChange={(e) => setShippingForm({...shippingForm, isActive: e.target.checked})}
+                          className="rounded"
+                          data-testid="checkbox-shipping-active"
+                        />
+                        <Label htmlFor="shippingActive">Available at checkout</Label>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsShippingDialogOpen(false)}>Cancel</Button>
+                      <Button onClick={handleSaveShipping} disabled={!shippingForm.name} data-testid="button-save-shipping">
+                        {editingShipping ? 'Save Changes' : 'Add Shipping Method'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </CardHeader>
+              <CardContent>
+                {shippingMethods.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Truck className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p className="font-medium">No shipping methods yet</p>
+                    <p className="text-sm mb-4">Add shipping options for customers to choose during checkout.</p>
+                    <Button className="mt-4" onClick={() => openShippingDialog()}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Your First Shipping Method
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {shippingMethods.map((method) => (
+                      <div 
+                        key={method.id} 
+                        className={`p-5 border rounded-xl space-y-3 ${!method.isActive ? 'opacity-60 bg-muted/30' : ''}`}
+                        data-testid={`shipping-card-${method.id}`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold">{method.name}</h3>
+                              {!method.isActive && (
+                                <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                              )}
+                            </div>
+                            {method.description && (
+                              <p className="text-sm text-muted-foreground mt-1">{method.description}</p>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleToggleShipping(method)}
+                            className={`p-1.5 rounded-full transition-colors ${method.isActive ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}
+                            title={method.isActive ? 'Click to disable' : 'Click to enable'}
+                            data-testid={`toggle-shipping-${method.id}`}
+                          >
+                            {method.isActive ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 text-sm">
+                            <DollarSign className="w-4 h-4 text-muted-foreground" />
+                            <span className="font-medium">
+                              {method.priceAmount === 0 ? 'Free' : formatCurrency(method.priceAmount / 100, method.currency)}
+                            </span>
+                          </div>
+                          {method.deliveryTime && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Clock className="w-4 h-4" />
+                              <span>{method.deliveryTime}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2 pt-2 border-t">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1"
+                            onClick={() => openShippingDialog(method)} 
+                            data-testid={`button-edit-shipping-${method.id}`}
+                          >
+                            <Pencil className="w-3 h-3 mr-1" /> Edit
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            onClick={() => handleDeleteShipping(method.id)} 
+                            data-testid={`button-delete-shipping-${method.id}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    <div 
+                      className="p-5 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary cursor-pointer transition-colors min-h-[200px]"
+                      onClick={() => openShippingDialog()}
+                    >
+                      <Plus className="w-8 h-8 mb-2" />
+                      <span className="font-medium">Add New Shipping</span>
                     </div>
                   </div>
                 )}

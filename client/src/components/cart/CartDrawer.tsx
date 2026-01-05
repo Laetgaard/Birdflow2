@@ -3,8 +3,18 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Minus, ShoppingBag, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Plus, Minus, ShoppingBag, Trash2, Truck, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+
+type ShippingMethod = {
+  id: string;
+  name: string;
+  description?: string;
+  priceAmount: number;
+  currency: string;
+  deliveryTime?: string;
+  isActive: boolean;
+};
 
 function formatCurrency(amount: number, currency: string = 'USD'): string {
   const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
@@ -75,11 +85,33 @@ export default function CartDrawer({ websiteId, onCheckout }: CartDrawerProps) {
   const [customerName, setCustomerName] = useState('');
   const [emailError, setEmailError] = useState('');
   const [showCheckoutForm, setShowCheckoutForm] = useState(false);
+  const [shippingMethods, setShippingMethods] = useState<ShippingMethod[]>([]);
+  const [selectedShipping, setSelectedShipping] = useState<ShippingMethod | null>(null);
+  const [isLoadingShipping, setIsLoadingShipping] = useState(false);
+
+  useEffect(() => {
+    if (showCheckoutForm && websiteId && shippingMethods.length === 0) {
+      setIsLoadingShipping(true);
+      fetch(`/api/public/websites/${websiteId}/shipping-methods`)
+        .then(res => res.ok ? res.json() : [])
+        .then((methods: ShippingMethod[]) => {
+          setShippingMethods(methods);
+          if (methods.length > 0 && !selectedShipping) {
+            setSelectedShipping(methods[0]);
+          }
+        })
+        .catch(() => setShippingMethods([]))
+        .finally(() => setIsLoadingShipping(false));
+    }
+  }, [showCheckoutForm, websiteId]);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   };
+
+  const shippingCost = selectedShipping ? selectedShipping.priceAmount / 100 : 0;
+  const grandTotal = totalAmount + shippingCost;
 
   const handleProceedToCheckout = () => {
     setShowCheckoutForm(true);
@@ -116,6 +148,9 @@ export default function CartDrawer({ websiteId, onCheckout }: CartDrawerProps) {
           customerEmail,
           customerName: customerName || customerEmail.split('@')[0],
           currency,
+          shippingMethodId: selectedShipping?.id,
+          shippingName: selectedShipping?.name,
+          shippingPrice: selectedShipping?.priceAmount ?? 0,
         }),
       });
 
@@ -170,13 +205,6 @@ export default function CartDrawer({ websiteId, onCheckout }: CartDrawerProps) {
         {items.length > 0 && (
           <SheetFooter className="border-t pt-4">
             <div className="w-full space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-lg font-semibold">Total</span>
-                <span className="text-lg font-bold" data-testid="cart-total">
-                  {formatCurrency(totalAmount, currency)}
-                </span>
-              </div>
-              
               {showCheckoutForm ? (
                 <div className="space-y-3">
                   <div className="space-y-1">
@@ -205,11 +233,79 @@ export default function CartDrawer({ websiteId, onCheckout }: CartDrawerProps) {
                     />
                     {emailError && <p className="text-sm text-red-500">{emailError}</p>}
                   </div>
+                  
+                  {isLoadingShipping ? (
+                    <div className="flex items-center justify-center py-3">
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      <span className="text-sm text-muted-foreground">Loading shipping options...</span>
+                    </div>
+                  ) : shippingMethods.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Truck className="w-4 h-4" />
+                        Shipping
+                      </Label>
+                      <div className="space-y-2">
+                        {shippingMethods.map((method) => (
+                          <label 
+                            key={method.id}
+                            className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                              selectedShipping?.id === method.id 
+                                ? 'border-primary bg-primary/5' 
+                                : 'hover:bg-muted/50'
+                            }`}
+                            data-testid={`shipping-option-${method.id}`}
+                          >
+                            <input
+                              type="radio"
+                              name="shipping"
+                              checked={selectedShipping?.id === method.id}
+                              onChange={() => setSelectedShipping(method)}
+                              className="w-4 h-4"
+                            />
+                            <div className="flex-1">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <p className="font-medium text-sm">{method.name}</p>
+                                  {method.deliveryTime && (
+                                    <p className="text-xs text-muted-foreground">{method.deliveryTime}</p>
+                                  )}
+                                </div>
+                                <span className="font-medium text-sm">
+                                  {method.priceAmount === 0 ? 'Free' : formatCurrency(method.priceAmount / 100, method.currency)}
+                                </span>
+                              </div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="border-t pt-3 space-y-1">
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(totalAmount, currency)}</span>
+                    </div>
+                    {selectedShipping && (
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Shipping</span>
+                        <span>{shippingCost === 0 ? 'Free' : formatCurrency(shippingCost, currency)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center pt-2">
+                      <span className="text-lg font-semibold">Total</span>
+                      <span className="text-lg font-bold" data-testid="cart-total">
+                        {formatCurrency(grandTotal, currency)}
+                      </span>
+                    </div>
+                  </div>
+
                   <Button 
                     className="w-full" 
                     size="lg"
                     onClick={handleCheckout}
-                    disabled={isCheckingOut}
+                    disabled={isCheckingOut || (shippingMethods.length > 0 && !selectedShipping)}
                     data-testid="checkout-button"
                   >
                     {isCheckingOut ? 'Processing...' : 'Pay Now'}
@@ -224,6 +320,12 @@ export default function CartDrawer({ websiteId, onCheckout }: CartDrawerProps) {
                 </div>
               ) : (
                 <>
+                  <div className="flex justify-between items-center">
+                    <span className="text-lg font-semibold">Subtotal</span>
+                    <span className="text-lg font-bold" data-testid="cart-subtotal">
+                      {formatCurrency(totalAmount, currency)}
+                    </span>
+                  </div>
                   <Button 
                     className="w-full" 
                     size="lg"
