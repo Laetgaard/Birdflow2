@@ -2848,9 +2848,8 @@ export default function ManagePage() {
                 </CardContent>
               </Card>
 
-              {/* Carrier Integrations - Only show when in live mode */}
-              {shippingConfig.mode === 'live' && (
-                <Card>
+              {/* Carrier Integrations - Always show so users can connect carriers before enabling live mode */}
+              <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                       <CardTitle>Carrier Integrations</CardTitle>
@@ -2985,7 +2984,6 @@ export default function ManagePage() {
                     )}
                   </CardContent>
                 </Card>
-              )}
 
               {/* Manual Shipping Methods - Only show when in manual mode */}
               {shippingConfig.mode === 'manual' && (
