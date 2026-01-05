@@ -5,10 +5,20 @@ import { eq, and } from "drizzle-orm";
 import crypto from "crypto";
 
 // Encryption helpers for sensitive data
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+// ENCRYPTION_KEY must be a 64-character hex string (32 bytes)
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 const ALGORITHM = 'aes-256-cbc';
 
+const hasValidEncryptionKey = ENCRYPTION_KEY && ENCRYPTION_KEY.length >= 64;
+
+if (!hasValidEncryptionKey) {
+  console.warn('WARNING: ENCRYPTION_KEY not set or invalid. Payment settings encryption will not work properly. Please set a 64-character hex string in environment variables.');
+}
+
 function encrypt(text: string): string {
+  if (!hasValidEncryptionKey || !ENCRYPTION_KEY) {
+    throw new Error('ENCRYPTION_KEY is not configured. Cannot store encrypted data.');
+  }
   const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex');
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
@@ -18,16 +28,23 @@ function encrypt(text: string): string {
 }
 
 function decrypt(encryptedText: string): string {
+  if (!hasValidEncryptionKey || !ENCRYPTION_KEY) {
+    throw new Error('ENCRYPTION_KEY is not configured. Cannot decrypt data.');
+  }
   try {
     const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex');
     const [ivHex, encrypted] = encryptedText.split(':');
+    if (!ivHex || !encrypted) {
+      throw new Error('Invalid encrypted format');
+    }
     const iv = Buffer.from(ivHex, 'hex');
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
-  } catch {
-    return encryptedText; // Return as-is if decryption fails (for backwards compatibility)
+  } catch (error) {
+    console.error('Decryption failed:', error);
+    throw new Error('Failed to decrypt data. The encryption key may have changed.');
   }
 }
 import { 
