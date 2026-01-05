@@ -2,6 +2,34 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 const { Pool } = pkg;
 import { eq, and } from "drizzle-orm";
+import crypto from "crypto";
+
+// Encryption helpers for sensitive data
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+const ALGORITHM = 'aes-256-cbc';
+
+function encrypt(text: string): string {
+  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex');
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+
+function decrypt(encryptedText: string): string {
+  try {
+    const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex');
+    const [ivHex, encrypted] = encryptedText.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch {
+    return encryptedText; // Return as-is if decryption fails (for backwards compatibility)
+  }
+}
 import { 
   profiles, type Profile, type InsertProfile,
   websites, type Website, type InsertWebsite,
@@ -723,21 +751,55 @@ export class DatabaseStorage implements IStorage {
   // Payment settings methods
   async getPaymentSettings(websiteId: string): Promise<WebsitePaymentSettings | undefined> {
     const result = await db.select().from(websitePaymentSettings).where(eq(websitePaymentSettings.websiteId, websiteId)).limit(1);
-    return result[0];
+    if (!result[0]) return undefined;
+    
+    // Decrypt sensitive fields
+    const settings = result[0];
+    return {
+      ...settings,
+      stripeSecretKey: settings.stripeSecretKey ? decrypt(settings.stripeSecretKey) : null,
+      stripeWebhookSecret: settings.stripeWebhookSecret ? decrypt(settings.stripeWebhookSecret) : null,
+    };
   }
 
   async createPaymentSettings(settings: InsertWebsitePaymentSettings): Promise<WebsitePaymentSettings> {
-    const result = await db.insert(websitePaymentSettings).values(settings).returning();
-    return result[0];
+    // Encrypt sensitive fields before storing
+    const encryptedSettings = {
+      ...settings,
+      stripeSecretKey: settings.stripeSecretKey ? encrypt(settings.stripeSecretKey) : null,
+      stripeWebhookSecret: settings.stripeWebhookSecret ? encrypt(settings.stripeWebhookSecret) : null,
+    };
+    const result = await db.insert(websitePaymentSettings).values(encryptedSettings).returning();
+    return {
+      ...result[0],
+      stripeSecretKey: settings.stripeSecretKey || null,
+      stripeWebhookSecret: settings.stripeWebhookSecret || null,
+    };
   }
 
   async updatePaymentSettings(websiteId: string, data: Partial<InsertWebsitePaymentSettings>): Promise<WebsitePaymentSettings | undefined> {
+    // Encrypt sensitive fields if provided
+    const encryptedData: Partial<InsertWebsitePaymentSettings> = { ...data };
+    if (data.stripeSecretKey !== undefined) {
+      encryptedData.stripeSecretKey = data.stripeSecretKey ? encrypt(data.stripeSecretKey) : null;
+    }
+    if (data.stripeWebhookSecret !== undefined) {
+      encryptedData.stripeWebhookSecret = data.stripeWebhookSecret ? encrypt(data.stripeWebhookSecret) : null;
+    }
+    
     const result = await db
       .update(websitePaymentSettings)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...encryptedData, updatedAt: new Date() })
       .where(eq(websitePaymentSettings.websiteId, websiteId))
       .returning();
-    return result[0];
+    
+    if (!result[0]) return undefined;
+    
+    return {
+      ...result[0],
+      stripeSecretKey: data.stripeSecretKey !== undefined ? data.stripeSecretKey : (result[0].stripeSecretKey ? decrypt(result[0].stripeSecretKey) : null),
+      stripeWebhookSecret: data.stripeWebhookSecret !== undefined ? data.stripeWebhookSecret : (result[0].stripeWebhookSecret ? decrypt(result[0].stripeWebhookSecret) : null),
+    };
   }
 }
 

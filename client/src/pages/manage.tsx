@@ -179,6 +179,17 @@ type ShippingConfig = {
   defaultCarrier?: string;
 };
 
+type PaymentSettings = {
+  id?: string;
+  websiteId: string;
+  stripePublishableKey?: string | null;
+  stripeSecretKey?: string | null;
+  stripeWebhookSecret?: string | null;
+  testMode: boolean;
+  isConnected: boolean;
+  connectedAt?: string | null;
+};
+
 type CarrierCredential = {
   id: string;
   websiteId: string;
@@ -784,6 +795,19 @@ export default function ManagePage() {
   const [carrierTestMode, setCarrierTestMode] = useState(true);
   const [isSavingCarrier, setIsSavingCarrier] = useState(false);
   
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({
+    websiteId: id || '',
+    testMode: true,
+    isConnected: false,
+  });
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    stripePublishableKey: '',
+    stripeSecretKey: '',
+    stripeWebhookSecret: '',
+  });
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
+  
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled'>('all');
   const [bookingSearch, setBookingSearch] = useState('');
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -876,6 +900,14 @@ export default function ManagePage() {
           headers: { "Authorization": `Bearer ${session.access_token}` },
         });
         if (carriersRes.ok) setAvailableCarriers(await carriersRes.json());
+
+        const paymentRes = await fetch(`/api/websites/${id}/payment-settings`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        });
+        if (paymentRes.ok) {
+          const settings = await paymentRes.json();
+          setPaymentSettings({ ...settings, websiteId: id });
+        }
 
       } catch (error: any) {
         toast({
@@ -1339,6 +1371,96 @@ export default function ManagePage() {
       toast({
         title: "Carrier Removed",
         description: "The carrier integration has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSavePaymentSettings = async () => {
+    if (!session || !id) return;
+    
+    if (!paymentForm.stripePublishableKey || !paymentForm.stripeSecretKey) {
+      toast({
+        title: "Missing Information",
+        description: "Please enter both your Stripe publishable and secret keys.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setIsSavingPayment(true);
+    try {
+      const res = await fetch(`/api/websites/${id}/payment-settings`, {
+        method: 'POST',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          stripePublishableKey: paymentForm.stripePublishableKey,
+          stripeSecretKey: paymentForm.stripeSecretKey,
+          stripeWebhookSecret: paymentForm.stripeWebhookSecret || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to save payment settings");
+      }
+
+      const saved = await res.json();
+      setPaymentSettings({
+        ...saved,
+        websiteId: id,
+      });
+      
+      toast({
+        title: "Stripe Connected",
+        description: "Your Stripe account has been connected successfully. Customers can now pay online.",
+      });
+
+      setIsPaymentDialogOpen(false);
+      setPaymentForm({
+        stripePublishableKey: '',
+        stripeSecretKey: '',
+        stripeWebhookSecret: '',
+      });
+    } catch (error: any) {
+      toast({
+        title: "Connection Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingPayment(false);
+    }
+  };
+
+  const handleDisconnectPayment = async () => {
+    if (!session || !id) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/payment-settings`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to disconnect payment provider");
+
+      setPaymentSettings({
+        websiteId: id,
+        testMode: true,
+        isConnected: false,
+      });
+      
+      toast({
+        title: "Stripe Disconnected",
+        description: "Your Stripe account has been disconnected. Customers can still place orders without payment.",
       });
     } catch (error: any) {
       toast({
@@ -3294,32 +3416,68 @@ export default function ManagePage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="text-yellow-600 border-yellow-300 bg-yellow-50">
-                          Not Connected
-                        </Badge>
-                        <Button 
-                          variant="outline"
-                          onClick={() => {
-                            toast({
-                              title: "Coming Soon",
-                              description: "Stripe integration will be available soon. Your orders can still be collected without payment processing.",
-                            });
-                          }}
-                          data-testid="btn-connect-stripe"
-                        >
-                          Connect Stripe
-                        </Button>
+                        {paymentSettings.isConnected ? (
+                          <>
+                            <Badge variant="outline" className="text-green-600 border-green-300 bg-green-50">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Connected {paymentSettings.testMode ? '(Test Mode)' : '(Live)'}
+                            </Badge>
+                            <Button 
+                              variant="outline"
+                              className="text-red-600 border-red-200 hover:bg-red-50"
+                              onClick={handleDisconnectPayment}
+                              data-testid="btn-disconnect-stripe"
+                            >
+                              Disconnect
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Badge variant="outline" className="text-yellow-600 border-yellow-300 bg-yellow-50">
+                              Not Connected
+                            </Badge>
+                            <Button 
+                              variant="outline"
+                              onClick={() => setIsPaymentDialogOpen(true)}
+                              data-testid="btn-connect-stripe"
+                            >
+                              Connect Stripe
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
 
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <h4 className="font-medium text-blue-900 mb-2">Orders Without Payment</h4>
-                      <p className="text-sm text-blue-800">
-                        Currently, your website accepts orders without online payment. Customers can place orders 
-                        and you can manage them from the Orders tab. When you connect Stripe, customers will be 
-                        able to pay online during checkout.
-                      </p>
-                    </div>
+                    {paymentSettings.isConnected ? (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <h4 className="font-medium text-green-900 mb-2">
+                          <CheckCircle className="w-4 h-4 inline mr-2" />
+                          Online Payments Active
+                        </h4>
+                        <p className="text-sm text-green-800">
+                          Your Stripe account is connected. Customers can now pay online during checkout. 
+                          {paymentSettings.testMode && (
+                            <span className="block mt-1 font-medium">
+                              Note: You're using test mode keys. Switch to live keys to accept real payments.
+                            </span>
+                          )}
+                        </p>
+                        {paymentSettings.stripePublishableKey && (
+                          <p className="text-xs text-green-700 mt-2 font-mono">
+                            Key: {paymentSettings.stripePublishableKey}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <h4 className="font-medium text-blue-900 mb-2">Orders Without Payment</h4>
+                        <p className="text-sm text-blue-800">
+                          Currently, your website accepts orders without online payment. Customers can place orders 
+                          and you can manage them from the Orders tab. When you connect Stripe, customers will be 
+                          able to pay online during checkout.
+                        </p>
+                      </div>
+                    )}
 
                     <Separator />
 
@@ -3335,6 +3493,98 @@ export default function ManagePage() {
                   </div>
                 </CardContent>
               </Card>
+
+              <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-[#635BFF] rounded flex items-center justify-center">
+                        <svg viewBox="0 0 32 32" className="w-5 h-5" fill="white">
+                          <path d="M13.976 13.176c0-.832.688-1.152 1.824-1.152 1.632 0 3.696.496 5.328 1.376V8.224c-1.776-.704-3.536-.976-5.328-.976-4.352 0-7.248 2.272-7.248 6.064 0 5.92 8.144 4.976 8.144 7.52 0 .992-.864 1.312-2.064 1.312-1.792 0-4.08-.736-5.888-1.728v5.216c2.016.864 4.048 1.232 5.888 1.232 4.464 0 7.536-2.208 7.536-6.048-.016-6.4-8.192-5.248-8.192-7.64z"/>
+                        </svg>
+                      </div>
+                      Connect Stripe
+                    </DialogTitle>
+                    <DialogDescription>
+                      Enter your Stripe API keys to enable online payments. You can find these in your{' '}
+                      <a 
+                        href="https://dashboard.stripe.com/apikeys" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-primary underline"
+                      >
+                        Stripe Dashboard
+                      </a>.
+                    </DialogDescription>
+                  </DialogHeader>
+                  
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="publishableKey">Publishable Key</Label>
+                      <Input
+                        id="publishableKey"
+                        placeholder="pk_test_..."
+                        value={paymentForm.stripePublishableKey}
+                        onChange={(e) => setPaymentForm(prev => ({ ...prev, stripePublishableKey: e.target.value }))}
+                        data-testid="input-stripe-publishable-key"
+                      />
+                      <p className="text-xs text-muted-foreground">Starts with pk_test_ or pk_live_</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="secretKey">Secret Key</Label>
+                      <Input
+                        id="secretKey"
+                        type="password"
+                        placeholder="sk_test_..."
+                        value={paymentForm.stripeSecretKey}
+                        onChange={(e) => setPaymentForm(prev => ({ ...prev, stripeSecretKey: e.target.value }))}
+                        data-testid="input-stripe-secret-key"
+                      />
+                      <p className="text-xs text-muted-foreground">Starts with sk_test_ or sk_live_</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="webhookSecret">Webhook Secret (Optional)</Label>
+                      <Input
+                        id="webhookSecret"
+                        type="password"
+                        placeholder="whsec_..."
+                        value={paymentForm.stripeWebhookSecret}
+                        onChange={(e) => setPaymentForm(prev => ({ ...prev, stripeWebhookSecret: e.target.value }))}
+                        data-testid="input-stripe-webhook-secret"
+                      />
+                      <p className="text-xs text-muted-foreground">Required for automatic order status updates</p>
+                    </div>
+
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      <p className="text-sm text-amber-800">
+                        <strong>Security:</strong> Your API keys are encrypted before storage and never exposed in your published website's frontend code.
+                      </p>
+                    </div>
+                  </div>
+
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleSavePaymentSettings}
+                      disabled={isSavingPayment}
+                      data-testid="btn-save-stripe"
+                    >
+                      {isSavingPayment ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        'Connect Stripe'
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </TabsContent>
         </Tabs>
