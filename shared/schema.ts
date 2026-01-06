@@ -9,6 +9,7 @@ export const profiles = pgTable("profiles", {
   fullName: text("full_name").notNull(),
   phoneNumber: text("phone_number").notNull(),
   onboardingCompleted: boolean("onboarding_completed").default(false).notNull(),
+  isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -756,6 +757,63 @@ export type CustomerJourney = {
   journeyLength: number;
   converted: boolean;
   count: number;
+};
+
+// Admin dashboard types
+export type AdminOverviewStats = {
+  totalUsers: number;
+  verifiedUsers: number;
+  totalWebsites: number;
+  publishedWebsites: number;
+  totalOrders: number;
+  totalBookings: number;
+  potentialRevenue: number;
+};
+
+export type AdminGrowthData = {
+  date: string;
+  signups: number;
+  websitesCreated: number;
+  publishes: number;
+  orders: number;
+  bookings: number;
+};
+
+export type AdminFunnelStep = {
+  name: string;
+  count: number;
+  percentage: number;
+  dropoff: number;
+};
+
+export type AdminUserWithStats = {
+  id: string;
+  email: string;
+  fullName: string;
+  phoneNumber: string;
+  isAdmin: boolean;
+  onboardingCompleted: boolean;
+  createdAt: Date;
+  websiteCount: number;
+  publishedCount: number;
+  totalOrders: number;
+  totalBookings: number;
+};
+
+export type AdminWebsiteWithOwner = {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  plan: string;
+  deploymentUrl: string | null;
+  lastPublishedAt: Date | null;
+  createdAt: Date;
+  ownerId: string;
+  ownerEmail: string;
+  ownerName: string;
+  orderCount: number;
+  bookingCount: number;
 };
 
 export * from "./models/chat";
