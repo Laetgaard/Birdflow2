@@ -530,4 +530,90 @@ export type ShippingRate = {
   estimatedDeliveryDate?: string;
 };
 
+// Analytics events table - privacy-first design (no personal data stored)
+export const analyticsEvents = pgTable("analytics_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  sessionId: varchar("session_id").notNull(), // Anonymous session identifier
+  eventType: text("event_type").notNull(), // page_view, product_view, add_to_cart, checkout_start, order_created, booking_created
+  eventData: jsonb("event_data").$type<{
+    path?: string;
+    referrer?: string;
+    productId?: string;
+    productName?: string;
+    productPrice?: number;
+    orderId?: string;
+    orderTotal?: number;
+    bookingId?: string;
+    serviceName?: string;
+    utm_source?: string;
+    utm_medium?: string;
+    utm_campaign?: string;
+  }>(),
+  pageUrl: text("page_url"),
+  trafficSource: text("traffic_source"), // direct, search, social, referral, campaign
+  deviceType: text("device_type"), // desktop, mobile, tablet
+  country: text("country"), // Derived from IP but not storing IP
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
+export const insertAnalyticsEventSchema = createInsertSchema(analyticsEvents).omit({
+  id: true,
+  timestamp: true,
+});
+
+export type InsertAnalyticsEvent = z.infer<typeof insertAnalyticsEventSchema>;
+export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+
+// Analytics event types
+export type AnalyticsEventType = 
+  | 'page_view'
+  | 'product_view'
+  | 'add_to_cart'
+  | 'checkout_start'
+  | 'order_created'
+  | 'booking_created';
+
+// Analytics aggregated data types
+export type AnalyticsOverview = {
+  totalPageViews: number;
+  uniqueSessions: number;
+  totalOrders: number;
+  totalRevenue: number;
+  conversionRate: number;
+  avgOrderValue: number;
+  totalBookings: number;
+};
+
+export type FunnelStep = {
+  name: string;
+  count: number;
+  percentage: number;
+  dropoff: number;
+};
+
+export type TrafficSource = {
+  source: string;
+  sessions: number;
+  pageViews: number;
+  conversions: number;
+  conversionRate: number;
+};
+
+export type TopPage = {
+  path: string;
+  pageViews: number;
+  uniqueVisitors: number;
+  avgTimeOnPage?: number;
+  bounceRate?: number;
+};
+
+export type CustomerJourney = {
+  entryPage: string;
+  exitPage: string;
+  journeyLength: number;
+  converted: boolean;
+  count: number;
+};
+
 export * from "./models/chat";

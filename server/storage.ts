@@ -63,8 +63,11 @@ import {
   shippingMethods, type ShippingMethod, type InsertShippingMethod,
   shippingCarrierCredentials, type ShippingCarrierCredentials, type InsertShippingCarrierCredentials,
   shippingConfig, type ShippingConfig, type InsertShippingConfig,
-  websitePaymentSettings, type WebsitePaymentSettings, type InsertWebsitePaymentSettings
+  websitePaymentSettings, type WebsitePaymentSettings, type InsertWebsitePaymentSettings,
+  analyticsEvents, type AnalyticsEvent, type InsertAnalyticsEvent,
+  type AnalyticsOverview, type FunnelStep, type TrafficSource, type TopPage
 } from "@shared/schema";
+import { sql, gte, desc, count, countDistinct } from "drizzle-orm";
 
 // Use Supabase database as primary storage
 // Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
@@ -222,6 +225,13 @@ export interface IStorage {
   getPaymentSettings(websiteId: string): Promise<WebsitePaymentSettings | undefined>;
   createPaymentSettings(settings: InsertWebsitePaymentSettings): Promise<WebsitePaymentSettings>;
   updatePaymentSettings(websiteId: string, data: Partial<InsertWebsitePaymentSettings>): Promise<WebsitePaymentSettings | undefined>;
+
+  // Analytics methods
+  createAnalyticsEvent(event: InsertAnalyticsEvent): Promise<AnalyticsEvent>;
+  getAnalyticsOverview(websiteId: string, startDate: Date, endDate: Date): Promise<AnalyticsOverview>;
+  getAnalyticsFunnel(websiteId: string, startDate: Date, endDate: Date): Promise<FunnelStep[]>;
+  getTrafficSources(websiteId: string, startDate: Date, endDate: Date): Promise<TrafficSource[]>;
+  getTopPages(websiteId: string, startDate: Date, endDate: Date): Promise<TopPage[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -817,6 +827,157 @@ export class DatabaseStorage implements IStorage {
       stripeSecretKey: data.stripeSecretKey !== undefined ? data.stripeSecretKey : (result[0].stripeSecretKey ? decrypt(result[0].stripeSecretKey) : null),
       stripeWebhookSecret: data.stripeWebhookSecret !== undefined ? data.stripeWebhookSecret : (result[0].stripeWebhookSecret ? decrypt(result[0].stripeWebhookSecret) : null),
     };
+  }
+
+  // Analytics methods
+  async createAnalyticsEvent(event: InsertAnalyticsEvent): Promise<AnalyticsEvent> {
+    const result = await db.insert(analyticsEvents).values(event).returning();
+    return result[0];
+  }
+
+  async getAnalyticsOverview(websiteId: string, startDate: Date, endDate: Date): Promise<AnalyticsOverview> {
+    const events = await db
+      .select()
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          gte(analyticsEvents.timestamp, startDate),
+          sql`${analyticsEvents.timestamp} <= ${endDate}`
+        )
+      );
+
+    const pageViews = events.filter(e => e.eventType === 'page_view').length;
+    const uniqueSessions = new Set(events.map(e => e.sessionId)).size;
+    const orderEvents = events.filter(e => e.eventType === 'order_created');
+    const totalOrders = orderEvents.length;
+    const totalRevenue = orderEvents.reduce((sum, e) => sum + (e.eventData?.orderTotal || 0), 0);
+    const bookingEvents = events.filter(e => e.eventType === 'booking_created');
+    const totalBookings = bookingEvents.length;
+
+    const sessionsWithPageView = new Set(events.filter(e => e.eventType === 'page_view').map(e => e.sessionId)).size;
+    const sessionsWithOrder = new Set(orderEvents.map(e => e.sessionId)).size;
+    const conversionRate = sessionsWithPageView > 0 ? (sessionsWithOrder / sessionsWithPageView) * 100 : 0;
+    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    return {
+      totalPageViews: pageViews,
+      uniqueSessions,
+      totalOrders,
+      totalRevenue: totalRevenue / 100,
+      conversionRate: Math.round(conversionRate * 100) / 100,
+      avgOrderValue: Math.round(avgOrderValue) / 100,
+      totalBookings,
+    };
+  }
+
+  async getAnalyticsFunnel(websiteId: string, startDate: Date, endDate: Date): Promise<FunnelStep[]> {
+    const events = await db
+      .select()
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          gte(analyticsEvents.timestamp, startDate),
+          sql`${analyticsEvents.timestamp} <= ${endDate}`
+        )
+      );
+
+    const funnelSteps = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'order_created'];
+    const stepNames = ['Page Views', 'Product Views', 'Add to Cart', 'Checkout Started', 'Orders Completed'];
+
+    const sessionsByStep: Record<string, Set<string>> = {};
+    funnelSteps.forEach(step => {
+      sessionsByStep[step] = new Set(
+        events.filter(e => e.eventType === step).map(e => e.sessionId)
+      );
+    });
+
+    const baseCount = sessionsByStep['page_view'].size || 1;
+    
+    return funnelSteps.map((step, index) => {
+      const currentCount = sessionsByStep[step].size;
+      const previousCount = index > 0 ? sessionsByStep[funnelSteps[index - 1]].size : currentCount;
+      const dropoff = previousCount > 0 ? Math.round(((previousCount - currentCount) / previousCount) * 100) : 0;
+      
+      return {
+        name: stepNames[index],
+        count: currentCount,
+        percentage: Math.round((currentCount / baseCount) * 100),
+        dropoff: index === 0 ? 0 : dropoff,
+      };
+    });
+  }
+
+  async getTrafficSources(websiteId: string, startDate: Date, endDate: Date): Promise<TrafficSource[]> {
+    const events = await db
+      .select()
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          gte(analyticsEvents.timestamp, startDate),
+          sql`${analyticsEvents.timestamp} <= ${endDate}`
+        )
+      );
+
+    const sourceMap: Record<string, { sessions: Set<string>; pageViews: number; conversions: number }> = {};
+    
+    events.forEach(event => {
+      const source = event.trafficSource || 'direct';
+      if (!sourceMap[source]) {
+        sourceMap[source] = { sessions: new Set(), pageViews: 0, conversions: 0 };
+      }
+      sourceMap[source].sessions.add(event.sessionId);
+      if (event.eventType === 'page_view') {
+        sourceMap[source].pageViews++;
+      }
+      if (event.eventType === 'order_created' || event.eventType === 'booking_created') {
+        sourceMap[source].conversions++;
+      }
+    });
+
+    return Object.entries(sourceMap).map(([source, data]) => ({
+      source,
+      sessions: data.sessions.size,
+      pageViews: data.pageViews,
+      conversions: data.conversions,
+      conversionRate: data.sessions.size > 0 ? Math.round((data.conversions / data.sessions.size) * 10000) / 100 : 0,
+    })).sort((a, b) => b.sessions - a.sessions);
+  }
+
+  async getTopPages(websiteId: string, startDate: Date, endDate: Date): Promise<TopPage[]> {
+    const events = await db
+      .select()
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          eq(analyticsEvents.eventType, 'page_view'),
+          gte(analyticsEvents.timestamp, startDate),
+          sql`${analyticsEvents.timestamp} <= ${endDate}`
+        )
+      );
+
+    const pageMap: Record<string, { views: number; sessions: Set<string> }> = {};
+    
+    events.forEach(event => {
+      const path = event.eventData?.path || event.pageUrl || '/';
+      if (!pageMap[path]) {
+        pageMap[path] = { views: 0, sessions: new Set() };
+      }
+      pageMap[path].views++;
+      pageMap[path].sessions.add(event.sessionId);
+    });
+
+    return Object.entries(pageMap)
+      .map(([path, data]) => ({
+        path,
+        pageViews: data.views,
+        uniqueVisitors: data.sessions.size,
+      }))
+      .sort((a, b) => b.pageViews - a.pageViews)
+      .slice(0, 10);
   }
 }
 
