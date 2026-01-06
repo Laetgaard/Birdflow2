@@ -24,7 +24,7 @@ import HeroIllustration from "@/components/animated/HeroIllustration";
 import SparklesBackground from "@/components/animated/Sparkles";
 import WaveDivider from "@/components/animated/WaveDivider";
 import CountUp from "@/components/animated/CountUp";
-import StepCards from "@/components/animated/StepCards";
+import AnimatedStepProgress from "@/components/animated/AnimatedStepProgress";
 import { getTotalCreators } from "@/lib/stats";
 import {
   Accordion,
@@ -169,7 +169,7 @@ export default function LandingPage() {
               </p>
             </motion.div>
             
-            <StepCards />
+            <AnimatedStepProgress />
           </div>
         </section>
 
