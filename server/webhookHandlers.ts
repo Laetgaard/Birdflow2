@@ -1,5 +1,6 @@
 import { getStripeSync } from './stripeClient';
 import { storage } from './storage';
+import { emailService } from './email/service';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -50,6 +51,28 @@ export class WebhookHandlers {
                     console.error(`Failed to decrement stock for product ${item.id}:`, stockErr);
                   }
                 }
+              }
+            }
+
+            // Send order confirmation email
+            if (order.customerEmail) {
+              try {
+                // Get website to determine published URL for button link
+                const website = await storage.getWebsite(order.websiteId);
+                const websiteUrl = website?.deploymentUrl || undefined;
+                
+                // Get updated order with confirmed status
+                const updatedOrder = await storage.getOrderByStripeSessionId(sessionId);
+                if (updatedOrder) {
+                  await emailService.sendOrderConfirmation(
+                    updatedOrder,
+                    order.customerEmail,
+                    websiteUrl
+                  );
+                  console.log(`Order confirmation email sent to ${order.customerEmail}`);
+                }
+              } catch (emailErr) {
+                console.error(`Failed to send order confirmation email:`, emailErr);
               }
             }
           }
