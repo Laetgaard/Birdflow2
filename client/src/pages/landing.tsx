@@ -24,7 +24,7 @@ import HeroIllustration from "@/components/animated/HeroIllustration";
 import SparklesBackground from "@/components/animated/Sparkles";
 import WaveDivider from "@/components/animated/WaveDivider";
 import CountUp from "@/components/animated/CountUp";
-import AnimatedStepProgress from "@/components/animated/AnimatedStepProgress";
+import AnimatedBuilderDemo from "@/components/animated/AnimatedBuilderDemo";
 import { getTotalCreators } from "@/lib/stats";
 import {
   Accordion,
@@ -159,17 +159,24 @@ export default function LandingPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.6 }}
-              className="text-center mb-16"
+              className="text-center mb-12"
             >
               <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
-                Launch your website in 3 simple steps
+                See how easy it is
               </h2>
               <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                No coding required. Just describe what you want and watch it come to life.
+                Add components, customize, and publish - all in a few clicks.
               </p>
             </motion.div>
             
-            <AnimatedStepProgress />
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+            >
+              <AnimatedBuilderDemo />
+            </motion.div>
           </div>
         </section>
 
