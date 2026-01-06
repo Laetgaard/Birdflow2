@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Sparkles, Building2, Rocket, ArrowLeft, Loader2, User, CreditCard } from "lucide-react";
+import { Check, Sparkles, Building2, Rocket, ArrowLeft, Loader2, User, CreditCard, Shield } from "lucide-react";
 
 const plans = [
   {
@@ -78,7 +78,7 @@ const plans = [
 export default function ProfilePage() {
   const [, navigate] = useLocation();
   const searchString = useSearch();
-  const { user, profile } = useAuth();
+  const { user, profile, session } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -86,6 +86,19 @@ export default function ProfilePage() {
   const urlParams = new URLSearchParams(searchString);
   const tabParam = urlParams.get('tab');
   const [activeTab, setActiveTab] = useState(tabParam === 'billing' ? 'billing' : 'account');
+
+  // Check if user is admin
+  const { data: adminCheck } = useQuery({
+    queryKey: ["admin-check"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/check", {
+        headers: { "Authorization": `Bearer ${session?.access_token}` },
+      });
+      if (!res.ok) return { isAdmin: false };
+      return res.json() as Promise<{ isAdmin: boolean }>;
+    },
+    enabled: !!user && !!session,
+  });
 
   const [contactOpen, setContactOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
@@ -262,6 +275,28 @@ export default function ProfilePage() {
                 </CardFooter>
               </form>
             </Card>
+
+            {adminCheck?.isAdmin && (
+              <Card className="mt-6 border-amber-200 bg-amber-50/50">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-amber-600" />
+                    <CardTitle className="text-amber-900">Admin Access</CardTitle>
+                  </div>
+                  <CardDescription>You have administrator privileges</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button 
+                    onClick={() => navigate("/admin")}
+                    className="bg-amber-600 hover:bg-amber-700"
+                    data-testid="button-admin-dashboard"
+                  >
+                    <Shield className="w-4 h-4 mr-2" />
+                    Open Admin Dashboard
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="billing">
