@@ -140,15 +140,15 @@ export default function Dashboard() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem data-testid="menu-item-profile">
+                <DropdownMenuItem onClick={() => setLocation('/profile')} data-testid="menu-item-profile">
                   <UserIcon className="mr-2 h-4 w-4" />
                   <span>Edit Profile</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem data-testid="menu-item-billing">
+                <DropdownMenuItem onClick={() => setLocation('/profile?tab=billing')} data-testid="menu-item-billing">
                   <CreditCard className="mr-2 h-4 w-4" />
                   <span>Billing</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem data-testid="menu-item-settings">
+                <DropdownMenuItem onClick={() => setLocation('/profile')} data-testid="menu-item-settings">
                   <Settings className="mr-2 h-4 w-4" />
                   <span>Settings</span>
                 </DropdownMenuItem>
