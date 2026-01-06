@@ -66,7 +66,8 @@ import {
   websitePaymentSettings, type WebsitePaymentSettings, type InsertWebsitePaymentSettings,
   analyticsEvents, type AnalyticsEvent, type InsertAnalyticsEvent,
   type AnalyticsOverview, type FunnelStep, type TrafficSource, type TopPage,
-  sanitizeAnalyticsEventData
+  sanitizeAnalyticsEventData,
+  billingLeads, type BillingLead, type InsertBillingLead
 } from "@shared/schema";
 import { sql, gte, desc, count, countDistinct } from "drizzle-orm";
 
@@ -233,6 +234,9 @@ export interface IStorage {
   getAnalyticsFunnel(websiteId: string, startDate: Date, endDate: Date): Promise<FunnelStep[]>;
   getTrafficSources(websiteId: string, startDate: Date, endDate: Date): Promise<TrafficSource[]>;
   getTopPages(websiteId: string, startDate: Date, endDate: Date): Promise<TopPage[]>;
+
+  // Billing methods
+  createBillingLead(lead: InsertBillingLead): Promise<BillingLead>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -986,6 +990,12 @@ export class DatabaseStorage implements IStorage {
       }))
       .sort((a, b) => b.pageViews - a.pageViews)
       .slice(0, 10);
+  }
+
+  // Billing methods
+  async createBillingLead(lead: InsertBillingLead): Promise<BillingLead> {
+    const result = await db.insert(billingLeads).values(lead).returning();
+    return result[0];
   }
 }
 

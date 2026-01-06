@@ -2959,5 +2959,31 @@ export async function registerRoutes(
     }
   });
 
+  // Billing - Submit contact/upgrade request
+  app.post("/api/billing/contact", async (req, res) => {
+    try {
+      const { name, email, company, message, plan, userId } = req.body;
+
+      if (!email || !plan) {
+        return res.status(400).json({ message: "Email and plan are required" });
+      }
+
+      const lead = await storage.createBillingLead({
+        userId: userId || 'anonymous',
+        email,
+        name: name || null,
+        company: company || null,
+        plan,
+        message: message || null,
+        status: 'pending',
+      });
+
+      res.json({ success: true, id: lead.id });
+    } catch (error: any) {
+      console.error("Billing contact error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }

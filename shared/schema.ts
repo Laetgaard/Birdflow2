@@ -19,6 +19,9 @@ export const insertProfileSchema = createInsertSchema(profiles).omit({
 export type InsertProfile = z.infer<typeof insertProfileSchema>;
 export type Profile = typeof profiles.$inferSelect;
 
+// Website plans
+export type WebsitePlan = 'free' | 'starter' | 'professional' | 'enterprise';
+
 // Websites table
 export const websites = pgTable("websites", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -30,6 +33,9 @@ export const websites = pgTable("websites", {
   deploymentUrl: text("deployment_url"),
   deploymentId: text("deployment_id"),
   lastPublishedAt: timestamp("last_published_at"),
+  // Billing fields
+  plan: text("plan").default("free").notNull(), // free, starter, professional, enterprise
+  planExpiresAt: timestamp("plan_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -529,6 +535,102 @@ export type ShippingRate = {
   deliveryTime?: string;
   estimatedDeliveryDate?: string;
 };
+
+// Email settings table (per website)
+export const emailSettings = pgTable("email_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull().unique(),
+  // Toggle for each email type
+  orderConfirmationEnabled: boolean("order_confirmation_enabled").default(true).notNull(),
+  bookingConfirmationEnabled: boolean("booking_confirmation_enabled").default(true).notNull(),
+  bookingUpdatedEnabled: boolean("booking_updated_enabled").default(true).notNull(),
+  bookingCancelledEnabled: boolean("booking_cancelled_enabled").default(true).notNull(),
+  // Branding
+  senderName: text("sender_name"),
+  senderEmail: text("sender_email"),
+  logoUrl: text("logo_url"),
+  primaryColor: text("primary_color").default("#6366f1"),
+  footerText: text("footer_text"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEmailSettingsSchema = createInsertSchema(emailSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
+export type EmailSettings = typeof emailSettings.$inferSelect;
+
+// Email templates table (per website, per email type)
+export type EmailTemplateType = 'order_confirmation' | 'booking_confirmation' | 'booking_updated' | 'booking_cancelled';
+
+export const emailTemplates = pgTable("email_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  templateType: text("template_type").notNull(), // order_confirmation, booking_confirmation, etc
+  subject: text("subject").notNull(),
+  heading: text("heading").notNull(),
+  bodyText: text("body_text").notNull(),
+  buttonText: text("button_text"),
+  buttonUrl: text("button_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+
+// Cookie consent settings (per website)
+export const cookieSettings = pgTable("cookie_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull().unique(),
+  enabled: boolean("enabled").default(true).notNull(),
+  bannerText: text("banner_text").default("We use cookies to improve your experience and analyze site traffic."),
+  privacyPolicyUrl: text("privacy_policy_url"),
+  acceptButtonText: text("accept_button_text").default("Accept"),
+  rejectButtonText: text("reject_button_text").default("Reject"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCookieSettingsSchema = createInsertSchema(cookieSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCookieSettings = z.infer<typeof insertCookieSettingsSchema>;
+export type CookieSettings = typeof cookieSettings.$inferSelect;
+
+// Billing leads (contact requests for upgrades)
+export const billingLeads = pgTable("billing_leads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  email: text("email").notNull(),
+  name: text("name"),
+  company: text("company"),
+  plan: text("plan").notNull(), // starter, professional, enterprise
+  message: text("message"),
+  status: text("status").default("pending").notNull(), // pending, contacted, converted
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertBillingLeadSchema = createInsertSchema(billingLeads).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertBillingLead = z.infer<typeof insertBillingLeadSchema>;
+export type BillingLead = typeof billingLeads.$inferSelect;
 
 // Analytics events table - privacy-first design (no personal data stored)
 // IMPORTANT: Only anonymous, non-PII data is stored. No emails, names, phones, or IPs.
