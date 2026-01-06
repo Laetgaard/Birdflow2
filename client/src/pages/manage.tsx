@@ -148,6 +148,8 @@ type Product = {
   status: 'active' | 'draft' | 'archived';
   inventory?: string;
   category?: string;
+  trackInventory?: boolean;
+  stockQuantity?: number;
 };
 
 type BookingService = {
@@ -216,6 +218,70 @@ type CustomDomain = {
   dnsValue?: string;
   errorMessage?: string;
   createdAt: string;
+};
+
+type EmailSettings = {
+  id: string;
+  websiteId: string;
+  orderConfirmationEnabled: boolean;
+  bookingConfirmationEnabled: boolean;
+  bookingUpdatedEnabled: boolean;
+  bookingCancelledEnabled: boolean;
+  senderName?: string | null;
+  senderEmail?: string | null;
+  logoUrl?: string | null;
+  primaryColor?: string | null;
+  footerText?: string | null;
+};
+
+type EmailTemplate = {
+  id: string;
+  websiteId: string;
+  templateType: string;
+  subject: string;
+  heading: string;
+  bodyText: string;
+  buttonText?: string | null;
+};
+
+const EMAIL_TEMPLATE_TYPES = [
+  { id: 'order_confirmation', name: 'Order Confirmation', description: 'Sent when a customer completes a purchase' },
+  { id: 'booking_confirmation', name: 'Booking Confirmation', description: 'Sent when a customer creates a booking' },
+  { id: 'booking_updated', name: 'Booking Updated', description: 'Sent when a booking is modified' },
+  { id: 'booking_cancelled', name: 'Booking Cancelled', description: 'Sent when a booking is cancelled' },
+  { id: 'website_published', name: 'Website Published', description: 'Sent to you when your website is published' },
+];
+
+const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; bodyText: string; buttonText?: string }> = {
+  order_confirmation: {
+    subject: 'Order Confirmation - #{{orderId}}',
+    heading: 'Thank you for your order!',
+    bodyText: 'We have received your order and are processing it. You will receive another email when your order ships.',
+    buttonText: 'View Order',
+  },
+  booking_confirmation: {
+    subject: 'Booking Confirmation - {{serviceName}}',
+    heading: 'Your booking is confirmed!',
+    bodyText: 'We look forward to seeing you at your scheduled appointment.',
+    buttonText: 'View Booking',
+  },
+  booking_updated: {
+    subject: 'Booking Updated - {{serviceName}}',
+    heading: 'Your booking has been updated',
+    bodyText: 'The details of your booking have been modified. Please review the updated information below.',
+    buttonText: 'View Booking',
+  },
+  booking_cancelled: {
+    subject: 'Booking Cancelled - {{serviceName}}',
+    heading: 'Your booking has been cancelled',
+    bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
+  },
+  website_published: {
+    subject: 'Your website is now live!',
+    heading: 'Congratulations! Your website is published',
+    bodyText: 'Your website is now live and accessible to the world. Click below to visit your site.',
+    buttonText: 'Visit Website',
+  },
 };
 
 function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId: string; accessToken: string; isPublished: boolean }) {
@@ -726,6 +792,421 @@ function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId: strin
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; accessToken: string }) {
+  const { toast } = useToast();
+  const [settings, setSettings] = useState<EmailSettings | null>(null);
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [selectedTemplateType, setSelectedTemplateType] = useState<string | null>(null);
+  const [templateForm, setTemplateForm] = useState({
+    subject: '',
+    heading: '',
+    bodyText: '',
+    buttonText: '',
+  });
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/email-settings`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSettings(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch email settings:', error);
+    }
+  }, [websiteId, accessToken]);
+
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/email-templates`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch email templates:', error);
+    }
+  }, [websiteId, accessToken]);
+
+  useEffect(() => {
+    Promise.all([fetchSettings(), fetchTemplates()]).finally(() => setIsLoading(false));
+  }, [fetchSettings, fetchTemplates]);
+
+  const handleToggle = async (field: keyof EmailSettings, value: boolean) => {
+    if (!settings) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/email-settings`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ [field]: value }),
+      });
+      
+      if (res.ok) {
+        const updated = await res.json();
+        setSettings(updated);
+        toast({ title: 'Email settings updated' });
+      }
+    } catch (error) {
+      toast({ title: 'Failed to update settings', variant: 'destructive' });
+    }
+  };
+
+  const handleBrandingUpdate = async (data: Partial<EmailSettings>) => {
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/email-settings`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(data),
+      });
+      
+      if (res.ok) {
+        const updated = await res.json();
+        setSettings(updated);
+        toast({ title: 'Branding updated' });
+      }
+    } catch (error) {
+      toast({ title: 'Failed to update branding', variant: 'destructive' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openTemplateEditor = (templateType: string) => {
+    const existingTemplate = templates.find(t => t.templateType === templateType);
+    const defaults = DEFAULT_TEMPLATES[templateType] || {};
+    
+    setTemplateForm({
+      subject: existingTemplate?.subject || defaults.subject || '',
+      heading: existingTemplate?.heading || defaults.heading || '',
+      bodyText: existingTemplate?.bodyText || defaults.bodyText || '',
+      buttonText: existingTemplate?.buttonText || defaults.buttonText || '',
+    });
+    setSelectedTemplateType(templateType);
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!selectedTemplateType) return;
+    
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/email-templates/${selectedTemplateType}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(templateForm),
+      });
+      
+      if (res.ok) {
+        const updated = await res.json();
+        setTemplates(prev => {
+          const exists = prev.find(t => t.templateType === selectedTemplateType);
+          if (exists) {
+            return prev.map(t => t.templateType === selectedTemplateType ? updated : t);
+          }
+          return [...prev, updated];
+        });
+        toast({ title: 'Template saved' });
+        setSelectedTemplateType(null);
+      }
+    } catch (error) {
+      toast({ title: 'Failed to save template', variant: 'destructive' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Email Notifications Toggles */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="w-5 h-5" />
+            Email Notifications
+          </CardTitle>
+          <CardDescription>Control which emails are sent to your customers</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <p className="font-medium">Order Confirmations</p>
+              <p className="text-sm text-muted-foreground">Send email when a customer completes a purchase</p>
+            </div>
+            <Button
+              variant={settings?.orderConfirmationEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleToggle('orderConfirmationEnabled', !settings?.orderConfirmationEnabled)}
+              data-testid="toggle-order-confirmation"
+            >
+              {settings?.orderConfirmationEnabled ? 'Enabled' : 'Disabled'}
+            </Button>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <p className="font-medium">Booking Confirmations</p>
+              <p className="text-sm text-muted-foreground">Send email when a customer creates a booking</p>
+            </div>
+            <Button
+              variant={settings?.bookingConfirmationEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleToggle('bookingConfirmationEnabled', !settings?.bookingConfirmationEnabled)}
+              data-testid="toggle-booking-confirmation"
+            >
+              {settings?.bookingConfirmationEnabled ? 'Enabled' : 'Disabled'}
+            </Button>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <p className="font-medium">Booking Updates</p>
+              <p className="text-sm text-muted-foreground">Send email when a booking is modified</p>
+            </div>
+            <Button
+              variant={settings?.bookingUpdatedEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleToggle('bookingUpdatedEnabled', !settings?.bookingUpdatedEnabled)}
+              data-testid="toggle-booking-updated"
+            >
+              {settings?.bookingUpdatedEnabled ? 'Enabled' : 'Disabled'}
+            </Button>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <p className="font-medium">Booking Cancellations</p>
+              <p className="text-sm text-muted-foreground">Send email when a booking is cancelled</p>
+            </div>
+            <Button
+              variant={settings?.bookingCancelledEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={() => handleToggle('bookingCancelledEnabled', !settings?.bookingCancelledEnabled)}
+              data-testid="toggle-booking-cancelled"
+            >
+              {settings?.bookingCancelledEnabled ? 'Enabled' : 'Disabled'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Email Branding */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Palette className="w-5 h-5" />
+            Email Branding
+          </CardTitle>
+          <CardDescription>Customize the look and feel of your emails</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Sender Name</Label>
+              <Input
+                value={settings?.senderName || ''}
+                onChange={(e) => setSettings(prev => prev ? { ...prev, senderName: e.target.value } : null)}
+                onBlur={(e) => handleBrandingUpdate({ senderName: e.target.value || null })}
+                placeholder="Your Company Name"
+                data-testid="input-sender-name"
+              />
+            </div>
+            <div>
+              <Label>Sender Email</Label>
+              <Input
+                type="email"
+                value={settings?.senderEmail || ''}
+                onChange={(e) => setSettings(prev => prev ? { ...prev, senderEmail: e.target.value } : null)}
+                onBlur={(e) => handleBrandingUpdate({ senderEmail: e.target.value || null })}
+                placeholder="hello@yourcompany.com"
+                data-testid="input-sender-email"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Logo URL</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={settings?.logoUrl || ''}
+                  onChange={(e) => setSettings(prev => prev ? { ...prev, logoUrl: e.target.value } : null)}
+                  onBlur={(e) => handleBrandingUpdate({ logoUrl: e.target.value || null })}
+                  placeholder="https://example.com/logo.png"
+                  data-testid="input-logo-url"
+                />
+              </div>
+              {settings?.logoUrl && (
+                <div className="mt-2 p-2 bg-muted rounded">
+                  <img src={settings.logoUrl} alt="Logo preview" className="max-h-8 object-contain" />
+                </div>
+              )}
+            </div>
+            <div>
+              <Label>Primary Color</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="color"
+                  value={settings?.primaryColor || '#6366f1'}
+                  onChange={(e) => {
+                    setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null);
+                    handleBrandingUpdate({ primaryColor: e.target.value });
+                  }}
+                  className="w-12 h-10 p-1 cursor-pointer"
+                  data-testid="input-primary-color"
+                />
+                <Input
+                  value={settings?.primaryColor || '#6366f1'}
+                  onChange={(e) => setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null)}
+                  onBlur={(e) => handleBrandingUpdate({ primaryColor: e.target.value || null })}
+                  placeholder="#6366f1"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+          </div>
+          <div>
+            <Label>Footer Text</Label>
+            <Textarea
+              value={settings?.footerText || ''}
+              onChange={(e) => setSettings(prev => prev ? { ...prev, footerText: e.target.value } : null)}
+              onBlur={(e) => handleBrandingUpdate({ footerText: e.target.value || null })}
+              placeholder="Sent via BirdFlow - Website Builder Platform"
+              rows={2}
+              data-testid="input-footer-text"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Email Templates */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Email Templates</CardTitle>
+          <CardDescription>Customize the content of each email type</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {EMAIL_TEMPLATE_TYPES.map(type => {
+              const hasCustom = templates.find(t => t.templateType === type.id);
+              return (
+                <div 
+                  key={type.id} 
+                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                  data-testid={`template-${type.id}`}
+                >
+                  <div>
+                    <p className="font-medium">{type.name}</p>
+                    <p className="text-sm text-muted-foreground">{type.description}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {hasCustom && (
+                      <Badge variant="secondary" className="text-xs">Customized</Badge>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openTemplateEditor(type.id)}
+                      data-testid={`edit-template-${type.id}`}
+                    >
+                      <Pencil className="w-3 h-3 mr-1" />
+                      Edit
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Template Editor Dialog */}
+      <Dialog open={!!selectedTemplateType} onOpenChange={(open) => !open && setSelectedTemplateType(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Edit {EMAIL_TEMPLATE_TYPES.find(t => t.id === selectedTemplateType)?.name} Template
+            </DialogTitle>
+            <DialogDescription>
+              Customize the content of this email. Use variables like {"{{orderId}}"}, {"{{customerName}}"}, etc.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Subject Line</Label>
+              <Input
+                value={templateForm.subject}
+                onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
+                placeholder="Order Confirmation - #{{orderId}}"
+                data-testid="template-subject"
+              />
+            </div>
+            <div>
+              <Label>Heading</Label>
+              <Input
+                value={templateForm.heading}
+                onChange={(e) => setTemplateForm(prev => ({ ...prev, heading: e.target.value }))}
+                placeholder="Thank you for your order!"
+                data-testid="template-heading"
+              />
+            </div>
+            <div>
+              <Label>Body Text</Label>
+              <Textarea
+                value={templateForm.bodyText}
+                onChange={(e) => setTemplateForm(prev => ({ ...prev, bodyText: e.target.value }))}
+                placeholder="We have received your order and are processing it..."
+                rows={4}
+                data-testid="template-body"
+              />
+            </div>
+            <div>
+              <Label>Button Text (optional)</Label>
+              <Input
+                value={templateForm.buttonText}
+                onChange={(e) => setTemplateForm(prev => ({ ...prev, buttonText: e.target.value }))}
+                placeholder="View Order"
+                data-testid="template-button"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedTemplateType(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveTemplate} disabled={isSaving} data-testid="save-template">
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Save Template
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 
@@ -1821,6 +2302,10 @@ export default function ManagePage() {
             <TabsTrigger value="shipping" data-testid="tab-shipping">
               <Truck className="w-4 h-4 mr-2" />
               Shipping
+            </TabsTrigger>
+            <TabsTrigger value="emails" data-testid="tab-emails">
+              <Mail className="w-4 h-4 mr-2" />
+              Emails
             </TabsTrigger>
             <TabsTrigger value="analytics" data-testid="tab-analytics">
               <BarChart3 className="w-4 h-4 mr-2" />
@@ -3366,6 +3851,15 @@ export default function ManagePage() {
             </Card>
               )}
           </div>
+          </TabsContent>
+
+          <TabsContent value="emails">
+            {session && id && (
+              <EmailSettingsCard 
+                websiteId={id} 
+                accessToken={session.access_token} 
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="analytics">

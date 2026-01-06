@@ -143,6 +143,26 @@ Website analytics with GDPR compliance and no personal data storage:
 - **Published Site Integration**: AnalyticsTracker component included in generated Next.js sites for client-side tracking.
 - **API Endpoints**: Public `/api/public/analytics/track` for event collection; authenticated endpoints for overview, funnel, traffic sources, and top pages with configurable date ranges.
 
+### Email Notification System
+Comprehensive transactional email system for order confirmations, booking notifications, and website publishing:
+- **Email Provider**: SendGrid for all transactional emails (via @sendgrid/mail).
+- **Database Tables**: `email_settings` (per-website toggles/branding), `email_templates` (custom templates per type).
+- **Email Types**: order_confirmation, booking_confirmation, booking_updated, booking_cancelled, website_published.
+- **Toggles**: Website owners can enable/disable each notification type independently.
+- **Branding**: Customizable sender name, email, logo, primary color, and footer text per website.
+- **Template Customization**: Each email type can have custom subject, heading, body text, and button text.
+- **Variable Replacement**: Supports {{orderId}}, {{customerName}}, {{serviceName}}, {{date}}, etc.
+- **Default Branding**: Falls back to "BirdFlow" branding when website has no custom settings.
+- **Service Location**: `server/email/service.ts` with EmailService class and convenience methods.
+- **Triggers**:
+  - Order confirmation: Sent via webhook when Stripe payment completes (webhookHandlers.ts).
+  - Booking confirmation: Sent when public booking is created (routes.ts).
+  - Booking updates/cancellations: Sent when booking status changes (routes.ts).
+  - Website published: Sent to owner when website is deployed (routes.ts).
+- **Error Handling**: Email failures are logged but don't break main flows.
+- **UI**: Emails tab in Manage page with notification toggles, branding editor, and template customization.
+- **API Endpoints**: GET/PATCH `/api/websites/:id/email-settings`, GET/PUT `/api/websites/:id/email-templates/:type`.
+
 ### Deployment
 - **Vercel**: Hosts published Next.js sites via its REST API, including custom domain connections.
 
