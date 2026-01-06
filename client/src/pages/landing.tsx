@@ -24,6 +24,7 @@ import HeroIllustration from "@/components/animated/HeroIllustration";
 import SparklesBackground from "@/components/animated/Sparkles";
 import WaveDivider from "@/components/animated/WaveDivider";
 import CountUp from "@/components/animated/CountUp";
+import StepCards from "@/components/animated/StepCards";
 import { getTotalCreators } from "@/lib/stats";
 import {
   Accordion,
@@ -168,56 +169,7 @@ export default function LandingPage() {
               </p>
             </motion.div>
             
-            <motion.div
-              variants={staggerContainer}
-              initial="initial"
-              whileInView="animate"
-              viewport={{ once: true }}
-              className="grid md:grid-cols-3 gap-8"
-            >
-              {[
-                {
-                  step: "01",
-                  title: "Choose a Template",
-                  desc: "Pick from our collection of professionally designed templates or start from scratch.",
-                  icon: Layout,
-                  color: "from-blue-500 to-cyan-500",
-                },
-                {
-                  step: "02",
-                  title: "Customize with AI",
-                  desc: "Describe your changes in plain English. Our AI builds and styles your site instantly.",
-                  icon: Sparkles,
-                  color: "from-purple-500 to-pink-500",
-                },
-                {
-                  step: "03",
-                  title: "Publish & Grow",
-                  desc: "Go live with one click. Track analytics, manage bookings, and accept payments.",
-                  icon: Zap,
-                  color: "from-orange-500 to-red-500",
-                },
-              ].map((item, i) => (
-                <motion.div
-                  key={i}
-                  variants={fadeInUp}
-                  className="relative bg-background p-8 rounded-2xl border shadow-sm hover:shadow-lg transition-shadow group"
-                >
-                  <div className="absolute -top-4 left-8 px-3 py-1 bg-gradient-to-r text-white text-xs font-bold rounded-full"
-                    style={{ backgroundImage: `linear-gradient(to right, var(--tw-gradient-stops))` }}
-                  >
-                    <span className={`bg-gradient-to-r ${item.color} bg-clip-text text-transparent`}>
-                      Step {item.step}
-                    </span>
-                  </div>
-                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${item.color} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
-                    <item.icon className="w-7 h-7 text-white" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-3">{item.title}</h3>
-                  <p className="text-muted-foreground leading-relaxed">{item.desc}</p>
-                </motion.div>
-              ))}
-            </motion.div>
+            <StepCards />
           </div>
         </section>
 
