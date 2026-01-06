@@ -42,6 +42,7 @@ type RenderProps = {
   onEditField?: (field: string | null) => void;
   onImageResize?: (width: string, height: string) => void;
   onStyleChange?: (styles: Partial<ComponentStyles>) => void;
+  onHover?: (componentId: string | null) => void;
 };
 
 type EditableTextProps = {
@@ -131,8 +132,6 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
     color: styles.textColor,
     padding: styles.padding || '60px 24px',
     cursor: isPreview ? 'default' : 'pointer',
-    outline: isSelected ? '3px solid #3b82f6' : 'none',
-    outlineOffset: '-3px',
     position: 'relative' as const,
   };
 }
@@ -887,19 +886,29 @@ function SpacerComponent({ props, styles, isSelected, onClick, isPreview }: Comp
         height, 
         backgroundColor: styles.backgroundColor || 'transparent',
         cursor: isPreview ? 'default' : 'pointer',
-        outline: isSelected ? '3px solid #3b82f6' : 'none',
-        outlineOffset: '-3px',
       }} 
       onClick={onClick}
     />
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
       onClick(e);
+    }
+  };
+
+  const handleMouseEnter = () => {
+    if (!isPreview && onHover) {
+      onHover(component.id);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (!isPreview && onHover) {
+      onHover(null);
     }
   };
 
@@ -925,6 +934,8 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     'data-testid': `component-${component.id}`,
     'data-component-type': component.type,
     'data-element-id': component.id,
+    onMouseEnter: handleMouseEnter,
+    onMouseLeave: handleMouseLeave,
   };
 
   switch (component.type) {
