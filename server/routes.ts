@@ -9,6 +9,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig } from "./publisher/vercel";
 import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
+import { emailService } from "./email/service";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -833,10 +834,39 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Access denied" });
       }
 
+      // Get the original booking to check for status changes
+      const originalBooking = await storage.getBooking(req.params.bookingId, req.params.id);
+
       const booking = await storage.updateBooking(req.params.bookingId, req.params.id, req.body);
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
+
+      // Send email if status changed
+      if (originalBooking && booking.customerEmail && req.body.status) {
+        const websiteUrl = website.deploymentUrl || undefined;
+        try {
+          if (req.body.status === 'cancelled') {
+            await emailService.sendBookingCancelled(
+              booking,
+              booking.customerEmail,
+              booking.service
+            );
+            console.log(`Booking cancelled email sent to ${booking.customerEmail}`);
+          } else if (originalBooking.status !== req.body.status) {
+            await emailService.sendBookingUpdated(
+              booking,
+              booking.customerEmail,
+              booking.service,
+              websiteUrl
+            );
+            console.log(`Booking updated email sent to ${booking.customerEmail}`);
+          }
+        } catch (emailErr) {
+          console.error(`Failed to send booking update email:`, emailErr);
+        }
+      }
+
       res.json(booking);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1586,6 +1616,22 @@ export async function registerRoutes(
           deploymentId: result.deploymentId,
         } as any);
 
+        // Send website published notification email
+        try {
+          const ownerProfile = await storage.getProfile(user.id);
+          if (ownerProfile?.email && result.deploymentUrl) {
+            await emailService.sendWebsitePublished(
+              ownerProfile.email,
+              req.params.id,
+              website.name,
+              result.deploymentUrl
+            );
+            console.log(`Website published email sent to ${ownerProfile.email}`);
+          }
+        } catch (emailErr) {
+          console.error(`Failed to send website published email:`, emailErr);
+        }
+
         res.json({
           success: true,
           deploymentUrl: result.deploymentUrl,
@@ -1991,6 +2037,20 @@ export async function registerRoutes(
         date: new Date(date),
         notes,
       });
+
+      // Send booking confirmation email
+      try {
+        const websiteUrl = website.deploymentUrl || undefined;
+        await emailService.sendBookingConfirmation(
+          booking,
+          customerEmail,
+          service,
+          websiteUrl
+        );
+        console.log(`Booking confirmation email sent to ${customerEmail}`);
+      } catch (emailErr) {
+        console.error(`Failed to send booking confirmation email:`, emailErr);
+      }
 
       res.status(201).json(booking);
     } catch (error: any) {
@@ -2981,6 +3041,145 @@ export async function registerRoutes(
       res.json({ success: true, id: lead.id });
     } catch (error: any) {
       console.error("Billing contact error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Email Settings - Get email settings for a website
+  app.get("/api/websites/:id/email-settings", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      let settings = await storage.getEmailSettings(req.params.id);
+      
+      // Create default settings if they don't exist
+      if (!settings) {
+        settings = await storage.createEmailSettings({
+          websiteId: req.params.id,
+          orderConfirmationEnabled: true,
+          bookingConfirmationEnabled: true,
+          bookingUpdatedEnabled: true,
+          bookingCancelledEnabled: true,
+        });
+      }
+
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Get email settings error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Email Settings - Update email settings for a website
+  app.patch("/api/websites/:id/email-settings", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      // Get or create settings first
+      let settings = await storage.getEmailSettings(req.params.id);
+      if (!settings) {
+        settings = await storage.createEmailSettings({
+          websiteId: req.params.id,
+          orderConfirmationEnabled: true,
+          bookingConfirmationEnabled: true,
+          bookingUpdatedEnabled: true,
+          bookingCancelledEnabled: true,
+        });
+      }
+
+      const updatedSettings = await storage.updateEmailSettings(req.params.id, req.body);
+      res.json(updatedSettings);
+    } catch (error: any) {
+      console.error("Update email settings error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Email Templates - Get all templates for a website
+  app.get("/api/websites/:id/email-templates", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const templates = await storage.getEmailTemplates(req.params.id);
+      res.json(templates);
+    } catch (error: any) {
+      console.error("Get email templates error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Email Templates - Get a specific template
+  app.get("/api/websites/:id/email-templates/:type", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const template = await storage.getEmailTemplate(req.params.id, req.params.type);
+      res.json(template || null);
+    } catch (error: any) {
+      console.error("Get email template error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Email Templates - Create or update a template
+  app.put("/api/websites/:id/email-templates/:type", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { subject, heading, bodyText, buttonText } = req.body;
+      const existingTemplate = await storage.getEmailTemplate(req.params.id, req.params.type);
+
+      if (existingTemplate) {
+        const updated = await storage.updateEmailTemplate(existingTemplate.id, req.params.id, {
+          subject,
+          heading,
+          bodyText,
+          buttonText,
+        });
+        res.json(updated);
+      } else {
+        const created = await storage.createEmailTemplate({
+          websiteId: req.params.id,
+          templateType: req.params.type,
+          subject,
+          heading,
+          bodyText,
+          buttonText,
+        });
+        res.json(created);
+      }
+    } catch (error: any) {
+      console.error("Update email template error:", error);
       res.status(500).json({ message: error.message });
     }
   });

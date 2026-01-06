@@ -67,7 +67,9 @@ import {
   analyticsEvents, type AnalyticsEvent, type InsertAnalyticsEvent,
   type AnalyticsOverview, type FunnelStep, type TrafficSource, type TopPage,
   sanitizeAnalyticsEventData,
-  billingLeads, type BillingLead, type InsertBillingLead
+  billingLeads, type BillingLead, type InsertBillingLead,
+  emailSettings, type EmailSettings, type InsertEmailSettings,
+  emailTemplates, type EmailTemplate, type InsertEmailTemplate
 } from "@shared/schema";
 import { sql, gte, desc, count, countDistinct } from "drizzle-orm";
 
@@ -237,6 +239,17 @@ export interface IStorage {
 
   // Billing methods
   createBillingLead(lead: InsertBillingLead): Promise<BillingLead>;
+
+  // Email settings methods
+  getEmailSettings(websiteId: string): Promise<EmailSettings | undefined>;
+  createEmailSettings(settings: InsertEmailSettings): Promise<EmailSettings>;
+  updateEmailSettings(websiteId: string, data: Partial<InsertEmailSettings>): Promise<EmailSettings | undefined>;
+
+  // Email templates methods
+  getEmailTemplates(websiteId: string): Promise<EmailTemplate[]>;
+  getEmailTemplate(websiteId: string, templateType: string): Promise<EmailTemplate | undefined>;
+  createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate>;
+  updateEmailTemplate(id: string, websiteId: string, data: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -383,6 +396,13 @@ export class DatabaseStorage implements IStorage {
   // Bookings methods
   async getBookings(websiteId: string): Promise<Booking[]> {
     return db.select().from(bookings).where(eq(bookings.websiteId, websiteId));
+  }
+
+  async getBooking(bookingId: string, websiteId: string): Promise<Booking | undefined> {
+    const result = await db.select().from(bookings)
+      .where(and(eq(bookings.id, bookingId), eq(bookings.websiteId, websiteId)))
+      .limit(1);
+    return result[0];
   }
 
   async createBooking(booking: InsertBooking): Promise<Booking> {
@@ -995,6 +1015,50 @@ export class DatabaseStorage implements IStorage {
   // Billing methods
   async createBillingLead(lead: InsertBillingLead): Promise<BillingLead> {
     const result = await db.insert(billingLeads).values(lead).returning();
+    return result[0];
+  }
+
+  // Email settings methods
+  async getEmailSettings(websiteId: string): Promise<EmailSettings | undefined> {
+    const result = await db.select().from(emailSettings).where(eq(emailSettings.websiteId, websiteId)).limit(1);
+    return result[0];
+  }
+
+  async createEmailSettings(settings: InsertEmailSettings): Promise<EmailSettings> {
+    const result = await db.insert(emailSettings).values(settings).returning();
+    return result[0];
+  }
+
+  async updateEmailSettings(websiteId: string, data: Partial<InsertEmailSettings>): Promise<EmailSettings | undefined> {
+    const result = await db.update(emailSettings)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(emailSettings.websiteId, websiteId))
+      .returning();
+    return result[0];
+  }
+
+  // Email templates methods
+  async getEmailTemplates(websiteId: string): Promise<EmailTemplate[]> {
+    return await db.select().from(emailTemplates).where(eq(emailTemplates.websiteId, websiteId));
+  }
+
+  async getEmailTemplate(websiteId: string, templateType: string): Promise<EmailTemplate | undefined> {
+    const result = await db.select().from(emailTemplates)
+      .where(and(eq(emailTemplates.websiteId, websiteId), eq(emailTemplates.templateType, templateType)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate> {
+    const result = await db.insert(emailTemplates).values(template).returning();
+    return result[0];
+  }
+
+  async updateEmailTemplate(id: string, websiteId: string, data: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
+    const result = await db.update(emailTemplates)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(emailTemplates.id, id), eq(emailTemplates.websiteId, websiteId)))
+      .returning();
     return result[0];
   }
 }
