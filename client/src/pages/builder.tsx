@@ -55,6 +55,7 @@ import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import InspectorSidebar from "@/components/builder/InspectorSidebar";
+import SelectionOverlay from "@/components/builder/SelectionOverlay";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
 import { 
   createHistory, 
@@ -122,6 +123,7 @@ export default function BuilderPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
+  const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai">("components");
   const [device, setDevice] = useState<DeviceType>('desktop');
   const [pageDialogOpen, setPageDialogOpen] = useState(false);
@@ -830,6 +832,8 @@ export default function BuilderPage() {
             setSelectedComponentId(id);
             if (id) setSidebarTab("properties");
           }}
+          hoveredId={hoveredComponentId}
+          onHoverChange={setHoveredComponentId}
           components={activePage?.components}
           onUpdateComponent={handleSelectionUpdate}
           onDeleteComponent={deleteComponent}
@@ -838,7 +842,7 @@ export default function BuilderPage() {
         >
           {/* Canvas / Preview */}
           <main 
-            className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center" 
+            className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center relative" 
             onClick={() => setSelectedComponentId(null)}
             data-preview-area
           >
@@ -878,11 +882,13 @@ export default function BuilderPage() {
                     onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
                     onImageResize={(width, height) => updateComponent(comp.id, { props: { imageWidth: width, imageHeight: height } })}
                     onStyleChange={(styles) => updateComponent(comp.id, { styles })}
+                    onHover={setHoveredComponentId}
                   />
                 ))
               )}
             </div>
           </main>
+          <SelectionOverlay />
           <FloatingToolbar />
 
         {/* Right Sidebar */}

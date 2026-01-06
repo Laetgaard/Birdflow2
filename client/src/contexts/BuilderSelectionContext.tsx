@@ -31,6 +31,8 @@ export function BuilderSelectionProvider({
   isBuilderMode = true,
   selectedId: externalSelectedId,
   onSelectChange,
+  hoveredId: externalHoveredId,
+  onHoverChange,
   components,
   onUpdateComponent,
   onDeleteComponent,
@@ -41,6 +43,8 @@ export function BuilderSelectionProvider({
   isBuilderMode?: boolean;
   selectedId?: string | null;
   onSelectChange?: (id: string | null) => void;
+  hoveredId?: string | null;
+  onHoverChange?: (id: string | null) => void;
   components?: BuilderComponentData[];
   onUpdateComponent: (componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => void;
   onDeleteComponent: (componentId: string) => void;
@@ -48,7 +52,17 @@ export function BuilderSelectionProvider({
   onMoveComponent: (componentId: string, direction: 'up' | 'down') => void;
 }) {
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [internalHoveredId, setInternalHoveredId] = useState<string | null>(null);
+  
+  const hoveredId = externalHoveredId !== undefined ? externalHoveredId : internalHoveredId;
+  
+  const handleSetHoveredId = useCallback((id: string | null) => {
+    if (onHoverChange) {
+      onHoverChange(id);
+    } else {
+      setInternalHoveredId(id);
+    }
+  }, [onHoverChange]);
   const [editingTextFieldId, setEditingTextFieldId] = useState<string | null>(null);
   const [selectedInfo, setSelectedInfo] = useState<SelectedElementInfo | null>(null);
 
@@ -60,11 +74,12 @@ export function BuilderSelectionProvider({
     } else {
       setInternalSelectedId(id);
     }
+    handleSetHoveredId(null);
     if (!id) {
       setSelectedInfo(null);
       setEditingTextFieldId(null);
     }
-  }, [onSelectChange]);
+  }, [onSelectChange, handleSetHoveredId]);
 
   useEffect(() => {
     if (selectedId && components) {
@@ -97,7 +112,7 @@ export function BuilderSelectionProvider({
         editingTextFieldId,
         selectedInfo,
         setSelectedId: handleSetSelectedId, 
-        setHoveredId, 
+        setHoveredId: handleSetHoveredId, 
         setEditingTextFieldId,
         setSelectedInfo,
         isBuilderMode,
