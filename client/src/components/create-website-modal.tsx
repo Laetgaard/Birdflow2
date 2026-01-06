@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -6,10 +6,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Sparkles, Code2, Layout, ArrowLeft, ArrowRight, Check } from "lucide-react";
+import { Loader2, Sparkles, Code2, Layout, ArrowLeft, ArrowRight, Check, Palette, Type } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getSupabase } from "@/lib/supabaseClient";
-import { websiteTemplates, type WebsiteTemplate } from "@shared/websiteTemplates";
+import { 
+  websiteTemplates, 
+  colorPresets, 
+  fontPresets,
+  getTemplateById,
+  type WebsiteTemplate, 
+  type ColorPreset,
+  type FontPreset,
+} from "@shared/websiteTemplates";
 
 type Props = {
   open: boolean;
@@ -17,7 +25,7 @@ type Props = {
   onWebsiteCreated: () => void;
 };
 
-type Step = 'name' | 'setup-type' | 'template';
+type Step = 'name' | 'setup-type' | 'template' | 'customize';
 
 const categoryLabels: Record<WebsiteTemplate['category'], string> = {
   landing: 'Landing Pages',
@@ -35,13 +43,21 @@ export function CreateWebsiteModal({ open, onOpenChange, onWebsiteCreated }: Pro
   const [name, setName] = useState("");
   const [setupType, setSetupType] = useState<"scratch" | "customized" | "template">("template");
   const [selectedTemplate, setSelectedTemplate] = useState<string>("blank");
+  const [selectedColorPreset, setSelectedColorPreset] = useState<ColorPreset | null>(null);
+  const [selectedFontPreset, setSelectedFontPreset] = useState<FontPreset | null>(null);
+  const [businessName, setBusinessName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const selectedTemplateData = useMemo(() => getTemplateById(selectedTemplate), [selectedTemplate]);
 
   const resetModal = () => {
     setStep('name');
     setName("");
     setSetupType("template");
     setSelectedTemplate("blank");
+    setSelectedColorPreset(null);
+    setSelectedFontPreset(null);
+    setBusinessName("");
   };
 
   const handleClose = (open: boolean) => {
@@ -70,6 +86,19 @@ export function CreateWebsiteModal({ open, onOpenChange, onWebsiteCreated }: Pro
         throw new Error("Not authenticated");
       }
 
+      let templateCustomization = undefined;
+      if (setupType === "template" && selectedTemplate !== "blank") {
+        const hasCustomization = selectedColorPreset || selectedFontPreset || businessName.trim();
+        if (hasCustomization) {
+          templateCustomization = {
+            templateId: selectedTemplate,
+            businessName: businessName.trim() || undefined,
+            colorPresetId: selectedColorPreset?.id,
+            fontPresetId: selectedFontPreset?.id,
+          };
+        }
+      }
+
       const response = await fetch("/api/websites", {
         method: "POST",
         headers: {
@@ -80,6 +109,7 @@ export function CreateWebsiteModal({ open, onOpenChange, onWebsiteCreated }: Pro
           name: name.trim(),
           setupType: setupType === "template" ? "scratch" : setupType,
           templateId: setupType === "template" ? selectedTemplate : undefined,
+          templateCustomization,
         }),
       });
 
@@ -132,6 +162,12 @@ export function CreateWebsiteModal({ open, onOpenChange, onWebsiteCreated }: Pro
         handleCreate();
       }
     } else if (step === 'template') {
+      if (selectedTemplate !== 'blank') {
+        setStep('customize');
+      } else {
+        handleCreate();
+      }
+    } else if (step === 'customize') {
       handleCreate();
     }
   };
@@ -141,6 +177,11 @@ export function CreateWebsiteModal({ open, onOpenChange, onWebsiteCreated }: Pro
       setStep('name');
     } else if (step === 'template') {
       setStep('setup-type');
+    } else if (step === 'customize') {
+      setSelectedColorPreset(null);
+      setSelectedFontPreset(null);
+      setBusinessName("");
+      setStep('template');
     }
   };
 
@@ -154,17 +195,19 @@ export function CreateWebsiteModal({ open, onOpenChange, onWebsiteCreated }: Pro
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className={step === 'template' ? "sm:max-w-4xl max-h-[90vh]" : "sm:max-w-md"}>
+      <DialogContent className={(step === 'template' || step === 'customize') ? "sm:max-w-4xl max-h-[90vh]" : "sm:max-w-md"}>
         <DialogHeader>
           <DialogTitle>
             {step === 'name' && "Create a new website"}
             {step === 'setup-type' && "Choose your setup method"}
             {step === 'template' && "Choose a template"}
+            {step === 'customize' && "Customize your template"}
           </DialogTitle>
           <DialogDescription>
             {step === 'name' && "Give your website a name to get started."}
             {step === 'setup-type' && "How would you like to build your website?"}
             {step === 'template' && "Start with a pre-built template or begin from scratch."}
+            {step === 'customize' && "Personalize your template with colors, fonts, and your business name."}
           </DialogDescription>
         </DialogHeader>
 
@@ -297,6 +340,109 @@ export function CreateWebsiteModal({ open, onOpenChange, onWebsiteCreated }: Pro
           </ScrollArea>
         )}
 
+        {step === 'customize' && selectedTemplateData && (
+          <ScrollArea className="h-[60vh] pr-4">
+            <div className="space-y-8 py-2">
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Type className="w-4 h-4 text-muted-foreground" />
+                  <Label className="text-base font-medium">Business Name</Label>
+                </div>
+                <Input
+                  placeholder={selectedTemplateData.builderState.pages[0]?.components.find(c => c.type === 'header')?.props.title as string || "Your Business Name"}
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  data-testid="input-business-name"
+                />
+                <p className="text-sm text-muted-foreground">
+                  This will be shown in your header and footer. Leave blank to keep the template default.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-muted-foreground" />
+                  <Label className="text-base font-medium">Color Scheme</Label>
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  {colorPresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setSelectedColorPreset(selectedColorPreset?.id === preset.id ? null : preset)}
+                      className={`relative p-3 rounded-lg border transition-all ${
+                        selectedColorPreset?.id === preset.id
+                          ? "border-primary ring-2 ring-primary ring-offset-2"
+                          : "border-border hover:border-muted-foreground/50"
+                      }`}
+                      data-testid={`color-preset-${preset.id}`}
+                    >
+                      <div className="flex gap-1 mb-2">
+                        <div 
+                          className="w-6 h-6 rounded-full border border-black/10"
+                          style={{ backgroundColor: preset.primaryColor }}
+                        />
+                        <div 
+                          className="w-6 h-6 rounded-full border border-black/10"
+                          style={{ backgroundColor: preset.secondaryColor }}
+                        />
+                        <div 
+                          className="w-6 h-6 rounded-full border border-black/10"
+                          style={{ backgroundColor: preset.backgroundColor }}
+                        />
+                      </div>
+                      <span className="text-xs font-medium">{preset.name}</span>
+                      {selectedColorPreset?.id === preset.id && (
+                        <Check className="absolute top-1 right-1 w-4 h-4 text-primary" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Select a color scheme or leave unselected to use the template's original colors.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Type className="w-4 h-4 text-muted-foreground" />
+                  <Label className="text-base font-medium">Font Style</Label>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {fontPresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setSelectedFontPreset(selectedFontPreset?.id === preset.id ? null : preset)}
+                      className={`relative p-3 rounded-lg border text-left transition-all ${
+                        selectedFontPreset?.id === preset.id
+                          ? "border-primary ring-2 ring-primary ring-offset-2"
+                          : "border-border hover:border-muted-foreground/50"
+                      }`}
+                      data-testid={`font-preset-${preset.id}`}
+                    >
+                      <span 
+                        className="block text-lg font-medium mb-1"
+                        style={{ fontFamily: preset.fontFamily }}
+                      >
+                        Aa
+                      </span>
+                      <span className="text-xs font-medium block">{preset.name}</span>
+                      <span className="text-xs text-muted-foreground">{preset.preview}</span>
+                      {selectedFontPreset?.id === preset.id && (
+                        <Check className="absolute top-1 right-1 w-4 h-4 text-primary" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Select a font style or leave unselected to use the template's original font.
+                </p>
+              </div>
+            </div>
+          </ScrollArea>
+        )}
+
         <div className="flex justify-between gap-3 pt-2">
           <div>
             {step !== 'name' && (
@@ -330,7 +476,17 @@ export function CreateWebsiteModal({ open, onOpenChange, onWebsiteCreated }: Pro
                   'Create Website'
                 )
               )}
-              {step === 'template' && 'Create Website'}
+              {step === 'template' && (
+                selectedTemplate === 'blank' ? (
+                  'Create Website'
+                ) : (
+                  <>
+                    Customize
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </>
+                )
+              )}
+              {step === 'customize' && 'Create Website'}
             </Button>
           </div>
         </div>

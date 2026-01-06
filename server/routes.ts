@@ -501,7 +501,7 @@ export async function registerRoutes(
   app.post("/api/websites", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const { name, setupType, templateId } = req.body;
+      const { name, setupType, templateId, templateCustomization } = req.body;
 
       if (!name || !setupType) {
         return res.status(400).json({ message: "Name and setup type are required" });
@@ -527,8 +527,21 @@ export async function registerRoutes(
         });
       }
 
-      // If a template is specified, apply it to the builder state
-      if (templateId) {
+      // If template customization is provided, apply it server-side (secure)
+      if (templateCustomization && templateCustomization.templateId) {
+        const { applyCustomizationById } = await import("@shared/websiteTemplates");
+        const builderState = applyCustomizationById(templateCustomization.templateId, {
+          businessName: templateCustomization.businessName,
+          colorPresetId: templateCustomization.colorPresetId,
+          fontPresetId: templateCustomization.fontPresetId,
+        });
+        
+        if (builderState) {
+          await storage.createBuilderState(website.id, builderState);
+        }
+      }
+      // Otherwise, if a template is specified, apply it to the builder state
+      else if (templateId) {
         const { getTemplateById, cloneTemplateState } = await import("@shared/websiteTemplates");
         const template = getTemplateById(templateId);
         
