@@ -386,35 +386,68 @@ export default function BuilderPage() {
     setSidebarTab("properties");
   };
 
-  const updateComponent = (componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
-    if (!builderState) return;
+  const updateComponentRef = useRef<(componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => void>(() => {});
 
-    const newState: BuilderStateData = {
-      ...builderState,
-      pages: builderState.pages.map(page =>
-        page.id === builderState.activePage
-          ? {
-              ...page,
-              components: page.components.map(comp =>
-                comp.id === componentId
-                  ? { 
-                      ...comp, 
-                      props: { ...comp.props, ...updates.props }, 
-                      styles: { ...comp.styles, ...updates.styles } 
-                    }
-                  : comp
-              ),
-            }
-          : page
-      ),
+  const updateComponent = useCallback((componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
+    updateComponentRef.current(componentId, updates);
+  }, []);
+
+  useEffect(() => {
+    updateComponentRef.current = (componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
+      if (!builderState) return;
+
+      const newState: BuilderStateData = {
+        ...builderState,
+        pages: builderState.pages.map(page =>
+          page.id === builderState.activePage
+            ? {
+                ...page,
+                components: page.components.map(comp =>
+                  comp.id === componentId
+                    ? { 
+                        ...comp, 
+                        props: { ...comp.props, ...updates.props }, 
+                        styles: { ...comp.styles, ...updates.styles } 
+                      }
+                    : comp
+                ),
+              }
+            : page
+        ),
+      };
+
+      debouncedHistoryPush(newState, 'Update component properties');
     };
-
-    debouncedHistoryPush(newState, 'Update component properties');
-  };
+  }, [builderState, debouncedHistoryPush]);
 
   const handleTextChange = useCallback((componentId: string) => (field: string, value: string) => {
     setBuilderState(prev => {
       if (!prev) return prev;
+      
+      const updateNested = (props: any, path: string, val: string): any => {
+        const parts = path.split('.');
+        if (parts.length === 1) {
+          return { ...props, [path]: val };
+        }
+        
+        const [first, ...rest] = parts;
+        const restPath = rest.join('.');
+        
+        if (/^\d+$/.test(rest[0]) && Array.isArray(props[first])) {
+          const index = parseInt(rest[0]);
+          const itemPath = rest.slice(1).join('.');
+          const newArray = [...props[first]];
+          if (itemPath) {
+            newArray[index] = { ...newArray[index], ...updateNested(newArray[index], itemPath, val) };
+          } else {
+            newArray[index] = val;
+          }
+          return { ...props, [first]: newArray };
+        }
+        
+        return { ...props, [first]: updateNested(props[first] || {}, restPath, val) };
+      };
+      
       const newState = {
         ...prev,
         pages: prev.pages.map(page =>
@@ -423,7 +456,7 @@ export default function BuilderPage() {
                 ...page,
                 components: page.components.map(comp =>
                   comp.id === componentId
-                    ? { ...comp, props: { ...comp.props, [field]: value } }
+                    ? { ...comp, props: updateNested(comp.props, field, value) }
                     : comp
                 ),
               }
