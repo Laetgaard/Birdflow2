@@ -1,0 +1,58 @@
+<div class="wrapper">
+  <div class="steps">
+
+    <div class="step" data-step="0">
+      <div class="icon">
+        <!-- User -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="8" r="4"/>
+          <path d="M4 21c0-4 16-4 16 0"/>
+        </svg>
+      </div>
+      <span>Sign up</span>
+      <div class="progress"></div>
+    </div>
+
+    <!-- Thick arrow -->
+    <svg class="arrow" viewBox="0 0 60 24">
+      <path d="M2 12h44M36 4l10 8-10 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+
+    <div class="step" data-step="1">
+      <div class="icon">
+        <!-- Layout -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="3" y1="9" x2="21" y2="9"/>
+        </svg>
+      </div>
+      <span>Create website</span>
+      <div class="progress"></div>
+    </div>
+
+    <!-- Thick arrow -->
+    <svg class="arrow" viewBox="0 0 60 24">
+      <path d="M2 12h44M36 4l10 8-10 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+
+    <div class="step" data-step="2">
+      <div class="icon">
+        <!-- Better rocket -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 14c-1 2-1 5-1 5s3 0 5-1l10-10c2-2 2-5 2-5s-3 0-5 2L6 15z"/>
+          <path d="M9 15l-1 5"/>
+          <path d="M15 9l5-1"/>
+          <circle cx="15" cy="9" r="1.5"/>
+        </svg>
+      </div>
+      <span>Publish</span>
+      <div class="progress"></div>
+    </div>
+
+  </div>
+
+  <div class="status">
+    <span class="dot"></span>
+    <span id="statusText">Starting…</span>
+  </div>
+</div>
