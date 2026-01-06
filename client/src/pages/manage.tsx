@@ -3369,11 +3369,7 @@ export default function ManagePage() {
           </TabsContent>
 
           <TabsContent value="analytics">
-            <Card>
-              <CardContent className="pt-6">
-                <AnalyticsDashboard websiteId={id!} />
-              </CardContent>
-            </Card>
+            <AnalyticsDashboard websiteId={id!} accessToken={session?.access_token} />
           </TabsContent>
 
           <TabsContent value="settings">

@@ -872,9 +872,9 @@ export class DatabaseStorage implements IStorage {
       totalPageViews: pageViews,
       uniqueSessions,
       totalOrders,
-      totalRevenue: totalRevenue / 100,
+      totalRevenue,
       conversionRate: Math.round(conversionRate * 100) / 100,
-      avgOrderValue: Math.round(avgOrderValue) / 100,
+      avgOrderValue: Math.round(avgOrderValue),
       totalBookings,
     };
   }
