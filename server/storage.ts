@@ -70,7 +70,9 @@ import {
   billingLeads, type BillingLead, type InsertBillingLead,
   emailSettings, type EmailSettings, type InsertEmailSettings,
   emailTemplates, type EmailTemplate, type InsertEmailTemplate,
-  publicStats
+  publicStats,
+  type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
+  type AdminUserWithStats, type AdminWebsiteWithOwner
 } from "@shared/schema";
 import { sql, gte, desc, count, countDistinct } from "drizzle-orm";
 
@@ -258,6 +260,14 @@ export interface IStorage {
 
   // Profile onboarding methods
   completeOnboarding(userId: string): Promise<Profile | undefined>;
+
+  // Admin methods
+  getAdminOverviewStats(): Promise<AdminOverviewStats>;
+  getAdminGrowthData(days: number): Promise<AdminGrowthData[]>;
+  getAdminFunnel(): Promise<AdminFunnelStep[]>;
+  getAllUsersWithStats(): Promise<AdminUserWithStats[]>;
+  getAllWebsitesWithOwners(): Promise<AdminWebsiteWithOwner[]>;
+  isUserAdmin(userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1097,6 +1107,209 @@ export class DatabaseStorage implements IStorage {
       .where(eq(profiles.id, userId))
       .returning();
     return result[0];
+  }
+
+  // Admin methods
+  async isUserAdmin(userId: string): Promise<boolean> {
+    const result = await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1);
+    return result[0]?.isAdmin ?? false;
+  }
+
+  async getAdminOverviewStats(): Promise<AdminOverviewStats> {
+    const [usersResult, websitesResult, ordersResult, bookingsResult] = await Promise.all([
+      db.select({ count: count() }).from(profiles),
+      db.select().from(websites),
+      db.select().from(orders),
+      db.select().from(bookings),
+    ]);
+
+    const totalUsers = usersResult[0]?.count ?? 0;
+    const verifiedUsers = totalUsers; // All profiles are verified (created after email verification)
+    const allWebsites = websitesResult;
+    const totalWebsites = allWebsites.length;
+    const publishedWebsites = allWebsites.filter(w => w.status === 'published').length;
+    const totalOrders = ordersResult.length;
+    const totalBookings = bookingsResult.length;
+    
+    // Calculate potential revenue from orders (sum of all order totals)
+    const potentialRevenue = ordersResult.reduce((sum, order) => {
+      return sum + (order.totalAmountCents || parseFloat(order.total || '0') * 100);
+    }, 0);
+
+    return {
+      totalUsers,
+      verifiedUsers,
+      totalWebsites,
+      publishedWebsites,
+      totalOrders,
+      totalBookings,
+      potentialRevenue,
+    };
+  }
+
+  async getAdminGrowthData(days: number): Promise<AdminGrowthData[]> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    const [allProfiles, allWebsites, allOrders, allBookings] = await Promise.all([
+      db.select().from(profiles).where(gte(profiles.createdAt, startDate)),
+      db.select().from(websites).where(gte(websites.createdAt, startDate)),
+      db.select().from(orders).where(gte(orders.createdAt, startDate)),
+      db.select().from(bookings).where(gte(bookings.createdAt, startDate)),
+    ]);
+
+    // Helper to safely parse date (handles both Date objects and strings)
+    const toDateStr = (d: Date | string | null | undefined): string | null => {
+      if (!d) return null;
+      const date = d instanceof Date ? d : new Date(d);
+      return date.toISOString().split('T')[0];
+    };
+
+    // Group by date
+    const dateMap: Record<string, AdminGrowthData> = {};
+    
+    for (let i = 0; i <= days; i++) {
+      const date = new Date(startDate);
+      date.setDate(date.getDate() + i);
+      const dateStr = date.toISOString().split('T')[0];
+      dateMap[dateStr] = {
+        date: dateStr,
+        signups: 0,
+        websitesCreated: 0,
+        publishes: 0,
+        orders: 0,
+        bookings: 0,
+      };
+    }
+
+    allProfiles.forEach(p => {
+      const dateStr = toDateStr(p.createdAt);
+      if (dateStr && dateMap[dateStr]) dateMap[dateStr].signups++;
+    });
+
+    allWebsites.forEach(w => {
+      const dateStr = toDateStr(w.createdAt);
+      if (dateStr && dateMap[dateStr]) dateMap[dateStr].websitesCreated++;
+      if (w.lastPublishedAt) {
+        const publishDateStr = toDateStr(w.lastPublishedAt);
+        if (publishDateStr && dateMap[publishDateStr]) dateMap[publishDateStr].publishes++;
+      }
+    });
+
+    allOrders.forEach(o => {
+      const dateStr = toDateStr(o.createdAt);
+      if (dateStr && dateMap[dateStr]) dateMap[dateStr].orders++;
+    });
+
+    allBookings.forEach(b => {
+      const dateStr = toDateStr(b.createdAt);
+      if (dateStr && dateMap[dateStr]) dateMap[dateStr].bookings++;
+    });
+
+    return Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async getAdminFunnel(): Promise<AdminFunnelStep[]> {
+    const [allProfiles, allWebsites, allOrders, allBookings] = await Promise.all([
+      db.select().from(profiles),
+      db.select().from(websites),
+      db.select().from(orders),
+      db.select().from(bookings),
+    ]);
+
+    const totalSignups = allProfiles.length;
+    const verifiedUsers = allProfiles.filter(p => p.onboardingCompleted).length;
+    const usersWithWebsites = new Set(allWebsites.map(w => w.ownerId)).size;
+    const usersWithPublished = new Set(allWebsites.filter(w => w.status === 'published').map(w => w.ownerId)).size;
+    const usersWithConversion = new Set([
+      ...allOrders.map(o => {
+        const website = allWebsites.find(w => w.id === o.websiteId);
+        return website?.ownerId;
+      }),
+      ...allBookings.map(b => {
+        const website = allWebsites.find(w => w.id === b.websiteId);
+        return website?.ownerId;
+      }),
+    ].filter(Boolean)).size;
+
+    const steps = [
+      { name: 'Signups', count: totalSignups },
+      { name: 'Verified', count: verifiedUsers },
+      { name: 'Created Website', count: usersWithWebsites },
+      { name: 'Published', count: usersWithPublished },
+      { name: 'First Conversion', count: usersWithConversion },
+    ];
+
+    return steps.map((step, index) => ({
+      name: step.name,
+      count: step.count,
+      percentage: totalSignups > 0 ? Math.round((step.count / totalSignups) * 100) : 0,
+      dropoff: index > 0 ? Math.round(((steps[index - 1].count - step.count) / (steps[index - 1].count || 1)) * 100) : 0,
+    }));
+  }
+
+  async getAllUsersWithStats(): Promise<AdminUserWithStats[]> {
+    const [allProfiles, allWebsites, allOrders, allBookings] = await Promise.all([
+      db.select().from(profiles).orderBy(desc(profiles.createdAt)),
+      db.select().from(websites),
+      db.select().from(orders),
+      db.select().from(bookings),
+    ]);
+
+    return allProfiles.map(profile => {
+      const userWebsites = allWebsites.filter(w => w.ownerId === profile.id);
+      const websiteIds = userWebsites.map(w => w.id);
+      const userOrders = allOrders.filter(o => websiteIds.includes(o.websiteId));
+      const userBookings = allBookings.filter(b => websiteIds.includes(b.websiteId));
+
+      return {
+        id: profile.id,
+        email: profile.email,
+        fullName: profile.fullName,
+        phoneNumber: profile.phoneNumber,
+        isAdmin: profile.isAdmin ?? false,
+        onboardingCompleted: profile.onboardingCompleted,
+        createdAt: profile.createdAt,
+        websiteCount: userWebsites.length,
+        publishedCount: userWebsites.filter(w => w.status === 'published').length,
+        totalOrders: userOrders.length,
+        totalBookings: userBookings.length,
+      };
+    });
+  }
+
+  async getAllWebsitesWithOwners(): Promise<AdminWebsiteWithOwner[]> {
+    const [allWebsites, allProfiles, allOrders, allBookings] = await Promise.all([
+      db.select().from(websites).orderBy(desc(websites.createdAt)),
+      db.select().from(profiles),
+      db.select().from(orders),
+      db.select().from(bookings),
+    ]);
+
+    const profileMap = new Map(allProfiles.map(p => [p.id, p]));
+
+    return allWebsites.map(website => {
+      const owner = profileMap.get(website.ownerId);
+      const websiteOrders = allOrders.filter(o => o.websiteId === website.id);
+      const websiteBookings = allBookings.filter(b => b.websiteId === website.id);
+
+      return {
+        id: website.id,
+        name: website.name,
+        slug: website.slug,
+        status: website.status,
+        plan: website.plan,
+        deploymentUrl: website.deploymentUrl,
+        lastPublishedAt: website.lastPublishedAt,
+        createdAt: website.createdAt,
+        ownerId: website.ownerId,
+        ownerEmail: owner?.email ?? 'Unknown',
+        ownerName: owner?.fullName ?? 'Unknown',
+        orderCount: websiteOrders.length,
+        bookingCount: websiteBookings.length,
+      };
+    });
   }
 }
 

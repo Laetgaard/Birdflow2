@@ -18,6 +18,7 @@ import CheckoutSuccessPage from "@/pages/checkout-success";
 import CheckoutCancelPage from "@/pages/checkout-cancel";
 import ProfilePage from "@/pages/profile";
 import OnboardingPage from "@/pages/onboarding";
+import AdminPage from "@/pages/admin";
 
 function Router() {
   return (
@@ -29,6 +30,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/profile" component={ProfilePage} />
+      <Route path="/admin" component={AdminPage} />
       <Route path="/setup/:id" component={SetupPage} />
       <Route path="/builder/:id" component={BuilderPage} />
       <Route path="/manage/:id" component={ManagePage} />

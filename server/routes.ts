@@ -3340,5 +3340,101 @@ export async function registerRoutes(
     }
   });
 
+  // Admin middleware - requires both auth and admin role
+  const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const isAdmin = await storage.isUserAdmin(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    next();
+  };
+
+  // Admin Dashboard Routes
+  app.get("/api/admin/overview", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const stats = await storage.getAdminOverviewStats();
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Admin overview error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/growth", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const data = await storage.getAdminGrowthData(days);
+      res.json(data);
+    } catch (error: any) {
+      console.error("Admin growth error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/funnel", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const funnel = await storage.getAdminFunnel();
+      res.json(funnel);
+    } catch (error: any) {
+      console.error("Admin funnel error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const users = await storage.getAllUsersWithStats();
+      res.json(users);
+    } catch (error: any) {
+      console.error("Admin users error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/websites", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const websites = await storage.getAllWebsitesWithOwners();
+      res.json(websites);
+    } catch (error: any) {
+      console.error("Admin websites error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin impersonation - generates a session token for viewing as a user
+  app.post("/api/admin/impersonate/:userId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const targetUser = await storage.getProfile(req.params.userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      // Return user data for impersonation (frontend handles session swap)
+      res.json({
+        userId: targetUser.id,
+        email: targetUser.email,
+        fullName: targetUser.fullName,
+      });
+    } catch (error: any) {
+      console.error("Admin impersonate error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Check if current user is admin
+  app.get("/api/admin/check", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const isAdmin = await storage.isUserAdmin(userId);
+      res.json({ isAdmin });
+    } catch (error: any) {
+      console.error("Admin check error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }
