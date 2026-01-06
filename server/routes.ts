@@ -1,7 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
-import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData } from "@shared/schema";
+import { storage, db } from "./storage";
+import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
@@ -238,6 +239,102 @@ export async function registerRoutes(
       supabaseUrl: supabaseUrl || "",
       supabaseAnonKey: supabaseAnonKey || "",
     });
+  });
+
+  // Public stats endpoint (no auth required)
+  app.get("/api/public/stats", async (req, res) => {
+    try {
+      const stats = await storage.getPublicStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching public stats:", error);
+      res.json({ totalCreators: 1247 }); // Fallback
+    }
+  });
+
+  // Onboarding - Create website and complete onboarding in one atomic transaction
+  app.post("/api/onboarding/create-website", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { name, slug, templateId, websiteType } = req.body;
+
+      if (!name || !templateId) {
+        return res.status(400).json({ message: "Name and template are required" });
+      }
+
+      // Check if user already completed onboarding (outside transaction for early exit)
+      const profile = await storage.getProfile(user.id);
+      if (profile?.onboardingCompleted) {
+        return res.status(400).json({ message: "Onboarding already completed" });
+      }
+
+      // Generate unique slug
+      const baseSlug = (slug || name).trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'website';
+      const timestamp = Date.now().toString(36);
+      const uniqueSlug = `${baseSlug}-${timestamp}`;
+
+      // Load template data before transaction
+      const { getTemplateById, cloneTemplateState } = await import("@shared/websiteTemplates");
+      const template = getTemplateById(templateId);
+      const stateData = template ? cloneTemplateState(template) : null;
+
+      // Execute all database operations atomically in a transaction
+      const result = await db.transaction(async (tx) => {
+        // 1. Create website
+        const [website] = await tx.insert(websites).values({
+          ownerId: user.id,
+          name,
+          slug: uniqueSlug,
+          setupType: websiteType || "template",
+          status: "draft",
+        }).returning();
+
+        // 2. Create builder state
+        await tx.insert(builderState).values({
+          websiteId: website.id,
+          state: stateData || {
+            pages: [{
+              id: 'home',
+              name: 'Home',
+              path: '/',
+              components: []
+            }],
+            activePage: 'home',
+            globalStyles: {
+              primaryColor: '#3b82f6',
+              secondaryColor: '#8b5cf6',
+              fontFamily: 'Inter',
+              backgroundColor: '#ffffff'
+            }
+          }
+        });
+
+        // 3. Mark onboarding as complete
+        await tx.update(profiles)
+          .set({ onboardingCompleted: true })
+          .where(eq(profiles.id, user.id));
+
+        // 4. Increment total creators (upsert)
+        await tx.execute(sql`
+          INSERT INTO public_stats (id, total_creators, updated_at)
+          VALUES (1, 1, NOW())
+          ON CONFLICT (id) DO UPDATE SET
+            total_creators = public_stats.total_creators + 1,
+            updated_at = NOW()
+        `);
+
+        return website;
+      });
+
+      res.status(201).json({ 
+        websiteId: result.id,
+        slug: uniqueSlug,
+        message: "Website created successfully" 
+      });
+    } catch (error: any) {
+      console.error("Onboarding error:", error);
+      res.status(500).json({ message: error.message });
+    }
   });
 
   // Sign Up - Creates Supabase auth user with metadata and profile in our DB

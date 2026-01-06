@@ -8,11 +8,21 @@ export const profiles = pgTable("profiles", {
   email: text("email").notNull().unique(),
   fullName: text("full_name").notNull(),
   phoneNumber: text("phone_number").notNull(),
+  onboardingCompleted: boolean("onboarding_completed").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const publicStats = pgTable("public_stats", {
+  id: serial("id").primaryKey(),
+  totalCreators: integer("total_creators").default(0).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type PublicStats = typeof publicStats.$inferSelect;
+
 export const insertProfileSchema = createInsertSchema(profiles).omit({
   id: true,
+  onboardingCompleted: true,
   createdAt: true,
 });
 

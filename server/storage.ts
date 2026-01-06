@@ -69,7 +69,8 @@ import {
   sanitizeAnalyticsEventData,
   billingLeads, type BillingLead, type InsertBillingLead,
   emailSettings, type EmailSettings, type InsertEmailSettings,
-  emailTemplates, type EmailTemplate, type InsertEmailTemplate
+  emailTemplates, type EmailTemplate, type InsertEmailTemplate,
+  publicStats
 } from "@shared/schema";
 import { sql, gte, desc, count, countDistinct } from "drizzle-orm";
 
@@ -250,6 +251,13 @@ export interface IStorage {
   getEmailTemplate(websiteId: string, templateType: string): Promise<EmailTemplate | undefined>;
   createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate>;
   updateEmailTemplate(id: string, websiteId: string, data: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined>;
+
+  // Public stats methods
+  getPublicStats(): Promise<{ totalCreators: number }>;
+  incrementTotalCreators(): Promise<void>;
+
+  // Profile onboarding methods
+  completeOnboarding(userId: string): Promise<Profile | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1058,6 +1066,35 @@ export class DatabaseStorage implements IStorage {
     const result = await db.update(emailTemplates)
       .set({ ...data, updatedAt: new Date() })
       .where(and(eq(emailTemplates.id, id), eq(emailTemplates.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  // Public stats methods
+  async getPublicStats(): Promise<{ totalCreators: number }> {
+    const result = await db.select().from(publicStats).limit(1);
+    if (result.length === 0) {
+      return { totalCreators: 0 };
+    }
+    return { totalCreators: result[0].totalCreators };
+  }
+
+  async incrementTotalCreators(): Promise<void> {
+    // Upsert: if row exists, increment; if not, insert with initial value of 1
+    await db.execute(sql`
+      INSERT INTO public_stats (id, total_creators, updated_at)
+      VALUES (1, 1, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        total_creators = public_stats.total_creators + 1,
+        updated_at = NOW()
+    `);
+  }
+
+  // Profile onboarding methods
+  async completeOnboarding(userId: string): Promise<Profile | undefined> {
+    const result = await db.update(profiles)
+      .set({ onboardingCompleted: true })
+      .where(eq(profiles.id, userId))
       .returning();
     return result[0];
   }
