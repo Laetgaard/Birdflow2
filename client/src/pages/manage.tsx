@@ -24,8 +24,9 @@ import {
   ShoppingCart, Calendar, Mail, Users, Palette,
   Package, Clock, CheckCircle, XCircle, AlertCircle,
   Plus, Pencil, Trash2, DollarSign, Image, Upload,
-  Link2, ExternalLink, Copy, RefreshCw, Truck
+  Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3
 } from "lucide-react";
+import { AnalyticsDashboard } from "@/components/AnalyticsDashboard";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -1821,6 +1822,10 @@ export default function ManagePage() {
               <Truck className="w-4 h-4 mr-2" />
               Shipping
             </TabsTrigger>
+            <TabsTrigger value="analytics" data-testid="tab-analytics">
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Analytics
+            </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">
               <Settings className="w-4 h-4 mr-2" />
               Settings
@@ -3361,6 +3366,14 @@ export default function ManagePage() {
             </Card>
               )}
           </div>
+          </TabsContent>
+
+          <TabsContent value="analytics">
+            <Card>
+              <CardContent className="pt-6">
+                <AnalyticsDashboard websiteId={id!} />
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="settings">
