@@ -131,6 +131,18 @@ Website owners can connect their own Stripe accounts for payment processing:
 - **UI**: Settings tab shows connection status with dialog for entering API keys from Stripe Dashboard.
 - **Security**: Keys are masked in API responses; only the key prefix is shown to users.
 
+### Privacy-First Analytics System
+Website analytics with GDPR compliance and no personal data storage:
+- **Database Table**: `analytics_events` stores page views, conversions, and e-commerce events.
+- **Session Tracking**: Anonymous sessionId via localStorage (30-minute expiry with rotation), no user identifiers.
+- **No PII Storage**: No IP addresses, no cookies, no personal data. Only aggregated metrics.
+- **Centralized Sanitization**: `ANALYTICS_ALLOWED_EVENT_DATA_FIELDS` and `sanitizeAnalyticsEventData()` in shared/schema.ts ensure consistent PII filtering at both API route and storage layers.
+- **Allowed Event Data**: path, productId, orderId, orderTotal, bookingId, utm_source, utm_medium, utm_campaign.
+- **Event Types**: page_view, product_view, add_to_cart, checkout_start, order_created, booking_created.
+- **Analytics Dashboard**: Shows key metrics, conversion funnel, traffic sources, and top pages.
+- **Published Site Integration**: AnalyticsTracker component included in generated Next.js sites for client-side tracking.
+- **API Endpoints**: Public `/api/public/analytics/track` for event collection; authenticated endpoints for overview, funnel, traffic sources, and top pages with configurable date ranges.
+
 ### Deployment
 - **Vercel**: Hosts published Next.js sites via its REST API, including custom domain connections.
 
