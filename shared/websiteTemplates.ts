@@ -769,3 +769,185 @@ export function cloneTemplateState(template: WebsiteTemplate): BuilderStateData 
   
   return clonedState;
 }
+
+export type ColorPreset = {
+  id: string;
+  name: string;
+  primaryColor: string;
+  secondaryColor: string;
+  backgroundColor: string;
+  textColor: string;
+  accentColor: string;
+};
+
+export type FontPreset = {
+  id: string;
+  name: string;
+  fontFamily: string;
+  preview: string;
+};
+
+export const colorPresets: ColorPreset[] = [
+  {
+    id: 'indigo',
+    name: 'Indigo',
+    primaryColor: '#4f46e5',
+    secondaryColor: '#06b6d4',
+    backgroundColor: '#ffffff',
+    textColor: '#1a1a1a',
+    accentColor: '#4f46e5',
+  },
+  {
+    id: 'emerald',
+    name: 'Emerald',
+    primaryColor: '#10b981',
+    secondaryColor: '#06b6d4',
+    backgroundColor: '#ffffff',
+    textColor: '#1a1a1a',
+    accentColor: '#10b981',
+  },
+  {
+    id: 'rose',
+    name: 'Rose',
+    primaryColor: '#f43f5e',
+    secondaryColor: '#fb7185',
+    backgroundColor: '#ffffff',
+    textColor: '#1a1a1a',
+    accentColor: '#f43f5e',
+  },
+  {
+    id: 'amber',
+    name: 'Amber',
+    primaryColor: '#f59e0b',
+    secondaryColor: '#fbbf24',
+    backgroundColor: '#fffbeb',
+    textColor: '#1a1a1a',
+    accentColor: '#f59e0b',
+  },
+  {
+    id: 'slate',
+    name: 'Slate',
+    primaryColor: '#475569',
+    secondaryColor: '#64748b',
+    backgroundColor: '#f8fafc',
+    textColor: '#1e293b',
+    accentColor: '#475569',
+  },
+  {
+    id: 'dark',
+    name: 'Dark Mode',
+    primaryColor: '#6366f1',
+    secondaryColor: '#22d3ee',
+    backgroundColor: '#0f172a',
+    textColor: '#e2e8f0',
+    accentColor: '#6366f1',
+  },
+  {
+    id: 'ocean',
+    name: 'Ocean',
+    primaryColor: '#0ea5e9',
+    secondaryColor: '#38bdf8',
+    backgroundColor: '#f0f9ff',
+    textColor: '#0c4a6e',
+    accentColor: '#0ea5e9',
+  },
+  {
+    id: 'forest',
+    name: 'Forest',
+    primaryColor: '#4a7c59',
+    secondaryColor: '#8fbc8f',
+    backgroundColor: '#f0f4f0',
+    textColor: '#2d3a2d',
+    accentColor: '#4a7c59',
+  },
+];
+
+export const fontPresets: FontPreset[] = [
+  { id: 'inter', name: 'Inter', fontFamily: 'Inter, system-ui, sans-serif', preview: 'Modern & Clean' },
+  { id: 'poppins', name: 'Poppins', fontFamily: 'Poppins, sans-serif', preview: 'Friendly & Round' },
+  { id: 'roboto', name: 'Roboto', fontFamily: 'Roboto, sans-serif', preview: 'Professional' },
+  { id: 'playfair', name: 'Playfair Display', fontFamily: 'Playfair Display, serif', preview: 'Elegant & Classic' },
+  { id: 'lato', name: 'Lato', fontFamily: 'Lato, sans-serif', preview: 'Warm & Balanced' },
+  { id: 'montserrat', name: 'Montserrat', fontFamily: 'Montserrat, sans-serif', preview: 'Bold & Dynamic' },
+  { id: 'opensans', name: 'Open Sans', fontFamily: 'Open Sans, sans-serif', preview: 'Highly Readable' },
+  { id: 'raleway', name: 'Raleway', fontFamily: 'Raleway, sans-serif', preview: 'Stylish & Thin' },
+];
+
+export type TemplateCustomization = {
+  businessName?: string;
+  colorPreset?: ColorPreset;
+  fontPreset?: FontPreset;
+};
+
+export function applyCustomizationToTemplate(
+  template: WebsiteTemplate,
+  customization: TemplateCustomization
+): BuilderStateData {
+  const state = cloneTemplateState(template);
+  
+  if (customization.colorPreset) {
+    state.globalStyles.primaryColor = customization.colorPreset.primaryColor;
+    state.globalStyles.secondaryColor = customization.colorPreset.secondaryColor;
+    state.globalStyles.backgroundColor = customization.colorPreset.backgroundColor;
+  }
+  
+  if (customization.fontPreset) {
+    state.globalStyles.fontFamily = customization.fontPreset.fontFamily;
+  }
+  
+  state.pages?.forEach(page => {
+    page.components?.forEach(component => {
+      if (!component.styles) {
+        component.styles = {};
+      }
+      
+      if (customization.colorPreset && component.styles.accentColor) {
+        component.styles.accentColor = customization.colorPreset.accentColor;
+      }
+      
+      if (customization.fontPreset) {
+        component.styles.fontFamily = customization.fontPreset.fontFamily;
+      }
+      
+      if (customization.businessName) {
+        if (component.type === 'header' && component.props?.title) {
+          component.props.title = customization.businessName;
+        }
+        if (component.type === 'footer' && component.props?.title) {
+          const footerTitle = String(component.props.title || '');
+          component.props.title = footerTitle.replace(/©\s*\d{4}\s*[^.]+\.?/, `© ${new Date().getFullYear()} ${customization.businessName}.`);
+        }
+      }
+    });
+  });
+  
+  return state;
+}
+
+export type SerializedCustomization = {
+  templateId: string;
+  businessName?: string;
+  colorPresetId?: string;
+  fontPresetId?: string;
+};
+
+export function applyCustomizationById(
+  templateId: string,
+  customization: { businessName?: string; colorPresetId?: string; fontPresetId?: string }
+): BuilderStateData | null {
+  const template = getTemplateById(templateId);
+  if (!template) return null;
+  
+  const colorPreset = customization.colorPresetId 
+    ? colorPresets.find(p => p.id === customization.colorPresetId)
+    : undefined;
+  const fontPreset = customization.fontPresetId
+    ? fontPresets.find(p => p.id === customization.fontPresetId)
+    : undefined;
+  
+  return applyCustomizationToTemplate(template, {
+    businessName: customization.businessName,
+    colorPreset,
+    fontPreset,
+  });
+}
