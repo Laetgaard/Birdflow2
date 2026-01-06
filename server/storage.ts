@@ -271,15 +271,42 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // Profile methods
+  // Profile methods - use explicit column selection to handle missing is_admin column gracefully
+  private profileColumns = {
+    id: profiles.id,
+    email: profiles.email,
+    fullName: profiles.fullName,
+    phoneNumber: profiles.phoneNumber,
+    onboardingCompleted: profiles.onboardingCompleted,
+    createdAt: profiles.createdAt,
+  };
+
   async getProfile(id: string): Promise<Profile | undefined> {
-    const result = await db.select().from(profiles).where(eq(profiles.id, id)).limit(1);
-    return result[0];
+    try {
+      // First try with isAdmin column
+      const result = await db.select().from(profiles).where(eq(profiles.id, id)).limit(1);
+      return result[0];
+    } catch (error: any) {
+      // If is_admin column doesn't exist, query without it
+      if (error.message?.includes("is_admin")) {
+        const result = await db.select(this.profileColumns).from(profiles).where(eq(profiles.id, id)).limit(1);
+        return result[0] ? { ...result[0], isAdmin: false } : undefined;
+      }
+      throw error;
+    }
   }
 
   async getProfileByEmail(email: string): Promise<Profile | undefined> {
-    const result = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
-    return result[0];
+    try {
+      const result = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
+      return result[0];
+    } catch (error: any) {
+      if (error.message?.includes("is_admin")) {
+        const result = await db.select(this.profileColumns).from(profiles).where(eq(profiles.email, email)).limit(1);
+        return result[0] ? { ...result[0], isAdmin: false } : undefined;
+      }
+      throw error;
+    }
   }
 
   async createProfile(profile: InsertProfile & { id: string }): Promise<Profile> {
@@ -1111,8 +1138,17 @@ export class DatabaseStorage implements IStorage {
 
   // Admin methods
   async isUserAdmin(userId: string): Promise<boolean> {
-    const result = await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1);
-    return result[0]?.isAdmin ?? false;
+    try {
+      const result = await db.select({ isAdmin: profiles.isAdmin }).from(profiles).where(eq(profiles.id, userId)).limit(1);
+      return result[0]?.isAdmin ?? false;
+    } catch (error: any) {
+      // If is_admin column doesn't exist, return false
+      if (error.message?.includes("is_admin")) {
+        console.log("Note: is_admin column not found in database. To enable admin features, run: ALTER TABLE profiles ADD COLUMN is_admin BOOLEAN DEFAULT FALSE;");
+        return false;
+      }
+      throw error;
+    }
   }
 
   async getAdminOverviewStats(): Promise<AdminOverviewStats> {
@@ -1152,8 +1188,18 @@ export class DatabaseStorage implements IStorage {
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
 
-    const [allProfiles, allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(profiles).where(gte(profiles.createdAt, startDate)),
+    let allProfiles: any[];
+    try {
+      allProfiles = await db.select().from(profiles).where(gte(profiles.createdAt, startDate));
+    } catch (error: any) {
+      if (error.message?.includes("is_admin")) {
+        allProfiles = await db.select(this.profileColumns).from(profiles).where(gte(profiles.createdAt, startDate));
+      } else {
+        throw error;
+      }
+    }
+
+    const [allWebsites, allOrders, allBookings] = await Promise.all([
       db.select().from(websites).where(gte(websites.createdAt, startDate)),
       db.select().from(orders).where(gte(orders.createdAt, startDate)),
       db.select().from(bookings).where(gte(bookings.createdAt, startDate)),
@@ -1211,8 +1257,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAdminFunnel(): Promise<AdminFunnelStep[]> {
-    const [allProfiles, allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(profiles),
+    let allProfiles: any[];
+    try {
+      allProfiles = await db.select().from(profiles);
+    } catch (error: any) {
+      if (error.message?.includes("is_admin")) {
+        allProfiles = await db.select(this.profileColumns).from(profiles);
+      } else {
+        throw error;
+      }
+    }
+
+    const [allWebsites, allOrders, allBookings] = await Promise.all([
       db.select().from(websites),
       db.select().from(orders),
       db.select().from(bookings),
@@ -1250,8 +1306,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllUsersWithStats(): Promise<AdminUserWithStats[]> {
-    const [allProfiles, allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(profiles).orderBy(desc(profiles.createdAt)),
+    let allProfiles: any[];
+    try {
+      allProfiles = await db.select().from(profiles).orderBy(desc(profiles.createdAt));
+    } catch (error: any) {
+      if (error.message?.includes("is_admin")) {
+        allProfiles = await db.select(this.profileColumns).from(profiles).orderBy(desc(profiles.createdAt));
+      } else {
+        throw error;
+      }
+    }
+
+    const [allWebsites, allOrders, allBookings] = await Promise.all([
       db.select().from(websites),
       db.select().from(orders),
       db.select().from(bookings),
@@ -1280,9 +1346,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllWebsitesWithOwners(): Promise<AdminWebsiteWithOwner[]> {
-    const [allWebsites, allProfiles, allOrders, allBookings] = await Promise.all([
+    let allProfiles: any[];
+    try {
+      allProfiles = await db.select().from(profiles);
+    } catch (error: any) {
+      if (error.message?.includes("is_admin")) {
+        allProfiles = await db.select(this.profileColumns).from(profiles);
+      } else {
+        throw error;
+      }
+    }
+
+    const [allWebsites, allOrders, allBookings] = await Promise.all([
       db.select().from(websites).orderBy(desc(websites.createdAt)),
-      db.select().from(profiles),
       db.select().from(orders),
       db.select().from(bookings),
     ]);
