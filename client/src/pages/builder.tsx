@@ -56,6 +56,7 @@ import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import InspectorSidebar from "@/components/builder/InspectorSidebar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
+import CoachMarks from "@/components/builder/CoachMarks";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
 import { 
   createHistory, 
@@ -136,6 +137,7 @@ export default function BuilderPage() {
   const historyDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const pendingHistoryDescriptionRef = useRef<string>('');
   const [hasPendingEdit, setHasPendingEdit] = useState(false);
+  const [showCoachMarks, setShowCoachMarks] = useState(false);
 
   const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
     if (historyDebounceRef.current) {
@@ -331,6 +333,18 @@ export default function BuilderPage() {
 
     fetchData();
   }, [id, session]);
+
+  // Show coach marks for first-time users
+  useEffect(() => {
+    if (!isLoading && builderState) {
+      const hasSeenCoachMarks = localStorage.getItem("builder_coach_marks_completed");
+      if (!hasSeenCoachMarks) {
+        // Delay slightly to ensure UI is fully rendered
+        const timer = setTimeout(() => setShowCoachMarks(true), 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isLoading, builderState]);
 
   const publishSite = useCallback(async () => {
     if (!session || !id || !builderState) return;
@@ -1105,6 +1119,14 @@ export default function BuilderPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Coach Marks for First-Time Users */}
+      {showCoachMarks && (
+        <CoachMarks 
+          isFirstTime={true} 
+          onComplete={() => setShowCoachMarks(false)} 
+        />
+      )}
     </div>
   );
 }

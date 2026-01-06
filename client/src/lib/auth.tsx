@@ -8,6 +8,7 @@ export type Profile = {
   email: string;
   fullName: string;
   phoneNumber: string;
+  onboardingCompleted: boolean;
   createdAt: string;
 };
 
@@ -15,12 +16,15 @@ type AuthContextType = {
   user: User | null;
   profile: Profile | null;
   session: Session | null;
+  token: string | null;
   isLoading: boolean;
+  loading: boolean;
   isEmailVerified: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (data: { email: string; password: string; fullName: string; phoneNumber: string }) => Promise<{ needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -59,11 +63,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user && session.user.email_confirmed_at) {
         fetchProfile(session.user.id, session.access_token);
         
-        // Redirect to dashboard after email confirmation
+        // Redirect after email confirmation - to onboarding or dashboard
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           const currentPath = window.location.pathname;
           if (currentPath === '/auth/callback' || currentPath === '/auth') {
-            setLocation("/dashboard");
+            // Will redirect based on onboarding status after profile is fetched
+            // The fetchProfile call above will complete first
           }
         }
       } else {
@@ -128,7 +133,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refresh_token: session.refresh_token,
       });
       
-      setLocation("/dashboard");
+      // Redirect to onboarding if not completed, otherwise dashboard
+      if (!profile?.onboardingCompleted) {
+        setLocation("/onboarding");
+      } else {
+        setLocation("/dashboard");
+      }
     } catch (error: any) {
       throw error;
     } finally {
@@ -188,17 +198,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLocation("/");
   };
 
+  const refreshProfile = async () => {
+    if (session?.user && session.access_token) {
+      await fetchProfile(session.user.id, session.access_token);
+    }
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, 
       profile, 
-      session, 
+      session,
+      token: session?.access_token ?? null,
       isLoading, 
+      loading: isLoading,
       isEmailVerified,
       signIn, 
       signUp, 
       signOut,
-      refreshSession
+      refreshSession,
+      refreshProfile
     }}>
       {children}
     </AuthContext.Provider>

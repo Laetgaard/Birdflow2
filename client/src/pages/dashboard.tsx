@@ -45,8 +45,14 @@ export default function Dashboard() {
         setLocation("/check-email");
         return;
       }
+
+      // Redirect to onboarding if not completed
+      if (profile && !profile.onboardingCompleted) {
+        setLocation("/onboarding");
+        return;
+      }
     }
-  }, [user, isLoading, isEmailVerified, setLocation]);
+  }, [user, profile, isLoading, isEmailVerified, setLocation]);
 
   useEffect(() => {
     const fetchWebsites = async () => {
