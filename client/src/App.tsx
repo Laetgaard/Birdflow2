@@ -16,7 +16,7 @@ import ManagePage from "@/pages/manage";
 import ProductDetailPage from "@/pages/product";
 import CheckoutSuccessPage from "@/pages/checkout-success";
 import CheckoutCancelPage from "@/pages/checkout-cancel";
-import PricingPage from "@/pages/pricing";
+import ProfilePage from "@/pages/profile";
 
 function Router() {
   return (
@@ -26,7 +26,7 @@ function Router() {
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/check-email" component={CheckEmail} />
       <Route path="/dashboard" component={Dashboard} />
-      <Route path="/pricing" component={PricingPage} />
+      <Route path="/profile" component={ProfilePage} />
       <Route path="/setup/:id" component={SetupPage} />
       <Route path="/builder/:id" component={BuilderPage} />
       <Route path="/manage/:id" component={ManagePage} />
