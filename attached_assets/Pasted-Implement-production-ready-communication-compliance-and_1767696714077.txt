@@ -1,0 +1,74 @@
+Implement production-ready communication, compliance, and basic billing UX.
+
+1) PLATFORM EMAILS (BirdFlow → user)
+- Implement:
+  - Email confirmation on signup (required before using platform)
+  - Password reset email
+  - "Your website is published" notification email
+- Use Supabase Auth + SMTP.
+- Block access to dashboard until email is verified.
+
+2) WEBSITE OWNER → CUSTOMER EMAILS (Transactional)
+For ecommerce & bookings, implement:
+
+- Order confirmation email
+- Booking confirmation email
+- Booking cancelled / updated email
+
+Requirements:
+- Emails must be sent when:
+  - Order is created
+  - Booking is created
+  - Booking is updated/cancelled
+- Emails must be scoped by website_id.
+- Emails should be sent from the website owner’s brand when configured, otherwise fallback to platform sender.
+
+3) MANAGE PAGE → EMAIL SETTINGS
+Add a new section: Manage → Emails
+
+For each website, allow:
+- Toggle each email type ON/OFF:
+  - Order confirmation
+  - Booking confirmation
+  - Booking updated
+  - Booking cancelled
+- Simple template editor per email:
+  - Editable:
+    - Logo
+    - Primary color
+    - Text blocks
+    - Footer
+  - Locked structure (no full Mailchimp-style builder)
+- Show live preview of the email.
+
+Templates must be saved per website_id.
+
+4) COOKIE CONSENT (EU compliant simple version)
+- Add cookie banner to all published websites:
+  - Buttons: Accept / Reject
+  - Link to Privacy Policy
+- Store consent in localStorage.
+- Do not load analytics until accepted.
+- No full CMP needed.
+
+5) BASIC BILLING UX (No Stripe yet)
+- Add:
+  - Pricing page
+  - "Upgrade" button
+  - "Contact us to activate" flow
+- This is only UX + gating, no real payments yet.
+- Allow marking a website as "paid/active" manually in database for now.
+
+6) GENERAL RULES
+- Everything must be scoped by website_id.
+- Must work on:
+  - Builder preview
+  - Published live websites
+- Must not break:
+  - Publish flow
+  - Domains
+  - AI builder
+- Must be compatible with future Stripe integration.
+
+GOAL:
+Make the platform feel trustworthy, compliant, and ready for real customers.

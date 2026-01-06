@@ -2609,11 +2609,146 @@ export default function ProductGrid({ styles, props }: Props) {
 `;
 }
 
+// Cookie consent banner for GDPR compliance
+export function generateCookieBanner(): string {
+  return `'use client';
+
+import { useState, useEffect } from 'react';
+
+const CONSENT_KEY = 'cookie_consent';
+
+export type ConsentStatus = 'accepted' | 'rejected' | null;
+
+export function getConsentStatus(): ConsentStatus {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem(CONSENT_KEY);
+    if (stored === 'accepted' || stored === 'rejected') return stored;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function setConsentStatus(status: 'accepted' | 'rejected') {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(CONSENT_KEY, status);
+    window.dispatchEvent(new CustomEvent('consent:change', { detail: status }));
+  } catch {}
+}
+
+type CookieBannerProps = {
+  bannerText?: string;
+  privacyPolicyUrl?: string;
+  acceptButtonText?: string;
+  rejectButtonText?: string;
+};
+
+export default function CookieBanner({
+  bannerText = "We use cookies to improve your experience and analyze site traffic.",
+  privacyPolicyUrl,
+  acceptButtonText = "Accept",
+  rejectButtonText = "Reject"
+}: CookieBannerProps) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const consent = getConsentStatus();
+    if (consent === null) {
+      setVisible(true);
+    }
+  }, []);
+
+  const handleAccept = () => {
+    setConsentStatus('accepted');
+    setVisible(false);
+  };
+
+  const handleReject = () => {
+    setConsentStatus('rejected');
+    setVisible(false);
+  };
+
+  if (!visible) return null;
+
+  return (
+    <div style={{
+      position: 'fixed',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: '#1f2937',
+      color: '#fff',
+      padding: '16px 24px',
+      zIndex: 9999,
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '16px',
+      boxShadow: '0 -4px 12px rgba(0,0,0,0.15)'
+    }}>
+      <p style={{ flex: 1, minWidth: '200px', margin: 0, fontSize: '14px' }}>
+        {bannerText}
+        {privacyPolicyUrl && (
+          <>
+            {' '}
+            <a 
+              href={privacyPolicyUrl} 
+              style={{ color: '#60a5fa', textDecoration: 'underline' }}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Privacy Policy
+            </a>
+          </>
+        )}
+      </p>
+      <div style={{ display: 'flex', gap: '12px' }}>
+        <button
+          onClick={handleReject}
+          style={{
+            padding: '8px 20px',
+            backgroundColor: 'transparent',
+            border: '1px solid #6b7280',
+            color: '#fff',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 500
+          }}
+        >
+          {rejectButtonText}
+        </button>
+        <button
+          onClick={handleAccept}
+          style={{
+            padding: '8px 20px',
+            backgroundColor: '#4f46e5',
+            border: 'none',
+            color: '#fff',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 500
+          }}
+        >
+          {acceptButtonText}
+        </button>
+      </div>
+    </div>
+  );
+}
+`;
+}
+
 export function generateAnalyticsTracker(): string {
   return `'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { getConsentStatus, type ConsentStatus } from './CookieBanner';
 
 const SESSION_KEY = 'saasify_session';
 const SESSION_EXPIRY = 30 * 60 * 1000; // 30 minutes
@@ -2675,8 +2810,26 @@ function getDeviceType(): string {
 export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
   const pathname = usePathname();
   const trackedPaths = useRef<Set<string>>(new Set());
+  const [consent, setConsent] = useState<ConsentStatus>(null);
+  
+  // Check consent on mount and listen for changes
+  useEffect(() => {
+    setConsent(getConsentStatus());
+    
+    const handleConsentChange = (e: CustomEvent) => {
+      setConsent(e.detail as ConsentStatus);
+    };
+    
+    window.addEventListener('consent:change', handleConsentChange as EventListener);
+    return () => {
+      window.removeEventListener('consent:change', handleConsentChange as EventListener);
+    };
+  }, []);
   
   const track = useCallback(async (eventType: string, eventData?: Record<string, unknown>) => {
+    // Only track if user has accepted cookies
+    if (consent !== 'accepted') return;
+    
     try {
       const sessionId = getOrCreateSession();
       if (!sessionId) return;
@@ -2697,13 +2850,15 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
     } catch (error) {
       // Silent fail for analytics
     }
-  }, [websiteId]);
+  }, [websiteId, consent]);
 
   useEffect(() => {
+    // Only track if consent is accepted
+    if (consent !== 'accepted') return;
     if (!pathname || trackedPaths.current.has(pathname)) return;
     trackedPaths.current.add(pathname);
     track('page_view', { path: pathname });
-  }, [pathname, track]);
+  }, [pathname, track, consent]);
 
   useEffect(() => {
     const handleAddToCart = (e: CustomEvent) => {
@@ -2735,6 +2890,7 @@ import { WebsiteProvider } from '@/components/WebsiteProvider';
 import { CartProvider } from '@/components/CartProvider';
 import CartDrawer from '@/components/CartDrawer';
 import AnalyticsTracker from '@/components/AnalyticsTracker';
+import CookieBanner from '@/components/CookieBanner';
 
 export const metadata: Metadata = {
   title: '${siteName}',
@@ -2750,6 +2906,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <AnalyticsTracker websiteId="${websiteId}" />
             {children}
             <CartDrawer />
+            <CookieBanner />
           </CartProvider>
         </WebsiteProvider>
       </body>

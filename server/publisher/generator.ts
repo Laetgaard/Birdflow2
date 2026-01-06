@@ -33,6 +33,7 @@ import {
   generateBookingServicesApiRoute,
   generateProductApiRoute,
   generateAnalyticsTracker,
+  generateCookieBanner,
 } from './templates';
 
 export type GeneratorConfig = {
@@ -88,6 +89,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/BookingForm.tsx', content: generateBookingForm() },
     { path: 'components/ProductGrid.tsx', content: generateProductGrid() },
     { path: 'components/AnalyticsTracker.tsx', content: generateAnalyticsTracker() },
+    { path: 'components/CookieBanner.tsx', content: generateCookieBanner() },
     { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId) },
     { path: 'app/globals.css', content: generateGlobalsCss() },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
