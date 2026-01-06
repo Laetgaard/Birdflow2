@@ -32,6 +32,7 @@ import {
   generateBookingApiRoute,
   generateBookingServicesApiRoute,
   generateProductApiRoute,
+  generateAnalyticsTracker,
 } from './templates';
 
 export type GeneratorConfig = {
@@ -86,7 +87,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/ContactForm.tsx', content: generateContactForm() },
     { path: 'components/BookingForm.tsx', content: generateBookingForm() },
     { path: 'components/ProductGrid.tsx', content: generateProductGrid() },
-    { path: 'app/layout.tsx', content: generateRootLayout(siteName) },
+    { path: 'components/AnalyticsTracker.tsx', content: generateAnalyticsTracker() },
+    { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId) },
     { path: 'app/globals.css', content: generateGlobalsCss() },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
     { path: 'app/api/checkout/validate/route.ts', content: generateCheckoutValidateApiRoute(websiteId) },

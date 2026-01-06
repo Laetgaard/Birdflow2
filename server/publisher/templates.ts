@@ -2609,12 +2609,132 @@ export default function ProductGrid({ styles, props }: Props) {
 `;
 }
 
-export function generateRootLayout(siteName: string): string {
+export function generateAnalyticsTracker(): string {
+  return `'use client';
+
+import { useEffect, useRef, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
+
+const SESSION_KEY = 'saasify_session';
+const SESSION_EXPIRY = 30 * 60 * 1000; // 30 minutes
+
+function getOrCreateSession(): string {
+  if (typeof window === 'undefined') return '';
+  
+  try {
+    const stored = localStorage.getItem(SESSION_KEY);
+    if (stored) {
+      const { id, expires } = JSON.parse(stored);
+      if (expires > Date.now()) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ id, expires: Date.now() + SESSION_EXPIRY }));
+        return id;
+      }
+    }
+    
+    const newId = 'sess_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ id: newId, expires: Date.now() + SESSION_EXPIRY }));
+    return newId;
+  } catch {
+    return 'sess_' + Math.random().toString(36).substring(2);
+  }
+}
+
+function getTrafficSource(): string {
+  if (typeof window === 'undefined') return 'direct';
+  
+  const referrer = document.referrer;
+  if (!referrer) return 'direct';
+  
+  try {
+    const url = new URL(referrer);
+    const host = url.hostname.toLowerCase();
+    
+    if (host.includes('google')) return 'google';
+    if (host.includes('facebook') || host.includes('fb.com')) return 'facebook';
+    if (host.includes('twitter') || host.includes('x.com')) return 'twitter';
+    if (host.includes('linkedin')) return 'linkedin';
+    if (host.includes('instagram')) return 'instagram';
+    if (host.includes('youtube')) return 'youtube';
+    if (host.includes('tiktok')) return 'tiktok';
+    
+    return 'referral';
+  } catch {
+    return 'referral';
+  }
+}
+
+function getDeviceType(): string {
+  if (typeof window === 'undefined') return 'unknown';
+  
+  const ua = navigator.userAgent;
+  if (/tablet|ipad|playbook|silk/i.test(ua)) return 'tablet';
+  if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile/i.test(ua)) return 'mobile';
+  return 'desktop';
+}
+
+export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
+  const pathname = usePathname();
+  const trackedPaths = useRef<Set<string>>(new Set());
+  
+  const track = useCallback(async (eventType: string, eventData?: Record<string, unknown>) => {
+    try {
+      const sessionId = getOrCreateSession();
+      if (!sessionId) return;
+      
+      await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/public/analytics/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          websiteId,
+          sessionId,
+          eventType,
+          pageUrl: window.location.pathname,
+          trafficSource: getTrafficSource(),
+          deviceType: getDeviceType(),
+          eventData,
+        }),
+      });
+    } catch (error) {
+      // Silent fail for analytics
+    }
+  }, [websiteId]);
+
+  useEffect(() => {
+    if (!pathname || trackedPaths.current.has(pathname)) return;
+    trackedPaths.current.add(pathname);
+    track('page_view', { path: pathname });
+  }, [pathname, track]);
+
+  useEffect(() => {
+    const handleAddToCart = (e: CustomEvent) => {
+      track('add_to_cart', e.detail);
+    };
+    
+    const handleCheckoutStart = () => {
+      track('checkout_start');
+    };
+    
+    window.addEventListener('analytics:add_to_cart', handleAddToCart as EventListener);
+    window.addEventListener('analytics:checkout_start', handleCheckoutStart);
+    
+    return () => {
+      window.removeEventListener('analytics:add_to_cart', handleAddToCart as EventListener);
+      window.removeEventListener('analytics:checkout_start', handleCheckoutStart);
+    };
+  }, [track]);
+
+  return null;
+}
+`;
+}
+
+export function generateRootLayout(siteName: string, websiteId: string): string {
   return `import type { Metadata } from 'next';
 import './globals.css';
 import { WebsiteProvider } from '@/components/WebsiteProvider';
 import { CartProvider } from '@/components/CartProvider';
 import CartDrawer from '@/components/CartDrawer';
+import AnalyticsTracker from '@/components/AnalyticsTracker';
 
 export const metadata: Metadata = {
   title: '${siteName}',
@@ -2627,6 +2747,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <WebsiteProvider>
           <CartProvider>
+            <AnalyticsTracker websiteId="${websiteId}" />
             {children}
             <CartDrawer />
           </CartProvider>
