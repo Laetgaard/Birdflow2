@@ -2823,5 +2823,138 @@ export async function registerRoutes(
     }
   });
 
+  // Analytics - Track event (public endpoint for published sites)
+  app.post("/api/public/analytics/track", async (req, res) => {
+    try {
+      const { websiteId, sessionId, eventType, pageUrl, trafficSource, deviceType, country, eventData } = req.body;
+      
+      if (!websiteId || !sessionId || !eventType) {
+        return res.status(400).json({ message: "websiteId, sessionId, and eventType are required" });
+      }
+
+      const validEventTypes = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'order_created', 'booking_created'];
+      if (!validEventTypes.includes(eventType)) {
+        return res.status(400).json({ message: "Invalid event type" });
+      }
+
+      const website = await storage.getWebsite(websiteId);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      await storage.createAnalyticsEvent({
+        websiteId,
+        sessionId,
+        eventType,
+        pageUrl: pageUrl || null,
+        trafficSource: trafficSource || null,
+        deviceType: deviceType || null,
+        country: country || null,
+        eventData: eventData || null,
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Analytics track error:", error);
+      res.status(500).json({ message: "Failed to track event" });
+    }
+  });
+
+  // Analytics - Get overview (authenticated, owner only)
+  app.get("/api/websites/:id/analytics/overview", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const overview = await storage.getAnalyticsOverview(req.params.id, startDate, endDate);
+      res.json(overview);
+    } catch (error: any) {
+      console.error("Analytics overview error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Analytics - Get funnel data
+  app.get("/api/websites/:id/analytics/funnel", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const funnel = await storage.getAnalyticsFunnel(req.params.id, startDate, endDate);
+      res.json(funnel);
+    } catch (error: any) {
+      console.error("Analytics funnel error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Analytics - Get traffic sources
+  app.get("/api/websites/:id/analytics/traffic", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const traffic = await storage.getTrafficSources(req.params.id, startDate, endDate);
+      res.json(traffic);
+    } catch (error: any) {
+      console.error("Analytics traffic error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Analytics - Get top pages
+  app.get("/api/websites/:id/analytics/pages", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const pages = await storage.getTopPages(req.params.id, startDate, endDate);
+      res.json(pages);
+    } catch (error: any) {
+      console.error("Analytics pages error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }
