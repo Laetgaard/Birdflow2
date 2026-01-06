@@ -65,7 +65,8 @@ import {
   shippingConfig, type ShippingConfig, type InsertShippingConfig,
   websitePaymentSettings, type WebsitePaymentSettings, type InsertWebsitePaymentSettings,
   analyticsEvents, type AnalyticsEvent, type InsertAnalyticsEvent,
-  type AnalyticsOverview, type FunnelStep, type TrafficSource, type TopPage
+  type AnalyticsOverview, type FunnelStep, type TrafficSource, type TopPage,
+  sanitizeAnalyticsEventData
 } from "@shared/schema";
 import { sql, gte, desc, count, countDistinct } from "drizzle-orm";
 
@@ -830,8 +831,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Analytics methods
+  // Storage-level PII sanitization ensures no personal data reaches the database
+  // Uses centralized sanitizeAnalyticsEventData from shared schema
   async createAnalyticsEvent(event: InsertAnalyticsEvent): Promise<AnalyticsEvent> {
-    const result = await db.insert(analyticsEvents).values(event).returning();
+    const sanitizedEvent = {
+      ...event,
+      eventData: sanitizeAnalyticsEventData(event.eventData),
+    };
+    
+    const result = await db.insert(analyticsEvents).values(sanitizedEvent as any).returning();
     return result[0];
   }
 
