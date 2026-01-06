@@ -2058,6 +2058,51 @@ export async function registerRoutes(
     }
   });
 
+  // Send booking confirmation email (public - called by published sites after creating booking in Supabase)
+  app.post("/api/public/websites/:id/bookings/send-email", async (req, res) => {
+    try {
+      const { bookingId, customerName, customerEmail, service, date, time } = req.body;
+      
+      if (!customerEmail || !service) {
+        return res.status(400).json({ message: "Customer email and service are required" });
+      }
+
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      // Create a booking-like object for the email service
+      const bookingForEmail = {
+        id: bookingId || 'N/A',
+        websiteId: req.params.id,
+        customerName: customerName || 'Customer',
+        customerEmail,
+        service,
+        date: date ? new Date(date) : new Date(),
+        time: time || null,
+      };
+
+      try {
+        const websiteUrl = website.deploymentUrl || undefined;
+        await emailService.sendBookingConfirmation(
+          bookingForEmail as any,
+          customerEmail,
+          service,
+          websiteUrl
+        );
+        console.log(`Booking confirmation email sent to ${customerEmail}`);
+        res.json({ success: true, message: "Email sent" });
+      } catch (emailErr) {
+        console.error(`Failed to send booking confirmation email:`, emailErr);
+        res.status(500).json({ success: false, message: "Failed to send email" });
+      }
+    } catch (error: any) {
+      console.error("Send booking email error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Create an order (public - no auth required)
   app.post("/api/public/websites/:id/orders", async (req, res) => {
     try {

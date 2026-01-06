@@ -111,6 +111,7 @@ export function generateBookingApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const BIRDFLOW_API_URL = process.env.BIRDFLOW_API_URL || 'https://birdflow.replit.app';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
 
 // Look up website_id from deployment URL or slug stored in database
@@ -227,6 +228,29 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Booking error:', error);
       return NextResponse.json({ message: 'Failed to create booking' }, { status: 500 });
+    }
+
+    // Send booking confirmation email via BirdFlow API
+    try {
+      const emailResponse = await fetch(\`\${BIRDFLOW_API_URL}/api/public/websites/\${effectiveWebsiteId}/bookings/send-email\`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingId: data.id,
+          customerName,
+          customerEmail,
+          service,
+          date,
+          time,
+        }),
+      });
+      if (!emailResponse.ok) {
+        console.error('Failed to send booking confirmation email:', await emailResponse.text());
+      } else {
+        console.log('Booking confirmation email sent successfully');
+      }
+    } catch (emailErr) {
+      console.error('Error sending booking confirmation email:', emailErr);
     }
 
     return NextResponse.json(data);
