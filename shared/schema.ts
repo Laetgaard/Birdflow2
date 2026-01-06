@@ -531,29 +531,27 @@ export type ShippingRate = {
 };
 
 // Analytics events table - privacy-first design (no personal data stored)
+// IMPORTANT: Only anonymous, non-PII data is stored. No emails, names, phones, or IPs.
 export const analyticsEvents = pgTable("analytics_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   websiteId: varchar("website_id").notNull(),
-  sessionId: varchar("session_id").notNull(), // Anonymous session identifier
+  sessionId: varchar("session_id").notNull(), // Anonymous session identifier (not user ID)
   eventType: text("event_type").notNull(), // page_view, product_view, add_to_cart, checkout_start, order_created, booking_created
   eventData: jsonb("event_data").$type<{
+    // Only non-PII fields allowed - server validates and sanitizes input
     path?: string;
-    referrer?: string;
     productId?: string;
-    productName?: string;
-    productPrice?: number;
     orderId?: string;
-    orderTotal?: number;
+    orderTotal?: number; // Cents, no customer info
     bookingId?: string;
-    serviceName?: string;
     utm_source?: string;
     utm_medium?: string;
     utm_campaign?: string;
   }>(),
   pageUrl: text("page_url"),
-  trafficSource: text("traffic_source"), // direct, search, social, referral, campaign
+  trafficSource: text("traffic_source"), // direct, google, facebook, etc (not full referrer URL)
   deviceType: text("device_type"), // desktop, mobile, tablet
-  country: text("country"), // Derived from IP but not storing IP
+  country: text("country"), // ISO country code only, derived from IP but IP not stored
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 
@@ -564,6 +562,38 @@ export const insertAnalyticsEventSchema = createInsertSchema(analyticsEvents).om
 
 export type InsertAnalyticsEvent = z.infer<typeof insertAnalyticsEventSchema>;
 export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+
+// Centralized whitelist of allowed eventData fields for privacy compliance
+// Used by both API route and storage layer to ensure no PII reaches the database
+export const ANALYTICS_ALLOWED_EVENT_DATA_FIELDS = [
+  'path',
+  'productId', 
+  'orderId',
+  'orderTotal',
+  'bookingId',
+  'utm_source',
+  'utm_medium',
+  'utm_campaign'
+] as const;
+
+export type AnalyticsEventDataField = typeof ANALYTICS_ALLOWED_EVENT_DATA_FIELDS[number];
+
+// Helper function to sanitize eventData - used by both routes and storage
+export function sanitizeAnalyticsEventData(eventData: unknown): Record<string, unknown> | null {
+  if (!eventData || typeof eventData !== 'object') {
+    return null;
+  }
+  
+  const sanitized: Record<string, unknown> = {};
+  for (const field of ANALYTICS_ALLOWED_EVENT_DATA_FIELDS) {
+    const value = (eventData as Record<string, unknown>)[field];
+    if (value !== undefined) {
+      sanitized[field] = value;
+    }
+  }
+  
+  return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
 
 // Analytics event types
 export type AnalyticsEventType = 

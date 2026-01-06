@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent } from "@shared/schema";
+import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData } from "@shared/schema";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
@@ -2842,6 +2842,9 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Website not found" });
       }
 
+      // Privacy-first: Use centralized sanitization from shared schema
+      const sanitizedEventData = sanitizeAnalyticsEventData(eventData);
+
       await storage.createAnalyticsEvent({
         websiteId,
         sessionId,
@@ -2850,7 +2853,7 @@ export async function registerRoutes(
         trafficSource: trafficSource || null,
         deviceType: deviceType || null,
         country: country || null,
-        eventData: eventData || null,
+        eventData: sanitizedEventData,
       });
 
       res.json({ success: true });
