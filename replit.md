@@ -163,6 +163,18 @@ Comprehensive transactional email system for order confirmations, booking notifi
 - **UI**: Emails tab in Manage page with notification toggles, branding editor, and template customization.
 - **API Endpoints**: GET/PATCH `/api/websites/:id/email-settings`, GET/PUT `/api/websites/:id/email-templates/:type`.
 
+### Onboarding System
+Streamlined onboarding flow to get new users from signup to a live editor in under 3 minutes:
+- **Multi-Step Wizard**: 5-step flow (Welcome, Choose Type, Website Name, Auto Setup, Success).
+- **Website Types**: Booking, Webshop, Simple - each maps to a pre-configured template.
+- **Template Mapping**: booking→service-booking, webshop→ecommerce-store, simple→modern-business.
+- **Atomic Transaction**: Website creation uses a DB transaction wrapping website insert, builder state, onboarding completion, and stats increment.
+- **Database Tables**: `public_stats` tracks total creators count; `profiles.onboardingCompleted` flag controls redirect logic.
+- **Redirect Logic**: Users without completed onboarding are redirected from /dashboard to /onboarding.
+- **Coach Marks**: First-time users see a tutorial overlay in the builder highlighting key UI areas.
+- **API Endpoint**: POST `/api/onboarding/create-website` handles the atomic creation flow.
+- **Stats Tracking**: Total creators count is incremented via upsert and displayed on the landing page.
+
 ### Deployment
 - **Vercel**: Hosts published Next.js sites via its REST API, including custom domain connections.
 
