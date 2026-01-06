@@ -3026,7 +3026,21 @@ export async function registerRoutes(
   });
 
   // Analytics - Track event (public endpoint for published sites)
+  // Handle CORS preflight for analytics tracking from custom domains
+  app.options("/api/public/analytics/track", (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    res.status(204).end();
+  });
+
   app.post("/api/public/analytics/track", async (req, res) => {
+    // Allow CORS from any origin (published sites on custom domains)
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    
     try {
       const { websiteId, sessionId, eventType, pageUrl, trafficSource, deviceType, country, eventData } = req.body;
       
