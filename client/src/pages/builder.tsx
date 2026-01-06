@@ -839,6 +839,8 @@ export default function BuilderPage() {
           onDeleteComponent={deleteComponent}
           onDuplicateComponent={duplicateComponent}
           onMoveComponent={moveComponent}
+          pages={builderState?.pages}
+          activePage={builderState?.activePage}
         >
           {/* Canvas / Preview */}
           <main 

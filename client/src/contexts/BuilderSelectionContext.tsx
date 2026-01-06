@@ -7,6 +7,13 @@ type SelectedElementInfo = {
   rect?: DOMRect;
 };
 
+type BuilderPage = {
+  id: string;
+  name: string;
+  path: string;
+  components: BuilderComponentData[];
+};
+
 type BuilderSelectionContextType = {
   selectedId: string | null;
   hoveredId: string | null;
@@ -22,6 +29,8 @@ type BuilderSelectionContextType = {
   onDuplicateComponent: (componentId: string) => void;
   onMoveComponent: (componentId: string, direction: 'up' | 'down') => void;
   getComponent: (id: string) => BuilderComponentData | undefined;
+  pages?: BuilderPage[];
+  activePage?: string;
 };
 
 const BuilderSelectionContext = createContext<BuilderSelectionContextType | null>(null);
@@ -38,6 +47,8 @@ export function BuilderSelectionProvider({
   onDeleteComponent,
   onDuplicateComponent,
   onMoveComponent,
+  pages,
+  activePage,
 }: { 
   children: ReactNode;
   isBuilderMode?: boolean;
@@ -50,6 +61,8 @@ export function BuilderSelectionProvider({
   onDeleteComponent: (componentId: string) => void;
   onDuplicateComponent: (componentId: string) => void;
   onMoveComponent: (componentId: string, direction: 'up' | 'down') => void;
+  pages?: BuilderPage[];
+  activePage?: string;
 }) {
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
   const [internalHoveredId, setInternalHoveredId] = useState<string | null>(null);
@@ -121,6 +134,8 @@ export function BuilderSelectionProvider({
         onDuplicateComponent,
         onMoveComponent,
         getComponent,
+        pages,
+        activePage,
       }}
     >
       {children}
@@ -146,6 +161,8 @@ export function useBuilderSelection() {
       onDuplicateComponent: () => {},
       onMoveComponent: () => {},
       getComponent: () => undefined,
+      pages: undefined,
+      activePage: undefined,
     };
   }
   return context;
