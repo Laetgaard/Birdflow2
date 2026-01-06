@@ -54,33 +54,85 @@ type EditableTextProps = {
   style?: React.CSSProperties;
   as?: 'h1' | 'h2' | 'h3' | 'p' | 'span';
   isPreview?: boolean;
+  selectAllOnEdit?: boolean;
+  multiline?: boolean;
 };
 
-function EditableText({ value, field, isEditing, onEdit, onChange, style, as = 'span', isPreview }: EditableTextProps) {
+function EditableText({ 
+  value, 
+  field, 
+  isEditing, 
+  onEdit, 
+  onChange, 
+  style, 
+  as = 'span', 
+  isPreview,
+  selectAllOnEdit = false,
+  multiline = false,
+}: EditableTextProps) {
   const ref = useRef<HTMLElement>(null);
+  const originalValueRef = useRef(value);
+  
+  useEffect(() => {
+    if (isEditing) {
+      originalValueRef.current = value;
+    }
+  }, [isEditing, value]);
   
   const handleBlur = useCallback(() => {
     if (ref.current) {
-      const newValue = ref.current.innerText;
-      if (newValue !== value) {
+      const newValue = ref.current.innerText.trim();
+      if (newValue !== originalValueRef.current) {
         onChange(field, newValue);
       }
     }
     onEdit(null);
-  }, [field, value, onChange, onEdit]);
+  }, [field, onChange, onEdit]);
   
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter') {
+      if (multiline && e.shiftKey) {
+        return;
+      }
       e.preventDefault();
       handleBlur();
     }
     if (e.key === 'Escape') {
+      e.preventDefault();
       if (ref.current) {
-        ref.current.innerText = value;
+        ref.current.innerText = originalValueRef.current;
       }
       onEdit(null);
     }
-  }, [handleBlur, onEdit, value]);
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      handleBlur();
+      const allEditableFields = document.querySelectorAll('[data-editable-field]');
+      const fields = Array.from(allEditableFields);
+      const currentIndex = fields.findIndex(f => f.getAttribute('data-editable-field') === field);
+      const nextIndex = e.shiftKey 
+        ? (currentIndex - 1 + fields.length) % fields.length
+        : (currentIndex + 1) % fields.length;
+      const nextField = fields[nextIndex];
+      if (nextField) {
+        const nextFieldName = nextField.getAttribute('data-editable-field');
+        if (nextFieldName) {
+          setTimeout(() => onEdit(nextFieldName), 0);
+        }
+      }
+    }
+    if (e.key === 'a' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (ref.current) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(ref.current);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    }
+  }, [handleBlur, onEdit, field, multiline]);
   
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (!isPreview) {
@@ -88,6 +140,22 @@ function EditableText({ value, field, isEditing, onEdit, onChange, style, as = '
       onEdit(field);
     }
   }, [field, onEdit, isPreview]);
+  
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if (!isPreview && !isEditing) {
+      e.stopPropagation();
+      onEdit(field);
+      setTimeout(() => {
+        if (ref.current) {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(ref.current);
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }
+      }, 0);
+    }
+  }, [field, onEdit, isPreview, isEditing]);
 
   useEffect(() => {
     if (isEditing && ref.current) {
@@ -95,11 +163,17 @@ function EditableText({ value, field, isEditing, onEdit, onChange, style, as = '
       const selection = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(ref.current);
-      range.collapse(false);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
+      
+      if (selectAllOnEdit) {
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      } else {
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
     }
-  }, [isEditing]);
+  }, [isEditing, selectAllOnEdit]);
 
   const Component = as;
   const editingStyle: React.CSSProperties = isEditing ? {
@@ -107,8 +181,12 @@ function EditableText({ value, field, isEditing, onEdit, onChange, style, as = '
     outlineOffset: '2px',
     borderRadius: '4px',
     minWidth: '50px',
+    caretColor: '#3b82f6',
   } : {};
-  const hoverStyle: React.CSSProperties = !isPreview && !isEditing ? { cursor: 'text' } : {};
+  const hoverStyle: React.CSSProperties = !isPreview && !isEditing ? { 
+    cursor: 'text',
+    transition: 'outline 0.15s ease',
+  } : {};
 
   return (
     <Component
@@ -116,10 +194,12 @@ function EditableText({ value, field, isEditing, onEdit, onChange, style, as = '
       contentEditable={isEditing}
       suppressContentEditableWarning
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onBlur={isEditing ? handleBlur : undefined}
       onKeyDown={isEditing ? handleKeyDown : undefined}
       style={{ ...style, ...editingStyle, ...hoverStyle }}
       data-editable-field={field}
+      data-testid={`editable-text-${field}`}
     >
       {value}
     </Component>

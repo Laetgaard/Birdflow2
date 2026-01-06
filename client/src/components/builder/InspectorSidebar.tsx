@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { useBuilderSelection } from '@/contexts/BuilderSelectionContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { 
   themeColors, 
   spacingPresets, 
@@ -14,7 +15,90 @@ import {
   componentRegistry,
   type ComponentType 
 } from '@shared/componentRegistry';
-import { X } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, Home, Layers } from 'lucide-react';
+
+const COMPONENT_LABELS: Record<string, string> = {
+  'hero': 'Hero Section',
+  'header': 'Header',
+  'footer': 'Footer',
+  'cta': 'Call to Action',
+  'features': 'Features',
+  'testimonials': 'Testimonials',
+  'text-image': 'Text & Image',
+  'image-slider': 'Image Slider',
+  'product-grid': 'Products',
+  'booking': 'Booking',
+  'gallery': 'Gallery',
+  'pricing-table': 'Pricing',
+  'faq': 'FAQ',
+  'stats-counter': 'Stats',
+  'contact-form': 'Contact Form',
+  'video-embed': 'Video',
+  'divider': 'Divider',
+  'spacer': 'Spacer',
+};
+
+type CollapsibleSectionProps = {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+  testId?: string;
+};
+
+function CollapsibleSection({ title, defaultOpen = true, children, testId }: CollapsibleSectionProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button 
+          className="flex items-center justify-between w-full py-2 hover:bg-muted/50 rounded transition-colors"
+          data-testid={testId}
+        >
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            {title}
+          </h4>
+          {isOpen ? (
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+          )}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-1">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+type BreadcrumbProps = {
+  pageName: string;
+  componentType: string;
+  onPageClick: () => void;
+};
+
+function Breadcrumb({ pageName, componentType, onPageClick }: BreadcrumbProps) {
+  const componentLabel = COMPONENT_LABELS[componentType] || componentType;
+  
+  return (
+    <div className="flex items-center gap-1 text-xs text-muted-foreground overflow-hidden">
+      <button 
+        onClick={onPageClick}
+        className="flex items-center gap-1 hover:text-foreground transition-colors shrink-0"
+        data-testid="breadcrumb-page"
+      >
+        <Home className="h-3 w-3" />
+        <span className="max-w-[60px] truncate">{pageName}</span>
+      </button>
+      <ChevronRight className="h-3 w-3 shrink-0" />
+      <div className="flex items-center gap-1 text-foreground">
+        <Layers className="h-3 w-3 shrink-0" />
+        <span className="truncate">{componentLabel}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function InspectorSidebar() {
   const { 
@@ -22,18 +106,25 @@ export default function InspectorSidebar() {
     selectedInfo, 
     setSelectedId,
     onUpdateComponent,
+    pages,
+    activePage,
   } = useBuilderSelection();
 
   if (!selectedId || !selectedInfo) {
     return (
       <div className="h-full flex items-center justify-center text-muted-foreground p-4 text-center">
-        <p>Select an element to edit its properties</p>
+        <div className="space-y-2">
+          <Layers className="h-8 w-8 mx-auto opacity-50" />
+          <p className="text-sm">Select an element to edit its properties</p>
+        </div>
       </div>
     );
   }
 
   const component = selectedInfo.component;
   const definition = componentRegistry[component.type as ComponentType];
+  const currentPage = pages?.find(p => p.id === activePage);
+  const pageName = currentPage?.name || 'Page';
 
   const handlePropChange = (key: string, value: any) => {
     onUpdateComponent(selectedId, { props: { [key]: value } });
@@ -43,29 +134,35 @@ export default function InspectorSidebar() {
     onUpdateComponent(selectedId, { styles: { [key]: value } });
   };
 
+  const handleDeselectToPage = () => {
+    setSelectedId(null);
+  };
+
   return (
     <div className="h-full flex flex-col" data-testid="inspector-sidebar">
-      <div className="flex items-center justify-between p-3 border-b">
-        <div>
-          <h3 className="font-semibold text-sm capitalize">{component.type.replace('-', ' ')}</h3>
-          <p className="text-xs text-muted-foreground">{definition?.name || component.type}</p>
+      <div className="p-3 border-b space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">{definition?.name || component.type}</h3>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-7 w-7 p-0"
+            onClick={() => setSelectedId(null)}
+            data-testid="inspector-close"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          className="h-8 w-8 p-0"
-          onClick={() => setSelectedId(null)}
-          data-testid="inspector-close"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <Breadcrumb 
+          pageName={pageName} 
+          componentType={component.type} 
+          onPageClick={handleDeselectToPage}
+        />
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-3 space-y-4">
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Layout</h4>
-            
+        <div className="p-3 space-y-2">
+          <CollapsibleSection title="Layout" testId="section-layout">
             <div className="space-y-2">
               <Label className="text-xs">Alignment</Label>
               <div className="flex gap-1">
@@ -101,13 +198,9 @@ export default function InspectorSidebar() {
                 ))}
               </div>
             </div>
-          </div>
+          </CollapsibleSection>
 
-          <Separator />
-
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Colors</h4>
-            
+          <CollapsibleSection title="Colors" testId="section-colors">
             <div className="space-y-2">
               <Label className="text-xs">Background</Label>
               <div className="grid grid-cols-5 gap-1">
@@ -124,7 +217,9 @@ export default function InspectorSidebar() {
                         ? '2px solid #3b82f6' 
                         : '1px solid #e2e8f0',
                       cursor: 'pointer',
+                      transition: 'transform 0.1s ease',
                     }}
+                    className="hover:scale-110"
                     title={color.name}
                     data-testid={`inspector-bg-${color.name.toLowerCase().replace(' ', '-')}`}
                   />
@@ -148,20 +243,18 @@ export default function InspectorSidebar() {
                         ? '2px solid #3b82f6' 
                         : '1px solid #e2e8f0',
                       cursor: 'pointer',
+                      transition: 'transform 0.1s ease',
                     }}
+                    className="hover:scale-110"
                     title={color.name}
                     data-testid={`inspector-text-${color.name.toLowerCase()}`}
                   />
                 ))}
               </div>
             </div>
-          </div>
+          </CollapsibleSection>
 
-          <Separator />
-
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Typography</h4>
-            
+          <CollapsibleSection title="Typography" defaultOpen={false} testId="section-typography">
             <div className="space-y-2">
               <Label className="text-xs">Font Family</Label>
               <div className="space-y-1">
@@ -235,13 +328,9 @@ export default function InspectorSidebar() {
                 ))}
               </div>
             </div>
-          </div>
+          </CollapsibleSection>
 
-          <Separator />
-
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Content</h4>
-            
+          <CollapsibleSection title="Content" testId="section-content">
             {component.props.title !== undefined && (
               <div className="space-y-1">
                 <Label className="text-xs">Title</Label>
@@ -272,7 +361,7 @@ export default function InspectorSidebar() {
                 <textarea
                   value={component.props.description || ''}
                   onChange={(e) => handlePropChange('description', e.target.value)}
-                  className="w-full h-20 px-3 py-2 text-sm border rounded-md resize-none"
+                  className="w-full h-20 px-3 py-2 text-sm border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary"
                   data-testid="inspector-description"
                 />
               </div>
@@ -289,7 +378,16 @@ export default function InspectorSidebar() {
                 />
               </div>
             )}
-          </div>
+
+            {component.props.title === undefined && 
+             component.props.subtitle === undefined && 
+             component.props.description === undefined && 
+             component.props.buttonText === undefined && (
+              <p className="text-xs text-muted-foreground italic">
+                No editable content properties for this component.
+              </p>
+            )}
+          </CollapsibleSection>
         </div>
       </ScrollArea>
     </div>
