@@ -10,6 +10,7 @@ export const profiles = pgTable("profiles", {
   phoneNumber: text("phone_number").notNull(),
   onboardingCompleted: boolean("onboarding_completed").default(false).notNull(),
   isAdmin: boolean("is_admin").default(false).notNull(),
+  stripeCustomerId: text("stripe_customer_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -47,6 +48,10 @@ export const websites = pgTable("websites", {
   // Billing fields
   plan: text("plan").default("free").notNull(), // free, starter, professional, enterprise
   planExpiresAt: timestamp("plan_expires_at"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  stripePriceId: text("stripe_price_id"),
+  subscriptionStatus: text("subscription_status"), // active, canceled, past_due, trialing
+  currentPeriodEnd: timestamp("current_period_end"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

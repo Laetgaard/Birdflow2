@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { 
   Check, 
@@ -7,6 +7,7 @@ import {
   Zap,
   Crown,
   HelpCircle,
+  Loader2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -14,6 +15,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAuth } from "@/lib/auth";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 const fadeInUp = {
   initial: { opacity: 0, y: 30 },
@@ -124,6 +129,76 @@ const faqs = [
 ];
 
 export default function PricingPage() {
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+
+  const { data: websites } = useQuery({
+    queryKey: ["/api/websites"],
+    enabled: isAuthenticated,
+  });
+
+  const checkoutMutation = useMutation({
+    mutationFn: async ({ planId, websiteId }: { planId: string; websiteId: string }) => {
+      const res = await fetch("/api/subscriptions/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          planId,
+          websiteId,
+          successUrl: `${window.location.origin}/dashboard?upgrade=success`,
+          cancelUrl: `${window.location.origin}/pricing?upgrade=cancelled`,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      window.location.href = data.url;
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Checkout Error",
+        description: error.message || "Failed to start checkout",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handlePlanSelect = (planName: string) => {
+    const planId = planName.toLowerCase();
+    
+    if (planId === "starter") {
+      navigate("/auth?mode=signup");
+      return;
+    }
+    
+    if (!isAuthenticated) {
+      navigate(`/auth?mode=signup&plan=${planId}`);
+      return;
+    }
+    
+    if (planId === "business") {
+      window.location.href = "mailto:sales@birdflow.io?subject=Business Plan Inquiry";
+      return;
+    }
+    
+    const userWebsites = websites as any[];
+    if (!userWebsites?.length) {
+      toast({
+        title: "No Website Found",
+        description: "Please create a website first before upgrading your plan.",
+      });
+      navigate("/onboarding");
+      return;
+    }
+    
+    setSelectedPlan(planId);
+    checkoutMutation.mutate({ planId, websiteId: userWebsites[0].id });
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-x-hidden">
       <header className="border-b sticky top-0 bg-background/80 backdrop-blur-md z-50">
@@ -213,16 +288,25 @@ export default function PricingPage() {
                     <span className="text-muted-foreground ml-1">{plan.priceDetail}</span>
                   </div>
 
-                  <Link href="/auth?mode=signup">
-                    <Button 
+                  <Button 
                       className={`w-full mb-6 ${plan.popular ? "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700" : ""}`}
                       variant={plan.ctaVariant}
                       data-testid={`button-plan-${plan.name.toLowerCase()}`}
+                      onClick={() => handlePlanSelect(plan.name)}
+                      disabled={checkoutMutation.isPending && selectedPlan === plan.name.toLowerCase()}
                     >
-                      {plan.cta}
-                      <ArrowRight className="w-4 h-4 ml-2" />
+                      {checkoutMutation.isPending && selectedPlan === plan.name.toLowerCase() ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          {plan.cta}
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </>
+                      )}
                     </Button>
-                  </Link>
 
                   <ul className="space-y-3">
                     {plan.features.map((feature, j) => (
