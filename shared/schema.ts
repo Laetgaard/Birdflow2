@@ -816,4 +816,28 @@ export type AdminWebsiteWithOwner = {
   bookingCount: number;
 };
 
+// Admin platform-wide analytics types
+export type AdminAnalyticsOverview = {
+  totalPageViews: number;
+  uniqueSessions: number;
+  totalOrders: number;
+  totalRevenue: number;
+  conversionRate: number;
+  avgOrderValue: number;
+  activeWebsites: number;
+};
+
+export type AdminTrafficSource = {
+  source: string;
+  visitors: number;
+  pageViews: number;
+  percentage: number;
+};
+
+export type AdminDailyVisitors = {
+  date: string;
+  visitors: number;
+  pageViews: number;
+};
+
 export * from "./models/chat";

@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 const { Pool } = pkg;
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import crypto from "crypto";
 
 // Encryption helpers for sensitive data
@@ -72,9 +72,10 @@ import {
   emailTemplates, type EmailTemplate, type InsertEmailTemplate,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
-  type AdminUserWithStats, type AdminWebsiteWithOwner
+  type AdminUserWithStats, type AdminWebsiteWithOwner,
+  type AdminAnalyticsOverview, type AdminTrafficSource, type AdminDailyVisitors
 } from "@shared/schema";
-import { sql, gte, desc, count, countDistinct } from "drizzle-orm";
+import { sql, gte, lte, desc, count, countDistinct, and } from "drizzle-orm";
 
 // Use Supabase database as primary storage
 // Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
@@ -268,6 +269,11 @@ export interface IStorage {
   getAllUsersWithStats(): Promise<AdminUserWithStats[]>;
   getAllWebsitesWithOwners(): Promise<AdminWebsiteWithOwner[]>;
   isUserAdmin(userId: string): Promise<boolean>;
+  
+  // Admin analytics methods
+  getAdminAnalyticsOverview(startDate: Date, endDate: Date): Promise<AdminAnalyticsOverview>;
+  getAdminTrafficSources(startDate: Date, endDate: Date): Promise<AdminTrafficSource[]>;
+  getAdminDailyVisitors(startDate: Date, endDate: Date): Promise<AdminDailyVisitors[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1386,6 +1392,130 @@ export class DatabaseStorage implements IStorage {
         bookingCount: websiteBookings.length,
       };
     });
+  }
+
+  // Admin analytics methods
+  async getAdminAnalyticsOverview(startDate: Date, endDate: Date): Promise<AdminAnalyticsOverview> {
+    const events = await db
+      .select()
+      .from(analyticsEvents)
+      .where(
+        and(
+          gte(analyticsEvents.timestamp, startDate),
+          lte(analyticsEvents.timestamp, endDate)
+        )
+      );
+
+    const pageViews = events.filter(e => e.eventType === 'page_view');
+    const orderEvents = events.filter(e => e.eventType === 'order_created');
+    const uniqueSessions = new Set(events.map(e => e.sessionId)).size;
+    const activeWebsites = new Set(events.map(e => e.websiteId)).size;
+
+    const totalRevenue = orderEvents.reduce((sum, e) => {
+      const orderTotal = (e.eventData as any)?.orderTotal || 0;
+      return sum + orderTotal;
+    }, 0);
+
+    const conversionRate = uniqueSessions > 0 
+      ? (orderEvents.length / uniqueSessions) * 100 
+      : 0;
+
+    const avgOrderValue = orderEvents.length > 0 
+      ? totalRevenue / orderEvents.length 
+      : 0;
+
+    return {
+      totalPageViews: pageViews.length,
+      uniqueSessions,
+      totalOrders: orderEvents.length,
+      totalRevenue: Math.round(totalRevenue) / 100, // Convert cents to dollars
+      conversionRate: Math.round(conversionRate * 100) / 100,
+      avgOrderValue: Math.round(avgOrderValue) / 100,
+      activeWebsites,
+    };
+  }
+
+  async getAdminTrafficSources(startDate: Date, endDate: Date): Promise<AdminTrafficSource[]> {
+    const events = await db
+      .select()
+      .from(analyticsEvents)
+      .where(
+        and(
+          gte(analyticsEvents.timestamp, startDate),
+          lte(analyticsEvents.timestamp, endDate)
+        )
+      );
+
+    const sourceMap: Record<string, { visitors: Set<string>; pageViews: number }> = {};
+
+    events.forEach(event => {
+      const source = (event.eventData as any)?.utm_source || 'direct';
+      if (!sourceMap[source]) {
+        sourceMap[source] = { visitors: new Set(), pageViews: 0 };
+      }
+      sourceMap[source].visitors.add(event.sessionId);
+      if (event.eventType === 'page_view') {
+        sourceMap[source].pageViews++;
+      }
+    });
+
+    const totalVisitors = new Set(events.map(e => e.sessionId)).size;
+
+    const sources = Object.entries(sourceMap)
+      .map(([source, data]) => ({
+        source,
+        visitors: data.visitors.size,
+        pageViews: data.pageViews,
+        percentage: totalVisitors > 0 
+          ? Math.round((data.visitors.size / totalVisitors) * 10000) / 100 
+          : 0,
+      }))
+      .sort((a, b) => b.visitors - a.visitors);
+
+    return sources;
+  }
+
+  async getAdminDailyVisitors(startDate: Date, endDate: Date): Promise<AdminDailyVisitors[]> {
+    const events = await db
+      .select()
+      .from(analyticsEvents)
+      .where(
+        and(
+          gte(analyticsEvents.timestamp, startDate),
+          lte(analyticsEvents.timestamp, endDate)
+        )
+      );
+
+    // Helper to safely parse date
+    const toDateStr = (d: Date | string | null | undefined): string | null => {
+      if (!d) return null;
+      const date = d instanceof Date ? d : new Date(d);
+      return date.toISOString().split('T')[0];
+    };
+
+    // Group by date
+    const dateMap: Record<string, { visitors: Set<string>; pageViews: number }> = {};
+
+    events.forEach(event => {
+      const dateStr = toDateStr(event.timestamp);
+      if (!dateStr) return;
+      
+      if (!dateMap[dateStr]) {
+        dateMap[dateStr] = { visitors: new Set(), pageViews: 0 };
+      }
+      dateMap[dateStr].visitors.add(event.sessionId);
+      if (event.eventType === 'page_view') {
+        dateMap[dateStr].pageViews++;
+      }
+    });
+
+    return Object.entries(dateMap)
+      .map(([date, data]) => ({
+        date,
+        visitors: data.visitors.size,
+        pageViews: data.pageViews,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 }
 

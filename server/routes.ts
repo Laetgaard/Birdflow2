@@ -3405,6 +3405,55 @@ export async function registerRoutes(
     }
   });
 
+  // Admin analytics - platform-wide visitor and traffic analytics
+  app.get("/api/admin/analytics/overview", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      startDate.setHours(0, 0, 0, 0);
+
+      const overview = await storage.getAdminAnalyticsOverview(startDate, endDate);
+      res.json(overview);
+    } catch (error: any) {
+      console.error("Admin analytics overview error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/traffic", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      startDate.setHours(0, 0, 0, 0);
+
+      const trafficSources = await storage.getAdminTrafficSources(startDate, endDate);
+      res.json(trafficSources);
+    } catch (error: any) {
+      console.error("Admin traffic sources error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/analytics/visitors", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      startDate.setHours(0, 0, 0, 0);
+
+      const dailyVisitors = await storage.getAdminDailyVisitors(startDate, endDate);
+      res.json(dailyVisitors);
+    } catch (error: any) {
+      console.error("Admin daily visitors error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Admin impersonation - generates a session token for viewing as a user
   app.post("/api/admin/impersonate/:userId", requireAuth, requireAdmin, async (req, res) => {
     try {
