@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 import LandingPage from "@/pages/landing";
 import AuthPage from "@/pages/auth";
@@ -20,25 +21,53 @@ import ProfilePage from "@/pages/profile";
 import OnboardingPage from "@/pages/onboarding";
 import AdminPage from "@/pages/admin";
 import PricingPage from "@/pages/pricing";
+import VerifyEmailPage from "@/pages/verify-email";
+import ResetPasswordPage from "@/pages/reset-password";
 
 function Router() {
   return (
     <Switch>
+      {/* Public routes */}
       <Route path="/" component={LandingPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/check-email" component={CheckEmail} />
-      <Route path="/dashboard" component={Dashboard} />
-      <Route path="/onboarding" component={OnboardingPage} />
-      <Route path="/profile" component={ProfilePage} />
-      <Route path="/admin" component={AdminPage} />
-      <Route path="/setup/:id" component={SetupPage} />
-      <Route path="/builder/:id" component={BuilderPage} />
-      <Route path="/manage/:id" component={ManagePage} />
+      <Route path="/verify-email" component={VerifyEmailPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
+      
+      {/* Protected routes - require auth + verified email + onboarding */}
+      <Route path="/dashboard">
+        {() => <ProtectedRoute><Dashboard /></ProtectedRoute>}
+      </Route>
+      <Route path="/profile">
+        {() => <ProtectedRoute><ProfilePage /></ProtectedRoute>}
+      </Route>
+      <Route path="/setup/:id">
+        {() => <ProtectedRoute><SetupPage /></ProtectedRoute>}
+      </Route>
+      <Route path="/builder/:id">
+        {() => <ProtectedRoute><BuilderPage /></ProtectedRoute>}
+      </Route>
+      <Route path="/manage/:id">
+        {() => <ProtectedRoute><ManagePage /></ProtectedRoute>}
+      </Route>
+      
+      {/* Admin route - requires admin role */}
+      <Route path="/admin">
+        {() => <ProtectedRoute requireAdmin><AdminPage /></ProtectedRoute>}
+      </Route>
+      
+      {/* Onboarding - requires auth + verified email but NOT onboarding */}
+      <Route path="/onboarding">
+        {() => <ProtectedRoute requireOnboarding={false}><OnboardingPage /></ProtectedRoute>}
+      </Route>
+      
+      {/* Public product/checkout routes */}
       <Route path="/product/:id" component={ProductDetailPage} />
       <Route path="/checkout/success" component={CheckoutSuccessPage} />
       <Route path="/checkout/cancel" component={CheckoutCancelPage} />
+      
       <Route component={NotFound} />
     </Switch>
   );

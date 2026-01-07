@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -62,7 +62,7 @@ export default function AuthPage() {
       });
       
       if (result.needsEmailConfirmation) {
-        setLocation("/check-email");
+        setLocation(`/check-email?email=${encodeURIComponent(data.email)}`);
       } else {
         toast({
           title: "Account created!",
@@ -104,12 +104,14 @@ export default function AuthPage() {
       {/* Left Panel: Form */}
       <div className="flex items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md space-y-8">
-          <div className="flex items-center gap-2 font-bold text-xl mb-8">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground">
-              <Globe className="w-5 h-5" />
+          <Link href="/">
+            <div className="flex items-center gap-2 font-bold text-xl mb-8 cursor-pointer">
+              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground">
+                <Globe className="w-5 h-5" />
+              </div>
+              BirdFlow
             </div>
-            SaaSify
-          </div>
+          </Link>
 
           <Tabs defaultValue={defaultTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-8">
@@ -138,7 +140,12 @@ export default function AuthPage() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="signin-password">Password</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="signin-password">Password</Label>
+                        <Link href="/reset-password" className="text-xs text-primary hover:underline">
+                          Forgot password?
+                        </Link>
+                      </div>
                       <Input 
                         id="signin-password" 
                         type="password"
