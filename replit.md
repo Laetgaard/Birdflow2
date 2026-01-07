@@ -25,7 +25,35 @@ Preferred communication style: Simple, everyday language.
 - **Database**: Supabase PostgreSQL via Drizzle ORM
 - **Schema**: Defined in `shared/schema.ts`, with Zod validation.
 - **Migrations**: Drizzle Kit.
-- **Row Level Security (RLS)**: Implemented for data isolation.
+- **Row Level Security (RLS)**: Comprehensive multi-tenant isolation implemented.
+
+### Row Level Security (RLS) System
+Full multi-tenant isolation with domain-scoped public access:
+
+**Security Model:**
+1. **Owner-based access**: Tables with `owner_id` - only allow access where `owner_id = auth.uid()`
+2. **Website-based access**: Tables with `website_id` - access via website ownership check
+3. **Domain-scoped public access**: Anonymous users can only access data for the website matching their request domain
+4. **Admin override**: Users with `is_admin = true` get full access
+
+**Helper Functions:**
+- `is_admin()`: Check if current user is an admin
+- `owns_website(website_id)`: Check if user owns a specific website
+- `can_access_website(website_id)`: Check owner OR admin access
+- `website_for_host()`: Resolve website_id from request host header
+- `is_request_for_website(website_id)`: Validate domain matches website_id and is published
+
+**Tables with RLS:**
+- profiles, public_stats, websites, website_inputs, builder_state
+- products, orders, order_items, bookings, booking_services
+- form_submissions, customers, media_assets, custom_domains
+- shipping_methods, shipping_carrier_credentials, shipping_config
+- website_payment_settings, email_settings, email_templates
+- cookie_settings, analytics_events
+
+**Migration File:** `supabase/migrations/20260107_rls_policies.sql`
+- Must be applied directly in Supabase Dashboard SQL Editor
+- Cannot run via development database (uses Supabase's `auth.uid()` function)
 
 ### Authentication
 - **Provider**: Supabase Auth (email/password with email confirmation).
