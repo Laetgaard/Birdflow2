@@ -291,23 +291,109 @@ export default function LandingPage() {
               className="grid md:grid-cols-3 gap-6"
             >
               {[
-                { name: "Modern Business", category: "Business", color: "from-slate-800 to-slate-600" },
-                { name: "E-Commerce Store", category: "Shop", color: "from-emerald-600 to-teal-500" },
-                { name: "Service Booking", category: "Services", color: "from-violet-600 to-purple-500" },
-                { name: "Portfolio", category: "Creative", color: "from-rose-500 to-pink-500" },
-                { name: "Restaurant", category: "Food", color: "from-amber-500 to-orange-500" },
-                { name: "Fitness Studio", category: "Health", color: "from-cyan-500 to-blue-500" },
+                { 
+                  name: "Modern Business", 
+                  category: "Business", 
+                  color: "from-slate-800 to-slate-600",
+                  description: "Professional corporate website with service pages and contact forms.",
+                  features: ["5 Pages", "Contact Form", "SEO Ready"]
+                },
+                { 
+                  name: "E-Commerce Store", 
+                  category: "Shop", 
+                  color: "from-emerald-600 to-teal-500",
+                  description: "Complete online store with product catalog and secure checkout.",
+                  features: ["Product Catalog", "Cart & Checkout", "Inventory"]
+                },
+                { 
+                  name: "Service Booking", 
+                  category: "Services", 
+                  color: "from-violet-600 to-purple-500",
+                  description: "Appointment scheduling system for service-based businesses.",
+                  features: ["Calendar Booking", "Service Menu", "Reminders"]
+                },
+                { 
+                  name: "Portfolio", 
+                  category: "Creative", 
+                  color: "from-rose-500 to-pink-500",
+                  description: "Showcase your creative work with stunning visual galleries.",
+                  features: ["Image Gallery", "Project Pages", "About Section"]
+                },
+                { 
+                  name: "Restaurant", 
+                  category: "Food", 
+                  color: "from-amber-500 to-orange-500",
+                  description: "Digital menu and online ordering for restaurants and cafes.",
+                  features: ["Digital Menu", "Online Orders", "Reservations"]
+                },
+                { 
+                  name: "Fitness Studio", 
+                  category: "Health", 
+                  color: "from-cyan-500 to-blue-500",
+                  description: "Class schedules and membership management for fitness centers.",
+                  features: ["Class Schedule", "Memberships", "Trainer Profiles"]
+                },
               ].map((template, i) => (
                 <motion.div
                   key={i}
                   variants={fadeInUp}
                   className="group cursor-pointer"
                 >
-                  <div className={`aspect-[4/3] rounded-xl bg-gradient-to-br ${template.color} p-6 flex items-end relative overflow-hidden group-hover:scale-[1.02] transition-transform`}>
-                    <div className="absolute inset-0 bg-black/20 group-hover:bg-black/10 transition-colors" />
-                    <div className="relative z-10">
-                      <span className="text-xs font-medium text-white/80 uppercase tracking-wider">{template.category}</span>
-                      <h3 className="text-lg font-bold text-white">{template.name}</h3>
+                  <div className="bg-card rounded-2xl border shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group-hover:-translate-y-1">
+                    <div className={`relative aspect-[4/3] bg-gradient-to-br ${template.color} overflow-hidden`}>
+                      <div className="absolute inset-0 p-3">
+                        <div className="bg-white/95 backdrop-blur rounded-lg h-full w-full shadow-lg overflow-hidden">
+                          <div className="bg-gray-100 px-3 py-2 flex items-center gap-2 border-b">
+                            <div className="flex gap-1.5">
+                              <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                              <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
+                              <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                            </div>
+                            <div className="flex-1 bg-gray-200 rounded h-4 mx-2" />
+                          </div>
+                          <div className="p-3 space-y-2">
+                            <div className={`h-16 rounded bg-gradient-to-r ${template.color} opacity-80`} />
+                            <div className="flex gap-2">
+                              <div className="h-3 bg-gray-200 rounded flex-1" />
+                              <div className="h-3 bg-gray-200 rounded w-16" />
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 pt-1">
+                              <div className="h-10 bg-gray-100 rounded" />
+                              <div className="h-10 bg-gray-100 rounded" />
+                              <div className="h-10 bg-gray-100 rounded" />
+                            </div>
+                            <div className="space-y-1.5 pt-1">
+                              <div className="h-2 bg-gray-200 rounded w-full" />
+                              <div className="h-2 bg-gray-200 rounded w-4/5" />
+                              <div className="h-2 bg-gray-200 rounded w-3/5" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                        <Button size="sm" className="shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          Use Template
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-primary uppercase tracking-wider">{template.category}</span>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                          <span>4.9</span>
+                        </div>
+                      </div>
+                      <h3 className="text-lg font-bold mb-1">{template.name}</h3>
+                      <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{template.description}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {template.features.map((feature, j) => (
+                          <span key={j} className="text-xs px-2 py-0.5 bg-secondary rounded-full text-muted-foreground">
+                            {feature}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -319,7 +405,7 @@ export default function LandingPage() {
               whileInView={{ opacity: 1 }}
               viewport={{ once: true }}
               transition={{ delay: 0.3 }}
-              className="text-center mt-10"
+              className="text-center mt-12"
             >
               <Link href="/auth?mode=signup">
                 <Button variant="outline" size="lg" className="group" data-testid="button-browse-templates">
