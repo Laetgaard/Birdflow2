@@ -21,6 +21,7 @@ CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = public
 STABLE
 AS $$
   SELECT COALESCE(
@@ -30,41 +31,97 @@ AS $$
 $$;
 
 -- Check if current user owns a specific website
-CREATE OR REPLACE FUNCTION public.owns_website(website_id text)
+CREATE OR REPLACE FUNCTION public.owns_website(p_website_id text)
 RETURNS boolean
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = public
 STABLE
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM websites
-    WHERE id = website_id
+    WHERE id = p_website_id
     AND owner_id = auth.uid()::text
   );
 $$;
 
 -- Check if user can access a website (owner or admin)
-CREATE OR REPLACE FUNCTION public.can_access_website(website_id text)
+CREATE OR REPLACE FUNCTION public.can_access_website(p_website_id text)
 RETURNS boolean
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = public
 STABLE
 AS $$
-  SELECT public.owns_website(website_id) OR public.is_admin();
+  SELECT public.owns_website(p_website_id) OR public.is_admin();
 $$;
 
 -- Check if a website is published (for public access)
-CREATE OR REPLACE FUNCTION public.is_website_published(website_id text)
+CREATE OR REPLACE FUNCTION public.is_website_published(p_website_id text)
 RETURNS boolean
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = public
 STABLE
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM websites
-    WHERE id = website_id
+    WHERE id = p_website_id
     AND status = 'published'
   );
+$$;
+
+-- Resolve website_id from request host header
+-- This is the key function for domain-scoped public access
+CREATE OR REPLACE FUNCTION public.website_for_host()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+DECLARE
+  v_host text;
+  v_website_id text;
+BEGIN
+  -- Get host from request headers (set by PostgREST)
+  v_host := current_setting('request.headers', true)::json->>'host';
+  
+  IF v_host IS NULL THEN
+    RETURN NULL;
+  END IF;
+  
+  -- First check custom domains
+  SELECT website_id INTO v_website_id
+  FROM custom_domains
+  WHERE domain = v_host
+  AND status = 'active'
+  LIMIT 1;
+  
+  IF v_website_id IS NOT NULL THEN
+    RETURN v_website_id;
+  END IF;
+  
+  -- Check deployment URLs (e.g., website-slug.vercel.app)
+  SELECT id INTO v_website_id
+  FROM websites
+  WHERE deployment_url LIKE '%' || v_host || '%'
+  LIMIT 1;
+  
+  RETURN v_website_id;
+END;
+$$;
+
+-- Check if current request is for a specific published website (domain-scoped)
+CREATE OR REPLACE FUNCTION public.is_request_for_website(p_website_id text)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT public.website_for_host() = p_website_id
+    AND public.is_website_published(p_website_id);
 $$;
 
 -- ============================================================
@@ -97,7 +154,7 @@ CREATE POLICY "profiles_delete_admin" ON profiles
 
 -- ============================================================
 -- PUBLIC STATS TABLE
--- Read-only for everyone, write for admins
+-- Read-only for everyone, write for admins only
 -- ============================================================
 
 ALTER TABLE public_stats ENABLE ROW LEVEL SECURITY;
@@ -152,7 +209,7 @@ CREATE POLICY "websites_delete_owner" ON websites
 
 -- ============================================================
 -- WEBSITE INPUTS TABLE
--- Access via website ownership
+-- Access via website ownership only (no public access)
 -- ============================================================
 
 ALTER TABLE website_inputs ENABLE ROW LEVEL SECURITY;
@@ -180,18 +237,20 @@ CREATE POLICY "website_inputs_delete" ON website_inputs
 
 -- ============================================================
 -- BUILDER STATE TABLE
--- Owner access, public read for published websites
+-- Owner access + domain-scoped public read for published sites
 -- ============================================================
 
 ALTER TABLE builder_state ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "builder_state_select" ON builder_state;
-CREATE POLICY "builder_state_select" ON builder_state
-  FOR SELECT
-  USING (
-    public.can_access_website(website_id) 
-    OR public.is_website_published(website_id)
-  );
+DROP POLICY IF EXISTS "builder_state_select_owner" ON builder_state;
+CREATE POLICY "builder_state_select_owner" ON builder_state
+  FOR SELECT TO authenticated
+  USING (public.can_access_website(website_id));
+
+DROP POLICY IF EXISTS "builder_state_select_anon" ON builder_state;
+CREATE POLICY "builder_state_select_anon" ON builder_state
+  FOR SELECT TO anon
+  USING (public.is_request_for_website(website_id));
 
 DROP POLICY IF EXISTS "builder_state_insert" ON builder_state;
 CREATE POLICY "builder_state_insert" ON builder_state
@@ -211,17 +270,22 @@ CREATE POLICY "builder_state_delete" ON builder_state
 
 -- ============================================================
 -- PRODUCTS TABLE
--- Owner CRUD, public read for published websites
+-- Owner CRUD + domain-scoped public read for published websites
 -- ============================================================
 
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "products_select" ON products;
-CREATE POLICY "products_select" ON products
-  FOR SELECT
+DROP POLICY IF EXISTS "products_select_owner" ON products;
+CREATE POLICY "products_select_owner" ON products
+  FOR SELECT TO authenticated
+  USING (public.can_access_website(website_id));
+
+DROP POLICY IF EXISTS "products_select_anon" ON products;
+CREATE POLICY "products_select_anon" ON products
+  FOR SELECT TO anon
   USING (
-    public.can_access_website(website_id)
-    OR (public.is_website_published(website_id) AND status = 'active')
+    public.is_request_for_website(website_id)
+    AND status = 'active'
   );
 
 DROP POLICY IF EXISTS "products_insert" ON products;
@@ -242,23 +306,25 @@ CREATE POLICY "products_delete" ON products
 
 -- ============================================================
 -- ORDERS TABLE
--- Owner read/update, public insert for published websites
+-- Owner read/update + domain-scoped public insert for published websites
 -- ============================================================
 
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "orders_select" ON orders;
-CREATE POLICY "orders_select" ON orders
-  FOR SELECT
+DROP POLICY IF EXISTS "orders_select_owner" ON orders;
+CREATE POLICY "orders_select_owner" ON orders
+  FOR SELECT TO authenticated
   USING (public.can_access_website(website_id));
 
-DROP POLICY IF EXISTS "orders_insert" ON orders;
-CREATE POLICY "orders_insert" ON orders
-  FOR INSERT
-  WITH CHECK (
-    public.owns_website(website_id)
-    OR public.is_website_published(website_id)
-  );
+DROP POLICY IF EXISTS "orders_insert_owner" ON orders;
+CREATE POLICY "orders_insert_owner" ON orders
+  FOR INSERT TO authenticated
+  WITH CHECK (public.owns_website(website_id));
+
+DROP POLICY IF EXISTS "orders_insert_anon" ON orders;
+CREATE POLICY "orders_insert_anon" ON orders
+  FOR INSERT TO anon
+  WITH CHECK (public.is_request_for_website(website_id));
 
 DROP POLICY IF EXISTS "orders_update" ON orders;
 CREATE POLICY "orders_update" ON orders
@@ -273,23 +339,25 @@ CREATE POLICY "orders_delete" ON orders
 
 -- ============================================================
 -- ORDER ITEMS TABLE
--- Access via website ownership
+-- Access via website ownership + domain-scoped public insert
 -- ============================================================
 
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "order_items_select" ON order_items;
 CREATE POLICY "order_items_select" ON order_items
-  FOR SELECT
+  FOR SELECT TO authenticated
   USING (public.can_access_website(website_id));
 
-DROP POLICY IF EXISTS "order_items_insert" ON order_items;
-CREATE POLICY "order_items_insert" ON order_items
-  FOR INSERT
-  WITH CHECK (
-    public.owns_website(website_id)
-    OR public.is_website_published(website_id)
-  );
+DROP POLICY IF EXISTS "order_items_insert_owner" ON order_items;
+CREATE POLICY "order_items_insert_owner" ON order_items
+  FOR INSERT TO authenticated
+  WITH CHECK (public.owns_website(website_id));
+
+DROP POLICY IF EXISTS "order_items_insert_anon" ON order_items;
+CREATE POLICY "order_items_insert_anon" ON order_items
+  FOR INSERT TO anon
+  WITH CHECK (public.is_request_for_website(website_id));
 
 DROP POLICY IF EXISTS "order_items_update" ON order_items;
 CREATE POLICY "order_items_update" ON order_items
@@ -304,23 +372,25 @@ CREATE POLICY "order_items_delete" ON order_items
 
 -- ============================================================
 -- BOOKINGS TABLE
--- Owner CRUD, public insert for published websites
+-- Owner CRUD + domain-scoped public insert for published websites
 -- ============================================================
 
 ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "bookings_select" ON bookings;
 CREATE POLICY "bookings_select" ON bookings
-  FOR SELECT
+  FOR SELECT TO authenticated
   USING (public.can_access_website(website_id));
 
-DROP POLICY IF EXISTS "bookings_insert" ON bookings;
-CREATE POLICY "bookings_insert" ON bookings
-  FOR INSERT
-  WITH CHECK (
-    public.owns_website(website_id)
-    OR public.is_website_published(website_id)
-  );
+DROP POLICY IF EXISTS "bookings_insert_owner" ON bookings;
+CREATE POLICY "bookings_insert_owner" ON bookings
+  FOR INSERT TO authenticated
+  WITH CHECK (public.owns_website(website_id));
+
+DROP POLICY IF EXISTS "bookings_insert_anon" ON bookings;
+CREATE POLICY "bookings_insert_anon" ON bookings
+  FOR INSERT TO anon
+  WITH CHECK (public.is_request_for_website(website_id));
 
 DROP POLICY IF EXISTS "bookings_update" ON bookings;
 CREATE POLICY "bookings_update" ON bookings
@@ -335,17 +405,22 @@ CREATE POLICY "bookings_delete" ON bookings
 
 -- ============================================================
 -- BOOKING SERVICES TABLE
--- Owner CRUD, public read for published websites
+-- Owner CRUD + domain-scoped public read for published websites
 -- ============================================================
 
 ALTER TABLE booking_services ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "booking_services_select" ON booking_services;
-CREATE POLICY "booking_services_select" ON booking_services
-  FOR SELECT
+DROP POLICY IF EXISTS "booking_services_select_owner" ON booking_services;
+CREATE POLICY "booking_services_select_owner" ON booking_services
+  FOR SELECT TO authenticated
+  USING (public.can_access_website(website_id));
+
+DROP POLICY IF EXISTS "booking_services_select_anon" ON booking_services;
+CREATE POLICY "booking_services_select_anon" ON booking_services
+  FOR SELECT TO anon
   USING (
-    public.can_access_website(website_id)
-    OR (public.is_website_published(website_id) AND active = 'true')
+    public.is_request_for_website(website_id)
+    AND active = 'true'
   );
 
 DROP POLICY IF EXISTS "booking_services_insert" ON booking_services;
@@ -366,23 +441,25 @@ CREATE POLICY "booking_services_delete" ON booking_services
 
 -- ============================================================
 -- FORM SUBMISSIONS TABLE
--- Owner access, public insert for published websites
+-- Owner access + domain-scoped public insert for published websites
 -- ============================================================
 
 ALTER TABLE form_submissions ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "form_submissions_select" ON form_submissions;
 CREATE POLICY "form_submissions_select" ON form_submissions
-  FOR SELECT
+  FOR SELECT TO authenticated
   USING (public.can_access_website(website_id));
 
-DROP POLICY IF EXISTS "form_submissions_insert" ON form_submissions;
-CREATE POLICY "form_submissions_insert" ON form_submissions
-  FOR INSERT
-  WITH CHECK (
-    public.owns_website(website_id)
-    OR public.is_website_published(website_id)
-  );
+DROP POLICY IF EXISTS "form_submissions_insert_owner" ON form_submissions;
+CREATE POLICY "form_submissions_insert_owner" ON form_submissions
+  FOR INSERT TO authenticated
+  WITH CHECK (public.owns_website(website_id));
+
+DROP POLICY IF EXISTS "form_submissions_insert_anon" ON form_submissions;
+CREATE POLICY "form_submissions_insert_anon" ON form_submissions
+  FOR INSERT TO anon
+  WITH CHECK (public.is_request_for_website(website_id));
 
 DROP POLICY IF EXISTS "form_submissions_update" ON form_submissions;
 CREATE POLICY "form_submissions_update" ON form_submissions
@@ -397,23 +474,25 @@ CREATE POLICY "form_submissions_delete" ON form_submissions
 
 -- ============================================================
 -- CUSTOMERS TABLE
--- Owner access only
+-- Owner access + domain-scoped public insert
 -- ============================================================
 
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "customers_select" ON customers;
 CREATE POLICY "customers_select" ON customers
-  FOR SELECT
+  FOR SELECT TO authenticated
   USING (public.can_access_website(website_id));
 
-DROP POLICY IF EXISTS "customers_insert" ON customers;
-CREATE POLICY "customers_insert" ON customers
-  FOR INSERT
-  WITH CHECK (
-    public.owns_website(website_id)
-    OR public.is_website_published(website_id)
-  );
+DROP POLICY IF EXISTS "customers_insert_owner" ON customers;
+CREATE POLICY "customers_insert_owner" ON customers
+  FOR INSERT TO authenticated
+  WITH CHECK (public.owns_website(website_id));
+
+DROP POLICY IF EXISTS "customers_insert_anon" ON customers;
+CREATE POLICY "customers_insert_anon" ON customers
+  FOR INSERT TO anon
+  WITH CHECK (public.is_request_for_website(website_id));
 
 DROP POLICY IF EXISTS "customers_update" ON customers;
 CREATE POLICY "customers_update" ON customers
@@ -428,18 +507,20 @@ CREATE POLICY "customers_delete" ON customers
 
 -- ============================================================
 -- MEDIA ASSETS TABLE
--- Owner CRUD, public read for published websites
+-- Owner CRUD + domain-scoped public read for published websites
 -- ============================================================
 
 ALTER TABLE media_assets ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "media_assets_select" ON media_assets;
-CREATE POLICY "media_assets_select" ON media_assets
-  FOR SELECT
-  USING (
-    public.can_access_website(website_id)
-    OR public.is_website_published(website_id)
-  );
+DROP POLICY IF EXISTS "media_assets_select_owner" ON media_assets;
+CREATE POLICY "media_assets_select_owner" ON media_assets
+  FOR SELECT TO authenticated
+  USING (public.can_access_website(website_id));
+
+DROP POLICY IF EXISTS "media_assets_select_anon" ON media_assets;
+CREATE POLICY "media_assets_select_anon" ON media_assets
+  FOR SELECT TO anon
+  USING (public.is_request_for_website(website_id));
 
 DROP POLICY IF EXISTS "media_assets_insert" ON media_assets;
 CREATE POLICY "media_assets_insert" ON media_assets
@@ -459,7 +540,7 @@ CREATE POLICY "media_assets_delete" ON media_assets
 
 -- ============================================================
 -- CUSTOM DOMAINS TABLE
--- Owner access only
+-- Owner access only (no public access)
 -- ============================================================
 
 ALTER TABLE custom_domains ENABLE ROW LEVEL SECURITY;
@@ -487,17 +568,22 @@ CREATE POLICY "custom_domains_delete" ON custom_domains
 
 -- ============================================================
 -- SHIPPING METHODS TABLE
--- Owner CRUD, public read for published websites
+-- Owner CRUD + domain-scoped public read for published websites
 -- ============================================================
 
 ALTER TABLE shipping_methods ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "shipping_methods_select" ON shipping_methods;
-CREATE POLICY "shipping_methods_select" ON shipping_methods
-  FOR SELECT
+DROP POLICY IF EXISTS "shipping_methods_select_owner" ON shipping_methods;
+CREATE POLICY "shipping_methods_select_owner" ON shipping_methods
+  FOR SELECT TO authenticated
+  USING (public.can_access_website(website_id));
+
+DROP POLICY IF EXISTS "shipping_methods_select_anon" ON shipping_methods;
+CREATE POLICY "shipping_methods_select_anon" ON shipping_methods
+  FOR SELECT TO anon
   USING (
-    public.can_access_website(website_id)
-    OR (public.is_website_published(website_id) AND is_active = true)
+    public.is_request_for_website(website_id)
+    AND is_active = true
   );
 
 DROP POLICY IF EXISTS "shipping_methods_insert" ON shipping_methods;
@@ -518,7 +604,7 @@ CREATE POLICY "shipping_methods_delete" ON shipping_methods
 
 -- ============================================================
 -- SHIPPING CARRIER CREDENTIALS TABLE
--- Owner access only (sensitive data)
+-- Owner access only (highly sensitive - no public access)
 -- ============================================================
 
 ALTER TABLE shipping_carrier_credentials ENABLE ROW LEVEL SECURITY;
@@ -546,7 +632,7 @@ CREATE POLICY "shipping_carrier_credentials_delete" ON shipping_carrier_credenti
 
 -- ============================================================
 -- SHIPPING CONFIG TABLE
--- Owner access only
+-- Owner access only (no public access)
 -- ============================================================
 
 ALTER TABLE shipping_config ENABLE ROW LEVEL SECURITY;
@@ -574,7 +660,7 @@ CREATE POLICY "shipping_config_delete" ON shipping_config
 
 -- ============================================================
 -- WEBSITE PAYMENT SETTINGS TABLE
--- Owner access only (highly sensitive)
+-- Owner access only (highly sensitive - no public access)
 -- ============================================================
 
 ALTER TABLE website_payment_settings ENABLE ROW LEVEL SECURITY;
@@ -602,7 +688,7 @@ CREATE POLICY "website_payment_settings_delete" ON website_payment_settings
 
 -- ============================================================
 -- EMAIL SETTINGS TABLE
--- Owner access only
+-- Owner access only (no public access)
 -- ============================================================
 
 ALTER TABLE email_settings ENABLE ROW LEVEL SECURITY;
@@ -630,7 +716,7 @@ CREATE POLICY "email_settings_delete" ON email_settings
 
 -- ============================================================
 -- EMAIL TEMPLATES TABLE
--- Owner access only
+-- Owner access only (no public access)
 -- ============================================================
 
 ALTER TABLE email_templates ENABLE ROW LEVEL SECURITY;
@@ -658,7 +744,7 @@ CREATE POLICY "email_templates_delete" ON email_templates
 
 -- ============================================================
 -- COOKIE SETTINGS TABLE
--- Owner access only
+-- Owner access only (no public access)
 -- ============================================================
 
 ALTER TABLE cookie_settings ENABLE ROW LEVEL SECURITY;
@@ -686,23 +772,25 @@ CREATE POLICY "cookie_settings_delete" ON cookie_settings
 
 -- ============================================================
 -- ANALYTICS EVENTS TABLE
--- Owner read, public insert for published websites
+-- Owner read + domain-scoped public insert for published websites
 -- ============================================================
 
 ALTER TABLE analytics_events ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "analytics_events_select" ON analytics_events;
 CREATE POLICY "analytics_events_select" ON analytics_events
-  FOR SELECT
+  FOR SELECT TO authenticated
   USING (public.can_access_website(website_id));
 
-DROP POLICY IF EXISTS "analytics_events_insert" ON analytics_events;
-CREATE POLICY "analytics_events_insert" ON analytics_events
-  FOR INSERT
-  WITH CHECK (
-    public.owns_website(website_id)
-    OR public.is_website_published(website_id)
-  );
+DROP POLICY IF EXISTS "analytics_events_insert_owner" ON analytics_events;
+CREATE POLICY "analytics_events_insert_owner" ON analytics_events
+  FOR INSERT TO authenticated
+  WITH CHECK (public.owns_website(website_id));
+
+DROP POLICY IF EXISTS "analytics_events_insert_anon" ON analytics_events;
+CREATE POLICY "analytics_events_insert_anon" ON analytics_events
+  FOR INSERT TO anon
+  WITH CHECK (public.is_request_for_website(website_id));
 
 DROP POLICY IF EXISTS "analytics_events_update" ON analytics_events;
 CREATE POLICY "analytics_events_update" ON analytics_events
@@ -726,11 +814,22 @@ GRANT EXECUTE ON FUNCTION public.can_access_website(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.can_access_website(text) TO anon;
 GRANT EXECUTE ON FUNCTION public.is_website_published(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_website_published(text) TO anon;
+GRANT EXECUTE ON FUNCTION public.website_for_host() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.website_for_host() TO anon;
+GRANT EXECUTE ON FUNCTION public.is_request_for_website(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_request_for_website(text) TO anon;
 
 -- ============================================================
--- VERIFICATION: List all tables with RLS enabled
+-- VERIFICATION QUERIES
+-- Run these after applying to verify RLS is enabled
 -- ============================================================
--- Run this query to verify RLS is enabled:
+
+-- List all tables with RLS enabled:
 -- SELECT schemaname, tablename, rowsecurity 
 -- FROM pg_tables 
 -- WHERE schemaname = 'public' AND rowsecurity = true;
+
+-- List all policies:
+-- SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
+-- FROM pg_policies
+-- WHERE schemaname = 'public';
