@@ -294,14 +294,13 @@ export class DatabaseStorage implements IStorage {
 
   async getProfile(id: string): Promise<Profile | undefined> {
     try {
-      // First try with isAdmin column
       const result = await db.select().from(profiles).where(eq(profiles.id, id)).limit(1);
       return result[0];
     } catch (error: any) {
-      // If is_admin column doesn't exist, query without it
-      if (error.message?.includes("is_admin")) {
+      // Handle missing columns gracefully
+      if (error.message?.includes("is_admin") || error.message?.includes("stripe_customer_id")) {
         const result = await db.select(this.profileColumns).from(profiles).where(eq(profiles.id, id)).limit(1);
-        return result[0] ? { ...result[0], isAdmin: false } : undefined;
+        return result[0] ? { ...result[0], isAdmin: false, stripeCustomerId: null } as any : undefined;
       }
       throw error;
     }
@@ -312,9 +311,9 @@ export class DatabaseStorage implements IStorage {
       const result = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
       return result[0];
     } catch (error: any) {
-      if (error.message?.includes("is_admin")) {
+      if (error.message?.includes("is_admin") || error.message?.includes("stripe_customer_id")) {
         const result = await db.select(this.profileColumns).from(profiles).where(eq(profiles.email, email)).limit(1);
-        return result[0] ? { ...result[0], isAdmin: false } : undefined;
+        return result[0] ? { ...result[0], isAdmin: false, stripeCustomerId: null } as any : undefined;
       }
       throw error;
     }
