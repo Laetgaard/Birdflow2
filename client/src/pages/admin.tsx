@@ -58,7 +58,11 @@ import type {
   AdminFunnelStep,
   AdminUserWithStats,
   AdminWebsiteWithOwner,
+  AdminAnalyticsOverview,
+  AdminTrafficSource,
+  AdminDailyVisitors,
 } from "@shared/schema";
+import { PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
 function formatCurrency(cents: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -328,6 +332,218 @@ function GrowthTab({
           </ResponsiveContainer>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+const TRAFFIC_COLORS = ["#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#f97316", "#eab308"];
+
+function AnalyticsTab({
+  overview,
+  trafficSources,
+  dailyVisitors,
+  days,
+  onDaysChange,
+  trafficLoading,
+  visitorsLoading,
+}: {
+  overview: AdminAnalyticsOverview | undefined;
+  trafficSources: AdminTrafficSource[];
+  dailyVisitors: AdminDailyVisitors[];
+  days: number;
+  onDaysChange: (days: number) => void;
+  trafficLoading: boolean;
+  visitorsLoading: boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Platform Analytics</h3>
+        <Select
+          value={days.toString()}
+          onValueChange={(v) => onDaysChange(parseInt(v))}
+        >
+          <SelectTrigger className="w-[150px]" data-testid="select-analytics-days">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7">Last 7 days</SelectItem>
+            <SelectItem value="30">Last 30 days</SelectItem>
+            <SelectItem value="90">Last 90 days</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {overview && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Total Page Views"
+            value={overview.totalPageViews.toLocaleString()}
+            icon={Globe}
+            description={`Last ${days} days`}
+          />
+          <StatCard
+            title="Unique Visitors"
+            value={overview.uniqueSessions.toLocaleString()}
+            icon={Users}
+            description="Unique sessions"
+          />
+          <StatCard
+            title="Conversion Rate"
+            value={`${overview.conversionRate}%`}
+            icon={TrendingUp}
+            description="Visitors to orders"
+          />
+          <StatCard
+            title="Active Websites"
+            value={overview.activeWebsites}
+            icon={Globe}
+            description="With traffic"
+          />
+        </div>
+      )}
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Daily Visitors</CardTitle>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            {visitorsLoading ? (
+              <Skeleton className="h-full w-full" />
+            ) : dailyVisitors.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dailyVisitors}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(date) =>
+                      new Date(date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    }
+                  />
+                  <YAxis />
+                  <Tooltip
+                    labelFormatter={(date) =>
+                      new Date(date).toLocaleDateString("en-US", {
+                        weekday: "long",
+                        month: "long",
+                        day: "numeric",
+                      })
+                    }
+                  />
+                  <Legend />
+                  <Area
+                    type="monotone"
+                    dataKey="visitors"
+                    stroke="#6366f1"
+                    fill="#6366f1"
+                    fillOpacity={0.3}
+                    name="Unique Visitors"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="pageViews"
+                    stroke="#ec4899"
+                    fill="#ec4899"
+                    fillOpacity={0.3}
+                    name="Page Views"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                No visitor data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Traffic Sources</CardTitle>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            {trafficLoading ? (
+              <Skeleton className="h-full w-full" />
+            ) : trafficSources.length > 0 ? (
+              <div className="flex h-full">
+                <div className="w-1/2 flex items-center justify-center">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <PieChart>
+                      <Pie
+                        data={trafficSources.slice(0, 8)}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={80}
+                        paddingAngle={2}
+                        dataKey="visitors"
+                        nameKey="source"
+                      >
+                        {trafficSources.slice(0, 8).map((_, index) => (
+                          <Cell key={`cell-${index}`} fill={TRAFFIC_COLORS[index % TRAFFIC_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-1/2 flex flex-col justify-center space-y-2">
+                  {trafficSources.slice(0, 6).map((source, index) => (
+                    <div key={source.source} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: TRAFFIC_COLORS[index % TRAFFIC_COLORS.length] }}
+                        />
+                        <span className="capitalize">{source.source}</span>
+                      </div>
+                      <span className="text-muted-foreground">{source.percentage}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                No traffic source data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {trafficSources.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Traffic Sources Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Source</TableHead>
+                  <TableHead className="text-right">Visitors</TableHead>
+                  <TableHead className="text-right">Page Views</TableHead>
+                  <TableHead className="text-right">Share</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {trafficSources.map((source) => (
+                  <TableRow key={source.source}>
+                    <TableCell className="font-medium capitalize">{source.source}</TableCell>
+                    <TableCell className="text-right">{source.visitors.toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{source.pageViews.toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{source.percentage}%</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -709,6 +925,44 @@ export default function AdminPage() {
     enabled: adminCheck?.isAdmin && !!session,
   });
 
+  const [analyticsDays, setAnalyticsDays] = useState(30);
+
+  const { data: analyticsOverview, isLoading: analyticsOverviewLoading } = useQuery({
+    queryKey: ["admin-analytics-overview", analyticsDays],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/analytics/overview?days=${analyticsDays}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to fetch analytics overview");
+      return res.json() as Promise<AdminAnalyticsOverview>;
+    },
+    enabled: adminCheck?.isAdmin && !!session,
+  });
+
+  const { data: trafficSources, isLoading: trafficLoading } = useQuery({
+    queryKey: ["admin-analytics-traffic", analyticsDays],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/analytics/traffic?days=${analyticsDays}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to fetch traffic sources");
+      return res.json() as Promise<AdminTrafficSource[]>;
+    },
+    enabled: adminCheck?.isAdmin && !!session,
+  });
+
+  const { data: dailyVisitors, isLoading: visitorsLoading } = useQuery({
+    queryKey: ["admin-analytics-visitors", analyticsDays],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/analytics/visitors?days=${analyticsDays}`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to fetch daily visitors");
+      return res.json() as Promise<AdminDailyVisitors[]>;
+    },
+    enabled: adminCheck?.isAdmin && !!session,
+  });
+
   const impersonateMutation = useMutation({
     mutationFn: async (userId: string) => {
       const res = await fetch(`/api/admin/impersonate/${userId}`, {
@@ -813,6 +1067,9 @@ export default function AdminPage() {
             <TabsTrigger value="overview" data-testid="tab-overview">
               Overview
             </TabsTrigger>
+            <TabsTrigger value="analytics" data-testid="tab-analytics">
+              Analytics
+            </TabsTrigger>
             <TabsTrigger value="growth" data-testid="tab-growth">
               Growth
             </TabsTrigger>
@@ -837,6 +1094,29 @@ export default function AdminPage() {
             ) : stats ? (
               <OverviewTab stats={stats} />
             ) : null}
+          </TabsContent>
+
+          <TabsContent value="analytics">
+            {analyticsOverviewLoading ? (
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <Skeleton key={i} className="h-32" />
+                  ))}
+                </div>
+                <Skeleton className="h-[300px]" />
+              </div>
+            ) : (
+              <AnalyticsTab
+                overview={analyticsOverview}
+                trafficSources={trafficSources || []}
+                dailyVisitors={dailyVisitors || []}
+                days={analyticsDays}
+                onDaysChange={setAnalyticsDays}
+                trafficLoading={trafficLoading}
+                visitorsLoading={visitorsLoading}
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="growth">
