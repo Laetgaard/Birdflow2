@@ -19,11 +19,13 @@ import CheckoutCancelPage from "@/pages/checkout-cancel";
 import ProfilePage from "@/pages/profile";
 import OnboardingPage from "@/pages/onboarding";
 import AdminPage from "@/pages/admin";
+import PricingPage from "@/pages/pricing";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={LandingPage} />
+      <Route path="/pricing" component={PricingPage} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/check-email" component={CheckEmail} />
