@@ -274,6 +274,11 @@ export interface IStorage {
   getAdminAnalyticsOverview(startDate: Date, endDate: Date): Promise<AdminAnalyticsOverview>;
   getAdminTrafficSources(startDate: Date, endDate: Date): Promise<AdminTrafficSource[]>;
   getAdminDailyVisitors(startDate: Date, endDate: Date): Promise<AdminDailyVisitors[]>;
+  
+  // Subscription methods
+  updateWebsiteAdmin(id: string, data: Partial<InsertWebsite>): Promise<Website | undefined>;
+  getWebsiteByStripeSubscriptionId(subscriptionId: string): Promise<Website | undefined>;
+  updateProfileStripeCustomerId(userId: string, customerId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1516,6 +1521,31 @@ export class DatabaseStorage implements IStorage {
         pageViews: data.pageViews,
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async updateWebsiteAdmin(id: string, data: Partial<InsertWebsite>): Promise<Website | undefined> {
+    const result = await db
+      .update(websites)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(websites.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async getWebsiteByStripeSubscriptionId(subscriptionId: string): Promise<Website | undefined> {
+    const result = await db
+      .select()
+      .from(websites)
+      .where(eq(websites.stripeSubscriptionId, subscriptionId))
+      .limit(1);
+    return result[0];
+  }
+
+  async updateProfileStripeCustomerId(userId: string, customerId: string): Promise<void> {
+    await db
+      .update(profiles)
+      .set({ stripeCustomerId: customerId })
+      .where(eq(profiles.id, userId));
   }
 }
 

@@ -1,4 +1,4 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats } from "@shared/schema";
@@ -6,6 +6,16 @@ import { eq, sql } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
+import { 
+  createSubscriptionCheckoutSession, 
+  createBillingPortalSession, 
+  handleCheckoutSessionCompleted,
+  handleSubscriptionCreated,
+  handleSubscriptionUpdated,
+  handleSubscriptionDeleted,
+  PLAN_DETAILS,
+  type PlanId
+} from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig } from "./publisher/vercel";
 import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
@@ -3481,6 +3491,177 @@ export async function registerRoutes(
       res.json({ isAdmin });
     } catch (error: any) {
       console.error("Admin check error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ SUBSCRIPTION BILLING ROUTES ============
+
+  // Get available subscription plans
+  app.get("/api/subscriptions/plans", async (_req, res) => {
+    try {
+      const plans = Object.entries(PLAN_DETAILS).map(([id, details]) => ({
+        id,
+        name: details.name,
+        priceMonthly: details.priceMonthly,
+        features: details.features,
+      }));
+      res.json(plans);
+    } catch (error: any) {
+      console.error("Get plans error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get current subscription status for a website
+  app.get("/api/subscriptions/website/:websiteId", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { websiteId } = req.params;
+      
+      const website = await storage.getWebsite(websiteId);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      
+      if (website.ownerId !== userId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      
+      res.json({
+        plan: website.plan || 'free',
+        subscriptionStatus: website.subscriptionStatus || 'inactive',
+        stripeSubscriptionId: website.stripeSubscriptionId,
+        currentPeriodEnd: website.currentPeriodEnd,
+      });
+    } catch (error: any) {
+      console.error("Get subscription status error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create checkout session for subscription
+  app.post("/api/subscriptions/checkout", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { websiteId, planId: rawPlanId, successUrl, cancelUrl } = req.body;
+      
+      if (!websiteId || !rawPlanId) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      
+      const planId = rawPlanId.toLowerCase() as PlanId;
+      
+      if (!PLAN_DETAILS[planId]) {
+        return res.status(400).json({ message: "Invalid plan selected" });
+      }
+      
+      if (planId === 'free' || planId === 'starter') {
+        return res.status(400).json({ message: "Cannot checkout for free plan" });
+      }
+      
+      const website = await storage.getWebsite(websiteId);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      
+      if (website.ownerId !== userId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+      
+      const profile = await storage.getProfile(userId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      const result = await createSubscriptionCheckoutSession(
+        userId,
+        profile.email,
+        profile.fullName || profile.email,
+        websiteId,
+        planId,
+        successUrl || `${req.headers.origin}/dashboard?upgrade=success`,
+        cancelUrl || `${req.headers.origin}/pricing?upgrade=cancelled`
+      );
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Create checkout session error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create billing portal session
+  app.post("/api/subscriptions/billing-portal", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { returnUrl } = req.body;
+      
+      const profile = await storage.getProfile(userId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      if (!profile.stripeCustomerId) {
+        return res.status(400).json({ 
+          message: "No billing account found. Please upgrade to a paid plan first.",
+          code: "NO_BILLING_ACCOUNT"
+        });
+      }
+      
+      const url = await createBillingPortalSession(
+        profile.stripeCustomerId,
+        returnUrl || `${req.headers.origin}/dashboard`
+      );
+      
+      res.json({ url });
+    } catch (error: any) {
+      console.error("Create billing portal session error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Stripe webhook for subscription events
+  app.post("/api/subscriptions/webhook", express.raw({ type: 'application/json' }), async (req, res) => {
+    const sig = req.headers['stripe-signature'] as string;
+    const webhookSecret = process.env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET;
+    
+    if (!webhookSecret) {
+      console.error("Stripe subscription webhook secret not configured");
+      return res.status(500).json({ message: "Webhook not configured" });
+    }
+    
+    let event: any;
+    
+    try {
+      const stripe = await getUncachableStripeClient();
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } catch (err: any) {
+      console.error("Webhook signature verification failed:", err.message);
+      return res.status(400).json({ message: `Webhook Error: ${err.message}` });
+    }
+    
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed':
+          await handleCheckoutSessionCompleted(event.data.object);
+          break;
+        case 'customer.subscription.created':
+          await handleSubscriptionCreated(event.data.object);
+          break;
+        case 'customer.subscription.updated':
+          await handleSubscriptionUpdated(event.data.object);
+          break;
+        case 'customer.subscription.deleted':
+          await handleSubscriptionDeleted(event.data.object);
+          break;
+        default:
+          console.log(`Unhandled subscription event type: ${event.type}`);
+      }
+      
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error("Webhook processing error:", error);
       res.status(500).json({ message: error.message });
     }
   });

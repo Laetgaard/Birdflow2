@@ -127,3 +127,32 @@ A protected `/admin` dashboard with access control for platform monitoring. It f
 
 ### File Storage
 - **Replit Object Storage**: For image uploads via presigned URLs.
+
+### SaaS Subscription Billing
+Professional subscription management for BirdFlow platform:
+
+**Plans:**
+- Free/Starter: 1 website, basic features
+- Pro ($19/mo): 5 websites, AI builder, custom domains, e-commerce (up to 100 products)
+- Business ($49/mo): Unlimited websites/products, team collaboration, white-label
+
+**Implementation:**
+- `server/subscriptionService.ts`: Plan definitions, Stripe customer/subscription management
+- API routes: `/api/subscriptions/plans`, `/api/subscriptions/checkout`, `/api/subscriptions/billing-portal`, `/api/subscriptions/webhook`
+- Database fields: `stripeCustomerId` (profiles), `stripeSubscriptionId`, `stripePriceId`, `subscriptionStatus`, `currentPeriodEnd` (websites)
+
+**Environment Variables Required:**
+- `STRIPE_PRO_PRICE_ID`: Stripe price ID for Pro plan
+- `STRIPE_BUSINESS_PRICE_ID`: Stripe price ID for Business plan
+- `STRIPE_SUBSCRIPTION_WEBHOOK_SECRET`: Webhook secret for subscription events
+
+**Webhook Events Handled:**
+- `checkout.session.completed`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+
+**Plan Mapping (API → Database):**
+- 'pro' → 'professional'
+- 'business' → 'enterprise'
+- 'free'/'starter' → 'free'
