@@ -9,6 +9,7 @@ export type Profile = {
   fullName: string;
   phoneNumber: string;
   onboardingCompleted: boolean;
+  isAdmin: boolean;
   createdAt: string;
 };
 
@@ -21,7 +22,7 @@ type AuthContextType = {
   loading: boolean;
   isEmailVerified: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (data: { email: string; password: string; fullName: string; phoneNumber: string }) => Promise<{ needsEmailConfirmation: boolean }>;
+  signUp: (data: { email: string; password: string; fullName: string; phoneNumber: string }) => Promise<{ needsEmailConfirmation: boolean; email?: string }>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -179,7 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Email confirmation required
-      return { needsEmailConfirmation: true };
+      return { needsEmailConfirmation: true, email: data.email };
     } catch (error: any) {
       throw error;
     } finally {
