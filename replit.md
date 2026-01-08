@@ -94,7 +94,7 @@ Website owners can connect their own Stripe accounts, with encrypted storage of 
 GDPR-compliant analytics capturing page views, conversions, and e-commerce events without storing PII. It uses anonymous session tracking, centralized data sanitization, and provides an analytics dashboard.
 
 ### Email Notification System
-A comprehensive transactional email system using SendGrid for order confirmations, booking notifications, and website publishing. It supports per-website toggles, branding, template customization with variable replacement, and robust error handling.
+A comprehensive transactional email system using Resend (via Replit connector) for order confirmations, booking notifications, and website publishing. It supports per-website toggles, branding, template customization with variable replacement, and robust error handling.
 
 ### Onboarding System
 A streamlined 5-step onboarding wizard for new users, guiding them from signup to a live editor by creating a website based on chosen templates, with atomic database transactions and coach marks for first-time users.
@@ -117,7 +117,7 @@ A protected `/admin` dashboard with access control for platform monitoring. It f
 - `@radix-ui/*`: Headless UI primitives.
 - `framer-motion`: Animation library.
 - `bcryptjs`: Password hashing.
-- `@sendgrid/mail`: SendGrid email API client.
+- `resend`: Resend email API client (via Replit connector).
 
 ### Deployment
 - **Vercel**: Hosts published Next.js sites and manages custom domains.
