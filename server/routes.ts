@@ -3113,7 +3113,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "websiteId, sessionId, and eventType are required" });
       }
 
-      const validEventTypes = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'order_created', 'booking_created'];
+      const validEventTypes = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'checkout_success', 'order_created', 'booking_submit', 'booking_created'];
       if (!validEventTypes.includes(eventType)) {
         return res.status(400).json({ message: "Invalid event type" });
       }
