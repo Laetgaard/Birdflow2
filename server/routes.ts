@@ -3060,20 +3060,47 @@ export async function registerRoutes(
         if (referer) {
           try {
             const refererUrl = new URL(referer as string);
-            const host = refererUrl.hostname.replace(/^www\./, '');
+            const protocol = refererUrl.protocol; // 'https:' or 'http:'
+            const hostname = refererUrl.hostname.toLowerCase().replace(/\.$/, '');
+            const port = refererUrl.port;
+            const hostWithPort = port ? `${hostname}:${port}` : hostname;
+            const strippedHost = hostname.replace(/^www\./, '');
+            const strippedHostWithPort = port ? `${strippedHost}:${port}` : strippedHost;
             
-            // Try to find website by deployment URL
-            const websites = await storage.getWebsiteByDeploymentUrl(`https://${host}`);
-            if (websites) {
-              websiteId = websites.id;
-              console.log(`[Analytics] Resolved websiteId ${websiteId} from referer ${host}`);
-            } else {
-              // Try with www prefix
-              const websitesWww = await storage.getWebsiteByDeploymentUrl(`https://www.${host}`);
-              if (websitesWww) {
-                websiteId = websitesWww.id;
-                console.log(`[Analytics] Resolved websiteId ${websiteId} from referer www.${host}`);
+            // Try to find website by deployment URL - try exact match first, then variations
+            let resolvedWebsite: any = null;
+            const urlsToTry = [
+              // Exact match with original protocol and port
+              `${protocol}//${hostWithPort}`,
+              `${protocol}//${strippedHostWithPort}`,
+              // Standard https variations (with and without port)
+              `https://${strippedHost}`,
+              `https://www.${strippedHost}`,
+              `https://${strippedHostWithPort}`,
+              `https://www.${strippedHostWithPort}`,
+              // http variations for local/dev environments (with and without port)
+              `http://${strippedHost}`,
+              `http://www.${strippedHost}`,
+              `http://${strippedHostWithPort}`,
+              `http://www.${strippedHostWithPort}`,
+            ];
+            
+            for (const url of urlsToTry) {
+              if (!resolvedWebsite) {
+                resolvedWebsite = await storage.getWebsiteByDeploymentUrl(url);
               }
+            }
+            
+            // Try custom domain if not found by deployment URL (with and without port)
+            const domainsToTry = [strippedHost, hostname, strippedHostWithPort, hostWithPort].filter((v, i, a) => a.indexOf(v) === i);
+            for (const domain of domainsToTry) {
+              if (!resolvedWebsite) {
+                resolvedWebsite = await storage.getWebsiteByCustomDomain(domain);
+              }
+            }
+            if (resolvedWebsite) {
+              websiteId = resolvedWebsite.id;
+              console.log(`[Analytics] Resolved websiteId ${websiteId} from referer ${hostWithPort}`);
             }
           } catch (e) {
             console.log(`[Analytics] Could not parse referer: ${referer}`);
