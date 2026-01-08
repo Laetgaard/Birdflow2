@@ -4,7 +4,7 @@ import type { EmailSettings, EmailTemplate, Order, Booking } from '@shared/schem
 
 const DEFAULT_BRANDING = {
   senderName: 'BirdFlow',
-  senderEmail: 'noreply@birdflow.app',
+  senderEmail: 'info@bird-flow.com',
   logoUrl: '',
   primaryColor: '#6366f1',
   footerText: 'Sent via BirdFlow - Website Builder Platform',
