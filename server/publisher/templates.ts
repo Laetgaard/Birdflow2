@@ -2334,7 +2334,19 @@ export default function BookingForm({ styles, props }: Props) {
       if (!res.ok) {
         setStatus('error');
       } else {
+        const data = await res.json();
         setStatus('success');
+        // Dispatch analytics event for booking submission
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('analytics:booking_submit', { 
+            detail: { serviceId: selectedService, serviceName: service?.name } 
+          }));
+          if (data.id) {
+            window.dispatchEvent(new CustomEvent('analytics:booking_created', { 
+              detail: { bookingId: data.id, serviceId: selectedService, serviceName: service?.name } 
+            }));
+          }
+        }
       }
     } catch (err) {
       setStatus('error');
@@ -2772,10 +2784,16 @@ export function generateAnalyticsTracker(): string {
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 import { getConsentStatus, type ConsentStatus } from './CookieBanner';
 
 const SESSION_KEY = 'saasify_session';
 const SESSION_EXPIRY = 30 * 60 * 1000; // 30 minutes
+
+// Initialize Supabase client for analytics
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 function getOrCreateSession(): string {
   if (typeof window === 'undefined') return '';
@@ -2831,6 +2849,19 @@ function getDeviceType(): string {
   return 'desktop';
 }
 
+// Sanitize event data - remove any PII
+function sanitizeEventData(data?: Record<string, unknown>): Record<string, unknown> | null {
+  if (!data) return null;
+  const sanitized: Record<string, unknown> = {};
+  const allowedKeys = ['path', 'productId', 'productName', 'quantity', 'price', 'currency', 'serviceId', 'serviceName', 'orderId', 'bookingId', 'total'];
+  for (const key of allowedKeys) {
+    if (data[key] !== undefined) {
+      sanitized[key] = data[key];
+    }
+  }
+  return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
 export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
   const pathname = usePathname();
   const trackedPaths = useRef<Set<string>>(new Set());
@@ -2853,37 +2884,43 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
   const track = useCallback(async (eventType: string, eventData?: Record<string, unknown>) => {
     // Only track if user has accepted cookies
     if (consent !== 'accepted') return;
+    if (!supabase) {
+      console.warn('[Analytics] Supabase not configured');
+      return;
+    }
     
     try {
       const sessionId = getOrCreateSession();
-      if (!sessionId) return;
+      if (!sessionId || !websiteId) return;
       
-      await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/public/analytics/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          websiteId,
-          sessionId,
-          eventType,
-          pageUrl: window.location.pathname,
-          trafficSource: getTrafficSource(),
-          deviceType: getDeviceType(),
-          eventData,
-        }),
+      const { error } = await supabase.from('analytics_events').insert({
+        website_id: websiteId,
+        session_id: sessionId,
+        event_type: eventType,
+        page_url: typeof window !== 'undefined' ? window.location.pathname : null,
+        traffic_source: getTrafficSource(),
+        device_type: getDeviceType(),
+        event_data: sanitizeEventData(eventData),
       });
+      
+      if (error) {
+        console.warn('[Analytics] Insert error:', error.message);
+      }
     } catch (error) {
       // Silent fail for analytics
+      console.warn('[Analytics] Track error:', error);
     }
   }, [websiteId, consent]);
 
+  // Track page views on route change
   useEffect(() => {
-    // Only track if consent is accepted
     if (consent !== 'accepted') return;
     if (!pathname || trackedPaths.current.has(pathname)) return;
     trackedPaths.current.add(pathname);
     track('page_view', { path: pathname });
   }, [pathname, track, consent]);
 
+  // Listen for custom analytics events
   useEffect(() => {
     const handleAddToCart = (e: CustomEvent) => {
       track('add_to_cart', e.detail);
@@ -2893,12 +2930,36 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
       track('checkout_start');
     };
     
+    const handleCheckoutSuccess = (e: CustomEvent) => {
+      track('checkout_success', e.detail);
+    };
+    
+    const handleBookingSubmit = (e: CustomEvent) => {
+      track('booking_submit', e.detail);
+    };
+    
+    const handleOrderCreated = (e: CustomEvent) => {
+      track('order_created', e.detail);
+    };
+    
+    const handleBookingCreated = (e: CustomEvent) => {
+      track('booking_created', e.detail);
+    };
+    
     window.addEventListener('analytics:add_to_cart', handleAddToCart as EventListener);
     window.addEventListener('analytics:checkout_start', handleCheckoutStart);
+    window.addEventListener('analytics:checkout_success', handleCheckoutSuccess as EventListener);
+    window.addEventListener('analytics:booking_submit', handleBookingSubmit as EventListener);
+    window.addEventListener('analytics:order_created', handleOrderCreated as EventListener);
+    window.addEventListener('analytics:booking_created', handleBookingCreated as EventListener);
     
     return () => {
       window.removeEventListener('analytics:add_to_cart', handleAddToCart as EventListener);
       window.removeEventListener('analytics:checkout_start', handleCheckoutStart);
+      window.removeEventListener('analytics:checkout_success', handleCheckoutSuccess as EventListener);
+      window.removeEventListener('analytics:booking_submit', handleBookingSubmit as EventListener);
+      window.removeEventListener('analytics:order_created', handleOrderCreated as EventListener);
+      window.removeEventListener('analytics:booking_created', handleBookingCreated as EventListener);
     };
   }, [track]);
 
@@ -3842,6 +3903,15 @@ export default function CheckoutPage() {
       setOrderId(data.orderId || '');
       clearCart();
       setSuccess(true);
+      // Dispatch analytics events for checkout success
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('analytics:checkout_success', { 
+          detail: { orderId: data.orderId, total: grandTotal, currency } 
+        }));
+        window.dispatchEvent(new CustomEvent('analytics:order_created', { 
+          detail: { orderId: data.orderId, total: grandTotal, currency } 
+        }));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
