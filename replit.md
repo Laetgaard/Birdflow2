@@ -93,6 +93,18 @@ Website owners can connect their own Stripe accounts, with encrypted storage of 
 ### Privacy-First Analytics System
 GDPR-compliant analytics capturing page views, conversions, and e-commerce events without storing PII. It uses anonymous session tracking, centralized data sanitization, and provides an analytics dashboard.
 
+**Published Site Analytics:**
+- Published sites insert analytics directly to Supabase using the anon key
+- RLS policy allows INSERT for any published website (`is_website_published(website_id)`)
+- AnalyticsTracker component reads `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- Events tracked: page_view, add_to_cart, checkout_start, checkout_success, booking_submit, booking_created, order_created
+- Data sanitization removes PII, only allowing safe keys (path, productId, quantity, price, etc.)
+- Cookie consent required before tracking (GDPR compliance)
+
+**Migration File:** `supabase/migrations/20260108_fix_analytics_rls.sql`
+- Simplifies anon INSERT policy to check only if website is published
+- Must be applied in Supabase Dashboard SQL Editor
+
 ### Email Notification System
 A comprehensive transactional email system using Resend (via Replit connector) for order confirmations, booking notifications, and website publishing. It supports per-website toggles, branding, template customization with variable replacement, and robust error handling.
 
