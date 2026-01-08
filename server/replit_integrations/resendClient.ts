@@ -34,6 +34,6 @@ export async function getUncachableResendClient() {
   const { apiKey, fromEmail } = await getCredentials();
   return {
     client: new Resend(apiKey),
-    fromEmail: fromEmail || 'noreply@birdflow.app'
+    fromEmail: fromEmail || 'info@bird-flow.com'
   };
 }
