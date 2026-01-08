@@ -182,6 +182,7 @@ export interface IStorage {
   // Website methods
   getWebsite(id: string): Promise<Website | undefined>;
   getWebsitesByOwner(ownerId: string): Promise<Website[]>;
+  getWebsiteByDeploymentUrl(url: string): Promise<Website | undefined>;
   createWebsite(website: InsertWebsite): Promise<Website>;
   updateWebsite(id: string, ownerId: string, data: Partial<InsertWebsite>): Promise<Website | undefined>;
   deleteWebsite(id: string, ownerId: string): Promise<boolean>;
@@ -337,6 +338,11 @@ export class DatabaseStorage implements IStorage {
 
   async getWebsitesByOwner(ownerId: string): Promise<Website[]> {
     return await db.select().from(websites).where(eq(websites.ownerId, ownerId));
+  }
+
+  async getWebsiteByDeploymentUrl(url: string): Promise<Website | undefined> {
+    const result = await db.select().from(websites).where(eq(websites.deploymentUrl, url)).limit(1);
+    return result[0];
   }
 
   async createWebsite(website: InsertWebsite): Promise<Website> {

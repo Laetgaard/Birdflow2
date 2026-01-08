@@ -3052,9 +3052,37 @@ export async function registerRoutes(
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     
     try {
-      const { websiteId, sessionId, eventType, pageUrl, trafficSource, deviceType, country, eventData } = req.body;
+      let { websiteId, sessionId, eventType, pageUrl, trafficSource, deviceType, country, eventData } = req.body;
+      
+      // If websiteId is missing, try to resolve from referer/origin header
+      if (!websiteId) {
+        const referer = req.headers.referer || req.headers.origin;
+        if (referer) {
+          try {
+            const refererUrl = new URL(referer as string);
+            const host = refererUrl.hostname.replace(/^www\./, '');
+            
+            // Try to find website by deployment URL
+            const websites = await storage.getWebsiteByDeploymentUrl(`https://${host}`);
+            if (websites) {
+              websiteId = websites.id;
+              console.log(`[Analytics] Resolved websiteId ${websiteId} from referer ${host}`);
+            } else {
+              // Try with www prefix
+              const websitesWww = await storage.getWebsiteByDeploymentUrl(`https://www.${host}`);
+              if (websitesWww) {
+                websiteId = websitesWww.id;
+                console.log(`[Analytics] Resolved websiteId ${websiteId} from referer www.${host}`);
+              }
+            }
+          } catch (e) {
+            console.log(`[Analytics] Could not parse referer: ${referer}`);
+          }
+        }
+      }
       
       if (!websiteId || !sessionId || !eventType) {
+        console.log(`[Analytics] Missing required fields - websiteId: ${websiteId}, sessionId: ${sessionId}, eventType: ${eventType}`);
         return res.status(400).json({ message: "websiteId, sessionId, and eventType are required" });
       }
 
@@ -3065,6 +3093,7 @@ export async function registerRoutes(
 
       const website = await storage.getWebsite(websiteId);
       if (!website) {
+        console.log(`[Analytics] Website not found for id: ${websiteId}`);
         return res.status(404).json({ message: "Website not found" });
       }
 
