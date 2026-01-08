@@ -1,25 +1,15 @@
-import sgMail from '@sendgrid/mail';
+import { getUncachableResendClient } from '../replit_integrations/resendClient';
 import { storage } from '../storage';
 import type { EmailSettings, EmailTemplate, Order, Booking } from '@shared/schema';
 
-// Initialize SendGrid
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-if (SENDGRID_API_KEY) {
-  sgMail.setApiKey(SENDGRID_API_KEY);
-} else {
-  console.warn('SENDGRID_API_KEY not set - email sending will fail');
-}
-
-// Default platform branding
 const DEFAULT_BRANDING = {
   senderName: 'BirdFlow',
-  senderEmail: 'noreply@birdflow.io',
+  senderEmail: 'noreply@birdflow.app',
   logoUrl: '',
   primaryColor: '#6366f1',
   footerText: 'Sent via BirdFlow - Website Builder Platform',
 };
 
-// Default templates per email type
 const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; bodyText: string; buttonText?: string }> = {
   order_confirmation: {
     subject: 'Order Confirmation - #{{orderId}}',
@@ -60,7 +50,6 @@ interface EmailData {
   buttonUrl?: string;
 }
 
-// Generate HTML email with branding
 function generateEmailHtml(
   settings: EmailSettings | null | undefined,
   template: EmailTemplate | null | undefined,
@@ -81,7 +70,6 @@ function generateEmailHtml(
     buttonText: template?.buttonText || defaultTemplate.buttonText,
   };
 
-  // Replace variables in content
   const replaceVariables = (text: string): string => {
     let result = text;
     Object.entries(variables).forEach(([key, value]) => {
@@ -107,7 +95,6 @@ function generateEmailHtml(
     <tr>
       <td style="padding: 40px 20px;">
         <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-          <!-- Logo -->
           ${branding.logoUrl ? `
           <tr>
             <td style="padding: 32px 32px 16px; text-align: center;">
@@ -116,7 +103,6 @@ function generateEmailHtml(
           </tr>
           ` : ''}
           
-          <!-- Heading -->
           <tr>
             <td style="padding: ${branding.logoUrl ? '16px' : '32px'} 32px 8px;">
               <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #18181b; text-align: center;">
@@ -125,7 +111,6 @@ function generateEmailHtml(
             </td>
           </tr>
           
-          <!-- Body -->
           <tr>
             <td style="padding: 16px 32px 24px;">
               <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #52525b; text-align: center;">
@@ -134,7 +119,6 @@ function generateEmailHtml(
             </td>
           </tr>
           
-          <!-- Variables/Details section -->
           <tr>
             <td style="padding: 0 32px 24px;">
               <table role="presentation" style="width: 100%; background-color: #f4f4f5; border-radius: 6px;">
@@ -154,7 +138,6 @@ function generateEmailHtml(
             </td>
           </tr>
           
-          <!-- Button -->
           ${buttonTextFinal && buttonUrl ? `
           <tr>
             <td style="padding: 0 32px 32px; text-align: center;">
@@ -165,7 +148,6 @@ function generateEmailHtml(
           </tr>
           ` : ''}
           
-          <!-- Footer -->
           <tr>
             <td style="padding: 24px 32px; background-color: #f4f4f5; border-top: 1px solid #e4e4e7;">
               <p style="margin: 0; font-size: 12px; color: #a1a1aa; text-align: center;">
@@ -193,48 +175,34 @@ function formatLabel(key: string): string {
 
 export class EmailService {
   async sendEmail(data: EmailData): Promise<boolean> {
-    if (!SENDGRID_API_KEY) {
-      console.error('SendGrid API key not configured');
-      return false;
-    }
-
     try {
-      // Get website email settings
+      const { client: resend, fromEmail } = await getUncachableResendClient();
+
       const settings = await storage.getEmailSettings(data.websiteId);
       
-      // Check if this email type is enabled
       const isEnabled = this.isEmailTypeEnabled(settings, data.templateType);
       if (!isEnabled) {
         console.log(`Email type ${data.templateType} is disabled for website ${data.websiteId}`);
         return false;
       }
 
-      // Get custom template if exists
       const template = await storage.getEmailTemplate(data.websiteId, data.templateType);
       
-      // Get default template for subject
       const defaultTemplate = DEFAULT_TEMPLATES[data.templateType];
       let subject = template?.subject || defaultTemplate?.subject || 'Notification';
       
-      // Replace variables in subject
       Object.entries(data.variables).forEach(([key, value]) => {
         subject = subject.replace(new RegExp(`{{${key}}}`, 'g'), value);
       });
 
-      // Generate HTML
       const html = generateEmailHtml(settings, template, data.templateType, data.variables, data.buttonUrl);
 
-      // Determine sender
       const fromName = settings?.senderName || DEFAULT_BRANDING.senderName;
-      const fromEmail = settings?.senderEmail || DEFAULT_BRANDING.senderEmail;
+      const senderEmail = settings?.senderEmail || fromEmail || DEFAULT_BRANDING.senderEmail;
 
-      // Send email
-      await sgMail.send({
+      await resend.emails.send({
         to: data.to,
-        from: {
-          email: fromEmail,
-          name: fromName,
-        },
+        from: `${fromName} <${senderEmail}>`,
         subject,
         html,
       });
@@ -248,7 +216,7 @@ export class EmailService {
   }
 
   private isEmailTypeEnabled(settings: EmailSettings | undefined, templateType: string): boolean {
-    if (!settings) return true; // Default to enabled if no settings
+    if (!settings) return true;
 
     switch (templateType) {
       case 'order_confirmation':
@@ -260,11 +228,10 @@ export class EmailService {
       case 'booking_cancelled':
         return settings.bookingCancelledEnabled;
       default:
-        return true; // Enable by default for other types
+        return true;
     }
   }
 
-  // Convenience methods for specific email types
   async sendOrderConfirmation(order: Order, customerEmail: string, websiteUrl?: string): Promise<boolean> {
     const totalCents = typeof order.total === 'number' ? order.total : parseInt(String(order.total)) || 0;
     return this.sendEmail({
