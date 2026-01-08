@@ -50,8 +50,8 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       NEXT_PUBLIC_SUPABASE_ANON_KEY: config.supabaseAnonKey,
       SUPABASE_SERVICE_ROLE_KEY: config.supabaseServiceRoleKey,
       NEXT_PUBLIC_WEBSITE_ID: config.websiteId,
-      BIRDFLOW_API_URL: 'https://birdflow.replit.app',
-      NEXT_PUBLIC_API_URL: 'https://birdflow.replit.app',
+      BIRDFLOW_API_URL: 'https://birdflow.app',
+      NEXT_PUBLIC_API_URL: 'https://birdflow.app',
     };
     
     if (config.stripeSecretKey) {
