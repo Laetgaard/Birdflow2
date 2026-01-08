@@ -3346,6 +3346,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
+      // Ensure default templates exist before fetching
+      await storage.ensureEmailTemplatesConfigured(req.params.id);
       const templates = await storage.getEmailTemplates(req.params.id);
       res.json(templates);
     } catch (error: any) {
@@ -3365,6 +3367,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
+      // Ensure default templates exist before fetching
+      await storage.ensureEmailTemplatesConfigured(req.params.id);
       const template = await storage.getEmailTemplate(req.params.id, req.params.type);
       res.json(template || null);
     } catch (error: any) {
