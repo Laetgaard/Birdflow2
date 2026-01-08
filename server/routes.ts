@@ -2167,17 +2167,22 @@ export async function registerRoutes(
 
   // Send booking confirmation email (public - called by published sites after creating booking in Supabase)
   app.post("/api/public/websites/:id/bookings/send-email", async (req, res) => {
+    console.log(`[Email API] Received booking email request for website ${req.params.id}`);
     try {
       const { bookingId, customerName, customerEmail, service, date, time } = req.body;
+      console.log(`[Email API] Request body:`, { bookingId, customerName, customerEmail, service, date, time });
       
       if (!customerEmail || !service) {
+        console.log(`[Email API] Missing required fields - customerEmail: ${customerEmail}, service: ${service}`);
         return res.status(400).json({ message: "Customer email and service are required" });
       }
 
       const website = await storage.getWebsite(req.params.id);
       if (!website) {
+        console.log(`[Email API] Website not found: ${req.params.id}`);
         return res.status(404).json({ message: "Website not found" });
       }
+      console.log(`[Email API] Found website: ${website.name} (${website.id})`);
 
       // Create a booking-like object for the email service
       const bookingForEmail = {
@@ -2192,20 +2197,21 @@ export async function registerRoutes(
 
       try {
         const websiteUrl = website.deploymentUrl || undefined;
+        console.log(`[Email API] Sending booking confirmation email to ${customerEmail} for service "${service}"`);
         await emailService.sendBookingConfirmation(
           bookingForEmail as any,
           customerEmail,
           service,
           websiteUrl
         );
-        console.log(`Booking confirmation email sent to ${customerEmail}`);
+        console.log(`[Email API] Booking confirmation email sent successfully to ${customerEmail}`);
         res.json({ success: true, message: "Email sent" });
       } catch (emailErr) {
-        console.error(`Failed to send booking confirmation email:`, emailErr);
+        console.error(`[Email API] Failed to send booking confirmation email:`, emailErr);
         res.status(500).json({ success: false, message: "Failed to send email" });
       }
     } catch (error: any) {
-      console.error("Send booking email error:", error);
+      console.error("[Email API] Send booking email error:", error);
       res.status(500).json({ message: error.message });
     }
   });
