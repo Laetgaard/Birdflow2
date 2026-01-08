@@ -175,14 +175,16 @@ function formatLabel(key: string): string {
 
 export class EmailService {
   async sendEmail(data: EmailData): Promise<boolean> {
+    console.log(`[EmailService] Attempting to send ${data.templateType} email to ${data.to}`);
     try {
       const { client: resend, fromEmail } = await getUncachableResendClient();
+      console.log(`[EmailService] Got Resend client, fromEmail: ${fromEmail}`);
 
       const settings = await storage.getEmailSettings(data.websiteId);
       
       const isEnabled = this.isEmailTypeEnabled(settings, data.templateType);
       if (!isEnabled) {
-        console.log(`Email type ${data.templateType} is disabled for website ${data.websiteId}`);
+        console.log(`[EmailService] Email type ${data.templateType} is disabled for website ${data.websiteId}`);
         return false;
       }
 
