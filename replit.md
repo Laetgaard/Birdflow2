@@ -108,6 +108,18 @@ GDPR-compliant analytics capturing page views, conversions, and e-commerce event
 ### Email Notification System
 A comprehensive transactional email system using Resend (via Replit connector) for order confirmations, booking notifications, and website publishing. It supports per-website toggles, branding, template customization with variable replacement, and robust error handling.
 
+**Default Email Templates:**
+- 5 template types auto-created for each website: order_confirmation, booking_confirmation, booking_updated, booking_cancelled, website_published
+- Templates seeded on-demand when accessing email settings (storage.ensureEmailTemplatesConfigured)
+- Database trigger auto-creates templates for new websites
+- Uses ON CONFLICT to handle concurrent requests safely
+
+**Migration File:** `supabase/migrations/20260108_seed_default_email_templates.sql`
+- Backfills missing templates for all existing websites
+- Creates trigger for auto-seeding new websites
+- Adds unique constraint on (website_id, template_type)
+- Must be applied in Supabase Dashboard SQL Editor
+
 ### Onboarding System
 A streamlined 5-step onboarding wizard for new users, guiding them from signup to a live editor by creating a website based on chosen templates, with atomic database transactions and coach marks for first-time users.
 

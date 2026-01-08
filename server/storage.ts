@@ -255,6 +255,7 @@ export interface IStorage {
   getEmailTemplate(websiteId: string, templateType: string): Promise<EmailTemplate | undefined>;
   createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate>;
   updateEmailTemplate(id: string, websiteId: string, data: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined>;
+  ensureEmailTemplatesConfigured(websiteId: string): Promise<void>;
 
   // Public stats methods
   getPublicStats(): Promise<{ totalCreators: number }>;
@@ -1121,6 +1122,68 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(emailTemplates.id, id), eq(emailTemplates.websiteId, websiteId)))
       .returning();
     return result[0];
+  }
+
+  async ensureEmailTemplatesConfigured(websiteId: string): Promise<void> {
+    const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; bodyText: string; buttonText?: string }> = {
+      order_confirmation: {
+        subject: 'Order Confirmation - #{{orderId}}',
+        heading: 'Thank you for your order!',
+        bodyText: 'We have received your order and are processing it. You will receive another email when your order ships.',
+        buttonText: 'View Order',
+      },
+      booking_confirmation: {
+        subject: 'Booking Confirmation - {{serviceName}}',
+        heading: 'Your booking is confirmed!',
+        bodyText: 'We look forward to seeing you at your scheduled appointment.',
+        buttonText: 'View Booking',
+      },
+      booking_updated: {
+        subject: 'Booking Updated - {{serviceName}}',
+        heading: 'Your booking has been updated',
+        bodyText: 'The details of your booking have been modified. Please review the updated information below.',
+        buttonText: 'View Booking',
+      },
+      booking_cancelled: {
+        subject: 'Booking Cancelled - {{serviceName}}',
+        heading: 'Your booking has been cancelled',
+        bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
+      },
+      website_published: {
+        subject: 'Your website is now live!',
+        heading: 'Congratulations! Your website is published',
+        bodyText: 'Your website is now live and accessible to the world. Click below to visit your site.',
+        buttonText: 'Visit Website',
+      },
+    };
+
+    const existingTemplates = await this.getEmailTemplates(websiteId);
+    const existingTypes = new Set(existingTemplates.map(t => t.templateType));
+
+    const missingTypes = Object.keys(DEFAULT_TEMPLATES).filter(type => !existingTypes.has(type));
+
+    if (missingTypes.length > 0) {
+      const insertValues = missingTypes.map(type => ({
+        websiteId,
+        templateType: type,
+        subject: DEFAULT_TEMPLATES[type].subject,
+        heading: DEFAULT_TEMPLATES[type].heading,
+        bodyText: DEFAULT_TEMPLATES[type].bodyText,
+        buttonText: DEFAULT_TEMPLATES[type].buttonText || null,
+      }));
+
+      try {
+        await db.insert(emailTemplates).values(insertValues).onConflictDoNothing();
+        console.log(`[Email] Created ${missingTypes.length} default email templates for website ${websiteId}: ${missingTypes.join(', ')}`);
+      } catch (error: any) {
+        // Handle race condition - if another request already inserted, that's fine
+        if (error.code === '23505') {
+          console.log(`[Email] Templates already exist for website ${websiteId} (concurrent insert)`);
+        } else {
+          throw error;
+        }
+      }
+    }
   }
 
   // Public stats methods
