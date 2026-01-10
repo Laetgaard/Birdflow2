@@ -13,7 +13,9 @@ import {
   handleSubscriptionCreated,
   handleSubscriptionUpdated,
   handleSubscriptionDeleted,
+  handleInvoicePaymentFailed,
   PLAN_DETAILS,
+  getSubscriptionStatusInfo,
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
@@ -3586,12 +3588,19 @@ export async function registerRoutes(
   // Get available subscription plans
   app.get("/api/subscriptions/plans", async (_req, res) => {
     try {
-      const plans = Object.entries(PLAN_DETAILS).map(([id, details]) => ({
-        id,
-        name: details.name,
-        priceMonthly: details.priceMonthly,
-        features: details.features,
-      }));
+      const plans = Object.entries(PLAN_DETAILS)
+        .filter(([id]) => id !== 'free')
+        .map(([id, details]) => ({
+          id,
+          name: details.name,
+          description: details.description,
+          priceMonthly: details.priceMonthly,
+          priceDisplay: details.priceDisplay,
+          trialDays: details.trialDays,
+          popular: details.popular,
+          features: details.features,
+          featureList: details.featureList,
+        }));
       res.json(plans);
     } catch (error: any) {
       console.error("Get plans error:", error);
@@ -3614,11 +3623,18 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
       
+      const planDetails = PLAN_DETAILS[website.plan as PlanId] || PLAN_DETAILS.free;
+      
       res.json({
         plan: website.plan || 'free',
-        subscriptionStatus: website.subscriptionStatus || 'inactive',
+        planName: planDetails.name,
+        planPrice: planDetails.priceDisplay,
+        subscriptionStatus: website.subscriptionStatus || null,
         stripeSubscriptionId: website.stripeSubscriptionId,
+        trialEnd: (website as any).trialEnd,
         currentPeriodEnd: website.currentPeriodEnd,
+        features: planDetails.features,
+        featureList: planDetails.featureList,
       });
     } catch (error: any) {
       console.error("Get subscription status error:", error);
@@ -3642,7 +3658,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid plan selected" });
       }
       
-      if (planId === 'free' || planId === 'starter') {
+      if (planId === 'free') {
         return res.status(400).json({ message: "Cannot checkout for free plan" });
       }
       
@@ -3740,6 +3756,9 @@ export async function registerRoutes(
           break;
         case 'customer.subscription.deleted':
           await handleSubscriptionDeleted(event.data.object);
+          break;
+        case 'invoice.payment_failed':
+          await handleInvoicePaymentFailed(event.data.object);
           break;
         default:
           console.log(`Unhandled subscription event type: ${event.type}`);
