@@ -160,6 +160,11 @@ export default function ProfilePage() {
   // Fetch websites for subscription
   const { data: websites, isLoading: websitesLoading } = useQuery<Website[]>({
     queryKey: ["/api/websites"],
+    queryFn: async () => {
+      const res = await fetch("/api/websites", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch websites");
+      return res.json();
+    },
     enabled: !!user,
   });
 
