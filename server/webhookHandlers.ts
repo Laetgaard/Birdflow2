@@ -25,20 +25,23 @@ export class WebhookHandlers {
       const event = result?.event || JSON.parse(payload.toString());
       
       if (event.type === 'checkout.session.completed') {
+        console.log(`[Stripe Webhook] Processing checkout.session.completed event`);
         const session = event.data?.object;
         if (session?.id) {
           const sessionId = session.id;
           const paymentIntentId = session.payment_intent;
+          console.log(`[Stripe Webhook] Session ID: ${sessionId}, Payment Intent: ${paymentIntentId}`);
 
           // Update order payment status
           const order = await storage.getOrderByStripeSessionId(sessionId);
           if (order) {
+            console.log(`[Stripe Webhook] Found order ${order.id} for session ${sessionId}`);
             await storage.updateOrderByStripeSessionId(sessionId, {
               paymentStatus: 'paid',
               status: 'confirmed',
               stripePaymentIntentId: paymentIntentId,
             });
-            console.log(`Order ${order.id} marked as paid via checkout.session.completed`);
+            console.log(`[Stripe Webhook] Order ${order.id} marked as paid`);
 
             // Decrement stock for tracked products after payment success
             if (order.items && Array.isArray(order.items)) {
@@ -46,9 +49,9 @@ export class WebhookHandlers {
                 if (item.id && item.quantity) {
                   try {
                     await storage.decrementProductStock(item.id, item.quantity);
-                    console.log(`Decremented stock for product ${item.id} by ${item.quantity}`);
+                    console.log(`[Stripe Webhook] Decremented stock for product ${item.id} by ${item.quantity}`);
                   } catch (stockErr) {
-                    console.error(`Failed to decrement stock for product ${item.id}:`, stockErr);
+                    console.error(`[Stripe Webhook] Failed to decrement stock for product ${item.id}:`, stockErr);
                   }
                 }
               }
@@ -56,25 +59,31 @@ export class WebhookHandlers {
 
             // Send order confirmation email
             if (order.customerEmail) {
+              console.log(`[Stripe Webhook] Sending order confirmation email to ${order.customerEmail}`);
               try {
                 // Get website to determine published URL for button link
                 const website = await storage.getWebsite(order.websiteId);
                 const websiteUrl = website?.deploymentUrl || undefined;
+                console.log(`[Stripe Webhook] Website URL for order: ${websiteUrl || 'none'}`);
                 
                 // Get updated order with confirmed status
                 const updatedOrder = await storage.getOrderByStripeSessionId(sessionId);
                 if (updatedOrder) {
-                  await emailService.sendOrderConfirmation(
+                  const emailSent = await emailService.sendOrderConfirmation(
                     updatedOrder,
                     order.customerEmail,
                     websiteUrl
                   );
-                  console.log(`Order confirmation email sent to ${order.customerEmail}`);
+                  console.log(`[Stripe Webhook] Order confirmation email ${emailSent ? 'SENT' : 'FAILED'} to ${order.customerEmail}`);
                 }
               } catch (emailErr) {
-                console.error(`Failed to send order confirmation email:`, emailErr);
+                console.error(`[Stripe Webhook] Failed to send order confirmation email:`, emailErr);
               }
+            } else {
+              console.log(`[Stripe Webhook] No customer email on order ${order.id}, skipping confirmation email`);
             }
+          } else {
+            console.log(`[Stripe Webhook] No order found for session ${sessionId}`);
           }
         }
       }

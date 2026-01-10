@@ -15,6 +15,7 @@ export type PublishConfig = {
   vercelToken: string;
   vercelTeamId?: string;
   customDomain?: string;
+  birdflowApiUrl: string; // Required: BirdFlow API URL for email callbacks
 };
 
 export type PublishResult = {
@@ -50,9 +51,11 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       NEXT_PUBLIC_SUPABASE_ANON_KEY: config.supabaseAnonKey,
       SUPABASE_SERVICE_ROLE_KEY: config.supabaseServiceRoleKey,
       NEXT_PUBLIC_WEBSITE_ID: config.websiteId,
-      NEXT_PUBLIC_BIRDFLOW_API_URL: 'https://birdflow.app',
-      NEXT_PUBLIC_API_URL: 'https://birdflow.app',
+      NEXT_PUBLIC_BIRDFLOW_API_URL: config.birdflowApiUrl,
+      NEXT_PUBLIC_API_URL: config.birdflowApiUrl,
     };
+    
+    console.log('[Publisher] Setting NEXT_PUBLIC_BIRDFLOW_API_URL:', config.birdflowApiUrl);
     
     if (config.stripeSecretKey) {
       envVars.STRIPE_SECRET_KEY = config.stripeSecretKey;

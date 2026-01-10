@@ -175,20 +175,35 @@ function formatLabel(key: string): string {
 
 export class EmailService {
   async sendEmail(data: EmailData): Promise<boolean> {
-    console.log(`[EmailService] Attempting to send ${data.templateType} email to ${data.to}`);
+    console.log(`[EmailService] Attempting to send ${data.templateType} email to ${data.to} for website ${data.websiteId}`);
     try {
+      // Defensive: ensure email templates exist before trying to send
+      await storage.ensureEmailTemplatesConfigured(data.websiteId);
+      
       const { client: resend, fromEmail } = await getUncachableResendClient();
       console.log(`[EmailService] Got Resend client, fromEmail: ${fromEmail}`);
 
       const settings = await storage.getEmailSettings(data.websiteId);
+      console.log(`[EmailService] Email settings loaded:`, settings ? { 
+        senderName: settings.senderName, 
+        senderEmail: settings.senderEmail,
+        orderConfirmationEnabled: settings.orderConfirmationEnabled,
+        bookingConfirmationEnabled: settings.bookingConfirmationEnabled,
+      } : 'null (using defaults)');
       
       const isEnabled = this.isEmailTypeEnabled(settings, data.templateType);
       if (!isEnabled) {
-        console.log(`[EmailService] Email type ${data.templateType} is disabled for website ${data.websiteId}`);
+        console.log(`[EmailService] Email type ${data.templateType} is DISABLED for website ${data.websiteId}`);
         return false;
       }
+      console.log(`[EmailService] Email type ${data.templateType} is enabled`);
 
       const template = await storage.getEmailTemplate(data.websiteId, data.templateType);
+      console.log(`[EmailService] Template lookup for ${data.templateType}:`, template ? { 
+        id: template.id, 
+        subject: template.subject,
+        heading: template.heading?.substring(0, 50),
+      } : 'null (using defaults)');
       
       const defaultTemplate = DEFAULT_TEMPLATES[data.templateType];
       let subject = template?.subject || defaultTemplate?.subject || 'Notification';
@@ -202,17 +217,23 @@ export class EmailService {
       const fromName = settings?.senderName || DEFAULT_BRANDING.senderName;
       const senderEmail = settings?.senderEmail || fromEmail || DEFAULT_BRANDING.senderEmail;
 
-      await resend.emails.send({
+      console.log(`[EmailService] Sending via Resend: to=${data.to}, from=${fromName} <${senderEmail}>, subject="${subject}"`);
+      
+      const result = await resend.emails.send({
         to: data.to,
         from: `${fromName} <${senderEmail}>`,
         subject,
         html,
       });
 
-      console.log(`Email sent: ${data.templateType} to ${data.to}`);
+      console.log(`[EmailService] Resend API response:`, result);
+      console.log(`[EmailService] SUCCESS: ${data.templateType} email sent to ${data.to}`);
       return true;
-    } catch (error) {
-      console.error('Failed to send email:', error);
+    } catch (error: any) {
+      console.error(`[EmailService] FAILED to send ${data.templateType} email to ${data.to}:`, error?.message || error);
+      if (error?.response) {
+        console.error(`[EmailService] Resend error response:`, error.response);
+      }
       return false;
     }
   }
