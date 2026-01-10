@@ -1702,6 +1702,25 @@ export async function registerRoutes(
         stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Connect your Stripe account in Payment Settings to enable payments.';
       }
 
+      // Determine the BirdFlow API URL from environment or request
+      // Priority: BIRDFLOW_API_URL env var > REPLIT_DOMAINS > request host
+      let birdflowApiUrl = process.env.BIRDFLOW_API_URL;
+      if (!birdflowApiUrl) {
+        const replitDomains = process.env.REPLIT_DOMAINS;
+        if (replitDomains) {
+          // REPLIT_DOMAINS is comma-separated, use the first one
+          const primaryDomain = replitDomains.split(',')[0].trim();
+          birdflowApiUrl = `https://${primaryDomain}`;
+        }
+      }
+      if (!birdflowApiUrl) {
+        // Fallback to request host (for local development)
+        const proto = req.headers['x-forwarded-proto'] || 'https';
+        const host = req.headers['host'] || 'localhost:5000';
+        birdflowApiUrl = `${proto}://${host}`;
+      }
+      console.log('[Publish] Using BirdFlow API URL:', birdflowApiUrl);
+
       const result = await publishWebsite({
         websiteId: req.params.id,
         siteName: website.name,
@@ -1714,6 +1733,7 @@ export async function registerRoutes(
         stripeWebhookSecret,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
+        birdflowApiUrl,
       });
 
       if (result.success) {
