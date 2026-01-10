@@ -21,6 +21,7 @@ import ProfilePage from "@/pages/profile";
 import OnboardingPage from "@/pages/onboarding";
 import AdminPage from "@/pages/admin";
 import PricingPage from "@/pages/pricing";
+import BillingPage from "@/pages/billing";
 import VerifyEmailPage from "@/pages/verify-email";
 import ResetPasswordPage from "@/pages/reset-password";
 
@@ -51,6 +52,9 @@ function Router() {
       </Route>
       <Route path="/manage/:id">
         {() => <ProtectedRoute><ManagePage /></ProtectedRoute>}
+      </Route>
+      <Route path="/billing">
+        {() => <ProtectedRoute><BillingPage /></ProtectedRoute>}
       </Route>
       
       {/* Admin route - requires admin role */}

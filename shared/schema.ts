@@ -51,6 +51,7 @@ export const websites = pgTable("websites", {
   stripeSubscriptionId: text("stripe_subscription_id"),
   stripePriceId: text("stripe_price_id"),
   subscriptionStatus: text("subscription_status"), // active, canceled, past_due, trialing
+  trialEnd: timestamp("trial_end"),
   currentPeriodEnd: timestamp("current_period_end"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
