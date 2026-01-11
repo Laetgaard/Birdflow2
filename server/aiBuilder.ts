@@ -658,7 +658,15 @@ Generate unique component IDs using: componenttype-${Date.now()}`
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    throw new Error("No response from AI");
+    console.error("AI Build response empty. Full response:", JSON.stringify(response, null, 2));
+    const finishReason = response.choices[0]?.finish_reason;
+    if (finishReason === 'length') {
+      throw new Error("AI response was cut off due to token limit. Try a simpler request.");
+    }
+    if (finishReason === 'content_filter') {
+      throw new Error("AI response was blocked by content filter. Try rephrasing your request.");
+    }
+    throw new Error(`No response from AI (finish_reason: ${finishReason || 'unknown'})`);
   }
 
   const parsed = JSON.parse(content);
@@ -852,7 +860,15 @@ Generate unique component IDs using: componenttype-${Date.now()}`
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
-    throw new Error("No response from AI");
+    console.error("AI Think response empty. Full response:", JSON.stringify(response, null, 2));
+    const finishReason = response.choices[0]?.finish_reason;
+    if (finishReason === 'length') {
+      throw new Error("AI response was cut off due to token limit. Try a simpler request.");
+    }
+    if (finishReason === 'content_filter') {
+      throw new Error("AI response was blocked by content filter. Try rephrasing your request.");
+    }
+    throw new Error(`No response from AI (finish_reason: ${finishReason || 'unknown'})`);
   }
 
   const parsed = JSON.parse(content);
