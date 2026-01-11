@@ -687,7 +687,7 @@ Generate unique component IDs using: componenttype-${Date.now()}`
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 4096,
+    max_completion_tokens: 16384,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -889,7 +889,7 @@ Generate unique component IDs using: componenttype-${Date.now()}`
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 4096,
+    max_completion_tokens: 16384,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -1022,7 +1022,7 @@ Provide a comprehensive design analysis with specific, actionable recommendation
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 2048,
+    max_completion_tokens: 8192,
   });
 
   const content = response.choices[0]?.message?.content;
