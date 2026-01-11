@@ -92,7 +92,37 @@ export const GlobalStylesSchema = z.object({
   secondaryColor: z.string(),
   fontFamily: z.string(),
   backgroundColor: z.string(),
+  textColor: z.string().optional(),
+  borderRadius: z.string().optional(),
+  spacingScale: z.enum(['compact', 'comfortable', 'spacious']).optional(),
+  sectionGap: z.string().optional(),
+  buttonStyle: z.enum(['solid', 'outline', 'ghost', 'gradient']).optional(),
+  cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass']).optional(),
+  fontPair: z.object({
+    heading: z.string(),
+    body: z.string(),
+  }).optional(),
 });
+
+export const StylePresetSchema = z.enum(['modern', 'luxury', 'playful', 'corporate', 'minimal', 'custom']);
+
+export const SectionTypeSchema = z.enum([
+  'hero-section',
+  'features-section',
+  'services-section',
+  'social-proof-section',
+  'pricing-section',
+  'cta-section',
+  'faq-section',
+  'gallery-section',
+  'contact-section',
+  'product-hero-section',
+  'product-grid-section',
+  'reviews-section',
+  'stats-section',
+  'team-section',
+  'timeline-section',
+]);
 
 export const AddComponentMutation = z.object({
   action: z.literal('add_component'),
@@ -154,6 +184,31 @@ export const UpdateGlobalStylesMutation = z.object({
   styles: GlobalStylesSchema.partial(),
 });
 
+export const ApplyPresetMutation = z.object({
+  action: z.literal('apply_preset'),
+  preset: StylePresetSchema,
+});
+
+export const AddSectionMutation = z.object({
+  action: z.literal('add_section'),
+  pageId: z.string(),
+  sectionType: SectionTypeSchema,
+  variant: z.enum(['default', 'centered', 'split', 'minimal', 'bold']).optional(),
+  position: z.number().optional(),
+  customContent: z.object({
+    title: z.string().optional(),
+    subtitle: z.string().optional(),
+    description: z.string().optional(),
+    items: z.array(z.object({
+      id: z.string(),
+      title: z.string(),
+      description: z.string(),
+      icon: z.string().optional(),
+      imageUrl: z.string().optional(),
+    })).optional(),
+  }).optional(),
+});
+
 export const BuilderMutationSchema = z.discriminatedUnion('action', [
   AddComponentMutation,
   UpdateComponentMutation,
@@ -164,6 +219,8 @@ export const BuilderMutationSchema = z.discriminatedUnion('action', [
   RemovePageMutation,
   UpdatePageMutation,
   UpdateGlobalStylesMutation,
+  ApplyPresetMutation,
+  AddSectionMutation,
 ]);
 
 export const AIResponseSchema = z.object({

@@ -9,7 +9,9 @@ import {
   componentTypes
 } from "@shared/aiBuilderSchema";
 import { componentRegistry } from "@shared/componentRegistry";
-import type { BuilderStateData, BuilderComponent } from "@shared/schema";
+import { sectionRegistry, type SectionType } from "@shared/sectionRegistry";
+import { stylePresets, getPresetTokens } from "@shared/stylePresets";
+import type { BuilderStateData, BuilderComponent, StylePreset, DesignTokens } from "@shared/schema";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -25,123 +27,178 @@ const VALID_ACTIONS = [
   'add_page',
   'remove_page',
   'update_page',
-  'update_global_styles'
+  'update_global_styles',
+  'apply_preset',
+  'add_section'
 ] as const;
 
-const BASE_SYSTEM_PROMPT = `You are an AI website builder assistant that generates STRICTLY STRUCTURED JSON mutations to modify websites. Be CREATIVE and design beautiful, modern websites.
+const BASE_SYSTEM_PROMPT = `You are an AI website builder that acts like a professional UI/UX designer. You create conversion-focused, well-structured websites using structured JSON mutations.
 
-## ABSOLUTE REQUIREMENTS - VIOLATIONS WILL CAUSE ERRORS
+## YOUR DESIGN PHILOSOPHY
+1. **Think in SECTIONS, not components** - Design pages as a collection of purpose-driven sections
+2. **Follow visual hierarchy** - Most important content first, clear information flow
+3. **Use design presets** - Apply consistent styling through presets (modern, luxury, playful, corporate, minimal)
+4. **Optimize for conversion** - Every section should guide users toward the goal
 
-### ACTION FIELD - MUST BE EXACTLY ONE OF:
-"add_component" | "update_component" | "remove_component" | "move_component" | "duplicate_component" | "add_page" | "remove_page" | "update_page" | "update_global_styles"
+## AVAILABLE ACTIONS (use EXACTLY these strings)
+"add_component" | "update_component" | "remove_component" | "move_component" | "duplicate_component" | "add_page" | "remove_page" | "update_page" | "update_global_styles" | "apply_preset" | "add_section"
 
-DO NOT use any other action names like "add", "create", "modify", "change", "insert", etc. ONLY the exact strings above.
+## SECTION-BASED DESIGN (PREFERRED APPROACH)
 
-### COMPONENT TYPES - MUST BE EXACTLY ONE OF:
-${componentTypes.map(t => `"${t}"`).join(' | ')}
+### add_section - For creating complete, well-designed sections
+{
+  "action": "add_section",
+  "pageId": "string",
+  "sectionType": "hero-section | features-section | services-section | social-proof-section | pricing-section | cta-section | faq-section | gallery-section | contact-section | product-hero-section | product-grid-section | reviews-section | stats-section | team-section | timeline-section",
+  "variant": "default | centered | split | minimal | bold",
+  "position": number (optional),
+  "customContent": {
+    "title": "Custom title",
+    "subtitle": "Custom subtitle",
+    "description": "Custom description",
+    "items": [{ "id": "1", "title": "Item", "description": "Description" }]
+  }
+}
 
-DO NOT invent new component types. ONLY use the types listed above.
+### SECTION TYPE REFERENCE
+- **hero-section**: Main landing with headline, CTA (use for first impression)
+- **features-section**: Highlight product/service features (3-6 items)
+- **services-section**: Display offerings with optional pricing
+- **social-proof-section**: Testimonials, client logos, reviews
+- **pricing-section**: Pricing tiers with features comparison
+- **cta-section**: Focused call-to-action to drive conversions
+- **faq-section**: Common questions to reduce friction
+- **contact-section**: Contact form with business info
+- **stats-section**: Key metrics (customers, years, projects)
+- **gallery-section**: Visual portfolio/showcase
+- **product-grid-section**: E-commerce product display
+- **reviews-section**: Customer reviews/ratings
+- **team-section**: Team member introductions
+- **timeline-section**: Process, history, or journey
 
-## MUTATION SCHEMAS (copy these structures exactly)
+## DESIGN PRESETS
+
+### apply_preset - For applying consistent design themes
+{
+  "action": "apply_preset",
+  "preset": "modern | luxury | playful | corporate | minimal"
+}
+
+### Preset Descriptions
+- **modern**: Clean blue theme, comfortable spacing, elevated cards - tech/startups
+- **luxury**: Dark + gold, serif fonts, spacious layout - premium brands
+- **playful**: Pink/purple gradients, rounded elements - creative/lifestyle
+- **corporate**: Navy/slate, professional fonts - B2B/enterprise
+- **minimal**: Black on white, tight spacing - portfolios/blogs
+
+## RECOMMENDED PAGE STRUCTURES
+
+### Landing Page (SaaS/Startup)
+1. hero-section (centered variant)
+2. features-section (3-4 key benefits)
+3. social-proof-section (testimonials)
+4. pricing-section (if applicable)
+5. faq-section
+6. cta-section
+7. contact-section
+
+### Service Business
+1. hero-section
+2. services-section
+3. social-proof-section
+4. stats-section
+5. team-section
+6. contact-section
+
+### E-commerce
+1. hero-section or product-hero-section
+2. product-grid-section
+3. features-section (why buy from us)
+4. reviews-section
+5. cta-section
+
+## COMPONENT-LEVEL MUTATIONS (for fine-tuning)
 
 ### add_component
 {
   "action": "add_component",
-  "pageId": "string (existing page ID)",
+  "pageId": "string",
   "component": {
     "id": "string (unique, format: type-timestamp)",
-    "type": "one of the valid component types",
-    "props": { ... component-specific props },
-    "styles": { ... styling properties }
+    "type": "${componentTypes.map(t => `"${t}"`).join(' | ')}",
+    "props": { ... },
+    "styles": { ... }
   },
-  "position": number (optional, 0-indexed)
+  "position": number (optional)
 }
 
 ### update_component
 {
   "action": "update_component",
   "pageId": "string",
-  "componentId": "string (existing component ID)",
+  "componentId": "string",
   "props": { ... },
   "styles": { ... }
 }
 
-### remove_component / move_component / duplicate_component
-Standard mutations for managing components.
-
-### add_page / remove_page / update_page
-Standard mutations for managing pages.
-
-### update_global_styles (USE THIS FOR SITE-WIDE COLOR/THEME CHANGES)
+### update_global_styles (for custom design tokens)
 {
   "action": "update_global_styles",
   "styles": {
     "primaryColor": "#hexcolor",
-    "secondaryColor": "#hexcolor", 
-    "fontFamily": "font-stack",
-    "backgroundColor": "#hexcolor"
+    "secondaryColor": "#hexcolor",
+    "backgroundColor": "#hexcolor",
+    "textColor": "#hexcolor",
+    "borderRadius": "8px",
+    "spacingScale": "compact | comfortable | spacious",
+    "sectionGap": "64px",
+    "buttonStyle": "solid | outline | ghost | gradient",
+    "cardStyle": "flat | elevated | bordered | glass"
   }
 }
 
-## COLOR CHANGE GUIDELINES
-- **Site-wide color changes** (e.g., "change colors to blue", "make it dark theme"): Use "update_global_styles"
-- **Single component color**: Use "update_component" with styles.backgroundColor or styles.textColor
+## COMPONENT PROPS REFERENCE
 
-### Theme Examples
-- Dark theme: primaryColor="#3B82F6", secondaryColor="#1E40AF", backgroundColor="#0F172A"
-- Light theme: primaryColor="#2563EB", secondaryColor="#1D4ED8", backgroundColor="#FFFFFF"
-- Warm theme: primaryColor="#EA580C", secondaryColor="#DC2626", backgroundColor="#FEF3C7"
-- Cool theme: primaryColor="#0EA5E9", secondaryColor="#06B6D4", backgroundColor="#F0F9FF"
-- Neon/Cyberpunk: primaryColor="#FF00FF", secondaryColor="#00FFFF", backgroundColor="#0a0a0a"
-- Nature/Organic: primaryColor="#22C55E", secondaryColor="#84CC16", backgroundColor="#ECFDF5"
-- Luxury/Premium: primaryColor="#D4AF37", secondaryColor="#9D7D2F", backgroundColor="#1C1C1C"
-
-## COMPONENT TYPES AND PROPS
-
-### Layout Components
-- **hero**: title, subtitle, description, buttonText, buttonLink, alignment (left|center|right), imageUrl
-- **header**: title, items (nav links array)
-- **footer**: title, description
-
-### Content Components  
-- **text-image**: title, description, imageUrl, imageSide (left|right)
-- **features**: title, subtitle, items (array - EACH item MUST have: id, title, description; optional: icon)
-- **testimonials**: title, items (array - EACH item MUST have: id, title, description; optional: imageUrl)
+### Content Components
+- **hero**: title, subtitle, description, buttonText, buttonLink, alignment, imageUrl
+- **features**: title, subtitle, items (each: id, title, description, icon)
+- **testimonials**: title, items (each: id, title, description, imageUrl)
 - **cta**: title, description, buttonText, buttonLink
-- **image-slider**: images (array of URLs), autoPlay, speed
-- **gallery**: title, description, images, columns (2-4), layout (grid|masonry|carousel)
-
-### CRITICAL: items array format
-Every component with an "items" array MUST use this exact structure for EACH item:
-{
-  "id": "unique-string",
-  "title": "Required string",
-  "description": "Required string",
-  ...other optional fields
-}
-NEVER omit title or description - they are REQUIRED.
+- **text-image**: title, description, imageUrl, imageSide (left|right)
+- **gallery**: title, description, images[], columns, layout
 
 ### Business Components
-- **product-grid**: title, description, columns, productLimit, showAddToCart
-- **booking**: title, description, buttonText
-- **pricing-table**: title, subtitle, items (array with title, description/price, icon)
-- **contact-form**: title, description, buttonText, formFields (array)
+- **product-grid**: title, columns, productLimit, showAddToCart
+- **booking**: title, subtitle, buttonText
+- **pricing-table**: title, subtitle, items (each: id, title, description, features[])
+- **contact-form**: title, description, buttonText, formFields[]
 
 ### Data Display
 - **faq**: title, subtitle, items (question/answer pairs)
-- **stats-counter**: title, subtitle, stats (array with value, label, suffix)
+- **stats-counter**: title, subtitle, stats (each: id, value, label, suffix)
 
-### Utility
-- **video-embed**: title, description, videoUrl, videoProvider (youtube|vimeo|custom)
-- **divider**: style (solid|dashed|gradient)
-- **spacer**: height
+### CRITICAL: items array format
+{
+  "id": "unique-string",
+  "title": "Required",
+  "description": "Required",
+  ...optional fields
+}
 
-## SELF-CHECK BEFORE RESPONDING
-1. Is every "action" field EXACTLY one of the 9 valid action names? 
-2. Is every component "type" EXACTLY one of the 18 valid types?
-3. Does every add_component have id, type, props, styles?
-4. Are all pageIds and componentIds referencing existing IDs?
-5. For color/theme requests: Did I use "update_global_styles"?`;
+## DESIGN COMMANDS
+When user says:
+- "Make it more premium/luxury" → apply_preset: luxury + adjust spacing/colors
+- "Make it more modern" → apply_preset: modern + update component styles
+- "Improve conversions" → Add social proof, simplify CTAs, add urgency
+- "Make it simpler" → apply_preset: minimal + reduce sections
+- "Add trust signals" → Add testimonials, stats, social proof sections
+
+## SELF-CHECK
+1. Is action one of the 11 valid actions?
+2. For sections: Is sectionType valid?
+3. For components: Is type one of the 18 valid types?
+4. Are all IDs unique and properly formatted?
+5. Do all items have id, title, description?`;
 
 const SAFE_MODE_STYLES = `
 ## SAFE MODE - Limited Styles
@@ -368,6 +425,185 @@ function filterMutationStyles(mutation: BuilderMutation, mode: CreativeMode): Bu
     default:
       return mutation;
   }
+}
+
+/**
+ * Expands a section mutation into component mutations.
+ * This allows the AI to work at a higher abstraction level while
+ * maintaining compatibility with the existing component-based system.
+ */
+function expandSectionToComponents(
+  sectionType: SectionType,
+  pageId: string,
+  variant: string = 'default',
+  customContent?: {
+    title?: string;
+    subtitle?: string;
+    description?: string;
+    items?: Array<{ id: string; title: string; description: string; icon?: string; imageUrl?: string }>;
+  },
+  position?: number,
+  designTokens?: DesignTokens
+): BuilderMutation[] {
+  const blueprint = sectionRegistry[sectionType];
+  if (!blueprint) {
+    console.warn(`Unknown section type: ${sectionType}`);
+    return [];
+  }
+
+  const mutations: BuilderMutation[] = [];
+  const timestamp = Date.now();
+  
+  // Get default styles from design tokens
+  const sectionStyles = {
+    backgroundColor: designTokens?.backgroundColor || '#ffffff',
+    textColor: designTokens?.textColor || '#1f2937',
+    padding: designTokens?.spacingScale === 'spacious' ? '120px 24px' : 
+             designTokens?.spacingScale === 'compact' ? '48px 24px' : '80px 24px',
+  };
+
+  // Generate components for required component types
+  for (const componentType of blueprint.requiredComponents) {
+    const componentDef = componentRegistry[componentType];
+    if (!componentDef) continue;
+
+    const componentId = `${componentType}-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Merge custom content with default props
+    const props = {
+      ...componentDef.defaultProps,
+      ...(customContent?.title && { title: customContent.title }),
+      ...(customContent?.subtitle && { subtitle: customContent.subtitle }),
+      ...(customContent?.description && { description: customContent.description }),
+      ...(customContent?.items && { items: customContent.items }),
+    };
+
+    // Apply variant-specific styling
+    const variantStyles = getVariantStyles(variant, sectionStyles, designTokens);
+
+    mutations.push({
+      action: 'add_component',
+      pageId,
+      component: {
+        id: componentId,
+        type: componentType,
+        props,
+        styles: {
+          ...componentDef.defaultStyles,
+          ...variantStyles,
+        },
+      },
+      ...(position !== undefined && { position }),
+    });
+  }
+
+  return mutations;
+}
+
+/**
+ * Get styles based on variant
+ */
+function getVariantStyles(
+  variant: string,
+  baseStyles: Record<string, string>,
+  designTokens?: DesignTokens
+): Record<string, string> {
+  switch (variant) {
+    case 'centered':
+      return {
+        ...baseStyles,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+      };
+    case 'split':
+      return {
+        ...baseStyles,
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '48px',
+      };
+    case 'minimal':
+      return {
+        ...baseStyles,
+        padding: '48px 24px',
+      };
+    case 'bold':
+      return {
+        ...baseStyles,
+        padding: '120px 24px',
+        backgroundColor: designTokens?.primaryColor || '#1a1a2e',
+        textColor: '#ffffff',
+      };
+    default:
+      return baseStyles;
+  }
+}
+
+/**
+ * Applies a style preset by returning the design tokens update mutation
+ */
+function applyPresetToState(preset: StylePreset): BuilderMutation {
+  const tokens = getPresetTokens(preset);
+  return {
+    action: 'update_global_styles',
+    styles: {
+      primaryColor: tokens.primaryColor,
+      secondaryColor: tokens.secondaryColor,
+      backgroundColor: tokens.backgroundColor,
+      fontFamily: tokens.fontFamily,
+      textColor: tokens.textColor,
+      borderRadius: tokens.borderRadius,
+      spacingScale: tokens.spacingScale,
+      sectionGap: tokens.sectionGap,
+      buttonStyle: tokens.buttonStyle,
+      cardStyle: tokens.cardStyle,
+    },
+  };
+}
+
+/**
+ * Expands high-level mutations (add_section, apply_preset) into component-level mutations
+ */
+function expandHighLevelMutations(
+  mutations: BuilderMutation[],
+  currentState?: BuilderStateData
+): BuilderMutation[] {
+  const expandedMutations: BuilderMutation[] = [];
+  
+  for (const mutation of mutations) {
+    if (mutation.action === 'add_section') {
+      const sectionMutation = mutation as {
+        action: 'add_section';
+        pageId: string;
+        sectionType: SectionType;
+        variant?: string;
+        position?: number;
+        customContent?: any;
+      };
+      
+      const componentMutations = expandSectionToComponents(
+        sectionMutation.sectionType,
+        sectionMutation.pageId,
+        sectionMutation.variant,
+        sectionMutation.customContent,
+        sectionMutation.position,
+        currentState?.globalStyles
+      );
+      expandedMutations.push(...componentMutations);
+    } else if (mutation.action === 'apply_preset') {
+      const presetMutation = mutation as {
+        action: 'apply_preset';
+        preset: StylePreset;
+      };
+      expandedMutations.push(applyPresetToState(presetMutation.preset));
+    } else {
+      expandedMutations.push(mutation);
+    }
+  }
+  
+  return expandedMutations;
 }
 
 function getCurrentStateContext(state: BuilderStateData): string {
@@ -773,7 +1009,8 @@ export function applyMutations(
   state: BuilderStateData,
   mutations: BuilderMutation[]
 ): BuilderStateData {
-  return mutations.reduce((currentState, mutation) => applyMutation(currentState, mutation), state);
+  const expandedMutations = expandHighLevelMutations(mutations, state);
+  return expandedMutations.reduce((currentState, mutation) => applyMutation(currentState, mutation), state);
 }
 
 export function validateMutation(
@@ -831,6 +1068,34 @@ export function validateMutation(
       return { 
         valid: false, 
         error: `Page "${mutation.pageId}" does not exist` 
+      };
+    }
+  }
+  
+  if (action === 'add_section') {
+    const pageExists = state.pages.some(p => p.id === mutation.pageId);
+    if (!pageExists) {
+      return { 
+        valid: false, 
+        error: `Page "${mutation.pageId}" does not exist. Available pages: ${state.pages.map(p => p.id).join(', ')}` 
+      };
+    }
+    
+    const sectionType = mutation.sectionType;
+    if (!sectionType || !sectionRegistry[sectionType as SectionType]) {
+      return { 
+        valid: false, 
+        error: `Invalid section type "${sectionType}". Must be one of: ${Object.keys(sectionRegistry).join(', ')}` 
+      };
+    }
+  }
+  
+  if (action === 'apply_preset') {
+    const preset = mutation.preset;
+    if (!preset || !stylePresets[preset as StylePreset]) {
+      return { 
+        valid: false, 
+        error: `Invalid preset "${preset}". Must be one of: ${Object.keys(stylePresets).join(', ')}` 
       };
     }
   }
