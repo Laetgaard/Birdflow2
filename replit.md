@@ -67,7 +67,35 @@ The `shared/` directory centralizes database schemas, Zod validation schemas, Ty
 A registry-based component system for the website builder, defining 18 component types with editable properties. It includes a `ComponentRenderer` and `PropertiesPanel` for dynamic rendering and editing.
 
 ### AI Builder Assistant
-AI-powered website modification through structured JSON mutations with "Build Mode" and "Thinking Mode". It supports "Creative Mode" (full CSS freedom) and "Safe Mode" (restricted styling), along with undo/redo functionality for changes. Mutations cover components, pages, and global styles.
+AI-powered website modification through structured JSON mutations with "Build Mode", "Thinking Mode", and "Design Analysis Mode". It supports "Creative Mode" (full CSS freedom) and "Safe Mode" (restricted styling), along with undo/redo functionality for changes. Mutations cover components, pages, global styles, style presets, and section-based composition.
+
+**Phase 1 Professional UI/UX Capabilities:**
+
+1. **Design Tokens System** (`shared/schema.ts`):
+   - Extended globalStyles with: textColor, borderRadius, spacingScale, sectionGap, buttonStyle, cardStyle
+   - All new tokens optional for backward compatibility with existing builder states
+   - Publisher generates CSS custom properties from design tokens
+
+2. **Style Presets** (`shared/stylePresets.ts`):
+   - 5 preset themes: modern (tech/SaaS), luxury (premium/dark+gold), playful (creative/gradients), corporate (B2B), minimal (portfolio)
+   - Each preset defines complete design token values
+   - AI can apply presets via `apply_preset` mutation
+
+3. **Section Registry** (`shared/sectionRegistry.ts`):
+   - 15 section types: hero-section, features-section, testimonials-section, pricing-section, cta-section, etc.
+   - Each section has layout variants (default, centered, split, minimal, bold)
+   - Page templates combine sections for common page types (landing, about, pricing, contact)
+   - AI adds sections via `add_section` mutation, which expands to component mutations
+
+4. **AI Design Analysis** (`/api/websites/:id/ai/analyze`):
+   - Scores design quality (1-100) based on visual hierarchy, color harmony, typography, spacing, layout, UX
+   - Returns strengths, improvements needed, and actionable recommendations
+   - Can suggest optimal style preset based on current design
+
+**Mutation System:**
+- `apply_preset`: Applies a style preset, internally converts to update_global_styles mutation
+- `add_section`: Adds a section blueprint, internally expands to add_component mutations
+- Expansion happens in applyMutations() before state update, maintaining backward compatibility
 
 ### Inline Editing System
 Webflow-style inline editing for direct text manipulation in the builder canvas using `EditableText` components, theme presets, and state management for real-time updates.

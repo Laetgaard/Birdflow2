@@ -1,24 +1,7 @@
 import type { BuilderComponentData, ComponentStyles } from './componentRegistry';
+import type { BuilderPage, BuilderStateData, DesignTokens } from './schema';
 
-export type BuilderPage = {
-  id: string;
-  name: string;
-  path: string;
-  components: BuilderComponentData[];
-};
-
-export type GlobalStyles = {
-  primaryColor: string;
-  secondaryColor: string;
-  fontFamily: string;
-  backgroundColor: string;
-};
-
-export type BuilderStateData = {
-  pages: BuilderPage[];
-  activePage: string;
-  globalStyles: GlobalStyles;
-};
+export type { BuilderPage, BuilderStateData, DesignTokens as GlobalStyles };
 
 export type WebsiteTemplate = {
   id: string;

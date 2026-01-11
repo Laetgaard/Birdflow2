@@ -156,12 +156,12 @@ export type DesignTokens = {
   primaryColor: string;
   secondaryColor: string;
   backgroundColor: string;
-  textColor: string;
   fontFamily: string;
+  textColor?: string;
   fontPair?: { heading: string; body: string };
-  borderRadius: string;
-  spacingScale: 'compact' | 'comfortable' | 'spacious';
-  sectionGap: string;
+  borderRadius?: string;
+  spacingScale?: 'compact' | 'comfortable' | 'spacious';
+  sectionGap?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
 };
