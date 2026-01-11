@@ -1,0 +1,157 @@
+We want to upgrade the AI builder so it behaves like a professional UI/UX web designer, not just a component generator.
+
+GOAL:
+- The AI should design conversion-focused, well-structured, visually consistent websites using the existing builder_state system.
+- The system must remain 100% compatible with the publishing pipeline (NO raw React code generation).
+
+PART 1 — DESIGN SYSTEM FOUNDATION
+
+1) Introduce design tokens in builder_state:
+- theme:
+  - primaryColor
+  - secondaryColor
+  - backgroundColor
+  - textColor
+  - borderRadius
+  - spacingScale
+  - fontPair
+  - sectionGap
+- All components and sections should derive styles from tokens.
+
+2) Support style presets:
+- "modern"
+- "luxury"
+- "playful"
+- "corporate"
+- "minimal"
+AI can switch or remix these.
+
+PART 2 — SECTION-BASED DESIGN (NOT COMPONENT SPAM)
+
+3) Introduce section types:
+- HeroSection
+- FeaturesSection
+- ServicesSection
+- SocialProofSection
+- PricingSection
+- CTASection
+- FAQSection
+- GallerySection
+- ContactSection
+- Ecommerce: ProductGrid, ProductHero, Reviews, RelatedProducts
+
+Each section:
+- Has layout rules
+- Has internal structure
+- Has spacing + hierarchy built-in
+
+AI should compose pages from SECTIONS, not random components.
+
+PART 3 — AI DESIGN INTELLIGENCE
+
+4) Add 2 AI modes:
+
+A) Build Mode:
+- "Create a landing page for a hair salon"
+→ AI designs full page structure with sections.
+
+B) Design/Think Mode:
+- "How can I increase bookings?"
+→ AI analyzes:
+  - structure
+  - missing sections
+  - CTA placement
+  - trust signals
+  - content hierarchy
+→ Then proposes improvements and can apply them.
+
+5) AI must follow a design reasoning pipeline:
+- Understand business type
+- Choose layout pattern
+- Choose section order
+- Choose tone & style
+- Then generate builder_state mutations
+
+PART 4 — INLINE EDITING UX (Elementor/Webflow style)
+
+6) Improve builder UX:
+- Click text → edit inline
+- Click image → replace / crop
+- Click section → change:
+  - padding
+  - background
+  - layout
+  - alignment
+- Drag & drop:
+  - reorder sections
+  - duplicate
+  - delete
+
+7) Responsive modes:
+- Desktop / Tablet / Mobile preview
+- Allow:
+  - per-breakpoint font sizes
+  - per-breakpoint visibility
+  - per-breakpoint layout
+
+PART 5 — SAFE ARCHITECTURE CONSTRAINTS
+
+8) AI MUST:
+- Only output structured builder_state mutations
+- Never output React/HTML code
+- Never break schema
+
+9) AI CAN:
+- Change:
+  - layout configs
+  - style tokens
+  - section structure
+  - content
+  - hierarchy
+
+PART 6 — REFACTORING & DESIGN UPGRADES
+
+10) Add commands like:
+- "Make this design more premium"
+- "Improve conversions"
+- "Make it simpler"
+- "Make it more modern"
+
+AI should:
+- Adjust spacing
+- Adjust colors
+- Adjust typography
+- Adjust section order
+- Improve visual hierarchy
+
+PART 7 — COMPONENT & SECTION EXPANSION
+
+11) Add high-value components/sections:
+- Testimonials
+- Stats counters
+- Before/after
+- Timeline
+- Team
+- Trust badges
+- Pricing comparison
+- Sticky CTA
+- Cart drawer
+- Product image gallery
+- Reviews
+
+SUCCESS CRITERIA:
+
+- AI produces pages that look like real designer-made websites.
+- Editing feels closer to Webflow / Elementor.
+- Builder_state stays clean, structured, and publishable.
+- Users can iterate visually without forms hell.
+
+DO THIS IN PHASES:
+Phase 1:
+- Design tokens + section system + AI section composition
+
+Phase 2:
+- Inline editing + drag/drop + responsive modes
+
+Phase 3:
+- AI Design mode + refactor commands + design feedback

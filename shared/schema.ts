@@ -150,15 +150,27 @@ export type ProductGridConfig = {
   limit?: number;
 };
 
+export type StylePreset = 'modern' | 'luxury' | 'playful' | 'corporate' | 'minimal' | 'custom';
+
+export type DesignTokens = {
+  primaryColor: string;
+  secondaryColor: string;
+  backgroundColor: string;
+  textColor: string;
+  fontFamily: string;
+  fontPair?: { heading: string; body: string };
+  borderRadius: string;
+  spacingScale: 'compact' | 'comfortable' | 'spacious';
+  sectionGap: string;
+  buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
+  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
+};
+
 export type BuilderStateData = {
   pages: BuilderPage[];
   activePage: string;
-  globalStyles: {
-    primaryColor: string;
-    secondaryColor: string;
-    fontFamily: string;
-    backgroundColor: string;
-  };
+  globalStyles: DesignTokens;
+  stylePreset?: StylePreset;
   media?: MediaReference[];
   bookingConfig?: BookingConfig;
   checkoutConfig?: CheckoutConfig;
