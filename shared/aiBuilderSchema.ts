@@ -84,7 +84,7 @@ export const ComponentSchema = z.object({
   id: z.string(),
   type: z.enum(['hero', 'image-slider', 'text-image', 'cta', 'features', 'testimonials', 'footer', 'header', 'product-grid', 'booking', 'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed', 'divider', 'spacer']),
   props: ComponentPropsSchema,
-  styles: ComponentStylesSchema,
+  styles: ComponentStylesSchema.optional().default({}),
 });
 
 export const GlobalStylesSchema = z.object({
