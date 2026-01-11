@@ -105,6 +105,12 @@ export type ThemeConfig = {
   secondaryColor: string;
   fontFamily: string;
   backgroundColor: string;
+  textColor?: string;
+  borderRadius?: string;
+  spacingScale?: 'compact' | 'comfortable' | 'spacious';
+  sectionGap?: string;
+  buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
+  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
 };
 
 export type PageData = {

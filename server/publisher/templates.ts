@@ -3008,24 +3008,87 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 `;
 }
 
-export function generateGlobalsCss(): string {
+export function generateGlobalsCss(theme?: ThemeConfig): string {
+  const fontFamily = theme?.fontFamily || "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const primaryColor = theme?.primaryColor || '#4f46e5';
+  const secondaryColor = theme?.secondaryColor || '#22c55e';
+  const backgroundColor = theme?.backgroundColor || '#ffffff';
+  const textColor = theme?.textColor || '#1f2937';
+  const borderRadius = theme?.borderRadius || '8px';
+  const sectionGap = theme?.sectionGap || '80px';
+  
   return `* {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+:root {
+  --primary-color: ${primaryColor};
+  --secondary-color: ${secondaryColor};
+  --background-color: ${backgroundColor};
+  --text-color: ${textColor};
+  --border-radius: ${borderRadius};
+  --section-gap: ${sectionGap};
+  --font-family: ${fontFamily};
+}
+
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-family);
   line-height: 1.5;
+  background-color: var(--background-color);
+  color: var(--text-color);
 }
 
 a {
   color: inherit;
   text-decoration: none;
 }
+
+section {
+  margin-bottom: var(--section-gap);
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+  border-radius: var(--border-radius);
+  padding: 12px 24px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family);
+  font-weight: 500;
+  transition: opacity 0.2s ease;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-secondary {
+  background-color: var(--secondary-color);
+  color: white;
+  border-radius: var(--border-radius);
+  padding: 12px 24px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family);
+  font-weight: 500;
+  transition: opacity 0.2s ease;
+}
+
+.btn-secondary:hover {
+  opacity: 0.9;
+}
+
+.card {
+  border-radius: var(--border-radius);
+  background-color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
 `;
 }
+
 
 type NavPage = { id: string; name: string; path: string };
 
