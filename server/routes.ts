@@ -3063,6 +3063,33 @@ export async function registerRoutes(
     }
   });
 
+  // AI Builder - Design analysis mode (analyzes current design and provides recommendations)
+  app.post("/api/websites/:id/ai/analyze", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const builderData = await storage.getBuilderState(req.params.id);
+      if (!builderData) {
+        return res.status(404).json({ message: "Builder state not found" });
+      }
+
+      const currentState = builderData.state as BuilderStateData;
+      const { analyzeDesign } = await import("./aiBuilder");
+      const analysis = await analyzeDesign(currentState);
+
+      res.json(analysis);
+    } catch (error: any) {
+      console.error("AI Analyze error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Analytics - Track event (public endpoint for published sites)
   // Handle CORS preflight for analytics tracking from custom domains
   app.options("/api/public/analytics/track", (req, res) => {

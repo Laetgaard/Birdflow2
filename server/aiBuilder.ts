@@ -901,6 +901,93 @@ Generate unique component IDs using: componenttype-${Date.now()}`
   }
 }
 
+export type DesignAnalysis = {
+  designScore: number;
+  strengths: string[];
+  improvements: string[];
+  recommendations: Array<{
+    category: 'layout' | 'typography' | 'color' | 'spacing' | 'content' | 'ux';
+    priority: 'high' | 'medium' | 'low';
+    suggestion: string;
+    action?: BuilderMutation;
+  }>;
+  presetSuggestion?: {
+    preset: string;
+    reason: string;
+  };
+};
+
+const DESIGN_ANALYSIS_PROMPT = `You are a professional UI/UX design analyst. Analyze the current website design and provide actionable feedback.
+
+EVALUATION CRITERIA:
+1. Visual Hierarchy: Is content properly organized with clear emphasis?
+2. Color Harmony: Do colors work together and support the brand?
+3. Typography: Are fonts readable and appropriately sized?
+4. Spacing & Rhythm: Is whitespace used effectively?
+5. Component Layout: Are sections well-structured?
+6. User Experience: Is navigation clear and intuitive?
+
+AVAILABLE PRESETS for recommendation:
+- modern: Clean tech/SaaS look with blue primary, Inter font
+- luxury: Premium dark theme with gold accents, Playfair Display font
+- playful: Creative/fun with gradients, Poppins font
+- corporate: Professional B2B with navy/gray, Source Sans Pro font
+- minimal: Clean portfolio style with subtle colors, DM Sans font
+
+Respond with a JSON object:
+{
+  "designScore": 1-100 (overall design quality),
+  "strengths": ["array of positive aspects"],
+  "improvements": ["array of areas needing improvement"],
+  "recommendations": [
+    {
+      "category": "layout|typography|color|spacing|content|ux",
+      "priority": "high|medium|low",
+      "suggestion": "specific actionable suggestion",
+      "action": {mutation object if applicable}
+    }
+  ],
+  "presetSuggestion": {
+    "preset": "preset name or null",
+    "reason": "why this preset would work well"
+  }
+}`;
+
+export async function analyzeDesign(
+  currentState: BuilderStateData
+): Promise<DesignAnalysis> {
+  const stateContext = getCurrentStateContext(currentState);
+  
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.1",
+    messages: [
+      { role: "system", content: DESIGN_ANALYSIS_PROMPT },
+      { 
+        role: "user", 
+        content: `Analyze this website design:
+
+${stateContext}
+
+Provide a comprehensive design analysis with specific, actionable recommendations.`
+      }
+    ],
+    response_format: { type: "json_object" },
+    max_completion_tokens: 2048,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("No response from AI");
+  }
+
+  const analysis = JSON.parse(content) as DesignAnalysis;
+  
+  // Ensure score is within bounds
+  analysis.designScore = Math.max(0, Math.min(100, analysis.designScore || 50));
+  
+  return analysis;
+}
+
 export function applyMutation(
   state: BuilderStateData,
   mutation: BuilderMutation
