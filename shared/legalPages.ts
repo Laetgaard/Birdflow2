@@ -5,14 +5,14 @@ export type LegalPlaceholders = {
   websiteName: string;
   companyName: string;
   contactEmail: string;
-  contactAddress: string;
+  businessAddress: string;
 };
 
 const defaultPlaceholders: LegalPlaceholders = {
   websiteName: '[Website Name]',
   companyName: '[Company Name]',
   contactEmail: '[contact@example.com]',
-  contactAddress: '[Your Business Address]',
+  businessAddress: '[Your Business Address]',
 };
 
 export function replacePlaceholders(text: string, placeholders: Partial<LegalPlaceholders>): string {
@@ -21,7 +21,7 @@ export function replacePlaceholders(text: string, placeholders: Partial<LegalPla
     .replace(/\{\{website_name\}\}/g, merged.websiteName)
     .replace(/\{\{company_name\}\}/g, merged.companyName)
     .replace(/\{\{email\}\}/g, merged.contactEmail)
-    .replace(/\{\{address\}\}/g, merged.contactAddress);
+    .replace(/\{\{address\}\}/g, merged.businessAddress);
 }
 
 export const defaultTermsContent = `

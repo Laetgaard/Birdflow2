@@ -865,7 +865,7 @@ export const legalSettings = pgTable("legal_settings", {
   websiteName: text("website_name"),
   companyName: text("company_name"),
   contactEmail: text("contact_email"),
-  contactAddress: text("contact_address"),
+  businessAddress: text("business_address"),
   termsCustomContent: text("terms_custom_content"), // Optional custom terms text
   privacyCustomContent: text("privacy_custom_content"), // Optional custom privacy text
   createdAt: timestamp("created_at").defaultNow().notNull(),

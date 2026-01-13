@@ -3485,7 +3485,7 @@ export async function registerRoutes(
           websiteName: website.name,
           companyName: null,
           contactEmail: null,
-          contactAddress: null,
+          businessAddress: null,
         });
       }
 
@@ -3515,16 +3515,16 @@ export async function registerRoutes(
           websiteName: website.name,
           companyName: null,
           contactEmail: null,
-          contactAddress: null,
+          businessAddress: null,
         });
       }
 
-      const { websiteName, companyName, contactEmail, contactAddress, termsCustomContent, privacyCustomContent } = req.body;
+      const { websiteName, companyName, contactEmail, businessAddress, termsCustomContent, privacyCustomContent } = req.body;
       const updatedSettings = await storage.updateLegalSettings(req.params.id, {
         websiteName,
         companyName,
         contactEmail,
-        contactAddress,
+        businessAddress,
         termsCustomContent,
         privacyCustomContent,
       });
