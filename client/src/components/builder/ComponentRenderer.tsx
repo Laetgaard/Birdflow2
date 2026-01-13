@@ -271,7 +271,6 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
     : `rgba(26, 26, 46, ${backgroundOpacity})`;
   
   const heroStyle: React.CSSProperties = {
-    backgroundColor: bgColorWithOpacity,
     color: styles.textColor,
     padding: styles.padding || '80px 24px',
     cursor: isPreview ? 'default' : 'pointer',
@@ -292,7 +291,9 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
           />
         </div>
       )}
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 1 }}>
+      {/* Color overlay - sits on top of the background image */}
+      <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
+      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 2 }}>
         {canEdit ? (
           <EditableText
             value={props.title || ''}
