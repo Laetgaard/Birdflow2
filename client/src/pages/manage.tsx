@@ -4165,6 +4165,13 @@ export default function ManagePage() {
                 </CardContent>
               </Card>
 
+              {session && id && (
+                <LegalSettingsCard 
+                  websiteId={id} 
+                  accessToken={session.access_token} 
+                />
+              )}
+
               <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
                 <DialogContent className="max-w-md">
                   <DialogHeader>
