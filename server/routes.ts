@@ -3465,6 +3465,76 @@ export async function registerRoutes(
     }
   });
 
+  // Legal Settings - Get legal settings for a website
+  app.get("/api/websites/:id/legal-settings", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      let settings = await storage.getLegalSettings(req.params.id);
+      
+      // Create default settings if they don't exist
+      if (!settings) {
+        settings = await storage.createLegalSettings({
+          websiteId: req.params.id,
+          websiteName: website.name,
+          companyName: null,
+          contactEmail: null,
+          contactAddress: null,
+        });
+      }
+
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Get legal settings error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Legal Settings - Update legal settings for a website
+  app.patch("/api/websites/:id/legal-settings", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      // Get or create settings first
+      let settings = await storage.getLegalSettings(req.params.id);
+      if (!settings) {
+        settings = await storage.createLegalSettings({
+          websiteId: req.params.id,
+          websiteName: website.name,
+          companyName: null,
+          contactEmail: null,
+          contactAddress: null,
+        });
+      }
+
+      const { websiteName, companyName, contactEmail, contactAddress, termsCustomContent, privacyCustomContent } = req.body;
+      const updatedSettings = await storage.updateLegalSettings(req.params.id, {
+        websiteName,
+        companyName,
+        contactEmail,
+        contactAddress,
+        termsCustomContent,
+        privacyCustomContent,
+      });
+      res.json(updatedSettings);
+    } catch (error: any) {
+      console.error("Update legal settings error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Admin middleware - requires both auth and admin role
   const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
     const userId = (req as any).user?.id;
