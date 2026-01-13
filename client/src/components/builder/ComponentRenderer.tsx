@@ -24,6 +24,29 @@ function formatCurrency(amount: number, currency: string = 'USD'): string {
   return currency === 'DKK' ? `${formatted} ${symbol}` : `${symbol}${formatted}`;
 }
 
+function hexToRgba(hex: string, opacity: number): string {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (result) {
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  }
+  return hex;
+}
+
+function getContrastColor(hexColor: string): string {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hexColor);
+  if (result) {
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5 ? '#000000' : '#ffffff';
+  }
+  return '#ffffff';
+}
+
 type BuilderPage = {
   id: string;
   name: string;
@@ -231,7 +254,6 @@ type ComponentRenderProps = {
 };
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
-  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   const backgroundImage = imageValue?.url ? { backgroundImage: `url(${imageValue.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
   
@@ -240,9 +262,27 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
   const titleFontSize = styles.titleFontSize || '48px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
+  const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonTextColor = getContrastColor(buttonColor);
+  const backgroundOpacity = typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : 1;
+  
+  const bgColorWithOpacity = styles.backgroundColor 
+    ? hexToRgba(styles.backgroundColor, backgroundOpacity)
+    : `rgba(26, 26, 46, ${backgroundOpacity})`;
+  
+  const heroStyle: React.CSSProperties = {
+    backgroundColor: bgColorWithOpacity,
+    color: styles.textColor,
+    padding: styles.padding || '80px 24px',
+    cursor: isPreview ? 'default' : 'pointer',
+    position: 'relative',
+    overflow: 'hidden',
+    fontFamily,
+    ...backgroundImage,
+  };
   
   return (
-    <section style={{ ...baseStyle, ...backgroundImage, position: 'relative', overflow: 'hidden', fontFamily }} onClick={onClick}>
+    <section style={heroStyle} onClick={onClick}>
       {imageValue?.crop && imageValue.url && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
           <CroppedImage 
@@ -301,7 +341,7 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
         )}
         {props.buttonText && (
           <button 
-            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: '#1a1a1a', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: buttonColor, color: buttonTextColor, border: 'none', borderRadius: '8px', cursor: 'pointer' }}
             onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('buttonText'); } : undefined}
           >
             {canEdit && editingField === 'buttonText' ? (
@@ -449,6 +489,8 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
   const titleFontSize = styles.titleFontSize || '36px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
+  const buttonColor = styles.buttonColor || '#ffffff';
+  const buttonTextColor = getContrastColor(buttonColor);
   
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
@@ -483,7 +525,7 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
         )}
         {props.buttonText && (
           <button 
-            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: styles.backgroundColor || '#4f46e5', border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: buttonColor, color: buttonTextColor, border: 'none', borderRadius: '8px', cursor: 'pointer' }}
             onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('buttonText'); } : undefined}
           >
             {canEdit && editingField === 'buttonText' ? (
@@ -674,6 +716,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const logoImage = props.imageUrl ? parseImageValue(props.imageUrl) : null;
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -703,20 +746,30 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   return (
     <header style={{ ...baseStyle, position: 'relative', fontFamily }} onClick={onClick}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
-        {canEdit ? (
-          <EditableText
-            value={props.title || ''}
-            field="title"
-            isEditing={editingField === 'title'}
-            onEdit={onEditField}
-            onChange={onTextChange}
-            style={{ fontSize: '20px', fontWeight: 700 }}
-            as="span"
-            isPreview={isPreview}
-          />
-        ) : (
-          <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {logoImage?.url && (
+            <img 
+              src={logoImage.url} 
+              alt="Logo" 
+              style={{ height: '40px', width: 'auto', objectFit: 'contain' }}
+              data-testid="header-logo"
+            />
+          )}
+          {canEdit ? (
+            <EditableText
+              value={props.title || ''}
+              field="title"
+              isEditing={editingField === 'title'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '20px', fontWeight: 700 }}
+              as="span"
+              isPreview={isPreview}
+            />
+          ) : (
+            <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
+          )}
+        </div>
         
         {!isMobile && (
           <nav style={{ display: 'flex', gap: '24px' }} onClick={handleNavClick}>

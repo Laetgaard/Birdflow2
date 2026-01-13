@@ -1,6 +1,6 @@
 export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer';
 
-export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items';
+export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range';
 
 // Theme-based color presets
 export const themeColors = {
@@ -122,6 +122,10 @@ export type FieldDefinition = {
   group: 'content' | 'style';
   options?: string[];
   placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
 };
 
 export type ComponentItem = {
@@ -184,6 +188,7 @@ export type ComponentProps = {
 
 export type ComponentStyles = {
   backgroundColor?: string;
+  backgroundOpacity?: number;
   textColor?: string;
   padding?: string;
   margin?: string;
@@ -212,6 +217,7 @@ export type ComponentStyles = {
   minHeight?: string;
   overflow?: string;
   accentColor?: string;
+  buttonColor?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   buttonRadius?: string;
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
@@ -248,8 +254,10 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     },
     defaultStyles: {
       backgroundColor: '#1a1a2e',
+      backgroundOpacity: 100,
       textColor: '#ffffff',
       padding: '80px 24px',
+      buttonColor: '#4f46e5',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -260,6 +268,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'imageUrl', label: 'Background Image', type: 'image', group: 'content' },
       { key: 'alignment', label: 'Alignment', type: 'select', group: 'content', options: ['left', 'center', 'right'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'backgroundOpacity', label: 'Background Opacity', type: 'range', group: 'style', min: 0, max: 100, step: 5, unit: '%' },
+      { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
     ],
@@ -329,6 +339,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#4f46e5',
       textColor: '#ffffff',
       padding: '60px 24px',
+      buttonColor: '#ffffff',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -336,6 +347,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'buttonLink', label: 'Button URL', type: 'text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
     ],
@@ -400,6 +412,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     icon: 'layout',
     defaultProps: {
       title: 'Brand',
+      imageUrl: '',
       items: [
         { id: '1', title: 'Home', description: '/' },
         { id: '2', title: 'About', description: '/about' },
@@ -413,6 +426,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     },
     fields: [
       { key: 'title', label: 'Brand Name', type: 'text', group: 'content' },
+      { key: 'imageUrl', label: 'Logo Image', type: 'image', group: 'content' },
       { key: 'items', label: 'Nav Items', type: 'items', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },

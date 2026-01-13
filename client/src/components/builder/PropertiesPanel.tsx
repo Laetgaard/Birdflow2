@@ -238,7 +238,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         );
 
       case 'color': {
-        const colorPresets = field.key === 'backgroundColor' ? themeColors.backgrounds : themeColors.text;
+        const colorPresets = field.key === 'backgroundColor' ? themeColors.backgrounds : 
+          field.key === 'buttonColor' ? themeColors.backgrounds : themeColors.text;
         return (
           <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
@@ -270,6 +271,32 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                 className="flex-1"
               />
             </div>
+          </div>
+        );
+      }
+
+      case 'range': {
+        const numValue = typeof value === 'number' ? value : (field.min ?? 0);
+        const min = field.min ?? 0;
+        const max = field.max ?? 100;
+        const step = field.step ?? 1;
+        const unit = field.unit ?? '';
+        return (
+          <div key={field.key} className="space-y-2">
+            <div className="flex justify-between items-center">
+              <Label className="text-xs">{field.label}</Label>
+              <span className="text-xs text-muted-foreground">{numValue}{unit}</span>
+            </div>
+            <input
+              type="range"
+              min={min}
+              max={max}
+              step={step}
+              value={numValue}
+              onChange={(e) => setValue(field, parseInt(e.target.value))}
+              className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+              data-testid={`range-${field.key}`}
+            />
           </div>
         );
       }
