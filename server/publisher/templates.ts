@@ -1522,6 +1522,7 @@ type BuilderPage = {
   id: string;
   name: string;
   path: string;
+  hidden?: boolean;
 };
 
 type ImageValue = string | { url: string; mediaId?: string; crop?: { x: number; y: number; width: number; height: number } };
@@ -1762,7 +1763,7 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   }, []);
 
   const navItems = pages && pages.length > 0
-    ? pages.map(page => ({ id: page.id, title: page.name, href: page.path }))
+    ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
     : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
   
   return (
@@ -3090,7 +3091,7 @@ section {
 }
 
 
-type NavPage = { id: string; name: string; path: string };
+type NavPage = { id: string; name: string; path: string; hidden?: boolean };
 
 /**
  * Decodes HTML entities in component data to prevent issues in generated JSX.
@@ -3132,7 +3133,7 @@ import ProductGrid from '@/components/ProductGrid';`;
   const cleanedComponents = decodeHtmlEntities(page.components);
   const componentsJson = JSON.stringify(cleanedComponents, null, 2);
   const pagesJson = JSON.stringify(
-    (allPages || []).map(p => ({ id: p.id, name: p.name, path: p.path })),
+    (allPages || []).map(p => ({ id: p.id, name: p.name, path: p.path, hidden: p.hidden })),
     null,
     2
   );

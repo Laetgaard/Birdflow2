@@ -176,11 +176,21 @@ function formatLabel(key: string): string {
 export class EmailService {
   async sendEmail(data: EmailData): Promise<boolean> {
     console.log(`[EmailService] Attempting to send ${data.templateType} email to ${data.to} for website ${data.websiteId}`);
+    
+    if (!data.websiteId) {
+      console.error('[EmailService] FAILED: websiteId is missing - cannot send email without website context');
+      return false;
+    }
+    
     try {
       // Defensive: ensure email templates exist before trying to send
       await storage.ensureEmailTemplatesConfigured(data.websiteId);
       
       const { client: resend, fromEmail } = await getUncachableResendClient();
+      if (!resend) {
+        console.error('[EmailService] FAILED: Could not get Resend client - email API unavailable');
+        throw new Error('Email API client unavailable');
+      }
       console.log(`[EmailService] Got Resend client, fromEmail: ${fromEmail}`);
 
       const settings = await storage.getEmailSettings(data.websiteId);
@@ -190,6 +200,16 @@ export class EmailService {
         orderConfirmationEnabled: settings.orderConfirmationEnabled,
         bookingConfirmationEnabled: settings.bookingConfirmationEnabled,
       } : 'null (using defaults)');
+      
+      // Try to get company name from legal settings if no sender name is set
+      let companyName: string | null = null;
+      if (!settings?.senderName) {
+        const legalSettings = await storage.getLegalSettings(data.websiteId);
+        if (legalSettings?.companyName) {
+          companyName = legalSettings.companyName;
+          console.log(`[EmailService] Using company name from legal settings: ${companyName}`);
+        }
+      }
       
       const isEnabled = this.isEmailTypeEnabled(settings, data.templateType);
       if (!isEnabled) {
@@ -214,7 +234,8 @@ export class EmailService {
 
       const html = generateEmailHtml(settings, template, data.templateType, data.variables, data.buttonUrl);
 
-      const fromName = settings?.senderName || DEFAULT_BRANDING.senderName;
+      // Priority for sender name: email settings > legal settings company name > default
+      const fromName = settings?.senderName || companyName || DEFAULT_BRANDING.senderName;
       const senderEmail = settings?.senderEmail || fromEmail || DEFAULT_BRANDING.senderEmail;
 
       console.log(`[EmailService] Sending via Resend: to=${data.to}, from=${fromName} <${senderEmail}>, subject="${subject}"`);

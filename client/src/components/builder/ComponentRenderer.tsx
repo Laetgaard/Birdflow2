@@ -28,6 +28,7 @@ type BuilderPage = {
   id: string;
   name: string;
   path: string;
+  hidden?: boolean;
 };
 
 type RenderProps = {
@@ -682,7 +683,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   }, []);
 
   const navItems = pages && pages.length > 0
-    ? pages.map(page => ({ id: page.id, title: page.name, href: page.path }))
+    ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
     : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
 
   const handleNavClick = (e: React.MouseEvent) => {

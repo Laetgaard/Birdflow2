@@ -293,46 +293,28 @@ export default function LandingPage() {
             >
               {[
                 { 
-                  name: "Modern Business", 
-                  category: "Business", 
-                  color: "from-slate-800 to-slate-600",
-                  description: "Professional corporate website with service pages and contact forms.",
-                  features: ["5 Pages", "Contact Form", "SEO Ready"]
-                },
-                { 
-                  name: "E-Commerce Store", 
-                  category: "Shop", 
-                  color: "from-emerald-600 to-teal-500",
-                  description: "Complete online store with product catalog and secure checkout.",
-                  features: ["Product Catalog", "Cart & Checkout", "Inventory"]
-                },
-                { 
-                  name: "Service Booking", 
-                  category: "Services", 
-                  color: "from-violet-600 to-purple-500",
-                  description: "Appointment scheduling system for service-based businesses.",
-                  features: ["Calendar Booking", "Service Menu", "Reminders"]
-                },
-                { 
-                  name: "Portfolio", 
+                  name: "Portfolio Pro", 
                   category: "Creative", 
                   color: "from-rose-500 to-pink-500",
-                  description: "Showcase your creative work with stunning visual galleries.",
-                  features: ["Image Gallery", "Project Pages", "About Section"]
+                  description: "Showcase your work with a stunning portfolio featuring projects, about, and contact sections.",
+                  features: ["Project Gallery", "About Section", "Contact Form"],
+                  thumbnail: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=400&h=300&fit=crop"
                 },
                 { 
-                  name: "Restaurant", 
-                  category: "Food", 
-                  color: "from-amber-500 to-orange-500",
-                  description: "Digital menu and online ordering for restaurants and cafes.",
-                  features: ["Digital Menu", "Online Orders", "Reservations"]
+                  name: "Clinic & Services", 
+                  category: "Services", 
+                  color: "from-violet-600 to-purple-500",
+                  description: "Professional service business template with booking integration and team showcase.",
+                  features: ["Online Booking", "Team Profiles", "Service Menu"],
+                  thumbnail: "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400&h=300&fit=crop"
                 },
                 { 
-                  name: "Fitness Studio", 
-                  category: "Health", 
-                  color: "from-cyan-500 to-blue-500",
-                  description: "Class schedules and membership management for fitness centers.",
-                  features: ["Class Schedule", "Memberships", "Trainer Profiles"]
+                  name: "Webshop Starter", 
+                  category: "E-Commerce", 
+                  color: "from-emerald-600 to-teal-500",
+                  description: "Complete e-commerce template with product showcase, shopping cart, and checkout.",
+                  features: ["Product Catalog", "Cart & Checkout", "Order Management"],
+                  thumbnail: "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=400&h=300&fit=crop"
                 },
               ].map((template, i) => (
                 <motion.div

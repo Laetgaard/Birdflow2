@@ -2114,6 +2114,152 @@ export async function registerRoutes(
     }
   });
 
+  // ============ SERVICE AVAILABILITY ROUTES ============
+  
+  // Get availability rules for a service
+  app.get("/api/websites/:id/services/:serviceId/availability", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const availability = await storage.getServiceAvailability(req.params.serviceId);
+      res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create availability rule
+  app.post("/api/websites/:id/services/:serviceId/availability", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { dayOfWeek, specificDate, startTime, endTime, slotDurationMinutes, isActive } = req.body;
+
+      if (!startTime || !endTime) {
+        return res.status(400).json({ message: "Start time and end time are required" });
+      }
+
+      if (dayOfWeek === undefined && !specificDate) {
+        return res.status(400).json({ message: "Day of week or specific date is required" });
+      }
+
+      const availability = await storage.createServiceAvailability({
+        serviceId: req.params.serviceId,
+        websiteId: req.params.id,
+        dayOfWeek: dayOfWeek !== undefined ? dayOfWeek : null,
+        specificDate: specificDate || null,
+        startTime,
+        endTime,
+        slotDurationMinutes: slotDurationMinutes || null,
+        isActive: isActive !== undefined ? isActive : true,
+      });
+
+      res.status(201).json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update availability rule
+  app.put("/api/websites/:id/services/:serviceId/availability/:availabilityId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { dayOfWeek, specificDate, startTime, endTime, slotDurationMinutes, isActive } = req.body;
+
+      const availability = await storage.updateServiceAvailability(req.params.availabilityId, {
+        dayOfWeek: dayOfWeek !== undefined ? dayOfWeek : undefined,
+        specificDate: specificDate !== undefined ? specificDate : undefined,
+        startTime,
+        endTime,
+        slotDurationMinutes: slotDurationMinutes !== undefined ? slotDurationMinutes : undefined,
+        isActive: isActive !== undefined ? isActive : undefined,
+      });
+
+      if (!availability) {
+        return res.status(404).json({ message: "Availability rule not found" });
+      }
+
+      res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete availability rule
+  app.delete("/api/websites/:id/services/:serviceId/availability/:availabilityId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteServiceAvailability(req.params.availabilityId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Public endpoint to get available time slots for a date
+  app.get("/api/public/websites/:websiteId/services/:serviceId/slots", async (req, res) => {
+    try {
+      const { date } = req.query;
+      
+      if (!date || typeof date !== 'string') {
+        return res.status(400).json({ message: "Date query parameter is required (YYYY-MM-DD format)" });
+      }
+
+      // Validate date format
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD" });
+      }
+
+      const slots = await storage.getAvailableSlotsForDate(
+        req.params.serviceId,
+        req.params.websiteId,
+        date
+      );
+
+      res.json(slots);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ============ PUBLIC API ROUTES (for published websites) ============
   // These routes will be used by published websites to submit data
 
@@ -2145,44 +2291,74 @@ export async function registerRoutes(
 
   // Create a booking (public - no auth required)
   app.post("/api/public/websites/:id/bookings", async (req, res) => {
+    const websiteId = req.params.id;
+    console.log(`[Booking] Received booking request for website ${websiteId}`);
+    
     try {
-      const { customerName, customerEmail, customerPhone, service, date, notes } = req.body;
+      const { customerName, customerEmail, customerPhone, service, serviceId, date, time, notes } = req.body;
+      console.log(`[Booking] Request details:`, { customerName, customerEmail, service, serviceId, date, time });
       
       if (!customerName || !customerEmail || !service || !date) {
+        console.log(`[Booking] REJECTED: Missing required fields`);
         return res.status(400).json({ message: "Customer name, email, service, and date are required" });
       }
 
-      const website = await storage.getWebsite(req.params.id);
+      const website = await storage.getWebsite(websiteId);
       if (!website) {
+        console.log(`[Booking] REJECTED: Website not found: ${websiteId}`);
         return res.status(404).json({ message: "Website not found" });
+      }
+      console.log(`[Booking] Website found: ${website.name}`);
+
+      // Double-booking prevention: Check if slot is still available
+      if (serviceId && time) {
+        // Parse date string to YYYY-MM-DD format
+        const dateObj = new Date(date);
+        const dateStr = dateObj.toISOString().split('T')[0];
+        
+        console.log(`[Booking] Checking availability for service ${serviceId} on ${dateStr} at ${time}`);
+        const isAvailable = await storage.checkSlotAvailable(serviceId, websiteId, dateStr, time);
+        if (!isAvailable) {
+          console.log(`[Booking] CONFLICT: Slot ${time} on ${dateStr} is already booked for service ${serviceId}`);
+          return res.status(409).json({ 
+            message: "This time slot is no longer available. Please select a different time.",
+            code: "SLOT_UNAVAILABLE"
+          });
+        }
+        console.log(`[Booking] Slot is available, proceeding with booking`);
       }
 
       const booking = await storage.createBooking({
-        websiteId: req.params.id,
+        websiteId,
         customerName,
         customerEmail,
         customerPhone,
         service,
+        serviceId: serviceId || null,
         date: new Date(date),
+        time: time || null,
         notes,
       });
+      console.log(`[Booking] SUCCESS: Created booking ${booking.id} for ${customerName} (${customerEmail})`);
 
       // Send booking confirmation email
       try {
         const websiteUrl = website.deploymentUrl || undefined;
+        console.log(`[Booking] Sending confirmation email to ${customerEmail}`);
         await emailService.sendBookingConfirmation(
           booking,
           customerEmail,
           service,
           websiteUrl
         );
-        console.log(`Booking confirmation email sent to ${customerEmail}`);
+        console.log(`[Booking] Email sent successfully to ${customerEmail}`);
       } catch (emailErr) {
-        console.error(`Failed to send booking confirmation email:`, emailErr);
+        console.error(`[Booking] FAILED to send confirmation email to ${customerEmail}:`, emailErr);
       }
 
       res.status(201).json(booking);
     } catch (error: any) {
+      console.error(`[Booking] ERROR: Failed to create booking for website ${websiteId}:`, error.message);
       res.status(500).json({ message: error.message });
     }
   });
@@ -3676,6 +3852,85 @@ export async function registerRoutes(
       res.json({ isAdmin });
     } catch (error: any) {
       console.error("Admin check error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ SUPPORT TICKET ROUTES ============
+
+  // Create a new support ticket (authenticated users)
+  app.post("/api/support/tickets", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { type, message } = req.body;
+
+      if (!type || !message) {
+        return res.status(400).json({ message: "Type and message are required" });
+      }
+
+      const validTypes = ['bug', 'problem', 'improvement'];
+      if (!validTypes.includes(type)) {
+        return res.status(400).json({ message: "Invalid ticket type" });
+      }
+
+      const profile = await storage.getProfile(user.id);
+      const ticket = await storage.createSupportTicket({
+        userId: user.id,
+        email: profile?.email || user.email || '',
+        type,
+        message,
+        status: 'open',
+      });
+
+      res.status(201).json(ticket);
+    } catch (error: any) {
+      console.error("Create support ticket error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get user's own support tickets
+  app.get("/api/support/tickets", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const tickets = await storage.getUserTickets(user.id);
+      res.json(tickets);
+    } catch (error: any) {
+      console.error("Get user tickets error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin: Get all support tickets
+  app.get("/api/admin/support/tickets", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const tickets = await storage.getSupportTickets();
+      res.json(tickets);
+    } catch (error: any) {
+      console.error("Admin get tickets error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin: Update ticket status
+  app.patch("/api/admin/support/tickets/:id", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      const validStatuses = ['open', 'in_progress', 'closed'];
+      if (!status || !validStatuses.includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+
+      const ticket = await storage.updateTicketStatus(id, status);
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+
+      res.json(ticket);
+    } catch (error: any) {
+      console.error("Admin update ticket error:", error);
       res.status(500).json({ message: error.message });
     }
   });

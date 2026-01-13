@@ -16,7 +16,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  Globe, ArrowLeft, Loader2, Save, Eye, Upload,
+  Globe, ArrowLeft, Loader2, Save, Eye, EyeOff, Upload,
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
   Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2, ShoppingBag,
@@ -72,6 +72,7 @@ type BuilderPage = {
   id: string;
   name: string;
   path: string;
+  hidden?: boolean;
   components: BuilderComponentData[];
 };
 
@@ -827,6 +828,7 @@ export default function BuilderPage() {
               }`}
               data-testid={`page-tab-${page.id}`}
             >
+              {page.hidden && <EyeOff className="w-3 h-3 opacity-60" />}
               <span onClick={() => switchPage(page.id)}>{page.name}</span>
               <span className="text-xs opacity-60 ml-1">({page.path})</span>
               <div className="hidden group-hover:flex items-center ml-1 gap-0.5">

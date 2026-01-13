@@ -415,6 +415,30 @@ export const insertBookingServiceSchema = createInsertSchema(bookingServices).om
 export type InsertBookingService = z.infer<typeof insertBookingServiceSchema>;
 export type BookingService = typeof bookingServices.$inferSelect;
 
+// Service availability - defines available time slots per service
+export const serviceAvailability = pgTable("service_availability", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceId: varchar("service_id").notNull(),
+  websiteId: varchar("website_id").notNull(),
+  dayOfWeek: integer("day_of_week"), // 0 = Sunday, 1 = Monday, etc. (null for specific date)
+  specificDate: text("specific_date"), // YYYY-MM-DD format for specific date availability
+  startTime: text("start_time").notNull(), // HH:MM format (e.g., "09:00")
+  endTime: text("end_time").notNull(), // HH:MM format (e.g., "17:00")
+  slotDurationMinutes: integer("slot_duration_minutes"), // Override service duration if set
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertServiceAvailabilitySchema = createInsertSchema(serviceAvailability).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertServiceAvailability = z.infer<typeof insertServiceAvailabilitySchema>;
+export type ServiceAvailability = typeof serviceAvailability.$inferSelect;
+
 // Custom domains table - simplified flow using Vercel for verification
 export const customDomains = pgTable("custom_domains", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -881,5 +905,29 @@ export const insertLegalSettingsSchema = createInsertSchema(legalSettings).omit(
 
 export type InsertLegalSettings = z.infer<typeof insertLegalSettingsSchema>;
 export type LegalSettings = typeof legalSettings.$inferSelect;
+
+// Support tickets table (for user feedback, bugs, and feature requests)
+export const supportTickets = pgTable("support_tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  email: text("email").notNull(),
+  type: text("type").notNull(), // bug, problem, improvement
+  message: text("message").notNull(),
+  status: text("status").notNull().default("open"), // open, in_progress, closed
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSupportTicket = z.infer<typeof insertSupportTicketSchema>;
+export type SupportTicket = typeof supportTickets.$inferSelect;
+
+export type SupportTicketType = 'bug' | 'problem' | 'improvement';
+export type SupportTicketStatus = 'open' | 'in_progress' | 'closed';
 
 export * from "./models/chat";
