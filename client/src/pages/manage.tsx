@@ -234,6 +234,17 @@ type EmailSettings = {
   footerText?: string | null;
 };
 
+type LegalSettings = {
+  id: string;
+  websiteId: string;
+  websiteName: string | null;
+  companyName: string | null;
+  contactEmail: string | null;
+  contactAddress: string | null;
+  termsCustomContent: string | null;
+  privacyCustomContent: string | null;
+};
+
 type EmailTemplate = {
   id: string;
   websiteId: string;
@@ -1207,6 +1218,163 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function LegalSettingsCard({ websiteId, accessToken }: { websiteId: string; accessToken: string }) {
+  const { toast } = useToast();
+  const [settings, setSettings] = useState<LegalSettings | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    websiteName: '',
+    companyName: '',
+    contactEmail: '',
+    contactAddress: '',
+  });
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/legal-settings`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSettings(data);
+        setFormData({
+          websiteName: data.websiteName || '',
+          companyName: data.companyName || '',
+          contactEmail: data.contactEmail || '',
+          contactAddress: data.contactAddress || '',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch legal settings:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [websiteId, accessToken]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/legal-settings`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        setSettings(updated);
+        toast({ title: 'Legal settings saved', description: 'Your company information has been updated.' });
+      } else {
+        throw new Error('Failed to save');
+      }
+    } catch (error) {
+      toast({ title: 'Failed to save legal settings', variant: 'destructive' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Settings className="w-5 h-5" />
+          Legal Information
+        </CardTitle>
+        <CardDescription>
+          This information is used in your Terms of Service and Privacy Policy pages
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="legal-website-name">Website Name</Label>
+            <Input
+              id="legal-website-name"
+              value={formData.websiteName}
+              onChange={(e) => setFormData(prev => ({ ...prev, websiteName: e.target.value }))}
+              placeholder="My Awesome Website"
+              data-testid="input-legal-website-name"
+            />
+            <p className="text-xs text-muted-foreground">Displayed in legal pages and footer</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="legal-company-name">Company Name</Label>
+            <Input
+              id="legal-company-name"
+              value={formData.companyName}
+              onChange={(e) => setFormData(prev => ({ ...prev, companyName: e.target.value }))}
+              placeholder="My Company Inc."
+              data-testid="input-legal-company-name"
+            />
+            <p className="text-xs text-muted-foreground">Your official business or legal entity name</p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="legal-contact-email">Contact Email</Label>
+          <Input
+            id="legal-contact-email"
+            type="email"
+            value={formData.contactEmail}
+            onChange={(e) => setFormData(prev => ({ ...prev, contactEmail: e.target.value }))}
+            placeholder="legal@yourcompany.com"
+            data-testid="input-legal-contact-email"
+          />
+          <p className="text-xs text-muted-foreground">Email address for legal inquiries and privacy requests</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="legal-contact-address">Business Address</Label>
+          <Textarea
+            id="legal-contact-address"
+            value={formData.contactAddress}
+            onChange={(e) => setFormData(prev => ({ ...prev, contactAddress: e.target.value }))}
+            placeholder="123 Main Street&#10;Suite 100&#10;City, State 12345&#10;Country"
+            rows={3}
+            data-testid="input-legal-contact-address"
+          />
+          <p className="text-xs text-muted-foreground">Physical address for legal correspondence</p>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h4 className="font-medium text-blue-900 mb-2">About Legal Pages</h4>
+          <p className="text-sm text-blue-800">
+            Your website includes automatically generated Terms of Service and Privacy Policy pages. 
+            The information you enter above will be displayed in these pages. Make sure to keep 
+            this information accurate and up-to-date for legal compliance.
+          </p>
+        </div>
+
+        <div className="flex justify-end">
+          <Button onClick={handleSave} disabled={isSaving} data-testid="btn-save-legal-settings">
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            Save Legal Information
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
