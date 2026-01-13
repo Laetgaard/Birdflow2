@@ -240,7 +240,7 @@ type LegalSettings = {
   websiteName: string | null;
   companyName: string | null;
   contactEmail: string | null;
-  contactAddress: string | null;
+  businessAddress: string | null;
   termsCustomContent: string | null;
   privacyCustomContent: string | null;
 };
@@ -1230,7 +1230,7 @@ function LegalSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
     websiteName: '',
     companyName: '',
     contactEmail: '',
-    contactAddress: '',
+    businessAddress: '',
   });
 
   const fetchSettings = useCallback(async () => {
@@ -1245,7 +1245,7 @@ function LegalSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
           websiteName: data.websiteName || '',
           companyName: data.companyName || '',
           contactEmail: data.contactEmail || '',
-          contactAddress: data.contactAddress || '',
+          businessAddress: data.businessAddress || '',
         });
       }
     } catch (error) {
@@ -1346,14 +1346,14 @@ function LegalSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="legal-contact-address">Business Address</Label>
+          <Label htmlFor="legal-business-address">Business Address</Label>
           <Textarea
-            id="legal-contact-address"
-            value={formData.contactAddress}
-            onChange={(e) => setFormData(prev => ({ ...prev, contactAddress: e.target.value }))}
+            id="legal-business-address"
+            value={formData.businessAddress}
+            onChange={(e) => setFormData(prev => ({ ...prev, businessAddress: e.target.value }))}
             placeholder="123 Main Street&#10;Suite 100&#10;City, State 12345&#10;Country"
             rows={3}
-            data-testid="input-legal-contact-address"
+            data-testid="input-legal-business-address"
           />
           <p className="text-xs text-muted-foreground">Physical address for legal correspondence</p>
         </div>
