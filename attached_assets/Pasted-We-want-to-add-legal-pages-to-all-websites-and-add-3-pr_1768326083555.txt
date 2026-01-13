@@ -1,0 +1,198 @@
+We want to add legal pages to all websites and add 3 professional starter templates with real content and structure.
+
+PART 1 — LEGAL PAGES FOR ALL WEBSITES
+
+Goal:
+Every website must automatically include:
+- /terms (Terms of Service)
+- /privacy (Privacy Policy)
+
+Implementation:
+1) Add 2 system pages to every website:
+   - Terms
+   - Privacy
+
+2) Pages use a simple editable template with placeholders:
+   - {{website_name}}
+   - {{company_name}}
+   - {{email}}
+   - {{address}}
+
+3) Add Manage → Legal section:
+   - Fields:
+     - Website name
+     - Company name
+     - Email
+     - Address
+   - These values auto-fill the legal pages.
+
+4) Provide default generic legal text.
+5) Pages must:
+   - Be part of builder_state
+   - Be included in footer or navigation
+   - Be published with the site
+   - Be fully editable in the builder
+
+PART 2 — PROFESSIONAL STARTER TEMPLATES
+
+We want 3 high-quality builder_state JSON presets with real content, structure, and sections.
+
+TEMPLATE 1 — PORTFOLIO WEBSITE
+
+Pages:
+- Home
+- About
+- Projects
+- Contact
+- Terms
+- Privacy
+
+Home structure:
+- Hero:
+  Title: "I design & build digital experiences that make brands stand out."
+  Subtitle: "I help startups and businesses turn ideas into beautiful, high-performing websites."
+  Buttons: "View my work", "Contact me"
+
+- About preview:
+  "Hi, I’m {{Your Name}}. I’m a designer & developer with a passion for clean design and great user experiences."
+
+- Selected work:
+  Grid of 3–6 projects with title + short description
+
+- Testimonials:
+  "Working with {{Name}} was an amazing experience. Our new website increased our leads by 3x."
+
+- CTA:
+  "Have a project in mind?" → "Let’s talk"
+
+About page:
+- Profile image + long bio
+- Skills / tools
+- Experience
+
+Projects page:
+- Project grid with images and descriptions
+
+Contact page:
+- Contact form + email + social links
+
+TEMPLATE 2 — CLINIC / SERVICE BUSINESS (WITH BOOKING)
+
+Pages:
+- Home
+- Services
+- Book Appointment
+- About
+- Contact
+- Terms
+- Privacy
+
+Home structure:
+- Hero:
+  "Professional care you can trust"
+  "We help you feel better, move better, and live better."
+  Button: "Book appointment"
+
+- Trust bullets:
+  ✔ Certified professionals
+  ✔ Modern equipment
+  ✔ Hundreds of happy clients
+
+- Services preview:
+  Physiotherapy, Massage, Consultation, Rehabilitation
+
+- Testimonials:
+  "Fantastic experience. Professional and very effective treatment."
+
+- CTA:
+  "Ready to get started?" → Book appointment
+
+Services page:
+- List of services with description, duration, price
+
+Book Appointment page:
+- Booking widget wired to booking system
+
+About page:
+- Clinic story, team, images
+
+Contact page:
+- Address, phone, contact form
+
+TEMPLATE 3 — WEBSHOP
+
+Pages:
+- Home
+- Shop
+- Product page
+- Cart
+- Checkout
+- Terms
+- Privacy
+
+Home structure:
+- Hero:
+  "High-quality products, made for everyday life"
+  "Fast delivery and great customer service"
+  Button: "Shop now"
+
+- Featured products grid
+
+- Trust badges:
+  ✔ Fast shipping
+  ✔ 30-day returns
+  ✔ Secure payment
+
+- Categories section
+
+Shop page:
+- Product grid
+
+Product page:
+- Image gallery
+- Product name
+- Price
+- Description
+- Add to cart
+- Features list
+- Trust info
+
+Cart page:
+- Cart items, quantities, total, checkout button
+
+Checkout page:
+- Customer info
+- Address
+- Payment
+- Confirmation
+
+PART 3 — TEMPLATE SELECTION FLOW
+
+When user clicks "Create Website":
+- Show:
+  - Start from scratch
+  - Portfolio template
+  - Clinic template
+  - Webshop template
+
+When chosen:
+- Prefill builder_state with:
+  - Pages
+  - Sections
+  - Demo content
+  - Booking or ecommerce wired
+  - Legal pages included
+
+ARCHITECTURE REQUIREMENTS:
+
+- Templates must be stored as JSON builder_state presets
+- No hardcoded pages
+- Fully editable in the builder
+- Must work with publish pipeline
+
+SUCCESS CRITERIA:
+
+- Every website automatically has Terms + Privacy pages
+- Users can start from 3 professional templates
+- Templates look like real, usable websites out of the box
+- Everything remains editable and publishable
