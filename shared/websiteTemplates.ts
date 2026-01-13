@@ -1047,6 +1047,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
           id: 'terms',
           name: 'Terms of Service',
           path: '/terms',
+          hidden: true,
           components: [
             {
               id: generateId(),
@@ -1055,8 +1056,6 @@ export const websiteTemplates: WebsiteTemplate[] = [
                 title: 'Alex Studio',
                 items: [
                   { id: '1', title: 'Home', description: '/' },
-                  { id: '2', title: 'Terms', description: '/terms' },
-                  { id: '3', title: 'Privacy', description: '/privacy' },
                 ],
               },
               styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '16px 24px' },
@@ -1077,6 +1076,10 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: '© 2024 Alex Studio. All rights reserved.',
                 description: 'hello@alexstudio.com',
+                items: [
+                  { id: '1', title: 'Terms of Service', description: '/terms' },
+                  { id: '2', title: 'Privacy Policy', description: '/privacy' },
+                ],
               },
               styles: { backgroundColor: '#1e293b', textColor: '#94a3b8', padding: '32px 24px' },
             },
@@ -1086,6 +1089,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
           id: 'privacy',
           name: 'Privacy Policy',
           path: '/privacy',
+          hidden: true,
           components: [
             {
               id: generateId(),
@@ -1094,8 +1098,6 @@ export const websiteTemplates: WebsiteTemplate[] = [
                 title: 'Alex Studio',
                 items: [
                   { id: '1', title: 'Home', description: '/' },
-                  { id: '2', title: 'Terms', description: '/terms' },
-                  { id: '3', title: 'Privacy', description: '/privacy' },
                 ],
               },
               styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '16px 24px' },
@@ -1116,6 +1118,10 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: '© 2024 Alex Studio. All rights reserved.',
                 description: 'hello@alexstudio.com',
+                items: [
+                  { id: '1', title: 'Terms of Service', description: '/terms' },
+                  { id: '2', title: 'Privacy Policy', description: '/privacy' },
+                ],
               },
               styles: { backgroundColor: '#1e293b', textColor: '#94a3b8', padding: '32px 24px' },
             },
@@ -1417,6 +1423,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
           id: 'terms',
           name: 'Terms of Service',
           path: '/terms',
+          hidden: true,
           components: [
             {
               id: generateId(),
@@ -1425,8 +1432,6 @@ export const websiteTemplates: WebsiteTemplate[] = [
                 title: 'Wellness Clinic',
                 items: [
                   { id: '1', title: 'Home', description: '/' },
-                  { id: '2', title: 'Terms', description: '/terms' },
-                  { id: '3', title: 'Privacy', description: '/privacy' },
                 ],
               },
               styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '16px 24px' },
@@ -1447,6 +1452,10 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: '© 2024 Wellness Clinic. All rights reserved.',
                 description: 'info@wellnessclinic.com',
+                items: [
+                  { id: '1', title: 'Terms of Service', description: '/terms' },
+                  { id: '2', title: 'Privacy Policy', description: '/privacy' },
+                ],
               },
               styles: { backgroundColor: '#1e293b', textColor: '#94a3b8', padding: '32px 24px' },
             },
@@ -1456,6 +1465,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
           id: 'privacy',
           name: 'Privacy Policy',
           path: '/privacy',
+          hidden: true,
           components: [
             {
               id: generateId(),
@@ -1464,8 +1474,6 @@ export const websiteTemplates: WebsiteTemplate[] = [
                 title: 'Wellness Clinic',
                 items: [
                   { id: '1', title: 'Home', description: '/' },
-                  { id: '2', title: 'Terms', description: '/terms' },
-                  { id: '3', title: 'Privacy', description: '/privacy' },
                 ],
               },
               styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '16px 24px' },
@@ -1486,6 +1494,10 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: '© 2024 Wellness Clinic. All rights reserved.',
                 description: 'info@wellnessclinic.com',
+                items: [
+                  { id: '1', title: 'Terms of Service', description: '/terms' },
+                  { id: '2', title: 'Privacy Policy', description: '/privacy' },
+                ],
               },
               styles: { backgroundColor: '#1e293b', textColor: '#94a3b8', padding: '32px 24px' },
             },
@@ -1794,6 +1806,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
           id: 'terms',
           name: 'Terms of Service',
           path: '/terms',
+          hidden: true,
           components: [
             {
               id: generateId(),
@@ -1802,8 +1815,6 @@ export const websiteTemplates: WebsiteTemplate[] = [
                 title: 'ModernShop',
                 items: [
                   { id: '1', title: 'Shop', description: '/shop' },
-                  { id: '2', title: 'Terms', description: '/terms' },
-                  { id: '3', title: 'Privacy', description: '/privacy' },
                 ],
               },
               styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '16px 24px' },
@@ -1824,6 +1835,10 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: '© 2024 ModernShop. All rights reserved.',
                 description: 'hello@modernshop.com',
+                items: [
+                  { id: '1', title: 'Terms of Service', description: '/terms' },
+                  { id: '2', title: 'Privacy Policy', description: '/privacy' },
+                ],
               },
               styles: { backgroundColor: '#1e293b', textColor: '#94a3b8', padding: '32px 24px' },
             },
@@ -1833,6 +1848,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
           id: 'privacy',
           name: 'Privacy Policy',
           path: '/privacy',
+          hidden: true,
           components: [
             {
               id: generateId(),
@@ -1841,8 +1857,6 @@ export const websiteTemplates: WebsiteTemplate[] = [
                 title: 'ModernShop',
                 items: [
                   { id: '1', title: 'Shop', description: '/shop' },
-                  { id: '2', title: 'Terms', description: '/terms' },
-                  { id: '3', title: 'Privacy', description: '/privacy' },
                 ],
               },
               styles: { backgroundColor: '#ffffff', textColor: '#1a1a1a', padding: '16px 24px' },
@@ -1863,6 +1877,10 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: '© 2024 ModernShop. All rights reserved.',
                 description: 'hello@modernshop.com',
+                items: [
+                  { id: '1', title: 'Terms of Service', description: '/terms' },
+                  { id: '2', title: 'Privacy Policy', description: '/privacy' },
+                ],
               },
               styles: { backgroundColor: '#1e293b', textColor: '#94a3b8', padding: '32px 24px' },
             },

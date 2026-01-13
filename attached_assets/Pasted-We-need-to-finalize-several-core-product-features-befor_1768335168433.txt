@@ -1,0 +1,139 @@
+We need to finalize several core product features before going live. This is a coordinated upgrade across booking, builder, emails, SaaS UI, and support.
+
+PART 1 — BOOKING SYSTEM (REAL AVAILABILITY)
+
+Goal:
+- Only times created by the website owner can be booked.
+- When a time slot is booked, it must disappear from availability.
+
+Implementation:
+- Add availability management per service:
+  - Owner defines available days + time slots.
+- Live website booking widget:
+  - Only shows available slots.
+  - On booking success:
+    - Slot is removed or marked unavailable.
+- Prevent double-booking at DB level (transaction or unique constraint).
+- Manage page:
+  - UI to define availability per service.
+
+PART 2 — TERMS / LEGAL PAGES
+
+Goal:
+Every website must automatically have:
+- /terms
+- /privacy
+
+Implementation:
+- Add 2 system pages to every website in builder_state.
+- Use editable template with placeholders:
+  - {{website_name}}
+  - {{company_name}}
+  - {{email}}
+  - {{address}}
+
+- Add Manage → Legal section:
+  - Website name
+  - Company name
+  - Email
+  - Address
+
+- Pages must:
+  - Be included in footer/navigation
+  - Be published
+  - Be editable in the builder
+
+PART 3 — PRODUCT PAGE EDITING + HIDDEN PAGES
+
+- Make product pages editable in the builder like normal pages.
+- Add support for "hidden pages":
+  - Pages that exist and are published
+  - But not shown in navigation
+  (e.g. legal pages, checkout, special landing pages)
+
+PART 4 — SUPPORT / FEEDBACK SYSTEM FOR SAAS
+
+Goal:
+Let users easily report:
+- Bugs
+- Problems
+- Feature requests
+
+Implementation:
+- Add "Send feedback" button in dashboard.
+- Simple form:
+  - Type: bug / problem / improvement
+  - Message
+
+- Store in Supabase:
+  Table: support_tickets
+    - id
+    - user_id
+    - email
+    - type
+    - message
+    - status (open, in_progress, closed)
+    - created_at
+
+- Admin panel:
+  - List all tickets
+  - Filter by status
+  - View and update status
+
+- RLS:
+  - Users only see their own tickets
+  - Admin sees all
+
+PART 5 — SAAS FRONT PAGE UI POLISH
+
+- Update landing page:
+  - Templates section should show the 3 real templates:
+    - Portfolio
+    - Clinic
+    - Webshop
+
+  - "How it works" section:
+    - Use SVG icons instead of plain text blocks
+    - Step-based visual flow
+
+- Overall goal:
+  - Make SaaS front page look professional and trustworthy
+
+PART 6 — EMAIL SENDING FROM LIVE SITES + CUSTOM DOMAIN
+
+Goal:
+When a user has connected a custom domain:
+- All transactional emails (booking/order) must:
+  - Use that domain as sender if possible
+  - Or at least show:
+    "From: {Business Name}"
+
+Implementation:
+- When sending email:
+  - Check if website has custom domain
+  - Use it in sender name / sender domain if configured
+- Ensure:
+  - Live websites always call correct BirdFlow API URL
+  - No hardcoded fallback domains
+  - All env vars injected at publish time
+
+PART 7 — STABILITY & LOGGING
+
+- Add clear logs for:
+  - Booking creation
+  - Email sending
+  - Availability conflicts
+- Fail loudly if:
+  - Email API cannot be reached
+  - Website ID is missing
+
+SUCCESS CRITERIA:
+
+- Booking system only shows real availability and prevents double bookings
+- Every website has legal pages
+- Product pages can be edited in builder
+- Hidden pages are supported
+- Users can send feedback to admin
+- SaaS front page looks professional
+- Emails from live sites respect custom domain
+- System is stable and observable
