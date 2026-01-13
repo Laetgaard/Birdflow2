@@ -858,4 +858,27 @@ export type AdminDailyVisitors = {
   pageViews: number;
 };
 
+// Legal settings for websites (Terms of Service, Privacy Policy placeholders)
+export const legalSettings = pgTable("legal_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull().unique(),
+  websiteName: text("website_name"),
+  companyName: text("company_name"),
+  contactEmail: text("contact_email"),
+  contactAddress: text("contact_address"),
+  termsCustomContent: text("terms_custom_content"), // Optional custom terms text
+  privacyCustomContent: text("privacy_custom_content"), // Optional custom privacy text
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertLegalSettingsSchema = createInsertSchema(legalSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertLegalSettings = z.infer<typeof insertLegalSettingsSchema>;
+export type LegalSettings = typeof legalSettings.$inferSelect;
+
 export * from "./models/chat";
