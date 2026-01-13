@@ -70,6 +70,7 @@ import {
   billingLeads, type BillingLead, type InsertBillingLead,
   emailSettings, type EmailSettings, type InsertEmailSettings,
   emailTemplates, type EmailTemplate, type InsertEmailTemplate,
+  legalSettings, type LegalSettings, type InsertLegalSettings,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
   type AdminUserWithStats, type AdminWebsiteWithOwner,
@@ -281,6 +282,11 @@ export interface IStorage {
   updateWebsiteAdmin(id: string, data: Partial<InsertWebsite>): Promise<Website | undefined>;
   getWebsiteByStripeSubscriptionId(subscriptionId: string): Promise<Website | undefined>;
   updateProfileStripeCustomerId(userId: string, customerId: string): Promise<void>;
+
+  // Legal settings methods
+  getLegalSettings(websiteId: string): Promise<LegalSettings | undefined>;
+  createLegalSettings(settings: InsertLegalSettings): Promise<LegalSettings>;
+  updateLegalSettings(websiteId: string, data: Partial<InsertLegalSettings>): Promise<LegalSettings | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1614,6 +1620,32 @@ export class DatabaseStorage implements IStorage {
       .update(profiles)
       .set({ stripeCustomerId: customerId })
       .where(eq(profiles.id, userId));
+  }
+
+  async getLegalSettings(websiteId: string): Promise<LegalSettings | undefined> {
+    const result = await db
+      .select()
+      .from(legalSettings)
+      .where(eq(legalSettings.websiteId, websiteId))
+      .limit(1);
+    return result[0];
+  }
+
+  async createLegalSettings(settings: InsertLegalSettings): Promise<LegalSettings> {
+    const result = await db
+      .insert(legalSettings)
+      .values(settings)
+      .returning();
+    return result[0];
+  }
+
+  async updateLegalSettings(websiteId: string, data: Partial<InsertLegalSettings>): Promise<LegalSettings | undefined> {
+    const result = await db
+      .update(legalSettings)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(legalSettings.websiteId, websiteId))
+      .returning();
+    return result[0];
   }
 }
 
