@@ -132,10 +132,13 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
   
   const websiteName = placeholders?.websiteName || defaultPlaceholders.websiteName;
   
+  // Legal pages use header with only Home link (no Terms/Privacy in nav)
+  // Footer includes links to Terms and Privacy pages
   const termsPage: BuilderPage = {
     id: 'terms',
     name: 'Terms of Service',
     path: '/terms',
+    hidden: true, // Hidden from main navigation, only in footer
     components: [
       {
         id: generateId(),
@@ -144,8 +147,6 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
           title: websiteName,
           items: [
             { id: '1', title: 'Home', description: '/' },
-            { id: '2', title: 'Terms', description: '/terms' },
-            { id: '3', title: 'Privacy', description: '/privacy' },
           ],
         },
         styles: headerStyles,
@@ -166,6 +167,10 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
         props: {
           title: `© ${new Date().getFullYear()} ${websiteName}. All rights reserved.`,
           description: placeholders?.contactEmail || defaultPlaceholders.contactEmail,
+          items: [
+            { id: '1', title: 'Terms of Service', description: '/terms' },
+            { id: '2', title: 'Privacy Policy', description: '/privacy' },
+          ],
         },
         styles: footerStyles,
       },
@@ -176,6 +181,7 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
     id: 'privacy',
     name: 'Privacy Policy',
     path: '/privacy',
+    hidden: true, // Hidden from main navigation, only in footer
     components: [
       {
         id: generateId(),
@@ -184,8 +190,6 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
           title: websiteName,
           items: [
             { id: '1', title: 'Home', description: '/' },
-            { id: '2', title: 'Terms', description: '/terms' },
-            { id: '3', title: 'Privacy', description: '/privacy' },
           ],
         },
         styles: headerStyles,
@@ -206,6 +210,10 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
         props: {
           title: `© ${new Date().getFullYear()} ${websiteName}. All rights reserved.`,
           description: placeholders?.contactEmail || defaultPlaceholders.contactEmail,
+          items: [
+            { id: '1', title: 'Terms of Service', description: '/terms' },
+            { id: '2', title: 'Privacy Policy', description: '/privacy' },
+          ],
         },
         styles: footerStyles,
       },

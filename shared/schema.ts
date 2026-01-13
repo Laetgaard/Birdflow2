@@ -100,6 +100,7 @@ export type BuilderPage = {
   id: string;
   name: string;
   path: string;
+  hidden?: boolean; // Hidden pages are not shown in navigation but still published
   components: import('./componentRegistry').BuilderComponentData[];
 };
 
