@@ -14,9 +14,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { CreateWebsiteModal } from "@/components/create-website-modal";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import { 
   Globe, Plus, Settings, CreditCard, LogOut, User as UserIcon, 
-  Loader2, ExternalLink, MoreVertical, Pencil, Trash2 
+  Loader2, ExternalLink, MoreVertical, Pencil, Trash2, MessageSquarePlus
 } from "lucide-react";
 
 type Website = {
@@ -33,6 +38,47 @@ export default function Dashboard() {
   const [websites, setWebsites] = useState<Website[]>([]);
   const [isLoadingWebsites, setIsLoadingWebsites] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [feedbackType, setFeedbackType] = useState<string>("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+  const handleSubmitFeedback = async () => {
+    if (!session || !feedbackType || !feedbackMessage.trim()) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+
+    setIsSubmittingFeedback(true);
+    try {
+      const response = await fetch("/api/support/tickets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          type: feedbackType,
+          message: feedbackMessage.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        toast.success("Feedback submitted successfully! We'll review it soon.");
+        setIsFeedbackModalOpen(false);
+        setFeedbackType("");
+        setFeedbackMessage("");
+      } else {
+        const data = await response.json();
+        toast.error(data.message || "Failed to submit feedback");
+      }
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
+      toast.error("Failed to submit feedback");
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
 
   useEffect(() => {
     if (!isLoading) {
@@ -127,6 +173,16 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsFeedbackModalOpen(true)}
+              className="gap-2"
+              data-testid="button-send-feedback"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+              Send Feedback
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-9 w-9 rounded-full" data-testid="button-profile-menu">
@@ -293,6 +349,66 @@ export default function Dashboard() {
           }
         }}
       />
+
+      <Dialog open={isFeedbackModalOpen} onOpenChange={setIsFeedbackModalOpen}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-feedback">
+          <DialogHeader>
+            <DialogTitle>Send Feedback</DialogTitle>
+            <DialogDescription>
+              Help us improve by reporting bugs, problems, or suggesting new features.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="feedback-type">Type</Label>
+              <Select value={feedbackType} onValueChange={setFeedbackType}>
+                <SelectTrigger id="feedback-type" data-testid="select-feedback-type">
+                  <SelectValue placeholder="Select feedback type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bug">Bug Report</SelectItem>
+                  <SelectItem value="problem">Problem</SelectItem>
+                  <SelectItem value="improvement">Feature Request / Improvement</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="feedback-message">Message</Label>
+              <Textarea
+                id="feedback-message"
+                placeholder="Describe your feedback in detail..."
+                value={feedbackMessage}
+                onChange={(e) => setFeedbackMessage(e.target.value)}
+                rows={5}
+                data-testid="textarea-feedback-message"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsFeedbackModalOpen(false)}
+              data-testid="button-cancel-feedback"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitFeedback}
+              disabled={isSubmittingFeedback || !feedbackType || !feedbackMessage.trim()}
+              data-testid="button-submit-feedback"
+            >
+              {isSubmittingFeedback ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "Submit Feedback"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

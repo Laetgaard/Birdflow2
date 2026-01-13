@@ -36,7 +36,14 @@ import {
   Filter,
   Search,
   RefreshCw,
+  MessageSquare,
+  Bug,
+  AlertCircle,
+  Lightbulb,
+  Eye,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import {
   LineChart,
   Line,
@@ -61,6 +68,7 @@ import type {
   AdminAnalyticsOverview,
   AdminTrafficSource,
   AdminDailyVisitors,
+  SupportTicket,
 } from "@shared/schema";
 import { PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
@@ -841,11 +849,226 @@ function WebsitesTab({ websites }: { websites: AdminWebsiteWithOwner[] }) {
   );
 }
 
+function SupportTab({
+  tickets,
+  statusFilter,
+  onStatusFilterChange,
+  onUpdateStatus,
+  isUpdating,
+}: {
+  tickets: SupportTicket[];
+  statusFilter: string;
+  onStatusFilterChange: (status: string) => void;
+  onUpdateStatus: (ticketId: string, status: string) => void;
+  isUpdating: boolean;
+}) {
+  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
+
+  const filteredTickets = tickets.filter(
+    (ticket) => statusFilter === "all" || ticket.status === statusFilter
+  );
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case "bug":
+        return <Bug className="h-4 w-4 text-red-500" />;
+      case "problem":
+        return <AlertCircle className="h-4 w-4 text-orange-500" />;
+      case "improvement":
+        return <Lightbulb className="h-4 w-4 text-blue-500" />;
+      default:
+        return <MessageSquare className="h-4 w-4" />;
+    }
+  };
+
+  const getTypeBadge = (type: string) => {
+    switch (type) {
+      case "bug":
+        return <Badge variant="destructive">Bug</Badge>;
+      case "problem":
+        return <Badge className="bg-orange-500">Problem</Badge>;
+      case "improvement":
+        return <Badge className="bg-blue-500">Improvement</Badge>;
+      default:
+        return <Badge variant="secondary">{type}</Badge>;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "open":
+        return <Badge variant="default">Open</Badge>;
+      case "in_progress":
+        return <Badge className="bg-yellow-500">In Progress</Badge>;
+      case "closed":
+        return <Badge variant="secondary">Closed</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <Select value={statusFilter} onValueChange={onStatusFilterChange}>
+          <SelectTrigger className="w-[180px]" data-testid="select-status-filter">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Tickets</SelectItem>
+            <SelectItem value="open">Open</SelectItem>
+            <SelectItem value="in_progress">In Progress</SelectItem>
+            <SelectItem value="closed">Closed</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="text-sm text-muted-foreground">
+          {filteredTickets.length} ticket{filteredTickets.length !== 1 ? "s" : ""}
+        </div>
+      </div>
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>User</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="max-w-[300px]">Message</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredTickets.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  No tickets found
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredTickets.map((ticket) => (
+                <TableRow key={ticket.id} data-testid={`row-ticket-${ticket.id}`}>
+                  <TableCell className="whitespace-nowrap">
+                    {formatDate(ticket.createdAt)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">{ticket.email}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {getTypeIcon(ticket.type)}
+                      {getTypeBadge(ticket.type)}
+                    </div>
+                  </TableCell>
+                  <TableCell>{getStatusBadge(ticket.status)}</TableCell>
+                  <TableCell className="max-w-[300px]">
+                    <div className="truncate text-sm">{ticket.message}</div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedTicket(ticket)}
+                        data-testid={`button-view-${ticket.id}`}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View
+                      </Button>
+                      <Select
+                        value={ticket.status}
+                        onValueChange={(status) => onUpdateStatus(ticket.id, status)}
+                        disabled={isUpdating}
+                      >
+                        <SelectTrigger className="w-[120px]" data-testid={`select-status-${ticket.id}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="open">Open</SelectItem>
+                          <SelectItem value="in_progress">In Progress</SelectItem>
+                          <SelectItem value="closed">Closed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <Dialog open={!!selectedTicket} onOpenChange={() => setSelectedTicket(null)}>
+        <DialogContent className="max-w-lg" data-testid="dialog-ticket-details">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedTicket && getTypeIcon(selectedTicket.type)}
+              Support Ticket Details
+            </DialogTitle>
+            <DialogDescription>
+              Submitted on {selectedTicket && formatDate(selectedTicket.createdAt)}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTicket && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-sm font-medium text-muted-foreground">User Email</div>
+                  <div className="text-sm">{selectedTicket.email}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-muted-foreground">Type</div>
+                  <div className="mt-1">{getTypeBadge(selectedTicket.type)}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-muted-foreground">Status</div>
+                  <div className="mt-1">{getStatusBadge(selectedTicket.status)}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-muted-foreground">Updated</div>
+                  <div className="text-sm">{formatDate(selectedTicket.updatedAt)}</div>
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-muted-foreground mb-2">Message</div>
+                <div className="text-sm bg-muted p-4 rounded-lg whitespace-pre-wrap">
+                  {selectedTicket.message}
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-muted-foreground mb-2">Update Status</div>
+                <Select
+                  value={selectedTicket.status}
+                  onValueChange={(status) => {
+                    onUpdateStatus(selectedTicket.id, status);
+                    setSelectedTicket({ ...selectedTicket, status });
+                  }}
+                  disabled={isUpdating}
+                >
+                  <SelectTrigger data-testid="select-modal-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="open">Open</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { user, session, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
   const [growthDays, setGrowthDays] = useState(30);
   const [activeTab, setActiveTab] = useState("overview");
+  const [ticketStatusFilter, setTicketStatusFilter] = useState("all");
 
   const getAuthHeaders = () => ({
     "Authorization": `Bearer ${session?.access_token}`,
@@ -977,6 +1200,37 @@ export default function AdminPage() {
     },
   });
 
+  const { data: supportTickets, isLoading: ticketsLoading, refetch: refetchTickets } = useQuery({
+    queryKey: ["admin-support-tickets"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/support/tickets", {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to fetch support tickets");
+      return res.json() as Promise<SupportTicket[]>;
+    },
+    enabled: adminCheck?.isAdmin && !!session,
+  });
+
+  const updateTicketMutation = useMutation({
+    mutationFn: async ({ ticketId, status }: { ticketId: string; status: string }) => {
+      const res = await fetch(`/api/admin/support/tickets/${ticketId}`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error("Failed to update ticket");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success("Ticket status updated");
+      refetchTickets();
+    },
+    onError: () => {
+      toast.error("Failed to update ticket status");
+    },
+  });
+
   if (authLoading || adminCheckLoading) {
     return (
       <div className="min-h-screen bg-background p-6">
@@ -1082,6 +1336,9 @@ export default function AdminPage() {
             <TabsTrigger value="websites" data-testid="tab-websites">
               Websites ({websites?.length || 0})
             </TabsTrigger>
+            <TabsTrigger value="support" data-testid="tab-support">
+              Support ({supportTickets?.length || 0})
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -1155,6 +1412,22 @@ export default function AdminPage() {
               <Skeleton className="h-[400px]" />
             ) : websites ? (
               <WebsitesTab websites={websites} />
+            ) : null}
+          </TabsContent>
+
+          <TabsContent value="support">
+            {ticketsLoading ? (
+              <Skeleton className="h-[400px]" />
+            ) : supportTickets ? (
+              <SupportTab
+                tickets={supportTickets}
+                statusFilter={ticketStatusFilter}
+                onStatusFilterChange={setTicketStatusFilter}
+                onUpdateStatus={(ticketId, status) =>
+                  updateTicketMutation.mutate({ ticketId, status })
+                }
+                isUpdating={updateTicketMutation.isPending}
+              />
             ) : null}
           </TabsContent>
         </Tabs>

@@ -162,6 +162,18 @@ type BookingService = {
   isActive: boolean;
 };
 
+type ServiceAvailability = {
+  id: string;
+  serviceId: string;
+  websiteId: string;
+  dayOfWeek: number | null;
+  specificDate: string | null;
+  startTime: string;
+  endTime: string;
+  slotDurationMinutes: number | null;
+  isActive: boolean;
+};
+
 type ShippingMethod = {
   id: string;
   websiteId: string;
@@ -1419,6 +1431,21 @@ export default function ManagePage() {
     isActive: true,
   });
 
+  const [selectedServiceForAvailability, setSelectedServiceForAvailability] = useState<BookingService | null>(null);
+  const [serviceAvailability, setServiceAvailability] = useState<ServiceAvailability[]>([]);
+  const [isAvailabilityDialogOpen, setIsAvailabilityDialogOpen] = useState(false);
+  const [availabilityForm, setAvailabilityForm] = useState<{
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    slotDurationMinutes: number;
+  }>({
+    dayOfWeek: 1,
+    startTime: '09:00',
+    endTime: '17:00',
+    slotDurationMinutes: 30,
+  });
+
   const [shippingMethods, setShippingMethods] = useState<ShippingMethod[]>([]);
   const [editingShipping, setEditingShipping] = useState<ShippingMethod | null>(null);
   const [isShippingDialogOpen, setIsShippingDialogOpen] = useState(false);
@@ -2214,6 +2241,97 @@ export default function ManagePage() {
       toast({
         title: "Service Deleted",
         description: "The booking service has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  const openAvailabilityDialog = async (service: BookingService) => {
+    setSelectedServiceForAvailability(service);
+    setIsAvailabilityDialogOpen(true);
+    
+    if (!session || !id) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/services/${service.id}/availability`, {
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setServiceAvailability(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch availability:", error);
+    }
+  };
+
+  const handleAddAvailability = async () => {
+    if (!session || !id || !selectedServiceForAvailability) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/services/${selectedServiceForAvailability.id}/availability`, {
+        method: 'POST',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          dayOfWeek: availabilityForm.dayOfWeek,
+          startTime: availabilityForm.startTime,
+          endTime: availabilityForm.endTime,
+          slotDurationMinutes: availabilityForm.slotDurationMinutes,
+          isActive: true,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to add availability");
+
+      const newAvailability = await res.json();
+      setServiceAvailability([...serviceAvailability, newAvailability]);
+      
+      toast({
+        title: "Availability Added",
+        description: `${dayNames[availabilityForm.dayOfWeek]} ${availabilityForm.startTime}-${availabilityForm.endTime} has been added.`,
+      });
+      
+      setAvailabilityForm({
+        dayOfWeek: 1,
+        startTime: '09:00',
+        endTime: '17:00',
+        slotDurationMinutes: 30,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteAvailability = async (availabilityId: string) => {
+    if (!session || !id || !selectedServiceForAvailability) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/services/${selectedServiceForAvailability.id}/availability/${availabilityId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to delete availability");
+      
+      setServiceAvailability(serviceAvailability.filter(a => a.id !== availabilityId));
+      
+      toast({
+        title: "Availability Removed",
+        description: "The availability rule has been removed.",
       });
     } catch (error: any) {
       toast({
@@ -3603,6 +3721,15 @@ export default function ManagePage() {
                           <Button 
                             variant="outline" 
                             size="sm"
+                            className="flex-1"
+                            onClick={() => openAvailabilityDialog(service)} 
+                            data-testid={`button-availability-service-${service.id}`}
+                          >
+                            <Clock className="w-3 h-3 mr-1" /> Availability
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
                             className="text-red-600 border-red-200 hover:bg-red-50"
                             onClick={() => handleDeleteService(service.id)} 
                             data-testid={`button-delete-service-${service.id}`}
@@ -3624,6 +3751,130 @@ export default function ManagePage() {
                 )}
               </CardContent>
             </Card>
+
+            <Dialog open={isAvailabilityDialogOpen} onOpenChange={(open) => {
+              setIsAvailabilityDialogOpen(open);
+              if (!open) {
+                setSelectedServiceForAvailability(null);
+                setServiceAvailability([]);
+              }
+            }}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Manage Availability</DialogTitle>
+                  <DialogDescription>
+                    Set when {selectedServiceForAvailability?.name || 'this service'} is available for booking.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">Current Availability Rules</Label>
+                    {serviceAvailability.length === 0 ? (
+                      <div className="text-center py-6 text-muted-foreground border rounded-lg">
+                        <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No availability rules set.</p>
+                        <p className="text-xs">Add rules below to enable booking.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {serviceAvailability.map(rule => (
+                          <div 
+                            key={rule.id} 
+                            className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                            data-testid={`availability-rule-${rule.id}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4 text-muted-foreground" />
+                              <span className="font-medium">{dayNames[rule.dayOfWeek ?? 0]}</span>
+                              <span className="text-muted-foreground">
+                                {rule.startTime} - {rule.endTime}
+                              </span>
+                              {rule.slotDurationMinutes && (
+                                <Badge variant="outline" className="text-xs">
+                                  {rule.slotDurationMinutes}min slots
+                                </Badge>
+                              )}
+                            </div>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                              onClick={() => handleDeleteAvailability(rule.id)}
+                              data-testid={`button-delete-availability-${rule.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <Label className="text-sm font-medium">Add New Availability</Label>
+                    <div className="grid grid-cols-2 gap-3 mt-3">
+                      <div className="col-span-2">
+                        <Label htmlFor="availabilityDay" className="text-xs text-muted-foreground">Day of Week</Label>
+                        <select
+                          id="availabilityDay"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          value={availabilityForm.dayOfWeek}
+                          onChange={(e) => setAvailabilityForm({...availabilityForm, dayOfWeek: parseInt(e.target.value)})}
+                          data-testid="select-availability-day"
+                        >
+                          {dayNames.map((day, idx) => (
+                            <option key={idx} value={idx}>{day}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="availabilityStart" className="text-xs text-muted-foreground">Start Time</Label>
+                        <Input 
+                          id="availabilityStart"
+                          type="time"
+                          value={availabilityForm.startTime}
+                          onChange={(e) => setAvailabilityForm({...availabilityForm, startTime: e.target.value})}
+                          data-testid="input-availability-start"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="availabilityEnd" className="text-xs text-muted-foreground">End Time</Label>
+                        <Input 
+                          id="availabilityEnd"
+                          type="time"
+                          value={availabilityForm.endTime}
+                          onChange={(e) => setAvailabilityForm({...availabilityForm, endTime: e.target.value})}
+                          data-testid="input-availability-end"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Label htmlFor="availabilitySlot" className="text-xs text-muted-foreground">Slot Duration (minutes)</Label>
+                        <Input 
+                          id="availabilitySlot"
+                          type="number"
+                          value={availabilityForm.slotDurationMinutes}
+                          onChange={(e) => setAvailabilityForm({...availabilityForm, slotDurationMinutes: parseInt(e.target.value) || 30})}
+                          data-testid="input-availability-slot"
+                        />
+                      </div>
+                    </div>
+                    <Button 
+                      className="w-full mt-4" 
+                      onClick={handleAddAvailability}
+                      data-testid="button-add-availability"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Availability Rule
+                    </Button>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsAvailabilityDialogOpen(false)}>
+                    Close
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="shipping">

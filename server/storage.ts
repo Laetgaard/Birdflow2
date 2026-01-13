@@ -71,6 +71,8 @@ import {
   emailSettings, type EmailSettings, type InsertEmailSettings,
   emailTemplates, type EmailTemplate, type InsertEmailTemplate,
   legalSettings, type LegalSettings, type InsertLegalSettings,
+  serviceAvailability, type ServiceAvailability, type InsertServiceAvailability,
+  supportTickets, type SupportTicket, type InsertSupportTicket,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
   type AdminUserWithStats, type AdminWebsiteWithOwner,
@@ -287,6 +289,20 @@ export interface IStorage {
   getLegalSettings(websiteId: string): Promise<LegalSettings | undefined>;
   createLegalSettings(settings: InsertLegalSettings): Promise<LegalSettings>;
   updateLegalSettings(websiteId: string, data: Partial<InsertLegalSettings>): Promise<LegalSettings | undefined>;
+
+  // Service availability methods
+  getServiceAvailability(serviceId: string): Promise<ServiceAvailability[]>;
+  createServiceAvailability(availability: InsertServiceAvailability): Promise<ServiceAvailability>;
+  updateServiceAvailability(id: string, data: Partial<InsertServiceAvailability>): Promise<ServiceAvailability | undefined>;
+  deleteServiceAvailability(id: string): Promise<void>;
+  getAvailableSlotsForDate(serviceId: string, websiteId: string, date: string): Promise<{time: string, available: boolean}[]>;
+  checkSlotAvailable(serviceId: string, websiteId: string, date: string, time: string): Promise<boolean>;
+
+  // Support ticket methods
+  createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket>;
+  getSupportTickets(): Promise<SupportTicket[]>;
+  getUserTickets(userId: string): Promise<SupportTicket[]>;
+  updateTicketStatus(ticketId: string, status: string): Promise<SupportTicket | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1644,6 +1660,139 @@ export class DatabaseStorage implements IStorage {
       .update(legalSettings)
       .set({ ...data, updatedAt: new Date() })
       .where(eq(legalSettings.websiteId, websiteId))
+      .returning();
+    return result[0];
+  }
+
+  // Service availability methods
+  async getServiceAvailability(serviceId: string): Promise<ServiceAvailability[]> {
+    return db.select().from(serviceAvailability).where(eq(serviceAvailability.serviceId, serviceId));
+  }
+
+  async createServiceAvailability(availability: InsertServiceAvailability): Promise<ServiceAvailability> {
+    const result = await db.insert(serviceAvailability).values(availability as any).returning();
+    return result[0];
+  }
+
+  async updateServiceAvailability(id: string, data: Partial<InsertServiceAvailability>): Promise<ServiceAvailability | undefined> {
+    const result = await db
+      .update(serviceAvailability)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(serviceAvailability.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteServiceAvailability(id: string): Promise<void> {
+    await db.delete(serviceAvailability).where(eq(serviceAvailability.id, id));
+  }
+
+  async getAvailableSlotsForDate(serviceId: string, websiteId: string, date: string): Promise<{time: string, available: boolean}[]> {
+    // Get the service to know the duration
+    const service = await db.select().from(bookingServices)
+      .where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId)))
+      .limit(1);
+    
+    if (!service[0]) return [];
+    
+    const durationMinutes = service[0].durationMinutes || 30;
+    
+    // Parse the date to get day of week (0 = Sunday, 1 = Monday, etc.)
+    const dateObj = new Date(date + 'T00:00:00');
+    const dayOfWeek = dateObj.getDay();
+    
+    // Get availability rules for this service and day
+    const availabilityRules = await db.select().from(serviceAvailability)
+      .where(
+        and(
+          eq(serviceAvailability.serviceId, serviceId),
+          eq(serviceAvailability.isActive, true),
+          sql`(${serviceAvailability.dayOfWeek} = ${dayOfWeek} OR ${serviceAvailability.specificDate} = ${date})`
+        )
+      );
+    
+    if (availabilityRules.length === 0) return [];
+    
+    // Get existing bookings for this date and service
+    const startOfDay = new Date(date + 'T00:00:00');
+    const endOfDay = new Date(date + 'T23:59:59');
+    
+    const existingBookings = await db.select().from(bookings)
+      .where(
+        and(
+          eq(bookings.websiteId, websiteId),
+          eq(bookings.serviceId, serviceId),
+          gte(bookings.date, startOfDay),
+          lte(bookings.date, endOfDay),
+          sql`${bookings.status} != 'cancelled'`
+        )
+      );
+    
+    // Build set of booked time slots
+    const bookedTimes = new Set(existingBookings.map(b => b.time).filter(Boolean));
+    
+    // Generate all possible slots
+    const slots: {time: string, available: boolean}[] = [];
+    
+    for (const rule of availabilityRules) {
+      const slotDuration = rule.slotDurationMinutes || durationMinutes;
+      const [startHour, startMin] = rule.startTime.split(':').map(Number);
+      const [endHour, endMin] = rule.endTime.split(':').map(Number);
+      
+      let currentTime = startHour * 60 + startMin;
+      const endTime = endHour * 60 + endMin;
+      
+      while (currentTime + slotDuration <= endTime) {
+        const hours = Math.floor(currentTime / 60);
+        const mins = currentTime % 60;
+        const timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+        
+        // Check if this slot is already added (from another rule)
+        const existingSlot = slots.find(s => s.time === timeStr);
+        if (!existingSlot) {
+          slots.push({
+            time: timeStr,
+            available: !bookedTimes.has(timeStr)
+          });
+        }
+        
+        currentTime += slotDuration;
+      }
+    }
+    
+    // Sort by time
+    slots.sort((a, b) => a.time.localeCompare(b.time));
+    
+    return slots;
+  }
+
+  async checkSlotAvailable(serviceId: string, websiteId: string, date: string, time: string): Promise<boolean> {
+    // First check if this slot is within availability rules
+    const slots = await this.getAvailableSlotsForDate(serviceId, websiteId, date);
+    const slot = slots.find(s => s.time === time);
+    return slot?.available ?? false;
+  }
+
+  // Support ticket methods
+  async createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket> {
+    const result = await db.insert(supportTickets).values(ticket).returning();
+    return result[0];
+  }
+
+  async getSupportTickets(): Promise<SupportTicket[]> {
+    return await db.select().from(supportTickets).orderBy(desc(supportTickets.createdAt));
+  }
+
+  async getUserTickets(userId: string): Promise<SupportTicket[]> {
+    return await db.select().from(supportTickets)
+      .where(eq(supportTickets.userId, userId))
+      .orderBy(desc(supportTickets.createdAt));
+  }
+
+  async updateTicketStatus(ticketId: string, status: string): Promise<SupportTicket | undefined> {
+    const result = await db.update(supportTickets)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(supportTickets.id, ticketId))
       .returning();
     return result[0];
   }
