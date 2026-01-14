@@ -335,6 +335,21 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
 
+// Product variant types
+export type ProductVariantOption = {
+  id: string;
+  name: string;
+  priceAdjustment: number; // Can be positive or negative
+  stockQuantity?: number;
+  sku?: string;
+};
+
+export type ProductVariant = {
+  id: string;
+  name: string; // e.g., "Size", "Color"
+  options: ProductVariantOption[];
+};
+
 // Products table (for product catalog)
 export const products = pgTable("products", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -351,6 +366,7 @@ export const products = pgTable("products", {
   category: text("category"),
   stockQuantity: integer("stock_quantity").notNull().default(0),
   trackInventory: boolean("track_inventory").notNull().default(false),
+  variants: jsonb("variants").$type<ProductVariant[]>(),
   metadata: jsonb("metadata").$type<Record<string, any>>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

@@ -109,6 +109,16 @@ Provides a registry of 6 customizable website templates with complete `builderSt
 ### Shopping Cart & Checkout System
 A full e-commerce checkout flow with a React Context for cart state, `localStorage` persistence, and UI components. It integrates with Stripe for server-side product validation, checkout session creation, and webhook handling.
 
+**Product Variants:**
+- Products can have multiple variant types (size, color, material, etc.)
+- Each variant option can have price adjustments (positive or negative)
+- Stored as JSONB in products table: `variants: [{id, name, options: [{id, name, priceAdjustment, stockQuantity?, sku?}]}]`
+- ProductGrid shows "View Options" for products with variants (redirects to product detail)
+- ProductDetailPage displays variant selection UI with price adjustment indicators
+- Cart items store: `baseProductId`, `selectedVariants`, `variantInfo`, and adjusted price
+- All checkout APIs validate variant selection and recalculate adjusted prices server-side
+- Migration: `supabase/migrations/20260114_product_variants.sql`
+
 ### Shipping System
 Dual-mode shipping management supporting manual fixed pricing and live carrier rates (UPS, GLS, PostNord) with encrypted credentials, fallback mechanisms, and UI for management.
 
