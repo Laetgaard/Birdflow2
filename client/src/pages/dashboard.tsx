@@ -43,14 +43,30 @@ export default function Dashboard() {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
-  const handleSubmitFeedback = async () => {
-    if (!session || !feedbackType || !feedbackMessage.trim()) {
-      toast.error("Please fill in all fields");
+  const handleSubmitFeedback = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    console.log("Submit feedback clicked", { feedbackType, feedbackMessage, session: !!session });
+    
+    if (!session) {
+      toast.error("Please log in to submit feedback");
+      return;
+    }
+    
+    if (!feedbackType) {
+      toast.error("Please select a feedback type");
+      return;
+    }
+    
+    if (!feedbackMessage.trim()) {
+      toast.error("Please enter a message");
       return;
     }
 
     setIsSubmittingFeedback(true);
     try {
+      console.log("Sending request to /api/support/tickets");
       const response = await fetch("/api/support/tickets", {
         method: "POST",
         headers: {
@@ -63,6 +79,8 @@ export default function Dashboard() {
         }),
       });
 
+      console.log("Response status:", response.status);
+      
       if (response.ok) {
         toast.success("Feedback submitted successfully! We'll review it soon.");
         setIsFeedbackModalOpen(false);
@@ -70,6 +88,7 @@ export default function Dashboard() {
         setFeedbackMessage("");
       } else {
         const data = await response.json();
+        console.error("Error response:", data);
         toast.error(data.message || "Failed to submit feedback");
       }
     } catch (error) {
@@ -393,7 +412,8 @@ export default function Dashboard() {
               Cancel
             </Button>
             <Button
-              onClick={handleSubmitFeedback}
+              type="button"
+              onClick={(e) => handleSubmitFeedback(e)}
               disabled={isSubmittingFeedback || !feedbackType || !feedbackMessage.trim()}
               data-testid="button-submit-feedback"
             >
