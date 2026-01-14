@@ -122,6 +122,38 @@ A full e-commerce checkout flow with a React Context for cart state, `localStora
 ### Shipping System
 Dual-mode shipping management supporting manual fixed pricing and live carrier rates (UPS, GLS, PostNord) with encrypted credentials, fallback mechanisms, and UI for management.
 
+### Calendar Availability System
+Comprehensive booking availability management for services:
+
+**Components:**
+- **Weekly Schedule**: Configure available days and time slots per service (day_of_week, start_time, end_time)
+- **Blocked Dates**: Block specific dates with optional reason and yearly recurring option
+- **Active Period**: Set service availability date range (start_date, end_date)
+
+**Database Tables:**
+- `service_availability`: Weekly recurring schedule rules
+- `service_blocked_dates`: Specific dates when service is unavailable
+- `service_date_ranges`: Active service periods
+
+**Manage UI (`client/src/pages/manage.tsx`):**
+- 3-tab availability dialog: Weekly Schedule, Blocked Dates, Active Period
+- Interactive calendar for selecting blocked dates
+- Toggle for yearly recurring blocked dates
+
+**Published Site Booking Form:**
+- Interactive calendar showing available/blocked dates
+- Dynamic time slot loading based on availability and existing bookings
+- API routes: `/api/availability` (month view), `/api/slots` (date-specific times)
+
+**Security:**
+- All availability queries scoped by website_id
+- Service ownership verification prevents cross-tenant access
+- RLS policies on new tables for multi-tenant isolation
+
+**Migration File:** `supabase/migrations/20260114_calendar_availability.sql`
+- Creates service_blocked_dates and service_date_ranges tables with RLS
+- Must be applied in Supabase Dashboard SQL Editor
+
 ### Custom Domain Support
 Simplified custom domain connection via Vercel integration, allowing users to add CNAME or A records with status tracking (pending, verifying, active).
 
