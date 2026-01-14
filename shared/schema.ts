@@ -455,6 +455,46 @@ export const insertServiceAvailabilitySchema = createInsertSchema(serviceAvailab
 export type InsertServiceAvailability = z.infer<typeof insertServiceAvailabilitySchema>;
 export type ServiceAvailability = typeof serviceAvailability.$inferSelect;
 
+// Blocked dates for booking services - specific dates when service is unavailable
+export const serviceBlockedDates = pgTable("service_blocked_dates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceId: varchar("service_id").notNull(),
+  websiteId: varchar("website_id").notNull(),
+  blockedDate: text("blocked_date").notNull(), // YYYY-MM-DD format
+  reason: text("reason"), // Optional reason (e.g., "Holiday", "Vacation", "Fully booked")
+  isRecurringYearly: boolean("is_recurring_yearly").notNull().default(false), // If true, blocks same date every year
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertServiceBlockedDateSchema = createInsertSchema(serviceBlockedDates).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertServiceBlockedDate = z.infer<typeof insertServiceBlockedDateSchema>;
+export type ServiceBlockedDate = typeof serviceBlockedDates.$inferSelect;
+
+// Service date ranges - when a service is available (overall active period)
+export const serviceDateRanges = pgTable("service_date_ranges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceId: varchar("service_id").notNull(),
+  websiteId: varchar("website_id").notNull(),
+  startDate: text("start_date").notNull(), // YYYY-MM-DD format - service available from
+  endDate: text("end_date"), // YYYY-MM-DD format - service available until (null = no end)
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertServiceDateRangeSchema = createInsertSchema(serviceDateRanges).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertServiceDateRange = z.infer<typeof insertServiceDateRangeSchema>;
+export type ServiceDateRange = typeof serviceDateRanges.$inferSelect;
+
 // Custom domains table - simplified flow using Vercel for verification
 export const customDomains = pgTable("custom_domains", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
