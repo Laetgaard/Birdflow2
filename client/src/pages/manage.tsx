@@ -24,7 +24,7 @@ import {
   ShoppingCart, Calendar, Mail, Users, Palette,
   Package, Clock, CheckCircle, XCircle, AlertCircle,
   Plus, Pencil, Trash2, DollarSign, Image, Upload,
-  Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3
+  Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3, X
 } from "lucide-react";
 import { AnalyticsDashboard } from "@/components/AnalyticsDashboard";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
