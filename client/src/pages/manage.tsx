@@ -189,6 +189,25 @@ type ServiceAvailability = {
   isActive: boolean;
 };
 
+type ServiceBlockedDate = {
+  id: string;
+  serviceId: string;
+  websiteId: string;
+  blockedDate: string;
+  reason: string | null;
+  isRecurringYearly: boolean;
+  createdAt: string;
+};
+
+type ServiceDateRange = {
+  id: string;
+  serviceId: string;
+  websiteId: string;
+  startDate: string;
+  endDate: string | null;
+  isActive: boolean;
+};
+
 type ShippingMethod = {
   id: string;
   websiteId: string;
@@ -1449,7 +1468,11 @@ export default function ManagePage() {
 
   const [selectedServiceForAvailability, setSelectedServiceForAvailability] = useState<BookingService | null>(null);
   const [serviceAvailability, setServiceAvailability] = useState<ServiceAvailability[]>([]);
+  const [blockedDates, setBlockedDates] = useState<ServiceBlockedDate[]>([]);
+  const [dateRanges, setDateRanges] = useState<ServiceDateRange[]>([]);
   const [isAvailabilityDialogOpen, setIsAvailabilityDialogOpen] = useState(false);
+  const [availabilityTab, setAvailabilityTab] = useState<'schedule' | 'blocked' | 'range'>('schedule');
+  const [selectedCalendarMonth, setSelectedCalendarMonth] = useState(new Date());
   const [availabilityForm, setAvailabilityForm] = useState<{
     dayOfWeek: number;
     startTime: string;
@@ -1460,6 +1483,22 @@ export default function ManagePage() {
     startTime: '09:00',
     endTime: '17:00',
     slotDurationMinutes: 30,
+  });
+  const [blockedDateForm, setBlockedDateForm] = useState<{
+    blockedDate: string;
+    reason: string;
+    isRecurringYearly: boolean;
+  }>({
+    blockedDate: '',
+    reason: '',
+    isRecurringYearly: false,
+  });
+  const [dateRangeForm, setDateRangeForm] = useState<{
+    startDate: string;
+    endDate: string;
+  }>({
+    startDate: '',
+    endDate: '',
   });
 
   const [shippingMethods, setShippingMethods] = useState<ShippingMethod[]>([]);
@@ -2274,16 +2313,32 @@ export default function ManagePage() {
   const openAvailabilityDialog = async (service: BookingService) => {
     setSelectedServiceForAvailability(service);
     setIsAvailabilityDialogOpen(true);
+    setAvailabilityTab('schedule');
     
     if (!session || !id) return;
     
     try {
-      const res = await fetch(`/api/websites/${id}/services/${service.id}/availability`, {
-        headers: { "Authorization": `Bearer ${session.access_token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setServiceAvailability(data);
+      // Fetch all availability data in parallel
+      const [availabilityRes, blockedRes, rangesRes] = await Promise.all([
+        fetch(`/api/websites/${id}/services/${service.id}/availability`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        }),
+        fetch(`/api/websites/${id}/services/${service.id}/blocked-dates`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        }),
+        fetch(`/api/websites/${id}/services/${service.id}/date-ranges`, {
+          headers: { "Authorization": `Bearer ${session.access_token}` },
+        }),
+      ]);
+      
+      if (availabilityRes.ok) {
+        setServiceAvailability(await availabilityRes.json());
+      }
+      if (blockedRes.ok) {
+        setBlockedDates(await blockedRes.json());
+      }
+      if (rangesRes.ok) {
+        setDateRanges(await rangesRes.json());
       }
     } catch (error) {
       console.error("Failed to fetch availability:", error);
@@ -2350,6 +2405,156 @@ export default function ManagePage() {
       toast({
         title: "Availability Removed",
         description: "The availability rule has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAddBlockedDate = async () => {
+    if (!session || !id || !selectedServiceForAvailability) return;
+    
+    if (!blockedDateForm.blockedDate) {
+      toast({
+        title: "Date Required",
+        description: "Please select a date to block.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/services/${selectedServiceForAvailability.id}/blocked-dates`, {
+        method: 'POST',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          blockedDate: blockedDateForm.blockedDate,
+          reason: blockedDateForm.reason || null,
+          isRecurringYearly: blockedDateForm.isRecurringYearly,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to add blocked date");
+
+      const newBlocked = await res.json();
+      setBlockedDates([...blockedDates, newBlocked]);
+      
+      toast({
+        title: "Date Blocked",
+        description: `${blockedDateForm.blockedDate} has been blocked${blockedDateForm.isRecurringYearly ? ' (yearly)' : ''}.`,
+      });
+      
+      setBlockedDateForm({
+        blockedDate: '',
+        reason: '',
+        isRecurringYearly: false,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteBlockedDate = async (blockedDateId: string) => {
+    if (!session || !id || !selectedServiceForAvailability) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/services/${selectedServiceForAvailability.id}/blocked-dates/${blockedDateId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to remove blocked date");
+      
+      setBlockedDates(blockedDates.filter(b => b.id !== blockedDateId));
+      
+      toast({
+        title: "Blocked Date Removed",
+        description: "The date is now available for booking.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAddDateRange = async () => {
+    if (!session || !id || !selectedServiceForAvailability) return;
+    
+    if (!dateRangeForm.startDate) {
+      toast({
+        title: "Start Date Required",
+        description: "Please select a start date for the active period.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/services/${selectedServiceForAvailability.id}/date-ranges`, {
+        method: 'POST',
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          startDate: dateRangeForm.startDate,
+          endDate: dateRangeForm.endDate || null,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to add date range");
+
+      const newRange = await res.json();
+      setDateRanges([...dateRanges, newRange]);
+      
+      toast({
+        title: "Date Range Added",
+        description: `Service will be available from ${dateRangeForm.startDate}${dateRangeForm.endDate ? ` to ${dateRangeForm.endDate}` : ' onwards'}.`,
+      });
+      
+      setDateRangeForm({
+        startDate: '',
+        endDate: '',
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteDateRange = async (dateRangeId: string) => {
+    if (!session || !id || !selectedServiceForAvailability) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/services/${selectedServiceForAvailability.id}/date-ranges/${dateRangeId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to remove date range");
+      
+      setDateRanges(dateRanges.filter(r => r.id !== dateRangeId));
+      
+      toast({
+        title: "Date Range Removed",
+        description: "The active period has been removed.",
       });
     } catch (error: any) {
       toast({
@@ -3932,120 +4137,343 @@ export default function ManagePage() {
               if (!open) {
                 setSelectedServiceForAvailability(null);
                 setServiceAvailability([]);
+                setBlockedDates([]);
+                setDateRanges([]);
               }
             }}>
-              <DialogContent className="max-w-lg">
+              <DialogContent className="max-w-2xl">
                 <DialogHeader>
-                  <DialogTitle>Manage Availability</DialogTitle>
+                  <DialogTitle>Calendar Availability</DialogTitle>
                   <DialogDescription>
-                    Set when {selectedServiceForAvailability?.name || 'this service'} is available for booking.
+                    Manage when {selectedServiceForAvailability?.name || 'this service'} is available for booking.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Current Availability Rules</Label>
-                    {serviceAvailability.length === 0 ? (
-                      <div className="text-center py-6 text-muted-foreground border rounded-lg">
-                        <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">No availability rules set.</p>
-                        <p className="text-xs">Add rules below to enable booking.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {serviceAvailability.map(rule => (
-                          <div 
-                            key={rule.id} 
-                            className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
-                            data-testid={`availability-rule-${rule.id}`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <Calendar className="w-4 h-4 text-muted-foreground" />
-                              <span className="font-medium">{dayNames[rule.dayOfWeek ?? 0]}</span>
-                              <span className="text-muted-foreground">
-                                {rule.startTime} - {rule.endTime}
-                              </span>
-                              {rule.slotDurationMinutes && (
-                                <Badge variant="outline" className="text-xs">
-                                  {rule.slotDurationMinutes}min slots
-                                </Badge>
-                              )}
-                            </div>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
-                              onClick={() => handleDeleteAvailability(rule.id)}
-                              data-testid={`button-delete-availability-${rule.id}`}
+                
+                <Tabs value={availabilityTab} onValueChange={(v) => setAvailabilityTab(v as 'schedule' | 'blocked' | 'range')} className="mt-2">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="schedule" className="text-sm">
+                      <Clock className="w-4 h-4 mr-2" />
+                      Weekly Schedule
+                    </TabsTrigger>
+                    <TabsTrigger value="blocked" className="text-sm">
+                      <X className="w-4 h-4 mr-2" />
+                      Blocked Dates
+                    </TabsTrigger>
+                    <TabsTrigger value="range" className="text-sm">
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Active Period
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="schedule" className="mt-4 space-y-4">
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Weekly Availability Rules</Label>
+                      <p className="text-xs text-muted-foreground">Set which days and times the service is available each week.</p>
+                      {serviceAvailability.length === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground border rounded-lg">
+                          <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No schedule set.</p>
+                          <p className="text-xs">Add weekly hours below to enable booking.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                          {serviceAvailability.map(rule => (
+                            <div 
+                              key={rule.id} 
+                              className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                              data-testid={`availability-rule-${rule.id}`}
                             >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="border-t pt-4">
-                    <Label className="text-sm font-medium">Add New Availability</Label>
-                    <div className="grid grid-cols-2 gap-3 mt-3">
-                      <div className="col-span-2">
-                        <Label htmlFor="availabilityDay" className="text-xs text-muted-foreground">Day of Week</Label>
-                        <select
-                          id="availabilityDay"
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                          value={availabilityForm.dayOfWeek}
-                          onChange={(e) => setAvailabilityForm({...availabilityForm, dayOfWeek: parseInt(e.target.value)})}
-                          data-testid="select-availability-day"
-                        >
-                          {dayNames.map((day, idx) => (
-                            <option key={idx} value={idx}>{day}</option>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge variant="secondary" className="font-medium">
+                                  {dayNames[rule.dayOfWeek ?? 0]}
+                                </Badge>
+                                <span className="text-sm">
+                                  {rule.startTime} - {rule.endTime}
+                                </span>
+                                {rule.slotDurationMinutes && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {rule.slotDurationMinutes}min slots
+                                  </Badge>
+                                )}
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                                onClick={() => handleDeleteAvailability(rule.id)}
+                                data-testid={`button-delete-availability-${rule.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
                           ))}
-                        </select>
-                      </div>
-                      <div>
-                        <Label htmlFor="availabilityStart" className="text-xs text-muted-foreground">Start Time</Label>
-                        <Input 
-                          id="availabilityStart"
-                          type="time"
-                          value={availabilityForm.startTime}
-                          onChange={(e) => setAvailabilityForm({...availabilityForm, startTime: e.target.value})}
-                          data-testid="input-availability-start"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="availabilityEnd" className="text-xs text-muted-foreground">End Time</Label>
-                        <Input 
-                          id="availabilityEnd"
-                          type="time"
-                          value={availabilityForm.endTime}
-                          onChange={(e) => setAvailabilityForm({...availabilityForm, endTime: e.target.value})}
-                          data-testid="input-availability-end"
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <Label htmlFor="availabilitySlot" className="text-xs text-muted-foreground">Slot Duration (minutes)</Label>
-                        <Input 
-                          id="availabilitySlot"
-                          type="number"
-                          value={availabilityForm.slotDurationMinutes}
-                          onChange={(e) => setAvailabilityForm({...availabilityForm, slotDurationMinutes: parseInt(e.target.value) || 30})}
-                          data-testid="input-availability-slot"
-                        />
-                      </div>
+                        </div>
+                      )}
                     </div>
-                    <Button 
-                      className="w-full mt-4" 
-                      onClick={handleAddAvailability}
-                      data-testid="button-add-availability"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Availability Rule
-                    </Button>
-                  </div>
-                </div>
-                <DialogFooter>
+
+                    <div className="border-t pt-4">
+                      <Label className="text-sm font-medium">Add Weekly Hours</Label>
+                      <div className="grid grid-cols-4 gap-3 mt-3">
+                        <div>
+                          <Label htmlFor="availabilityDay" className="text-xs text-muted-foreground">Day</Label>
+                          <select
+                            id="availabilityDay"
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            value={availabilityForm.dayOfWeek}
+                            onChange={(e) => setAvailabilityForm({...availabilityForm, dayOfWeek: parseInt(e.target.value)})}
+                            data-testid="select-availability-day"
+                          >
+                            {dayNames.map((day, idx) => (
+                              <option key={idx} value={idx}>{day}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <Label htmlFor="availabilityStart" className="text-xs text-muted-foreground">Start</Label>
+                          <Input 
+                            id="availabilityStart"
+                            type="time"
+                            value={availabilityForm.startTime}
+                            onChange={(e) => setAvailabilityForm({...availabilityForm, startTime: e.target.value})}
+                            data-testid="input-availability-start"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="availabilityEnd" className="text-xs text-muted-foreground">End</Label>
+                          <Input 
+                            id="availabilityEnd"
+                            type="time"
+                            value={availabilityForm.endTime}
+                            onChange={(e) => setAvailabilityForm({...availabilityForm, endTime: e.target.value})}
+                            data-testid="input-availability-end"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="availabilitySlot" className="text-xs text-muted-foreground">Slot (min)</Label>
+                          <Input 
+                            id="availabilitySlot"
+                            type="number"
+                            value={availabilityForm.slotDurationMinutes}
+                            onChange={(e) => setAvailabilityForm({...availabilityForm, slotDurationMinutes: parseInt(e.target.value) || 30})}
+                            data-testid="input-availability-slot"
+                          />
+                        </div>
+                      </div>
+                      <Button 
+                        className="w-full mt-4" 
+                        onClick={handleAddAvailability}
+                        data-testid="button-add-availability"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Schedule
+                      </Button>
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="blocked" className="mt-4 space-y-4">
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Blocked Dates</Label>
+                      <p className="text-xs text-muted-foreground">Block specific dates when the service is unavailable (holidays, vacations, etc.)</p>
+                      {blockedDates.length === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground border rounded-lg">
+                          <Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No blocked dates.</p>
+                          <p className="text-xs">All scheduled days are available.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {blockedDates.map(blocked => (
+                            <div 
+                              key={blocked.id} 
+                              className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg"
+                              data-testid={`blocked-date-${blocked.id}`}
+                            >
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge variant="destructive" className="font-medium">
+                                  {new Date(blocked.blockedDate + 'T00:00:00').toLocaleDateString('en-US', { 
+                                    weekday: 'short', 
+                                    month: 'short', 
+                                    day: 'numeric',
+                                    year: 'numeric'
+                                  })}
+                                </Badge>
+                                {blocked.reason && (
+                                  <span className="text-sm text-muted-foreground">{blocked.reason}</span>
+                                )}
+                                {blocked.isRecurringYearly && (
+                                  <Badge variant="outline" className="text-xs bg-white">
+                                    Yearly
+                                  </Badge>
+                                )}
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="text-red-500 hover:text-red-700 hover:bg-red-100 h-8 w-8 p-0"
+                                onClick={() => handleDeleteBlockedDate(blocked.id)}
+                                data-testid={`button-delete-blocked-${blocked.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <Label className="text-sm font-medium">Block a Date</Label>
+                      <div className="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                          <Label htmlFor="blockedDate" className="text-xs text-muted-foreground">Date</Label>
+                          <Input 
+                            id="blockedDate"
+                            type="date"
+                            value={blockedDateForm.blockedDate}
+                            onChange={(e) => setBlockedDateForm({...blockedDateForm, blockedDate: e.target.value})}
+                            data-testid="input-blocked-date"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="blockedReason" className="text-xs text-muted-foreground">Reason (optional)</Label>
+                          <Input 
+                            id="blockedReason"
+                            placeholder="e.g., Holiday, Vacation"
+                            value={blockedDateForm.reason}
+                            onChange={(e) => setBlockedDateForm({...blockedDateForm, reason: e.target.value})}
+                            data-testid="input-blocked-reason"
+                          />
+                        </div>
+                        <div className="col-span-2 flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id="blockedRecurring"
+                            checked={blockedDateForm.isRecurringYearly}
+                            onChange={(e) => setBlockedDateForm({...blockedDateForm, isRecurringYearly: e.target.checked})}
+                            className="rounded"
+                            data-testid="checkbox-blocked-recurring"
+                          />
+                          <Label htmlFor="blockedRecurring" className="text-sm">
+                            Block this date every year (recurring holiday)
+                          </Label>
+                        </div>
+                      </div>
+                      <Button 
+                        className="w-full mt-4" 
+                        variant="destructive"
+                        onClick={handleAddBlockedDate}
+                        data-testid="button-add-blocked-date"
+                      >
+                        <X className="w-4 h-4 mr-2" />
+                        Block Date
+                      </Button>
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="range" className="mt-4 space-y-4">
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Active Service Period</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Optionally limit when this service can be booked. If not set, the service is available indefinitely.
+                      </p>
+                      {dateRanges.length === 0 ? (
+                        <div className="text-center py-6 text-muted-foreground border rounded-lg bg-green-50/50 border-green-200">
+                          <Calendar className="w-8 h-8 mx-auto mb-2 text-green-600 opacity-75" />
+                          <p className="text-sm font-medium text-green-700">Always Available</p>
+                          <p className="text-xs text-green-600">No date restrictions - service is open indefinitely.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {dateRanges.map(range => (
+                            <div 
+                              key={range.id} 
+                              className={`flex items-center justify-between p-3 rounded-lg border ${
+                                range.isActive 
+                                  ? 'bg-blue-50 border-blue-200' 
+                                  : 'bg-gray-50 border-gray-200 opacity-75'
+                              }`}
+                              data-testid={`date-range-${range.id}`}
+                            >
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge variant={range.isActive ? "default" : "secondary"}>
+                                  {range.isActive ? 'Active' : 'Inactive'}
+                                </Badge>
+                                <span className="text-sm font-medium">
+                                  {new Date(range.startDate + 'T00:00:00').toLocaleDateString('en-US', { 
+                                    month: 'short', 
+                                    day: 'numeric',
+                                    year: 'numeric'
+                                  })}
+                                </span>
+                                <span className="text-muted-foreground">→</span>
+                                <span className="text-sm font-medium">
+                                  {range.endDate 
+                                    ? new Date(range.endDate + 'T00:00:00').toLocaleDateString('en-US', { 
+                                        month: 'short', 
+                                        day: 'numeric',
+                                        year: 'numeric'
+                                      })
+                                    : 'No end date'
+                                  }
+                                </span>
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                                onClick={() => handleDeleteDateRange(range.id)}
+                                data-testid={`button-delete-range-${range.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <Label className="text-sm font-medium">Set Active Period</Label>
+                      <div className="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                          <Label htmlFor="rangeStart" className="text-xs text-muted-foreground">Start Date</Label>
+                          <Input 
+                            id="rangeStart"
+                            type="date"
+                            value={dateRangeForm.startDate}
+                            onChange={(e) => setDateRangeForm({...dateRangeForm, startDate: e.target.value})}
+                            data-testid="input-range-start"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="rangeEnd" className="text-xs text-muted-foreground">End Date (optional)</Label>
+                          <Input 
+                            id="rangeEnd"
+                            type="date"
+                            value={dateRangeForm.endDate}
+                            onChange={(e) => setDateRangeForm({...dateRangeForm, endDate: e.target.value})}
+                            data-testid="input-range-end"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Leave end date empty for an open-ended period (available from start date onwards).
+                      </p>
+                      <Button 
+                        className="w-full mt-4" 
+                        onClick={handleAddDateRange}
+                        data-testid="button-add-date-range"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Set Active Period
+                      </Button>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+                
+                <DialogFooter className="mt-4">
                   <Button variant="outline" onClick={() => setIsAvailabilityDialogOpen(false)}>
-                    Close
+                    Done
                   </Button>
                 </DialogFooter>
               </DialogContent>

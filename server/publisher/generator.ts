@@ -31,6 +31,8 @@ import {
   generateStripeWebhookApiRoute,
   generateBookingApiRoute,
   generateBookingServicesApiRoute,
+  generateAvailabilityApiRoute,
+  generateSlotsApiRoute,
   generateProductApiRoute,
   generateAnalyticsTracker,
   generateCookieBanner,
@@ -57,6 +59,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'webhook', 'stripe'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'bookings'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'booking-services'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'availability'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'slots'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'products'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'orders'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'shipping-methods'), { recursive: true });
@@ -105,6 +109,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/api/webhook/stripe/route.ts', content: generateStripeWebhookApiRoute(websiteId) },
     { path: 'app/api/bookings/route.ts', content: generateBookingApiRoute(websiteId) },
     { path: 'app/api/booking-services/route.ts', content: generateBookingServicesApiRoute(websiteId) },
+    { path: 'app/api/availability/route.ts', content: generateAvailabilityApiRoute(websiteId) },
+    { path: 'app/api/slots/route.ts', content: generateSlotsApiRoute(websiteId) },
     { path: 'app/api/products/route.ts', content: generateProductApiRoute(websiteId) },
     { path: 'app/api/orders/route.ts', content: generateOrderApiRoute(websiteId) },
     { path: 'app/api/shipping-methods/route.ts', content: generateShippingMethodsApiRoute(websiteId) },

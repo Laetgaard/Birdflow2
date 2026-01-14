@@ -359,6 +359,332 @@ export async function GET(request: NextRequest) {
 `;
 }
 
+export function generateAvailabilityApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+
+async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  let normalizedHost = host.replace(/^www\\./, '').split(':')[0];
+  const urlToMatch = \`https://\${normalizedHost}\`;
+  const urlWithWww = \`https://www.\${normalizedHost}\`;
+  
+  const { data: exactMatch } = await supabase
+    .from('websites')
+    .select('id')
+    .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
+    .limit(1)
+    .single();
+  
+  if (exactMatch) return exactMatch.id;
+  
+  const parts = normalizedHost.split('.');
+  let slug: string | null = null;
+  
+  if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
+    slug = parts[0];
+  } else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
+    slug = parts[0];
+  }
+  
+  if (slug) {
+    const { data: slugMatch } = await supabase
+      .from('websites')
+      .select('id')
+      .eq('slug', slug)
+      .limit(1)
+      .single();
+    
+    if (slugMatch) return slugMatch.id;
+  }
+  
+  return BUILD_TIME_WEBSITE_ID;
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    if (!SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
+    }
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const host = request.headers.get('host') || '';
+    const websiteId = await getWebsiteIdFromHost(host, supabase);
+    
+    if (!websiteId) {
+      return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const serviceId = searchParams.get('serviceId');
+    const month = parseInt(searchParams.get('month') || String(new Date().getMonth() + 1));
+    const year = parseInt(searchParams.get('year') || String(new Date().getFullYear()));
+
+    if (!serviceId) {
+      return NextResponse.json({ message: 'serviceId is required' }, { status: 400 });
+    }
+
+    // Verify service belongs to this website (security: prevent cross-tenant access)
+    const { data: serviceCheck } = await supabase
+      .from('booking_services')
+      .select('id')
+      .eq('id', serviceId)
+      .eq('website_id', websiteId)
+      .single();
+
+    if (!serviceCheck) {
+      return NextResponse.json({ message: 'Service not found' }, { status: 404 });
+    }
+
+    // Get weekly schedule (scoped by websiteId via service ownership check above)
+    const { data: weeklyRules } = await supabase
+      .from('service_availability')
+      .select('day_of_week, start_time, end_time')
+      .eq('service_id', serviceId)
+      .eq('is_active', true)
+      .not('day_of_week', 'is', null);
+
+    const weeklySchedule = (weeklyRules || []).map((r: any) => ({
+      dayOfWeek: r.day_of_week,
+      startTime: r.start_time,
+      endTime: r.end_time,
+    }));
+
+    // Get date range (scoped by websiteId)
+    const { data: ranges } = await supabase
+      .from('service_date_ranges')
+      .select('start_date, end_date')
+      .eq('service_id', serviceId)
+      .eq('website_id', websiteId)
+      .eq('is_active', true)
+      .limit(1);
+
+    const dateRange = ranges && ranges.length > 0 ? {
+      startDate: ranges[0].start_date,
+      endDate: ranges[0].end_date,
+    } : null;
+
+    // Get blocked dates (scoped by websiteId)
+    const { data: blockedRecords } = await supabase
+      .from('service_blocked_dates')
+      .select('blocked_date, reason, is_recurring_yearly')
+      .eq('service_id', serviceId)
+      .eq('website_id', websiteId);
+
+    // Calculate available dates for the month
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const availableDays = new Set((weeklySchedule || []).map((s: any) => s.dayOfWeek));
+    const availableDates: string[] = [];
+    const blockedDates: { date: string; reason?: string }[] = [];
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = \`\${year}-\${String(month).padStart(2, '0')}-\${String(day).padStart(2, '0')}\`;
+      const dateObj = new Date(\`\${dateStr}T00:00:00\`);
+      const dayOfWeek = dateObj.getDay();
+      
+      // Check if date is in active range
+      const inRange = !dateRange || (dateStr >= dateRange.startDate && (!dateRange.endDate || dateStr <= dateRange.endDate));
+      
+      // Check if day of week is available
+      const dayAvailable = weeklySchedule.length === 0 || availableDays.has(dayOfWeek);
+      
+      // Check if date is blocked
+      const blockedRecord = (blockedRecords || []).find((b: any) => {
+        if (b.blocked_date === dateStr) return true;
+        if (b.is_recurring_yearly) {
+          const [, bMonth, bDay] = b.blocked_date.split('-');
+          const [, currentMonth, currentDay] = dateStr.split('-');
+          return bMonth === currentMonth && bDay === currentDay;
+        }
+        return false;
+      });
+      
+      if (blockedRecord) {
+        blockedDates.push({ date: dateStr, reason: blockedRecord.reason || undefined });
+      } else if (inRange && dayAvailable && dateObj >= today) {
+        availableDates.push(dateStr);
+      }
+    }
+
+    return NextResponse.json({ availableDates, blockedDates, dateRange, weeklySchedule });
+  } catch (err) {
+    console.error('Availability error:', err);
+    return NextResponse.json({ message: 'Failed to fetch availability' }, { status: 500 });
+  }
+}
+`;
+}
+
+export function generateSlotsApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+
+async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  let normalizedHost = host.replace(/^www\\./, '').split(':')[0];
+  const urlToMatch = \`https://\${normalizedHost}\`;
+  const urlWithWww = \`https://www.\${normalizedHost}\`;
+  
+  const { data: exactMatch } = await supabase
+    .from('websites')
+    .select('id')
+    .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
+    .limit(1)
+    .single();
+  
+  if (exactMatch) return exactMatch.id;
+  
+  const parts = normalizedHost.split('.');
+  let slug: string | null = null;
+  
+  if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
+    slug = parts[0];
+  } else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
+    slug = parts[0];
+  }
+  
+  if (slug) {
+    const { data: slugMatch } = await supabase
+      .from('websites')
+      .select('id')
+      .eq('slug', slug)
+      .limit(1)
+      .single();
+    
+    if (slugMatch) return slugMatch.id;
+  }
+  
+  return BUILD_TIME_WEBSITE_ID;
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    if (!SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
+    }
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const host = request.headers.get('host') || '';
+    const websiteId = await getWebsiteIdFromHost(host, supabase);
+    
+    if (!websiteId) {
+      return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const serviceId = searchParams.get('serviceId');
+    const date = searchParams.get('date');
+
+    if (!serviceId || !date) {
+      return NextResponse.json({ message: 'serviceId and date are required' }, { status: 400 });
+    }
+
+    // Validate date format
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) {
+      return NextResponse.json({ message: 'Invalid date format. Use YYYY-MM-DD' }, { status: 400 });
+    }
+
+    // Get the service
+    const { data: service } = await supabase
+      .from('booking_services')
+      .select('duration_minutes')
+      .eq('id', serviceId)
+      .eq('website_id', websiteId)
+      .single();
+
+    if (!service) {
+      return NextResponse.json([]);
+    }
+
+    const durationMinutes = service.duration_minutes || 30;
+    const dateObj = new Date(\`\${date}T00:00:00\`);
+    const dayOfWeek = dateObj.getDay();
+
+    // Get availability rules for this day
+    const { data: rules } = await supabase
+      .from('service_availability')
+      .select('start_time, end_time, slot_duration_minutes')
+      .eq('service_id', serviceId)
+      .eq('is_active', true)
+      .or(\`day_of_week.eq.\${dayOfWeek},specific_date.eq.\${date}\`);
+
+    if (!rules || rules.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    // Get existing bookings for this date
+    const startOfDay = \`\${date}T00:00:00\`;
+    const endOfDay = \`\${date}T23:59:59\`;
+
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select('time')
+      .eq('website_id', websiteId)
+      .eq('service_id', serviceId)
+      .gte('date', startOfDay)
+      .lte('date', endOfDay)
+      .neq('status', 'cancelled');
+
+    const bookedTimes = new Set((bookings || []).map((b: any) => b.time).filter(Boolean));
+
+    // Generate slots
+    const slots: { time: string; available: boolean }[] = [];
+    const addedTimes = new Set<string>();
+
+    for (const rule of rules) {
+      const slotDuration = rule.slot_duration_minutes || durationMinutes;
+      const [startHour, startMin] = rule.start_time.split(':').map(Number);
+      const [endHour, endMin] = rule.end_time.split(':').map(Number);
+      
+      let currentTime = startHour * 60 + startMin;
+      const endTime = endHour * 60 + endMin;
+      
+      while (currentTime + slotDuration <= endTime) {
+        const hours = Math.floor(currentTime / 60);
+        const mins = currentTime % 60;
+        const timeStr = \`\${String(hours).padStart(2, '0')}:\${String(mins).padStart(2, '0')}\`;
+        
+        if (!addedTimes.has(timeStr)) {
+          addedTimes.add(timeStr);
+          slots.push({
+            time: timeStr,
+            available: !bookedTimes.has(timeStr),
+          });
+        }
+        
+        currentTime += slotDuration;
+      }
+    }
+
+    slots.sort((a, b) => a.time.localeCompare(b.time));
+    return NextResponse.json(slots);
+  } catch (err) {
+    console.error('Slots error:', err);
+    return NextResponse.json({ message: 'Failed to fetch slots' }, { status: 500 });
+  }
+}
+`;
+}
+
 export function generateCheckoutApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
@@ -2342,7 +2668,8 @@ export default function ContactForm({ styles, props }: Props) {
 export function generateBookingForm(): string {
   return `'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useWebsite } from '@/components/WebsiteProvider';
 
 type BookingService = {
   id: string;
@@ -2351,6 +2678,18 @@ type BookingService = {
   duration_minutes: number;
   price: string;
   currency: string;
+};
+
+type AvailabilityData = {
+  availableDates: string[];
+  blockedDates: { date: string; reason?: string }[];
+  dateRange: { startDate: string; endDate: string | null } | null;
+  weeklySchedule: { dayOfWeek: number; startTime: string; endTime: string }[];
+};
+
+type TimeSlot = {
+  time: string;
+  available: boolean;
 };
 
 function formatCurrency(amount: number, currency: string = 'USD'): string {
@@ -2374,6 +2713,7 @@ type Props = {
 };
 
 export default function BookingForm({ styles, props }: Props) {
+  const { websiteId } = useWebsite();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [services, setServices] = useState<BookingService[]>([]);
   const [selectedService, setSelectedService] = useState('');
@@ -2384,9 +2724,16 @@ export default function BookingForm({ styles, props }: Props) {
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  
+  // Calendar and availability state
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [availability, setAvailability] = useState<AvailabilityData | null>(null);
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
 
-  const timeSlots = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const accentColor = '#6366f1';
 
   useEffect(() => {
@@ -2403,6 +2750,105 @@ export default function BookingForm({ styles, props }: Props) {
     };
     fetchServices();
   }, []);
+
+  // Fetch availability when service is selected or month changes
+  useEffect(() => {
+    if (!selectedService || !websiteId) return;
+    
+    const fetchAvailability = async () => {
+      setLoadingAvailability(true);
+      try {
+        const month = calendarMonth.getMonth() + 1;
+        const year = calendarMonth.getFullYear();
+        const res = await fetch(\`/api/availability?serviceId=\${selectedService}&month=\${month}&year=\${year}\`);
+        if (res.ok) {
+          const data = await res.json();
+          setAvailability(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch availability:', err);
+      }
+      setLoadingAvailability(false);
+    };
+    fetchAvailability();
+  }, [selectedService, calendarMonth, websiteId]);
+
+  // Fetch time slots when date is selected
+  useEffect(() => {
+    if (!selectedService || !selectedDate || !websiteId) return;
+    
+    const fetchSlots = async () => {
+      setLoadingSlots(true);
+      setSelectedTime('');
+      try {
+        const res = await fetch(\`/api/slots?serviceId=\${selectedService}&date=\${selectedDate}\`);
+        if (res.ok) {
+          const data = await res.json();
+          setTimeSlots(data);
+        } else {
+          setTimeSlots([]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch slots:', err);
+        setTimeSlots([]);
+      }
+      setLoadingSlots(false);
+    };
+    fetchSlots();
+  }, [selectedService, selectedDate, websiteId]);
+
+  // Generate calendar days for current month
+  const calendarDays = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startPadding = firstDay.getDay();
+    const days: { date: Date; dateStr: string; isCurrentMonth: boolean; isPast: boolean; isBlocked: boolean; isAvailable: boolean; blockReason?: string }[] = [];
+    
+    // Add padding days from previous month
+    for (let i = startPadding - 1; i >= 0; i--) {
+      const d = new Date(year, month, -i);
+      days.push({
+        date: d,
+        dateStr: d.toISOString().split('T')[0],
+        isCurrentMonth: false,
+        isPast: true,
+        isBlocked: false,
+        isAvailable: false,
+      });
+    }
+    
+    // Add current month days
+    for (let i = 1; i <= lastDay.getDate(); i++) {
+      const d = new Date(year, month, i);
+      const dateStr = \`\${year}-\${String(month + 1).padStart(2, '0')}-\${String(i).padStart(2, '0')}\`;
+      const isPast = d < today;
+      const blockedRecord = availability?.blockedDates.find(b => b.date === dateStr);
+      const isBlocked = !!blockedRecord;
+      const isAvailable = !isPast && !isBlocked && (availability?.availableDates.includes(dateStr) ?? false);
+      
+      days.push({
+        date: d,
+        dateStr,
+        isCurrentMonth: true,
+        isPast,
+        isBlocked,
+        isAvailable,
+        blockReason: blockedRecord?.reason,
+      });
+    }
+    
+    return days;
+  }, [calendarMonth, availability]);
+
+  const handleSelectService = (serviceId: string) => {
+    setSelectedService(serviceId);
+    setSelectedDate('');
+    setSelectedTime('');
+    setTimeSlots([]);
+    setAvailability(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2435,7 +2881,6 @@ export default function BookingForm({ styles, props }: Props) {
       } else {
         const data = await res.json();
         setStatus('success');
-        // Dispatch analytics event for booking submission
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('analytics:booking_submit', { 
             detail: { serviceId: selectedService, serviceName: service?.name } 
@@ -2462,6 +2907,12 @@ export default function BookingForm({ styles, props }: Props) {
     setPhone('');
     setNotes('');
     setStatus('idle');
+    setAvailability(null);
+    setTimeSlots([]);
+  };
+
+  const navigateMonth = (direction: number) => {
+    setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + direction, 1));
   };
 
   const selectedServiceData = services.find(s => s.id === selectedService);
@@ -2469,10 +2920,13 @@ export default function BookingForm({ styles, props }: Props) {
   const canProceedStep2 = selectedDate !== '' && selectedTime !== '';
   const bgColor = styles.backgroundColor || '#f8fafc';
   const textColor = styles.textColor || '#1e293b';
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const availableSlots = timeSlots.filter(s => s.available);
 
   return (
     <section style={{ backgroundColor: bgColor, color: textColor, padding: styles.padding || '80px 24px' }}>
-      <div style={{ maxWidth: '640px', margin: '0 auto' }}>
+      <div style={{ maxWidth: '720px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', padding: '8px 16px', borderRadius: '20px', marginBottom: '16px' }}>
             <span style={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}>Book Your Appointment</span>
@@ -2513,7 +2967,7 @@ export default function BookingForm({ styles, props }: Props) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <p style={{ fontWeight: 600, marginBottom: '8px' }}>Choose a Service</p>
                     {services.map((service) => (
-                      <div key={service.id} onClick={() => setSelectedService(service.id)} style={{ padding: '20px', borderRadius: '12px', border: selectedService === service.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedService === service.id ? '#f0f4ff' : '#fff', cursor: 'pointer', transition: 'all 0.15s ease' }}>
+                      <div key={service.id} onClick={() => handleSelectService(service.id)} style={{ padding: '20px', borderRadius: '12px', border: selectedService === service.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedService === service.id ? '#f0f4ff' : '#fff', cursor: 'pointer', transition: 'all 0.15s ease' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div>
                             <p style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{service.name}</p>
@@ -2531,18 +2985,91 @@ export default function BookingForm({ styles, props }: Props) {
                 {step === 2 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <p style={{ fontWeight: 600, marginBottom: '8px' }}>Select Date & Time</p>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>Date</label>
-                      <input type="date" min={today} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '2px solid #e2e8f0' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>Time</label>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                        {timeSlots.map((time) => (
-                          <button key={time} type="button" onClick={() => setSelectedTime(time)} style={{ padding: '12px', borderRadius: '8px', border: selectedTime === time ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedTime === time ? '#f0f4ff' : '#fff', color: selectedTime === time ? accentColor : textColor, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}>{time}</button>
+                    
+                    {/* Calendar */}
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <button type="button" onClick={() => navigateMonth(-1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>&lt;</button>
+                        <span style={{ fontWeight: 600, fontSize: '16px' }}>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</span>
+                        <button type="button" onClick={() => navigateMonth(1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>&gt;</button>
+                      </div>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '8px' }}>
+                        {dayNames.map(d => (
+                          <div key={d} style={{ textAlign: 'center', fontSize: '12px', fontWeight: 500, opacity: 0.6, padding: '4px' }}>{d}</div>
                         ))}
                       </div>
+                      
+                      {loadingAvailability ? (
+                        <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>Loading availability...</div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
+                          {calendarDays.map((day, idx) => {
+                            const isSelected = day.dateStr === selectedDate;
+                            const canSelect = day.isCurrentMonth && day.isAvailable;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => canSelect && setSelectedDate(day.dateStr)}
+                                disabled={!canSelect}
+                                title={day.isBlocked ? (day.blockReason || 'Unavailable') : undefined}
+                                style={{
+                                  padding: '10px 4px',
+                                  borderRadius: '8px',
+                                  border: isSelected ? \`2px solid \${accentColor}\` : '1px solid transparent',
+                                  backgroundColor: isSelected ? '#f0f4ff' : day.isBlocked ? '#fef2f2' : canSelect ? '#fff' : 'transparent',
+                                  color: isSelected ? accentColor : !day.isCurrentMonth ? '#d1d5db' : day.isBlocked ? '#ef4444' : day.isPast ? '#9ca3af' : canSelect ? textColor : '#9ca3af',
+                                  fontWeight: isSelected ? 600 : 400,
+                                  cursor: canSelect ? 'pointer' : 'default',
+                                  opacity: !day.isCurrentMonth ? 0.3 : 1,
+                                  fontSize: '14px',
+                                  textDecoration: day.isBlocked ? 'line-through' : 'none',
+                                }}
+                              >
+                                {day.date.getDate()}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      
+                      {availability && (
+                        <div style={{ marginTop: '12px', display: 'flex', gap: '16px', justifyContent: 'center', fontSize: '12px' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ width: '12px', height: '12px', borderRadius: '4px', backgroundColor: '#f0f4ff', border: \`1px solid \${accentColor}\` }}></span>
+                            Available
+                          </span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ width: '12px', height: '12px', borderRadius: '4px', backgroundColor: '#fef2f2' }}></span>
+                            Blocked
+                          </span>
+                        </div>
+                      )}
                     </div>
+                    
+                    {/* Time Slots */}
+                    {selectedDate && (
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>
+                          Available Times for {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                        </label>
+                        {loadingSlots ? (
+                          <div style={{ textAlign: 'center', padding: '20px', opacity: 0.6 }}>Loading times...</div>
+                        ) : availableSlots.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '20px', backgroundColor: '#fefce8', borderRadius: '8px', border: '1px solid #fde047' }}>
+                            <p style={{ color: '#854d0e', fontSize: '14px' }}>No available times for this date. Please select another date.</p>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                            {availableSlots.map((slot) => (
+                              <button key={slot.time} type="button" onClick={() => setSelectedTime(slot.time)} style={{ padding: '12px', borderRadius: '8px', border: selectedTime === slot.time ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedTime === slot.time ? '#f0f4ff' : '#fff', color: selectedTime === slot.time ? accentColor : textColor, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}>{slot.time}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
                     <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
                       <button type="button" onClick={() => setStep(1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
                       <button type="button" onClick={() => canProceedStep2 && setStep(3)} disabled={!canProceedStep2} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: canProceedStep2 ? accentColor : '#e2e8f0', color: canProceedStep2 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep2 ? 'pointer' : 'default' }}>Continue</button>
@@ -2561,7 +3088,7 @@ export default function BookingForm({ styles, props }: Props) {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '4px' }}>
                           <span style={{ opacity: 0.7 }}>Date & Time:</span>
-                          <span style={{ fontWeight: 600 }}>{selectedDate} at {selectedTime}</span>
+                          <span style={{ fontWeight: 600 }}>{new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {selectedTime}</span>
                         </div>
                       </div>
                     )}
