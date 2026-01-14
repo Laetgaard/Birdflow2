@@ -136,6 +136,20 @@ type Customer = {
   createdAt: string;
 };
 
+type ProductVariantOption = {
+  id: string;
+  name: string;
+  priceAdjustment: number;
+  stockQuantity?: number;
+  sku?: string;
+};
+
+type ProductVariant = {
+  id: string;
+  name: string;
+  options: ProductVariantOption[];
+};
+
 type Product = {
   id: string;
   name: string;
@@ -150,6 +164,7 @@ type Product = {
   category?: string;
   trackInventory?: boolean;
   stockQuantity?: number;
+  variants?: ProductVariant[];
 };
 
 type BookingService = {
@@ -1417,6 +1432,7 @@ export default function ManagePage() {
     images: [],
     status: 'active',
     category: '',
+    variants: [],
   });
   
   const [bookingServices, setBookingServices] = useState<BookingService[]>([]);
@@ -1685,6 +1701,7 @@ export default function ManagePage() {
       category: '',
       stockQuantity: 0,
       trackInventory: false,
+      variants: [],
     });
     setEditingProduct(null);
   };
@@ -1704,6 +1721,7 @@ export default function ManagePage() {
         category: product.category || '',
         stockQuantity: product.stockQuantity ?? 0,
         trackInventory: product.trackInventory ?? false,
+        variants: product.variants || [],
       });
     } else {
       resetProductForm();
@@ -3256,7 +3274,7 @@ export default function ManagePage() {
                       Add Product
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-md">
+                  <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
                       <DialogDescription>
@@ -3468,6 +3486,163 @@ export default function ManagePage() {
                           </div>
                         </div>
                         <p className="text-xs text-muted-foreground">Upload or paste URLs. Press Enter to add URL.</p>
+                      </div>
+                      
+                      {/* Product Variants Section */}
+                      <div className="border-t pt-4 mt-2">
+                        <div className="flex items-center justify-between mb-3">
+                          <Label className="font-medium">Product Variants</Label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const newVariant: ProductVariant = {
+                                id: `var-${Date.now()}`,
+                                name: '',
+                                options: []
+                              };
+                              setProductForm({
+                                ...productForm,
+                                variants: [...(productForm.variants || []), newVariant]
+                              });
+                            }}
+                            data-testid="button-add-variant"
+                          >
+                            <Plus className="w-3 h-3 mr-1" />
+                            Add Variant
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Add variants like Size or Color with different price adjustments.
+                        </p>
+                        
+                        {(productForm.variants || []).length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-4 border rounded-md bg-muted/30">
+                            No variants added. Click "Add Variant" to create options like Size or Color.
+                          </p>
+                        ) : (
+                          <div className="space-y-4">
+                            {(productForm.variants || []).map((variant, variantIndex) => (
+                              <div key={variant.id} className="border rounded-lg p-3 space-y-3">
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    placeholder="Variant name (e.g., Size, Color)"
+                                    value={variant.name}
+                                    onChange={(e) => {
+                                      const updatedVariants = [...(productForm.variants || [])];
+                                      updatedVariants[variantIndex] = { ...variant, name: e.target.value };
+                                      setProductForm({ ...productForm, variants: updatedVariants });
+                                    }}
+                                    className="flex-1"
+                                    data-testid={`input-variant-name-${variantIndex}`}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      const updatedVariants = (productForm.variants || []).filter((_, i) => i !== variantIndex);
+                                      setProductForm({ ...productForm, variants: updatedVariants });
+                                    }}
+                                    className="text-destructive hover:text-destructive"
+                                    data-testid={`button-remove-variant-${variantIndex}`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                                
+                                <div className="pl-2 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <Label className="text-xs text-muted-foreground">Options</Label>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        const newOption: ProductVariantOption = {
+                                          id: `opt-${Date.now()}`,
+                                          name: '',
+                                          priceAdjustment: 0
+                                        };
+                                        const updatedVariants = [...(productForm.variants || [])];
+                                        updatedVariants[variantIndex] = {
+                                          ...variant,
+                                          options: [...variant.options, newOption]
+                                        };
+                                        setProductForm({ ...productForm, variants: updatedVariants });
+                                      }}
+                                      data-testid={`button-add-option-${variantIndex}`}
+                                    >
+                                      <Plus className="w-3 h-3 mr-1" />
+                                      Add Option
+                                    </Button>
+                                  </div>
+                                  
+                                  {variant.options.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground italic">No options yet</p>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      {variant.options.map((option, optionIndex) => (
+                                        <div key={option.id} className="flex items-center gap-2">
+                                          <Input
+                                            placeholder="Option (e.g., Small, Red)"
+                                            value={option.name}
+                                            onChange={(e) => {
+                                              const updatedVariants = [...(productForm.variants || [])];
+                                              const updatedOptions = [...variant.options];
+                                              updatedOptions[optionIndex] = { ...option, name: e.target.value };
+                                              updatedVariants[variantIndex] = { ...variant, options: updatedOptions };
+                                              setProductForm({ ...productForm, variants: updatedVariants });
+                                            }}
+                                            className="flex-1"
+                                            data-testid={`input-option-name-${variantIndex}-${optionIndex}`}
+                                          />
+                                          <div className="relative w-24">
+                                            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                                            <Input
+                                              type="number"
+                                              step="0.01"
+                                              placeholder="+/-"
+                                              value={option.priceAdjustment || ''}
+                                              onChange={(e) => {
+                                                const updatedVariants = [...(productForm.variants || [])];
+                                                const updatedOptions = [...variant.options];
+                                                updatedOptions[optionIndex] = { 
+                                                  ...option, 
+                                                  priceAdjustment: parseFloat(e.target.value) || 0 
+                                                };
+                                                updatedVariants[variantIndex] = { ...variant, options: updatedOptions };
+                                                setProductForm({ ...productForm, variants: updatedVariants });
+                                              }}
+                                              className="pl-6 text-sm"
+                                              data-testid={`input-option-price-${variantIndex}-${optionIndex}`}
+                                            />
+                                          </div>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                              const updatedVariants = [...(productForm.variants || [])];
+                                              const updatedOptions = variant.options.filter((_, i) => i !== optionIndex);
+                                              updatedVariants[variantIndex] = { ...variant, options: updatedOptions };
+                                              setProductForm({ ...productForm, variants: updatedVariants });
+                                            }}
+                                            className="text-muted-foreground hover:text-destructive p-1"
+                                            data-testid={`button-remove-option-${variantIndex}-${optionIndex}`}
+                                          >
+                                            <XCircle className="w-4 h-4" />
+                                          </Button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <DialogFooter>

@@ -414,10 +414,36 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ message: 'Product not available: ' + product.name }, { status: 400 });
       }
       
+      let priceNum = parseFloat(product.price);
+      let variantInfo = '';
+      
+      // Handle variant price adjustments
+      const productVariants = product.variants as Array<{ id: string; name: string; options: Array<{ id: string; name: string; priceAdjustment: number }> }> | null;
+      if (productVariants && productVariants.length > 0) {
+        if (!item.selectedVariants) {
+          return NextResponse.json({ message: 'Please select options for ' + product.name }, { status: 400 });
+        }
+        const variantNames: string[] = [];
+        for (const variant of productVariants) {
+          const selectedOptionId = item.selectedVariants[variant.id];
+          if (!selectedOptionId) {
+            return NextResponse.json({ message: 'Please select ' + variant.name + ' for ' + product.name }, { status: 400 });
+          }
+          const option = variant.options.find((o: { id: string }) => o.id === selectedOptionId);
+          if (option) {
+            priceNum += option.priceAdjustment || 0;
+            variantNames.push(variant.name + ': ' + option.name);
+          }
+        }
+        if (variantNames.length > 0) {
+          variantInfo = ' (' + variantNames.join(', ') + ')';
+        }
+      }
+      
       validatedItems.push({
         productId: product.id,
-        name: product.name,
-        price: parseFloat(product.price),
+        name: product.name + variantInfo,
+        price: priceNum,
         quantity: Math.max(1, Math.floor(item.quantity || 1)),
       });
     }
@@ -530,10 +556,42 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, message: 'Cannot checkout products with different currencies' }, { status: 400 });
       }
 
-      const priceNum = parseFloat(product.price);
+      let priceNum = parseFloat(product.price);
       const qty = Math.max(1, Math.floor(item.quantity || 1));
       const trackInventory = product.track_inventory || false;
       const stockQuantity = product.stock_quantity || 0;
+      let variantInfo = '';
+      
+      // Handle variant price adjustments
+      const productVariants = product.variants as Array<{ id: string; name: string; options: Array<{ id: string; name: string; priceAdjustment: number }> }> | null;
+      if (productVariants && productVariants.length > 0) {
+        if (!item.selectedVariants) {
+          return NextResponse.json({ 
+            success: false, 
+            message: 'Please select options for ' + product.name,
+            field: 'variants'
+          }, { status: 400 });
+        }
+        const variantNames: string[] = [];
+        for (const variant of productVariants) {
+          const selectedOptionId = item.selectedVariants[variant.id];
+          if (!selectedOptionId) {
+            return NextResponse.json({ 
+              success: false, 
+              message: 'Please select ' + variant.name + ' for ' + product.name,
+              field: 'variants'
+            }, { status: 400 });
+          }
+          const option = variant.options.find((o: { id: string }) => o.id === selectedOptionId);
+          if (option) {
+            priceNum += option.priceAdjustment || 0;
+            variantNames.push(variant.name + ': ' + option.name);
+          }
+        }
+        if (variantNames.length > 0) {
+          variantInfo = ' (' + variantNames.join(', ') + ')';
+        }
+      }
 
       if (trackInventory && stockQuantity < qty) {
         outOfStock.push({ productId: product.id, name: product.name, requested: qty, available: stockQuantity });
@@ -541,7 +599,7 @@ export async function POST(request: NextRequest) {
 
       validatedItems.push({
         productId: product.id,
-        name: product.name,
+        name: product.name + variantInfo,
         price: priceNum,
         priceCents: Math.round(priceNum * 100),
         quantity: qty,
@@ -626,8 +684,38 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, message: 'Currency mismatch' }, { status: 400 });
       }
 
-      const priceNum = parseFloat(product.price);
+      let priceNum = parseFloat(product.price);
       const qty = Math.max(1, Math.floor(item.quantity || 1));
+      let variantInfo = '';
+      
+      // Handle variant price adjustments
+      const productVariants = product.variants as Array<{ id: string; name: string; options: Array<{ id: string; name: string; priceAdjustment: number }> }> | null;
+      if (productVariants && productVariants.length > 0) {
+        if (!item.selectedVariants) {
+          return NextResponse.json({ 
+            success: false, 
+            message: 'Please select options for ' + product.name 
+          }, { status: 400 });
+        }
+        const variantNames: string[] = [];
+        for (const variant of productVariants) {
+          const selectedOptionId = item.selectedVariants[variant.id];
+          if (!selectedOptionId) {
+            return NextResponse.json({ 
+              success: false, 
+              message: 'Please select ' + variant.name + ' for ' + product.name 
+            }, { status: 400 });
+          }
+          const option = variant.options.find((o: { id: string }) => o.id === selectedOptionId);
+          if (option) {
+            priceNum += option.priceAdjustment || 0;
+            variantNames.push(variant.name + ': ' + option.name);
+          }
+        }
+        if (variantNames.length > 0) {
+          variantInfo = ' (' + variantNames.join(', ') + ')';
+        }
+      }
 
       if (product.track_inventory && product.stock_quantity < qty) {
         outOfStock.push({ productId: product.id, name: product.name, requested: qty, available: product.stock_quantity });
@@ -635,7 +723,7 @@ export async function POST(request: NextRequest) {
 
       validatedItems.push({
         productId: product.id,
-        name: product.name,
+        name: product.name + variantInfo,
         price: priceNum,
         priceCents: Math.round(priceNum * 100),
         quantity: qty,
@@ -1012,12 +1100,15 @@ import { useWebsite } from './WebsiteProvider';
 
 export type CartProduct = {
   id: string;
+  baseProductId?: string;
   name: string;
   description?: string;
   price: string;
   currency?: string;
   image_url?: string;
   category?: string;
+  selectedVariants?: Record<string, string>;
+  variantInfo?: string;
 };
 
 export type CartItem = {
@@ -2516,6 +2607,12 @@ import { supabase } from '@/lib/supabase';
 import { useWebsite } from '@/components/WebsiteProvider';
 import { useCart } from '@/components/CartProvider';
 
+type ProductVariant = {
+  id: string;
+  name: string;
+  options: Array<{ id: string; name: string; priceAdjustment: number }>;
+};
+
 type Product = {
   id: string;
   name: string;
@@ -2524,6 +2621,7 @@ type Product = {
   currency?: string;
   image_url?: string;
   category?: string;
+  variants?: ProductVariant[];
 };
 
 function formatCurrency(amount: number, currency: string = 'USD'): string {
@@ -2638,8 +2736,14 @@ export default function ProductGrid({ styles, props }: Props) {
                   {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
                   {product.description && <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px' }}>{product.description}</p>}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '20px', fontWeight: 700 }}>{formatCurrency(parseFloat(product.price), product.currency)}</span>
-                    <button onClick={(e) => { e.preventDefault(); handleAddToCart(product); }} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
+                    <span style={{ fontSize: '20px', fontWeight: 700 }}>
+                      {product.variants && product.variants.length > 0 ? 'From ' : ''}{formatCurrency(parseFloat(product.price), product.currency)}
+                    </span>
+                    {product.variants && product.variants.length > 0 ? (
+                      <span style={{ padding: '8px 16px', backgroundColor: '#6366f1', color: '#fff', borderRadius: '6px', fontSize: '14px', fontWeight: 500 }}>View Options</span>
+                    ) : (
+                      <button onClick={(e) => { e.preventDefault(); handleAddToCart(product); }} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
+                    )}
                   </div>
                 </div>
               </a>
@@ -3281,6 +3385,20 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCart } from '@/components/CartProvider';
 
+type ProductVariantOption = {
+  id: string;
+  name: string;
+  priceAdjustment: number;
+  stockQuantity?: number;
+  sku?: string;
+};
+
+type ProductVariant = {
+  id: string;
+  name: string;
+  options: ProductVariantOption[];
+};
+
 type Product = {
   id: string;
   name: string;
@@ -3292,6 +3410,7 @@ type Product = {
   images?: string[];
   category?: string;
   inventory?: string;
+  variants?: ProductVariant[];
 };
 
 function formatCurrency(amount: number, currency: string = 'USD'): string {
@@ -3559,6 +3678,7 @@ export default function ProductDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [addedToCart, setAddedToCart] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!productId) {
@@ -3582,16 +3702,61 @@ export default function ProductDetailPage() {
       });
   }, [productId]);
 
+  const getVariantPriceAdjustment = (): number => {
+    if (!product?.variants) return 0;
+    let adjustment = 0;
+    for (const variant of product.variants) {
+      const selectedOptionId = selectedVariants[variant.id];
+      if (selectedOptionId) {
+        const option = variant.options.find(o => o.id === selectedOptionId);
+        if (option) {
+          adjustment += option.priceAdjustment || 0;
+        }
+      }
+    }
+    return adjustment;
+  };
+
+  const getSelectedVariantNames = (): string => {
+    if (!product?.variants) return '';
+    const names: string[] = [];
+    for (const variant of product.variants) {
+      const selectedOptionId = selectedVariants[variant.id];
+      if (selectedOptionId) {
+        const option = variant.options.find(o => o.id === selectedOptionId);
+        if (option) {
+          names.push(variant.name + ': ' + option.name);
+        }
+      }
+    }
+    return names.join(', ');
+  };
+
+  const allVariantsSelected = (): boolean => {
+    if (!product?.variants || product.variants.length === 0) return true;
+    return product.variants.every(v => selectedVariants[v.id]);
+  };
+
   const handleAddToCart = () => {
     if (!product) return;
+    if (!allVariantsSelected()) return;
+    
+    const priceAdjustment = getVariantPriceAdjustment();
+    const finalPrice = (parseFloat(product.price) + priceAdjustment).toFixed(2);
+    const variantInfo = getSelectedVariantNames();
+    const hasVariants = Object.keys(selectedVariants).length > 0;
+    
     addItem({
-      id: product.id,
-      name: product.name,
+      id: product.id + (hasVariants ? '-' + Object.values(selectedVariants).join('-') : ''),
+      baseProductId: product.id,
+      name: product.name + (variantInfo ? ' (' + variantInfo + ')' : ''),
       description: product.description,
-      price: product.price,
+      price: finalPrice,
       currency: product.currency,
       image_url: product.image_url,
       category: product.category,
+      selectedVariants: hasVariants ? { ...selectedVariants } : undefined,
+      variantInfo: variantInfo || undefined,
     }, quantity);
     setAddedToCart(true);
     setTimeout(() => setAddedToCart(false), 2000);
@@ -3680,14 +3845,62 @@ export default function ProductDetailPage() {
               </div>
             )}
             
-            <p style={{ fontSize: '36px', fontWeight: 700, color: '#4f46e5', margin: 0 }}>
-              {formatCurrency(parseFloat(product.price), product.currency)}
-            </p>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
+              <p style={{ fontSize: '36px', fontWeight: 700, color: '#4f46e5', margin: 0 }}>
+                {formatCurrency(parseFloat(product.price) + getVariantPriceAdjustment(), product.currency)}
+              </p>
+              {getVariantPriceAdjustment() !== 0 && (
+                <span style={{ fontSize: '18px', color: '#9ca3af', textDecoration: 'line-through' }}>
+                  {formatCurrency(parseFloat(product.price), product.currency)}
+                </span>
+              )}
+            </div>
 
             {product.description && (
               <p style={{ fontSize: '16px', color: '#6b7280', lineHeight: 1.6, margin: 0 }}>
                 {product.description}
               </p>
+            )}
+
+            {product.variants && product.variants.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {product.variants.map(variant => (
+                  <div key={variant.id}>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>
+                      {variant.name}
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {variant.options.map(option => {
+                        const isSelected = selectedVariants[variant.id] === option.id;
+                        return (
+                          <button
+                            key={option.id}
+                            onClick={() => setSelectedVariants(prev => ({ ...prev, [variant.id]: option.id }))}
+                            style={{
+                              padding: '10px 16px',
+                              border: isSelected ? '2px solid #4f46e5' : '1px solid #e5e7eb',
+                              borderRadius: '8px',
+                              backgroundColor: isSelected ? '#eef2ff' : '#fff',
+                              color: isSelected ? '#4f46e5' : '#374151',
+                              fontWeight: isSelected ? 600 : 400,
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            {option.name}
+                            {option.priceAdjustment !== 0 && (
+                              <span style={{ marginLeft: '4px', fontSize: '12px', color: option.priceAdjustment > 0 ? '#059669' : '#dc2626' }}>
+                                {option.priceAdjustment > 0 ? '+' : ''}{formatCurrency(option.priceAdjustment, product.currency)}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
 
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -3729,18 +3942,18 @@ export default function ProductDetailPage() {
 
               <button
                 onClick={handleAddToCart}
-                disabled={isOutOfStock}
+                disabled={isOutOfStock || !allVariantsSelected()}
                 style={{
                   flex: 1,
                   minWidth: '200px',
                   padding: '14px 32px',
-                  backgroundColor: isOutOfStock ? '#d1d5db' : addedToCart ? '#22c55e' : '#4f46e5',
+                  backgroundColor: isOutOfStock || !allVariantsSelected() ? '#d1d5db' : addedToCart ? '#22c55e' : '#4f46e5',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '12px',
                   fontSize: '16px',
                   fontWeight: 600,
-                  cursor: isOutOfStock ? 'not-allowed' : 'pointer',
+                  cursor: isOutOfStock || !allVariantsSelected() ? 'not-allowed' : 'pointer',
                   transition: 'all 0.2s',
                   display: 'flex',
                   alignItems: 'center',
@@ -3748,7 +3961,7 @@ export default function ProductDetailPage() {
                   gap: '8px',
                 }}
               >
-                {isOutOfStock ? 'Out of Stock' : addedToCart ? (
+                {!allVariantsSelected() ? 'Select Options' : isOutOfStock ? 'Out of Stock' : addedToCart ? (
                   <>
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                       <path d="M5 10L8.5 13.5L15 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -3930,7 +4143,11 @@ export default function CheckoutPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: items.map(item => ({ productId: item.product.id, quantity: item.quantity })),
+          items: items.map(item => ({ 
+            productId: item.product.baseProductId || item.product.id, 
+            quantity: item.quantity,
+            selectedVariants: item.product.selectedVariants 
+          })),
           customerEmail: email,
           customerName: name,
         }),
@@ -3949,7 +4166,11 @@ export default function CheckoutPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: items.map(item => ({ productId: item.product.id, quantity: item.quantity })),
+          items: items.map(item => ({ 
+            productId: item.product.baseProductId || item.product.id, 
+            quantity: item.quantity,
+            selectedVariants: item.product.selectedVariants 
+          })),
           customerName: name,
           customerEmail: email,
           shippingMethodId: selectedShipping?.id,
