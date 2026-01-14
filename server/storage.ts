@@ -72,6 +72,8 @@ import {
   emailTemplates, type EmailTemplate, type InsertEmailTemplate,
   legalSettings, type LegalSettings, type InsertLegalSettings,
   serviceAvailability, type ServiceAvailability, type InsertServiceAvailability,
+  serviceBlockedDates, type ServiceBlockedDate, type InsertServiceBlockedDate,
+  serviceDateRanges, type ServiceDateRange, type InsertServiceDateRange,
   supportTickets, type SupportTicket, type InsertSupportTicket,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
@@ -297,6 +299,27 @@ export interface IStorage {
   deleteServiceAvailability(id: string): Promise<void>;
   getAvailableSlotsForDate(serviceId: string, websiteId: string, date: string): Promise<{time: string, available: boolean}[]>;
   checkSlotAvailable(serviceId: string, websiteId: string, date: string, time: string): Promise<boolean>;
+
+  // Service blocked dates methods
+  getServiceBlockedDates(serviceId: string): Promise<ServiceBlockedDate[]>;
+  createServiceBlockedDate(blockedDate: InsertServiceBlockedDate): Promise<ServiceBlockedDate>;
+  deleteServiceBlockedDate(id: string): Promise<void>;
+  isDateBlocked(serviceId: string, date: string): Promise<boolean>;
+
+  // Service date ranges methods
+  getServiceDateRanges(serviceId: string): Promise<ServiceDateRange[]>;
+  createServiceDateRange(dateRange: InsertServiceDateRange): Promise<ServiceDateRange>;
+  updateServiceDateRange(id: string, data: Partial<InsertServiceDateRange>): Promise<ServiceDateRange | undefined>;
+  deleteServiceDateRange(id: string): Promise<void>;
+  isDateInActiveRange(serviceId: string, date: string): Promise<boolean>;
+
+  // Full availability check (combines all rules)
+  getFullServiceAvailability(serviceId: string, websiteId: string, month: number, year: number): Promise<{
+    availableDates: string[];
+    blockedDates: { date: string; reason?: string }[];
+    dateRange: { startDate: string; endDate: string | null } | null;
+    weeklySchedule: { dayOfWeek: number; startTime: string; endTime: string }[];
+  }>;
 
   // Support ticket methods
   createSupportTicket(ticket: InsertSupportTicket): Promise<SupportTicket>;
@@ -1771,6 +1794,181 @@ export class DatabaseStorage implements IStorage {
     const slots = await this.getAvailableSlotsForDate(serviceId, websiteId, date);
     const slot = slots.find(s => s.time === time);
     return slot?.available ?? false;
+  }
+
+  // Service blocked dates methods
+  async getServiceBlockedDates(serviceId: string): Promise<ServiceBlockedDate[]> {
+    return db.select().from(serviceBlockedDates)
+      .where(eq(serviceBlockedDates.serviceId, serviceId))
+      .orderBy(serviceBlockedDates.blockedDate);
+  }
+
+  async createServiceBlockedDate(blockedDate: InsertServiceBlockedDate): Promise<ServiceBlockedDate> {
+    const result = await db.insert(serviceBlockedDates).values(blockedDate as any).returning();
+    return result[0];
+  }
+
+  async deleteServiceBlockedDate(id: string): Promise<void> {
+    await db.delete(serviceBlockedDates).where(eq(serviceBlockedDates.id, id));
+  }
+
+  async isDateBlocked(serviceId: string, date: string): Promise<boolean> {
+    // Parse the date to check for yearly recurring blocks
+    const [year, month, day] = date.split('-');
+    const monthDay = `${month}-${day}`;
+    
+    const blocked = await db.select().from(serviceBlockedDates)
+      .where(
+        and(
+          eq(serviceBlockedDates.serviceId, serviceId),
+          sql`(${serviceBlockedDates.blockedDate} = ${date} OR (${serviceBlockedDates.isRecurringYearly} = true AND SUBSTRING(${serviceBlockedDates.blockedDate}, 6) = ${monthDay}))`
+        )
+      )
+      .limit(1);
+    
+    return blocked.length > 0;
+  }
+
+  // Service date ranges methods
+  async getServiceDateRanges(serviceId: string): Promise<ServiceDateRange[]> {
+    return db.select().from(serviceDateRanges)
+      .where(eq(serviceDateRanges.serviceId, serviceId))
+      .orderBy(serviceDateRanges.startDate);
+  }
+
+  async createServiceDateRange(dateRange: InsertServiceDateRange): Promise<ServiceDateRange> {
+    const result = await db.insert(serviceDateRanges).values(dateRange as any).returning();
+    return result[0];
+  }
+
+  async updateServiceDateRange(id: string, data: Partial<InsertServiceDateRange>): Promise<ServiceDateRange | undefined> {
+    const result = await db.update(serviceDateRanges)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(eq(serviceDateRanges.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteServiceDateRange(id: string): Promise<void> {
+    await db.delete(serviceDateRanges).where(eq(serviceDateRanges.id, id));
+  }
+
+  async isDateInActiveRange(serviceId: string, date: string): Promise<boolean> {
+    // Get all active date ranges for this service
+    const ranges = await db.select().from(serviceDateRanges)
+      .where(
+        and(
+          eq(serviceDateRanges.serviceId, serviceId),
+          eq(serviceDateRanges.isActive, true)
+        )
+      );
+    
+    // If no ranges defined, the service is always available (default behavior)
+    if (ranges.length === 0) return true;
+    
+    // Check if date falls within any active range
+    for (const range of ranges) {
+      if (date >= range.startDate && (!range.endDate || date <= range.endDate)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  // Full availability check (combines all rules)
+  async getFullServiceAvailability(serviceId: string, websiteId: string, month: number, year: number): Promise<{
+    availableDates: string[];
+    blockedDates: { date: string; reason?: string }[];
+    dateRange: { startDate: string; endDate: string | null } | null;
+    weeklySchedule: { dayOfWeek: number; startTime: string; endTime: string }[];
+  }> {
+    // Get the service
+    const service = await db.select().from(bookingServices)
+      .where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId)))
+      .limit(1);
+    
+    if (!service[0]) {
+      return { availableDates: [], blockedDates: [], dateRange: null, weeklySchedule: [] };
+    }
+
+    // Get weekly schedule
+    const weeklyRules = await db.select().from(serviceAvailability)
+      .where(
+        and(
+          eq(serviceAvailability.serviceId, serviceId),
+          eq(serviceAvailability.isActive, true),
+          sql`${serviceAvailability.dayOfWeek} IS NOT NULL`
+        )
+      );
+    
+    const weeklySchedule = weeklyRules.map(rule => ({
+      dayOfWeek: rule.dayOfWeek!,
+      startTime: rule.startTime,
+      endTime: rule.endTime
+    }));
+
+    // Get active date range (use first active one)
+    const ranges = await db.select().from(serviceDateRanges)
+      .where(
+        and(
+          eq(serviceDateRanges.serviceId, serviceId),
+          eq(serviceDateRanges.isActive, true)
+        )
+      )
+      .limit(1);
+    
+    const dateRange = ranges[0] ? {
+      startDate: ranges[0].startDate,
+      endDate: ranges[0].endDate
+    } : null;
+
+    // Get all blocked dates for this service
+    const blockedDateRecords = await this.getServiceBlockedDates(serviceId);
+    
+    // Calculate available dates for the month
+    const availableDates: string[] = [];
+    const blockedDates: { date: string; reason?: string }[] = [];
+    
+    // Get number of days in the month
+    const daysInMonth = new Date(year, month, 0).getDate();
+    
+    // Set of available day of week numbers
+    const availableDays = new Set(weeklySchedule.map(s => s.dayOfWeek));
+    
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dateObj = new Date(dateStr + 'T00:00:00');
+      const dayOfWeek = dateObj.getDay();
+      
+      // Check if date is in active range
+      const inRange = !dateRange || (dateStr >= dateRange.startDate && (!dateRange.endDate || dateStr <= dateRange.endDate));
+      
+      // Check if day of week is available
+      const dayAvailable = weeklySchedule.length === 0 || availableDays.has(dayOfWeek);
+      
+      // Check if date is blocked
+      const blockedRecord = blockedDateRecords.find(b => {
+        if (b.blockedDate === dateStr) return true;
+        if (b.isRecurringYearly) {
+          const [, bMonth, bDay] = b.blockedDate.split('-');
+          const [, currentMonth, currentDay] = dateStr.split('-');
+          return bMonth === currentMonth && bDay === currentDay;
+        }
+        return false;
+      });
+      
+      if (blockedRecord) {
+        blockedDates.push({ date: dateStr, reason: blockedRecord.reason || undefined });
+      } else if (inRange && dayAvailable) {
+        // Only add future dates as available
+        if (dateObj >= new Date(new Date().setHours(0, 0, 0, 0))) {
+          availableDates.push(dateStr);
+        }
+      }
+    }
+    
+    return { availableDates, blockedDates, dateRange, weeklySchedule };
   }
 
   // Support ticket methods

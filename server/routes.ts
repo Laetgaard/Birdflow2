@@ -2234,6 +2234,245 @@ export async function registerRoutes(
     }
   });
 
+  // ============ BLOCKED DATES ROUTES ============
+
+  // Get blocked dates for a service
+  app.get("/api/websites/:id/services/:serviceId/blocked-dates", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const blockedDates = await storage.getServiceBlockedDates(req.params.serviceId);
+      res.json(blockedDates);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create blocked date
+  app.post("/api/websites/:id/services/:serviceId/blocked-dates", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { blockedDate, reason, isRecurringYearly } = req.body;
+      
+      if (!blockedDate) {
+        return res.status(400).json({ message: "Blocked date is required (YYYY-MM-DD format)" });
+      }
+
+      const blocked = await storage.createServiceBlockedDate({
+        serviceId: req.params.serviceId,
+        websiteId: req.params.id,
+        blockedDate,
+        reason: reason || null,
+        isRecurringYearly: isRecurringYearly || false,
+      });
+
+      res.status(201).json(blocked);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete blocked date
+  app.delete("/api/websites/:id/services/:serviceId/blocked-dates/:blockedDateId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteServiceBlockedDate(req.params.blockedDateId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ DATE RANGE ROUTES ============
+
+  // Get date ranges for a service
+  app.get("/api/websites/:id/services/:serviceId/date-ranges", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const dateRanges = await storage.getServiceDateRanges(req.params.serviceId);
+      res.json(dateRanges);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create date range
+  app.post("/api/websites/:id/services/:serviceId/date-ranges", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { startDate, endDate } = req.body;
+      
+      if (!startDate) {
+        return res.status(400).json({ message: "Start date is required (YYYY-MM-DD format)" });
+      }
+
+      const dateRange = await storage.createServiceDateRange({
+        serviceId: req.params.serviceId,
+        websiteId: req.params.id,
+        startDate,
+        endDate: endDate || null,
+        isActive: true,
+      });
+
+      res.status(201).json(dateRange);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update date range
+  app.put("/api/websites/:id/services/:serviceId/date-ranges/:dateRangeId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { startDate, endDate, isActive } = req.body;
+      
+      const dateRange = await storage.updateServiceDateRange(req.params.dateRangeId, {
+        startDate,
+        endDate,
+        isActive,
+      });
+
+      if (!dateRange) {
+        return res.status(404).json({ message: "Date range not found" });
+      }
+
+      res.json(dateRange);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete date range
+  app.delete("/api/websites/:id/services/:serviceId/date-ranges/:dateRangeId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteServiceDateRange(req.params.dateRangeId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get full service availability (combined check for a month)
+  app.get("/api/websites/:id/services/:serviceId/full-availability", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { month, year } = req.query;
+      const m = parseInt(month as string) || new Date().getMonth() + 1;
+      const y = parseInt(year as string) || new Date().getFullYear();
+
+      const availability = await storage.getFullServiceAvailability(
+        req.params.serviceId,
+        req.params.id,
+        m,
+        y
+      );
+
+      res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Public endpoint for full availability (for published sites)
+  app.get("/api/public/websites/:websiteId/services/:serviceId/full-availability", async (req, res) => {
+    try {
+      const { month, year } = req.query;
+      const m = parseInt(month as string) || new Date().getMonth() + 1;
+      const y = parseInt(year as string) || new Date().getFullYear();
+
+      const availability = await storage.getFullServiceAvailability(
+        req.params.serviceId,
+        req.params.websiteId,
+        m,
+        y
+      );
+
+      res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Public endpoint to get available time slots for a date
   app.get("/api/public/websites/:websiteId/services/:serviceId/slots", async (req, res) => {
     try {
