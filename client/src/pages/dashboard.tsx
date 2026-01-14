@@ -47,8 +47,6 @@ export default function Dashboard() {
     e.preventDefault();
     e.stopPropagation();
     
-    console.log("Submit feedback clicked", { feedbackType, feedbackMessage, session: !!session });
-    
     if (!session) {
       toast.error("Please log in to submit feedback");
       return;
@@ -66,7 +64,6 @@ export default function Dashboard() {
 
     setIsSubmittingFeedback(true);
     try {
-      console.log("Sending request to /api/support/tickets");
       const response = await fetch("/api/support/tickets", {
         method: "POST",
         headers: {
@@ -79,8 +76,6 @@ export default function Dashboard() {
         }),
       });
 
-      console.log("Response status:", response.status);
-      
       if (response.ok) {
         toast.success("Feedback submitted successfully! We'll review it soon.");
         setIsFeedbackModalOpen(false);
@@ -88,7 +83,6 @@ export default function Dashboard() {
         setFeedbackMessage("");
       } else {
         const data = await response.json();
-        console.error("Error response:", data);
         toast.error(data.message || "Failed to submit feedback");
       }
     } catch (error) {
