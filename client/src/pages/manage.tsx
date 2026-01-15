@@ -3409,15 +3409,76 @@ export default function ManagePage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {submissions.map(submission => (
-                      <div key={submission.id} className="p-4 border rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="font-medium">{submission.formName}</p>
-                          <span className="text-sm text-muted-foreground">{new Date(submission.createdAt).toLocaleDateString()}</span>
+                    {submissions.map(submission => {
+                      const data = (submission.data ?? {}) as Record<string, any>;
+                      const formattedDate = new Date(submission.createdAt).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      });
+                      const dataEntries = Object.entries(data);
+                      
+                      return (
+                        <div 
+                          key={submission.id} 
+                          data-testid={`card-submission-${submission.id}`}
+                          className={`p-5 border rounded-lg transition-colors ${
+                            !submission.read ? 'bg-blue-50/50 border-blue-200' : 'bg-card'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                              {!submission.read && (
+                                <span 
+                                  className="w-2 h-2 rounded-full bg-blue-500" 
+                                  title="Unread" 
+                                  data-testid={`badge-unread-${submission.id}`}
+                                />
+                              )}
+                              <div>
+                                <p 
+                                  className="font-semibold text-base capitalize"
+                                  data-testid={`text-form-name-${submission.id}`}
+                                >
+                                  {submission.formName?.replace(/_/g, ' ') || 'Contact Form'}
+                                </p>
+                                <p 
+                                  className="text-sm text-muted-foreground"
+                                  data-testid={`text-form-date-${submission.id}`}
+                                >
+                                  {formattedDate}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-3">
+                            {dataEntries.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">No data submitted</p>
+                            ) : (
+                              dataEntries.map(([key, value]) => (
+                                <div 
+                                  key={key} 
+                                  className="grid grid-cols-[120px_1fr] gap-2"
+                                  data-testid={`row-field-${submission.id}-${key}`}
+                                >
+                                  <span className="text-sm font-medium text-muted-foreground capitalize">
+                                    {key.replace(/_/g, ' ')}:
+                                  </span>
+                                  <span className="text-sm text-foreground whitespace-pre-wrap break-words">
+                                    {typeof value === 'object' && value !== null 
+                                      ? JSON.stringify(value, null, 2) 
+                                      : String(value ?? '-')}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
                         </div>
-                        <pre className="text-sm bg-muted p-2 rounded overflow-auto">{JSON.stringify(submission.data, null, 2)}</pre>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
