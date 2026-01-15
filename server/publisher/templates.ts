@@ -359,6 +359,101 @@ export async function GET(request: NextRequest) {
 `;
 }
 
+export function generateFormSubmissionApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+
+async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  let normalizedHost = host.replace(/^www\\./, '').split(':')[0];
+  const urlToMatch = \`https://\${normalizedHost}\`;
+  const urlWithWww = \`https://www.\${normalizedHost}\`;
+  
+  const { data: exactMatch } = await supabase
+    .from('websites')
+    .select('id')
+    .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
+    .limit(1)
+    .single();
+  
+  if (exactMatch) return exactMatch.id;
+  
+  const parts = normalizedHost.split('.');
+  let slug: string | null = null;
+  
+  if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
+    slug = parts[0];
+  } else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
+    slug = parts[0];
+  }
+  
+  if (slug) {
+    const { data: slugMatch } = await supabase
+      .from('websites')
+      .select('id')
+      .eq('slug', slug)
+      .limit(1)
+      .single();
+    
+    if (slugMatch) return slugMatch.id;
+  }
+  
+  return BUILD_TIME_WEBSITE_ID;
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    if (!SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
+    }
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const host = request.headers.get('host') || '';
+    const websiteId = await getWebsiteIdFromHost(host, supabase);
+    
+    if (!websiteId) {
+      return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const { formType, data } = body;
+
+    if (!formType || !data) {
+      return NextResponse.json({ message: 'formType and data are required' }, { status: 400 });
+    }
+
+    const { data: submission, error } = await supabase
+      .from('form_submissions')
+      .insert({
+        website_id: websiteId,
+        form_type: formType,
+        data: data,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Form submission error:', error);
+      return NextResponse.json({ message: 'Failed to submit form' }, { status: 500 });
+    }
+
+    return NextResponse.json(submission, { status: 201 });
+  } catch (err) {
+    console.error('Form submission error:', err);
+    return NextResponse.json({ message: 'Failed to submit form' }, { status: 500 });
+  }
+}
+`;
+}
+
 export function generateAvailabilityApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
@@ -2579,7 +2674,6 @@ export function generateContactForm(): string {
   return `'use client';
 
 import React, { useState } from 'react';
-import { supabase, websiteId } from '@/lib/supabase';
 
 type Props = {
   styles: {
@@ -2601,17 +2695,24 @@ export default function ContactForm({ styles, props }: Props) {
     e.preventDefault();
     setStatus('loading');
     
-    const { error } = await supabase.from('form_submissions').insert({
-      website_id: websiteId,
-      form_type: 'contact',
-      data: form,
-    });
-    
-    if (error) {
+    try {
+      const res = await fetch('/api/form-submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          formType: 'contact',
+          data: form,
+        }),
+      });
+      
+      if (!res.ok) {
+        setStatus('error');
+      } else {
+        setStatus('success');
+        setForm({ name: '', email: '', message: '' });
+      }
+    } catch (err) {
       setStatus('error');
-    } else {
-      setStatus('success');
-      setForm({ name: '', email: '', message: '' });
     }
   };
 
