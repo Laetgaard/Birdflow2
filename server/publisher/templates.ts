@@ -434,7 +434,7 @@ export async function POST(request: NextRequest) {
       .from('form_submissions')
       .insert({
         website_id: websiteId,
-        form_type: formType,
+        form_name: formType,
         data: data,
       })
       .select()
