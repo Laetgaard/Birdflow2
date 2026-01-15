@@ -458,19 +458,18 @@ export async function GET(request: NextRequest) {
       endTime: r.end_time,
     }));
 
-    // Get date range (scoped by websiteId)
+    // Get ALL date ranges (scoped by websiteId) - no limit, support multiple periods
     const { data: ranges } = await supabase
       .from('service_date_ranges')
       .select('start_date, end_date')
       .eq('service_id', serviceId)
       .eq('website_id', websiteId)
-      .eq('is_active', true)
-      .limit(1);
+      .eq('is_active', true);
 
-    const dateRange = ranges && ranges.length > 0 ? {
-      startDate: ranges[0].start_date,
-      endDate: ranges[0].end_date,
-    } : null;
+    const dateRanges = (ranges || []).map((r: any) => ({
+      startDate: r.start_date,
+      endDate: r.end_date,
+    }));
 
     // Get blocked dates (scoped by websiteId)
     const { data: blockedRecords } = await supabase
@@ -493,8 +492,10 @@ export async function GET(request: NextRequest) {
       const dateObj = new Date(\`\${dateStr}T00:00:00\`);
       const dayOfWeek = dateObj.getDay();
       
-      // Check if date is in active range
-      const inRange = !dateRange || (dateStr >= dateRange.startDate && (!dateRange.endDate || dateStr <= dateRange.endDate));
+      // Check if date is in ANY active range (if no ranges defined, all dates are valid)
+      const inRange = dateRanges.length === 0 || dateRanges.some((range: any) => 
+        dateStr >= range.startDate && (!range.endDate || dateStr <= range.endDate)
+      );
       
       // Check if day of week is available
       const dayAvailable = weeklySchedule.length === 0 || availableDays.has(dayOfWeek);
@@ -517,7 +518,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ availableDates, blockedDates, dateRange, weeklySchedule });
+    return NextResponse.json({ availableDates, blockedDates, dateRanges, weeklySchedule });
   } catch (err) {
     console.error('Availability error:', err);
     return NextResponse.json({ message: 'Failed to fetch availability' }, { status: 500 });
