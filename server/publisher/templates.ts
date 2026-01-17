@@ -3347,7 +3347,7 @@ export default function ProductGrid({ styles, props }: Props) {
   return (
     <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '0' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ marginBottom: '32px' }}>
+        <div style={{ marginBottom: '32px', textAlign: 'center' }}>
           <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
           {props.description && <p style={{ opacity: 0.7, marginTop: '8px' }}>{props.description}</p>}
         </div>
