@@ -257,7 +257,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#1a1a2e',
       backgroundOpacity: 100,
       textColor: '#ffffff',
-      padding: '80px 24px',
+      padding: '0',
       buttonColor: '#4f46e5',
     },
     fields: [
@@ -291,7 +291,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     },
     defaultStyles: {
       backgroundColor: '#f8f9fa',
-      padding: '40px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'images', label: 'Images', type: 'image-array', group: 'content' },
@@ -313,7 +313,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '60px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Heading', type: 'text', group: 'content' },
@@ -339,7 +339,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#4f46e5',
       textColor: '#ffffff',
-      padding: '60px 24px',
+      padding: '0',
       buttonColor: '#ffffff',
     },
     fields: [
@@ -370,7 +370,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '60px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -396,7 +396,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '60px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -424,7 +424,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '16px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Brand Name', type: 'text', group: 'content' },
@@ -448,7 +448,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#1a1a1a',
       textColor: '#ffffff',
-      padding: '32px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Copyright Text', type: 'text', group: 'content' },
@@ -474,7 +474,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '60px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -499,7 +499,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '60px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -530,7 +530,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '60px 24px',
+      padding: '0',
       gap: '16px',
       borderRadius: '8px',
     },
@@ -561,7 +561,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '80px 24px',
+      padding: '0',
       cardStyle: 'elevated',
     },
     fields: [
@@ -590,7 +590,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '60px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -619,7 +619,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#1a1a2e',
       textColor: '#ffffff',
-      padding: '80px 24px',
+      padding: '0',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -647,7 +647,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '60px 24px',
+      padding: '0',
       accentColor: '#4f46e5',
     },
     fields: [
@@ -673,7 +673,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#0f0f0f',
       textColor: '#ffffff',
-      padding: '60px 24px',
+      padding: '0',
       borderRadius: '12px',
     },
     fields: [
@@ -695,7 +695,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     },
     defaultStyles: {
       backgroundColor: 'transparent',
-      padding: '24px',
+      padding: '0',
       accentColor: '#e2e8f0',
     },
     fields: [
@@ -713,7 +713,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     },
     defaultStyles: {
       backgroundColor: 'transparent',
-      minHeight: '60px',
+      minHeight: 'auto',
     },
     fields: [
       { key: 'height', label: 'Height', type: 'text', group: 'content', placeholder: '60px' },
