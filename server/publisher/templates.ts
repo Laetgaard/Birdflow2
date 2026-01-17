@@ -3843,7 +3843,7 @@ export function generateGlobalsCss(theme?: ThemeConfig): string {
   const backgroundColor = theme?.backgroundColor || '#ffffff';
   const textColor = theme?.textColor || '#1f2937';
   const borderRadius = theme?.borderRadius || '8px';
-  const sectionGap = theme?.sectionGap || '80px';
+  const sectionGap = theme?.sectionGap || '0';
   
   return `* {
   box-sizing: border-box;
