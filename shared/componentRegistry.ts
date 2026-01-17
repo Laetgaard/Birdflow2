@@ -163,6 +163,7 @@ export type ComponentProps = {
   description?: string;
   buttonText?: string;
   buttonLink?: string;
+  showCart?: boolean | string;
   imageUrl?: string;
   images?: string[];
   items?: ComponentItem[];
@@ -413,6 +414,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultProps: {
       title: 'Brand',
       imageUrl: '',
+      showCart: true,
       items: [
         { id: '1', title: 'Home', description: '/' },
         { id: '2', title: 'About', description: '/about' },
@@ -427,6 +429,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     fields: [
       { key: 'title', label: 'Brand Name', type: 'text', group: 'content' },
       { key: 'imageUrl', label: 'Logo Image', type: 'image', group: 'content' },
+      { key: 'showCart', label: 'Show Shopping Cart', type: 'select', group: 'content', options: ['true', 'false'] },
       { key: 'items', label: 'Nav Items', type: 'items', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },

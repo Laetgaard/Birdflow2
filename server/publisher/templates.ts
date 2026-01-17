@@ -2267,6 +2267,7 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   const [isMobile, setIsMobile] = useState(false);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' });
   const { totalItems, toggleCart } = useCart();
+  const showCart = props.showCart !== false && props.showCart !== 'false';
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -2282,7 +2283,17 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   return (
     <header style={{ ...baseStyle, position: 'relative' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
-        <a href="/" style={{ fontSize: '20px', fontWeight: 700, color: 'inherit', textDecoration: 'none' }}>{props.title}</a>
+        <a href="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '20px', fontWeight: 700, color: 'inherit', textDecoration: 'none' }}>
+          {(() => {
+            const logoUrl = typeof props.imageUrl === 'object' && props.imageUrl !== null 
+              ? (props.imageUrl as any).url || (props.imageUrl as any).src 
+              : props.imageUrl;
+            return logoUrl ? (
+              <img src={logoUrl} alt={props.title || 'Logo'} style={{ height: '40px', width: 'auto', objectFit: 'contain' }} />
+            ) : null;
+          })()}
+          {props.title && <span>{props.title}</span>}
+        </a>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
           {!isMobile && (
@@ -2294,57 +2305,59 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
           )}
 
           {/* Cart Button */}
-          <button
-            onClick={toggleCart}
-            style={{
-              position: 'relative',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            aria-label={'Open cart with ' + totalItems + ' items'}
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={styles.textColor || '#1a1a1a'}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {showCart && (
+            <button
+              onClick={toggleCart}
+              style={{
+                position: 'relative',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              aria-label={'Open cart with ' + totalItems + ' items'}
             >
-              <circle cx="9" cy="21" r="1" />
-              <circle cx="20" cy="21" r="1" />
-              <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
-            </svg>
-            {totalItems > 0 && (
-              <span
-                style={{
-                  position: 'absolute',
-                  top: '0',
-                  right: '0',
-                  backgroundColor: '#ef4444',
-                  color: '#fff',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  minWidth: '18px',
-                  height: '18px',
-                  borderRadius: '9px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '0 4px',
-                }}
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={styles.textColor || '#1a1a1a'}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                {totalItems > 99 ? '99+' : totalItems}
-              </span>
-            )}
-          </button>
+                <circle cx="9" cy="21" r="1" />
+                <circle cx="20" cy="21" r="1" />
+                <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+              </svg>
+              {totalItems > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '0',
+                    right: '0',
+                    backgroundColor: '#ef4444',
+                    color: '#fff',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    minWidth: '18px',
+                    height: '18px',
+                    borderRadius: '9px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '0 4px',
+                  }}
+                >
+                  {totalItems > 99 ? '99+' : totalItems}
+                </span>
+              )}
+            </button>
+          )}
 
           {isMobile && (
             <button
