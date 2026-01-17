@@ -80,7 +80,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     textColor: globalStyles.textColor || '#1f2937',
     borderRadius: globalStyles.borderRadius || '8px',
     spacingScale: globalStyles.spacingScale || 'comfortable',
-    sectionGap: globalStyles.sectionGap || '80px',
+    sectionGap: globalStyles.sectionGap || '0',
     buttonStyle: globalStyles.buttonStyle || 'solid',
     cardStyle: globalStyles.cardStyle || 'elevated',
   };
