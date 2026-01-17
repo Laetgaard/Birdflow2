@@ -4524,25 +4524,89 @@ export default function ProductDetailPage() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb' }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '40px 24px' }}>
-        <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#4f46e5', textDecoration: 'none', marginBottom: '32px', fontSize: '14px', fontWeight: 500 }}>
+      <style>{\`
+        .product-page-container {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 40px 24px;
+        }
+        .product-layout {
+          display: grid;
+          grid-template-columns: minmax(300px, 600px) 1fr;
+          gap: 64px;
+          align-items: start;
+        }
+        .product-info {
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
+          position: sticky;
+          top: 40px;
+        }
+        .product-title {
+          font-size: 40px;
+          font-weight: 700;
+          color: #111827;
+          margin: 0;
+          line-height: 1.2;
+        }
+        .product-price {
+          font-size: 36px;
+          font-weight: 700;
+          color: #4f46e5;
+          margin: 0;
+        }
+        .product-description {
+          font-size: 16px;
+          color: #6b7280;
+          line-height: 1.6;
+          margin: 0;
+        }
+        @media (max-width: 768px) {
+          .product-page-container {
+            padding: 20px 16px;
+          }
+          .product-layout {
+            grid-template-columns: 1fr;
+            gap: 24px;
+          }
+          .product-info {
+            position: static;
+            gap: 16px;
+          }
+          .product-title {
+            font-size: 24px;
+          }
+          .product-price {
+            font-size: 28px;
+          }
+          .product-description {
+            font-size: 14px;
+          }
+          .back-link {
+            margin-bottom: 16px !important;
+          }
+        }
+      \`}</style>
+      <div className="product-page-container">
+        <Link href="/" className="back-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#4f46e5', textDecoration: 'none', marginBottom: '32px', fontSize: '14px', fontWeight: 500 }}>
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Back to Products
         </Link>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 600px) 1fr', gap: '64px', alignItems: 'start' }}>
+        <div className="product-layout">
           <ImageGallery images={allImages} productName={product.name} />
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'sticky', top: '40px' }}>
+          <div className="product-info">
             {product.category && (
               <span style={{ fontSize: '12px', fontWeight: 600, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {product.category}
               </span>
             )}
             
-            <h1 style={{ fontSize: '40px', fontWeight: 700, color: '#111827', margin: 0, lineHeight: 1.2 }}>
+            <h1 className="product-title">
               {product.name}
             </h1>
 
@@ -4555,8 +4619,8 @@ export default function ProductDetailPage() {
               </div>
             )}
             
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
-              <p style={{ fontSize: '36px', fontWeight: 700, color: '#4f46e5', margin: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
+              <p className="product-price">
                 {formatCurrency(parseFloat(product.price) + getVariantPriceAdjustment(), product.currency)}
               </p>
               {getVariantPriceAdjustment() !== 0 && (
@@ -4567,7 +4631,7 @@ export default function ProductDetailPage() {
             </div>
 
             {product.description && (
-              <p style={{ fontSize: '16px', color: '#6b7280', lineHeight: 1.6, margin: 0 }}>
+              <p className="product-description">
                 {product.description}
               </p>
             )}
