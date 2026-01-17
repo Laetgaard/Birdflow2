@@ -3345,6 +3345,93 @@ export default function ProductGrid({ styles, props }: Props) {
           </div>
         )}
         
+        <style>{\`
+          .product-grid-responsive {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+          }
+          @media (min-width: 640px) {
+            .product-grid-responsive {
+              grid-template-columns: repeat(3, 1fr);
+              gap: 16px;
+            }
+          }
+          @media (min-width: 1024px) {
+            .product-grid-responsive {
+              grid-template-columns: repeat(4, 1fr);
+              gap: 24px;
+            }
+          }
+          .product-card {
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            text-decoration: none;
+            color: inherit;
+            display: block;
+            transition: transform 0.2s, box-shadow 0.2s;
+          }
+          .product-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+          }
+          .product-image-wrapper {
+            position: relative;
+            width: 100%;
+            padding-top: 125%; /* 4:5 aspect ratio */
+            overflow: hidden;
+            background: #f5f5f5;
+          }
+          .product-image-wrapper img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          }
+          .product-image-placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            background: #f0f0f0;
+          }
+          .product-info {
+            padding: 12px;
+          }
+          @media (min-width: 640px) {
+            .product-info {
+              padding: 16px;
+            }
+          }
+          .product-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #1a1a1a;
+          }
+          .product-category {
+            font-size: 11px;
+            opacity: 0.5;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          .product-price {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a1a;
+          }
+        \`}</style>
+
         {loading ? (
           <div style={{ textAlign: 'center', padding: '40px' }}>Loading products...</div>
         ) : fetchError ? (
@@ -3352,28 +3439,22 @@ export default function ProductGrid({ styles, props }: Props) {
         ) : products.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>No products available.</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: '24px' }}>
+          <div className="product-grid-responsive">
             {products.map(product => (
-              <a key={product.id} href={\`/product/\${product.id}\`} style={{ backgroundColor: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', textDecoration: 'none', color: 'inherit', display: 'block', transition: 'transform 0.2s, box-shadow 0.2s' }}>
-                {product.image_url ? (
-                  <img src={product.image_url} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: '#f8f9fa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>📦</div>
-                )}
-                <div style={{ padding: '16px', color: '#1a1a1a' }}>
-                  <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
-                  {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
-                  {product.description && <p style={{ fontSize: '14px', opacity: 0.7, marginBottom: '12px' }}>{product.description}</p>}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '20px', fontWeight: 700 }}>
-                      {product.variants && product.variants.length > 0 ? 'From ' : ''}{formatCurrency(parseFloat(product.price), product.currency)}
-                    </span>
-                    {product.variants && product.variants.length > 0 ? (
-                      <span style={{ padding: '8px 16px', backgroundColor: '#6366f1', color: '#fff', borderRadius: '6px', fontSize: '14px', fontWeight: 500 }}>View Options</span>
-                    ) : (
-                      <button onClick={(e) => { e.preventDefault(); handleAddToCart(product); }} style={{ padding: '8px 16px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Add to Cart</button>
-                    )}
-                  </div>
+              <a key={product.id} href={\`/product/\${product.id}\`} className="product-card">
+                <div className="product-image-wrapper">
+                  {product.image_url ? (
+                    <img src={product.image_url} alt={product.name} />
+                  ) : (
+                    <div className="product-image-placeholder">📦</div>
+                  )}
+                </div>
+                <div className="product-info">
+                  <h3 className="product-title">{product.name}</h3>
+                  {product.category && <p className="product-category">{product.category}</p>}
+                  <p className="product-price">
+                    {product.variants && product.variants.length > 0 ? 'From ' : ''}{formatCurrency(parseFloat(product.price), product.currency)}
+                  </p>
                 </div>
               </a>
             ))}
