@@ -3843,7 +3843,6 @@ export function generateGlobalsCss(theme?: ThemeConfig): string {
   const backgroundColor = theme?.backgroundColor || '#ffffff';
   const textColor = theme?.textColor || '#1f2937';
   const borderRadius = theme?.borderRadius || '8px';
-  const sectionGap = theme?.sectionGap || '0';
   
   return `* {
   box-sizing: border-box;
@@ -3857,7 +3856,6 @@ export function generateGlobalsCss(theme?: ThemeConfig): string {
   --background-color: ${backgroundColor};
   --text-color: ${textColor};
   --border-radius: ${borderRadius};
-  --section-gap: ${sectionGap};
   --font-family: ${fontFamily};
 }
 
@@ -3871,10 +3869,6 @@ body {
 a {
   color: inherit;
   text-decoration: none;
-}
-
-section {
-  margin-bottom: var(--section-gap);
 }
 
 .btn-primary {
