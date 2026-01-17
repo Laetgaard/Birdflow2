@@ -2730,7 +2730,7 @@ export default function ContactForm({ styles, props }: Props) {
   };
 
   return (
-    <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '60px 24px' }}>
+    <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '0' }}>
       <div style={{ maxWidth: '500px', margin: '0 auto' }}>
         <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px', textAlign: 'center' }}>{props.title || 'Contact Us'}</h2>
         {props.description && <p style={{ textAlign: 'center', marginBottom: '32px', opacity: 0.8 }}>{props.description}</p>}
@@ -3040,7 +3040,7 @@ export default function BookingForm({ styles, props }: Props) {
   const availableSlots = timeSlots.filter(s => s.available);
 
   return (
-    <section style={{ backgroundColor: bgColor, color: textColor, padding: styles.padding || '80px 24px' }}>
+    <section style={{ backgroundColor: bgColor, color: textColor, padding: styles.padding || '0' }}>
       <div style={{ maxWidth: '720px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', padding: '8px 16px', borderRadius: '20px', marginBottom: '16px' }}>
@@ -3345,7 +3345,7 @@ export default function ProductGrid({ styles, props }: Props) {
   };
 
   return (
-    <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '60px 24px' }}>
+    <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '0' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <div style={{ marginBottom: '32px' }}>
           <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
@@ -4536,7 +4536,7 @@ export default function ProductDetailPage() {
   const isOutOfStock = stockStatus?.text === 'Out of Stock';
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb' }}>
+    <div style={{ backgroundColor: '#f9fafb' }}>
       <style>{\`
         .product-page-container {
           max-width: 1400px;
@@ -5008,7 +5008,7 @@ export default function CheckoutPage() {
 
   if (success) {
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '60px 24px' }}>
+      <div style={{ backgroundColor: '#f9fafb', padding: '60px 24px' }}>
         <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
           <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: '#dcfce7', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
@@ -5029,7 +5029,7 @@ export default function CheckoutPage() {
 
   if (items.length === 0) {
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '60px 24px' }}>
+      <div style={{ backgroundColor: '#f9fafb', padding: '60px 24px' }}>
         <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
           <div style={{ fontSize: '64px', marginBottom: '24px' }}>🛒</div>
           <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#111827', marginBottom: '16px' }}>Your cart is empty</h1>
@@ -5043,7 +5043,7 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#f9fafb', padding: '60px 24px' }}>
+    <div style={{ backgroundColor: '#f9fafb', padding: '60px 24px' }}>
       <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
         <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#6b7280', marginBottom: '32px', textDecoration: 'none', fontSize: '14px' }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

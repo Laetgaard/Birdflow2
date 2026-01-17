@@ -234,7 +234,7 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
   return {
     backgroundColor: styles.backgroundColor,
     color: styles.textColor,
-    padding: styles.padding || '60px 24px',
+    padding: styles.padding || '0',
     cursor: isPreview ? 'default' : 'pointer',
     position: 'relative' as const,
   };
@@ -272,7 +272,7 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
   
   const heroStyle: React.CSSProperties = {
     color: styles.textColor,
-    padding: styles.padding || '80px 24px',
+    padding: styles.padding || '0',
     cursor: isPreview ? 'default' : 'pointer',
     position: 'relative',
     overflow: 'hidden',
