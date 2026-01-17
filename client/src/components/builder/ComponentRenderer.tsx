@@ -932,6 +932,71 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
           )
         )}
         
+        <style>{`
+          .product-grid-responsive {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+          }
+          @media (min-width: 640px) {
+            .product-grid-responsive {
+              grid-template-columns: repeat(3, 1fr);
+              gap: 16px;
+            }
+          }
+          @media (min-width: 1024px) {
+            .product-grid-responsive {
+              grid-template-columns: repeat(4, 1fr);
+              gap: 24px;
+            }
+          }
+          .product-card-responsive {
+            background: rgba(255,255,255,0.95);
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid rgba(0,0,0,0.08);
+            text-decoration: none;
+            color: inherit;
+            display: block;
+            transition: transform 0.2s, box-shadow 0.2s;
+          }
+          .product-card-responsive:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+          }
+          .product-image-wrapper {
+            position: relative;
+            width: 100%;
+            padding-top: 125%; /* 4:5 aspect ratio */
+            overflow: hidden;
+            background: #f5f5f5;
+          }
+          .product-image-wrapper img,
+          .product-image-wrapper .placeholder {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+          }
+          .product-image-wrapper .placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            background: #f0f0f0;
+          }
+          .product-info {
+            padding: 12px;
+          }
+          @media (min-width: 640px) {
+            .product-info {
+              padding: 16px;
+            }
+          }
+        `}</style>
+        
         {loading ? (
           <div style={{ textAlign: 'center', padding: '40px', color: styles.textColor, opacity: 0.6 }}>
             Loading products...
@@ -942,23 +1007,22 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
             <p>No products yet. Add products in the manage dashboard.</p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '24px' }}>
+          <div className="product-grid-responsive">
             {products.map(product => {
               const productUrl = `/product/${product.id}?website=${websiteId}`;
               const cardContent = (
                 <>
-                  {product.imageUrl ? (
-                    <img src={product.imageUrl} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
-                  ) : (
-                    <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
-                      📦
-                    </div>
-                  )}
-                  <div style={{ padding: '16px' }}>
-                    <h3 style={{ fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
-                    {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
-                    {product.description && <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{product.description}</p>}
-                    <p style={{ fontSize: '20px', fontWeight: 700 }}>{formatCurrency(parseFloat(product.price), product.currency)}</p>
+                  <div className="product-image-wrapper">
+                    {product.imageUrl ? (
+                      <img src={product.imageUrl} alt={product.name} />
+                    ) : (
+                      <div className="placeholder">📦</div>
+                    )}
+                  </div>
+                  <div className="product-info">
+                    <h3 style={{ fontWeight: 600, marginBottom: '4px', fontSize: '14px' }}>{product.name}</h3>
+                    {product.category && <p style={{ fontSize: '11px', opacity: 0.5, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{product.category}</p>}
+                    <p style={{ fontSize: '16px', fontWeight: 600 }}>{formatCurrency(parseFloat(product.price), product.currency)}</p>
                   </div>
                 </>
               );
@@ -967,13 +1031,13 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
                 <a
                   key={product.id}
                   href={productUrl}
-                  style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)', textDecoration: 'none', color: 'inherit', display: 'block', transition: 'transform 0.2s, box-shadow 0.2s' }}
+                  className="product-card-responsive"
                   data-testid={`product-card-${product.id}`}
                 >
                   {cardContent}
                 </a>
               ) : (
-                <div key={product.id} style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)' }}>
+                <div key={product.id} className="product-card-responsive">
                   {cardContent}
                 </div>
               );
