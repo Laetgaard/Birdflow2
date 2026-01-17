@@ -30,10 +30,12 @@ export const themeColors = {
 export const spacingPresets = {
   padding: [
     { name: 'None', value: '0' },
-    { name: 'Small', value: '24px' },
-    { name: 'Medium', value: '48px 24px' },
-    { name: 'Large', value: '80px 24px' },
-    { name: 'Extra Large', value: '120px 24px' },
+    { name: 'XS', value: '16px' },
+    { name: 'S', value: '32px 24px' },
+    { name: 'M', value: '64px 24px' },
+    { name: 'L', value: '96px 24px' },
+    { name: 'XL', value: '128px 24px' },
+    { name: '2XL', value: '160px 24px' },
   ],
   margin: [
     { name: 'None', value: '0' },
