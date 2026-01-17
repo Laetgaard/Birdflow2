@@ -2137,7 +2137,7 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
   return {
     backgroundColor: styles.backgroundColor || theme.backgroundColor,
     color: styles.textColor,
-    padding: styles.padding || '60px 24px',
+    padding: styles.padding || '0',
     position: 'relative',
   };
 }
