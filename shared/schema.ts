@@ -11,6 +11,7 @@ export const profiles = pgTable("profiles", {
   onboardingCompleted: boolean("onboarding_completed").default(false).notNull(),
   isAdmin: boolean("is_admin").default(false).notNull(),
   stripeCustomerId: text("stripe_customer_id"),
+  verifiedOnboardingSubscriptionId: text("verified_onboarding_subscription_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

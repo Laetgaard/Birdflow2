@@ -279,6 +279,52 @@ export async function registerRoutes(
       if (profile?.onboardingCompleted) {
         return res.status(400).json({ message: "Onboarding already completed" });
       }
+      
+      // Verify user has a Stripe customer ID and an active/trialing subscription
+      if (!profile?.stripeCustomerId) {
+        return res.status(403).json({ 
+          message: "Please select a subscription plan before creating your website",
+          code: "SUBSCRIPTION_REQUIRED" 
+        });
+      }
+      
+      // Check for verified onboarding subscription (stored in profile)
+      const verifiedSubscriptionId = profile.verifiedOnboardingSubscriptionId;
+      if (!verifiedSubscriptionId) {
+        return res.status(403).json({ 
+          message: "Please complete the subscription checkout before creating your website",
+          code: "SUBSCRIPTION_REQUIRED" 
+        });
+      }
+      
+      // Verify the specific subscription is active/trialing with Stripe
+      try {
+        const stripe = await getUncachableStripeClient();
+        const subscription = await stripe.subscriptions.retrieve(verifiedSubscriptionId);
+        
+        if (subscription.status !== 'active' && subscription.status !== 'trialing') {
+          return res.status(403).json({ 
+            message: "Your subscription is not active. Please check your payment.",
+            code: "SUBSCRIPTION_INACTIVE" 
+          });
+        }
+        
+        // Clear the verified subscription after successful website creation
+        await db.update(profiles)
+          .set({ verifiedOnboardingSubscriptionId: null })
+          .where(eq(profiles.id, user.id));
+      } catch (stripeError: any) {
+        console.error("Stripe subscription check error:", stripeError);
+        // If Stripe is not configured, allow proceeding (dev environment)
+        if (!process.env.STRIPE_SECRET_KEY) {
+          console.log("Stripe not configured, skipping subscription check");
+          await db.update(profiles)
+            .set({ verifiedOnboardingSubscriptionId: null })
+            .where(eq(profiles.id, user.id));
+        } else {
+          return res.status(500).json({ message: "Could not verify subscription status" });
+        }
+      }
 
       // Generate unique slug
       const baseSlug = (slug || name).trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'website';
@@ -4280,6 +4326,132 @@ export async function registerRoutes(
       res.json(result);
     } catch (error: any) {
       console.error("Create checkout session error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Verify onboarding checkout session and persist verification
+  app.post("/api/subscriptions/verify-onboarding", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { sessionId } = req.body;
+      
+      if (!sessionId) {
+        return res.status(400).json({ message: "Missing session ID" });
+      }
+      
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      
+      // Verify session belongs to this user
+      if (session.metadata?.userId !== userId) {
+        return res.status(403).json({ message: "Session does not belong to this user" });
+      }
+      
+      // Verify session was completed (check payment_status for paid sessions, or that it's not open/expired)
+      const isComplete = session.payment_status === 'paid' || 
+                         session.payment_status === 'no_payment_required' ||
+                         (session.status !== 'open' && session.status !== 'expired');
+      
+      if (!isComplete) {
+        return res.status(400).json({ message: "Payment not completed" });
+      }
+      
+      const planId = session.metadata?.planId as PlanId;
+      const subscriptionId = session.subscription as string;
+      
+      // Store the verified subscription ID in the profile (persistent storage)
+      if (subscriptionId) {
+        await db.update(profiles)
+          .set({ verifiedOnboardingSubscriptionId: subscriptionId })
+          .where(eq(profiles.id, userId));
+      }
+      
+      res.json({ 
+        success: true, 
+        planId,
+        verified: true,
+      });
+    } catch (error: any) {
+      console.error("Verify onboarding session error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create checkout session for onboarding (no website yet)
+  app.post("/api/subscriptions/onboarding-checkout", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { planId: rawPlanId, successUrl, cancelUrl } = req.body;
+      
+      if (!rawPlanId) {
+        return res.status(400).json({ message: "Missing plan selection" });
+      }
+      
+      const planId = rawPlanId.toLowerCase() as PlanId;
+      
+      if (!PLAN_DETAILS[planId]) {
+        return res.status(400).json({ message: "Invalid plan selected" });
+      }
+      
+      if (planId === 'free') {
+        return res.status(400).json({ message: "Cannot checkout for free plan" });
+      }
+      
+      const profile = await storage.getProfile(userId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      // Create or get Stripe customer
+      let stripeCustomerId = profile.stripeCustomerId;
+      const stripe = await getUncachableStripeClient();
+      
+      if (!stripeCustomerId) {
+        const customer = await stripe.customers.create({
+          email: profile.email,
+          name: profile.fullName || profile.email,
+          metadata: { userId },
+        });
+        stripeCustomerId = customer.id;
+        await storage.updateProfile(userId, { stripeCustomerId });
+      }
+      
+      const plan = PLAN_DETAILS[planId];
+      if (!plan.stripePriceId) {
+        return res.status(400).json({ message: "Plan pricing not configured" });
+      }
+      
+      // Create checkout session with subscription_data for trial
+      const sessionParams: any = {
+        customer: stripeCustomerId,
+        mode: 'subscription',
+        payment_method_collection: 'always',
+        line_items: [{
+          price: plan.stripePriceId,
+          quantity: 1,
+        }],
+        success_url: `${req.headers.origin}/onboarding?subscription_success=true&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${req.headers.origin}/onboarding?subscription_cancel=true`,
+        metadata: {
+          userId,
+          planId,
+          type: 'onboarding',
+        },
+      };
+      
+      // Add trial if plan has trial days
+      if (plan.trialDays > 0) {
+        sessionParams.subscription_data = {
+          trial_period_days: plan.trialDays,
+        };
+      }
+      
+      const session = await stripe.checkout.sessions.create(sessionParams);
+      
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Create onboarding checkout session error:", error);
       res.status(500).json({ message: error.message });
     }
   });
