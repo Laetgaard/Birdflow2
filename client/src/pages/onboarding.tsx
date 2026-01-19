@@ -16,11 +16,49 @@ import {
   Sparkles,
   Rocket,
   ExternalLink,
+  Crown,
+  Zap,
+  Building2,
 } from "lucide-react";
 
 type WebsiteType = "booking" | "webshop" | "simple";
 
-type Step = "welcome" | "choose-type" | "website-name" | "setup" | "success";
+type PlanId = "starter" | "business" | "enterprise";
+
+type Step = "welcome" | "choose-plan" | "choose-type" | "website-name" | "setup" | "success";
+
+const subscriptionPlans: { id: PlanId; name: string; price: string; description: string; icon: React.ElementType; color: string; popular: boolean; features: string[] }[] = [
+  {
+    id: "starter",
+    name: "Starter",
+    price: "$19/mo",
+    description: "Perfect for growing businesses",
+    icon: Zap,
+    color: "from-blue-500 to-cyan-500",
+    popular: true,
+    features: ["3 websites", "AI builder", "Custom domain", "E-commerce (50 products)", "60-day free trial"],
+  },
+  {
+    id: "business",
+    name: "Business",
+    price: "$49/mo",
+    description: "For scaling teams",
+    icon: Building2,
+    color: "from-purple-500 to-indigo-500",
+    popular: false,
+    features: ["10 websites", "Everything in Starter", "500 products", "Priority support", "Team members (5)"],
+  },
+  {
+    id: "enterprise",
+    name: "Enterprise",
+    price: "$149/mo",
+    description: "For large organizations",
+    icon: Crown,
+    color: "from-amber-500 to-orange-500",
+    popular: false,
+    features: ["Unlimited websites", "Everything in Business", "White-label", "Dedicated manager", "SLA guarantee"],
+  },
+];
 
 const websiteTypes: { id: WebsiteType; title: string; description: string; icon: React.ElementType; color: string }[] = [
   {
@@ -83,9 +121,11 @@ export default function OnboardingPage() {
   const { toast } = useToast();
 
   const [step, setStep] = useState<Step>("welcome");
+  const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
   const [websiteType, setWebsiteType] = useState<WebsiteType | null>(null);
   const [websiteName, setWebsiteName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [isRedirectingToStripe, setIsRedirectingToStripe] = useState(false);
   const [setupProgress, setSetupProgress] = useState(0);
   const [createdWebsiteId, setCreatedWebsiteId] = useState<string | null>(null);
 
@@ -100,6 +140,65 @@ export default function OnboardingPage() {
       navigate("/dashboard");
     }
   }, [authLoading, profile, navigate]);
+
+  // Handle return from Stripe checkout
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stripeSuccess = params.get("subscription_success");
+    const stripeCancel = params.get("subscription_cancel");
+    const sessionId = params.get("session_id");
+    
+    if (stripeSuccess === "true" && sessionId && token) {
+      // Verify the session with the backend
+      (async () => {
+        try {
+          const response = await fetch("/api/subscriptions/verify-onboarding", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ sessionId }),
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            setSelectedPlan(data.planId);
+            setStep("choose-type");
+            window.history.replaceState({}, "", "/onboarding");
+            toast({
+              title: "Subscription activated!",
+              description: "Your payment info has been saved. Let's create your website.",
+            });
+          } else {
+            setStep("choose-plan");
+            window.history.replaceState({}, "", "/onboarding");
+            toast({
+              title: "Verification failed",
+              description: "Could not verify your subscription. Please try again.",
+              variant: "destructive",
+            });
+          }
+        } catch (error) {
+          setStep("choose-plan");
+          window.history.replaceState({}, "", "/onboarding");
+          toast({
+            title: "Error",
+            description: "Something went wrong. Please try again.",
+            variant: "destructive",
+          });
+        }
+      })();
+    } else if (stripeCancel === "true") {
+      setStep("choose-plan");
+      window.history.replaceState({}, "", "/onboarding");
+      toast({
+        title: "Subscription cancelled",
+        description: "You can try again when you're ready.",
+        variant: "destructive",
+      });
+    }
+  }, [toast, token]);
 
   const generateSlug = (name: string) => {
     return name
@@ -164,18 +263,57 @@ export default function OnboardingPage() {
     }
   };
 
+  const handlePlanSelection = async (planId: PlanId) => {
+    if (!token) return;
+    
+    setSelectedPlan(planId);
+    setIsRedirectingToStripe(true);
+    
+    try {
+      const response = await fetch("/api/subscriptions/onboarding-checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          planId,
+          successUrl: `${window.location.origin}/onboarding?subscription_success=true&plan=${planId}`,
+          cancelUrl: `${window.location.origin}/onboarding?subscription_cancel=true`,
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to create checkout session");
+      }
+      
+      const { url } = await response.json();
+      window.location.href = url;
+    } catch (error: any) {
+      setIsRedirectingToStripe(false);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to start checkout",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSkip = () => {
     navigate("/dashboard");
   };
 
   const getStepNumber = () => {
     switch (step) {
-      case "choose-type":
+      case "choose-plan":
         return 1;
-      case "website-name":
+      case "choose-type":
         return 2;
-      case "setup":
+      case "website-name":
         return 3;
+      case "setup":
+        return 4;
       default:
         return 0;
     }
@@ -227,10 +365,10 @@ export default function OnboardingPage() {
                   <Button
                     size="lg"
                     className="h-14 px-8 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    onClick={() => setStep("choose-type")}
+                    onClick={() => setStep("choose-plan")}
                     data-testid="button-create-website"
                   >
-                    Create my website
+                    Get started
                     <ArrowRight className="ml-2 w-5 h-5" />
                   </Button>
                   <Button
@@ -246,6 +384,86 @@ export default function OnboardingPage() {
               </motion.div>
             )}
 
+            {step === "choose-plan" && (
+              <motion.div
+                key="choose-plan"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <ProgressIndicator currentStep={1} totalSteps={4} />
+
+                <h2 className="text-3xl font-bold tracking-tight mb-2">
+                  Choose your plan
+                </h2>
+                <p className="text-muted-foreground mb-8">
+                  Start with a free trial. No credit card required upfront.
+                </p>
+
+                <div className="grid gap-4 mb-8">
+                  {subscriptionPlans.map((plan) => {
+                    const Icon = plan.icon;
+                    const isSelected = selectedPlan === plan.id;
+                    return (
+                      <button
+                        key={plan.id}
+                        onClick={() => handlePlanSelection(plan.id)}
+                        disabled={isRedirectingToStripe}
+                        className={`relative flex items-start gap-4 p-6 rounded-2xl border-2 transition-all text-left ${
+                          isSelected
+                            ? "border-primary bg-primary/5 shadow-lg"
+                            : "border-border hover:border-primary/50 hover:bg-muted/50"
+                        } ${isRedirectingToStripe ? "opacity-50 cursor-not-allowed" : ""}`}
+                        data-testid={`button-plan-${plan.id}`}
+                      >
+                        {plan.popular && (
+                          <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-semibold rounded-full">
+                            Most Popular
+                          </div>
+                        )}
+                        <div
+                          className={`w-14 h-14 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-white shadow-lg flex-shrink-0`}
+                        >
+                          <Icon className="w-7 h-7" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-semibold text-lg">{plan.name}</h3>
+                            <span className="text-lg font-bold text-primary">{plan.price}</span>
+                          </div>
+                          <p className="text-muted-foreground text-sm mb-2">
+                            {plan.description}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {plan.features.slice(0, 3).map((feature, i) => (
+                              <span key={i} className="text-xs bg-muted px-2 py-1 rounded">
+                                {feature}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        {isRedirectingToStripe && isSelected ? (
+                          <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                        ) : (
+                          <ArrowRight className="w-6 h-6 text-muted-foreground" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <Button variant="ghost" onClick={() => setStep("welcome")} disabled={isRedirectingToStripe}>
+                    Back
+                  </Button>
+                  <p className="text-sm text-muted-foreground">
+                    Select a plan to continue
+                  </p>
+                </div>
+              </motion.div>
+            )}
+
             {step === "choose-type" && (
               <motion.div
                 key="choose-type"
@@ -254,7 +472,7 @@ export default function OnboardingPage() {
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <ProgressIndicator currentStep={1} totalSteps={3} />
+                <ProgressIndicator currentStep={2} totalSteps={4} />
 
                 <h2 className="text-3xl font-bold tracking-tight mb-2">
                   What kind of website do you want to build?
@@ -300,8 +518,8 @@ export default function OnboardingPage() {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={handleSkip}>
-                    Skip
+                  <Button variant="ghost" onClick={() => setStep("choose-plan")}>
+                    Back
                   </Button>
                   <Button
                     size="lg"
@@ -324,7 +542,7 @@ export default function OnboardingPage() {
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <ProgressIndicator currentStep={2} totalSteps={3} />
+                <ProgressIndicator currentStep={3} totalSteps={4} />
 
                 <h2 className="text-3xl font-bold tracking-tight mb-2">
                   Name your website
