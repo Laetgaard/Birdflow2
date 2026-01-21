@@ -2597,8 +2597,127 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
   const limit = props.productLimit || 6;
   const displayProducts = products.slice(0, limit);
   
+  const responsiveCSS = \`
+    .product-grid-ssr {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    @media (min-width: 480px) {
+      .product-grid-ssr {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+      }
+    }
+    @media (min-width: 768px) {
+      .product-grid-ssr {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+      }
+    }
+    @media (min-width: 1024px) {
+      .product-grid-ssr {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 24px;
+      }
+    }
+    .product-card-ssr {
+      background: rgba(255,255,255,0.98);
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.06);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .product-card-ssr:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.12);
+    }
+    .product-image-ssr {
+      position: relative;
+      width: 100%;
+      padding-top: 100%;
+      overflow: hidden;
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    }
+    @media (max-width: 479px) {
+      .product-image-ssr {
+        padding-top: 85%;
+      }
+    }
+    .product-image-ssr img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .product-placeholder-ssr {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 56px;
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    }
+    .product-info-ssr {
+      padding: 16px;
+    }
+    @media (max-width: 479px) {
+      .product-info-ssr {
+        padding: 20px;
+      }
+    }
+    .product-name-ssr {
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-size: 14px;
+      line-height: 1.3;
+      color: #1a1a1a;
+    }
+    @media (max-width: 479px) {
+      .product-name-ssr {
+        font-size: 18px;
+        margin-bottom: 6px;
+      }
+    }
+    .product-category-ssr {
+      font-size: 11px;
+      opacity: 0.5;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 500;
+    }
+    @media (max-width: 479px) {
+      .product-category-ssr {
+        font-size: 12px;
+        margin-bottom: 10px;
+      }
+    }
+    .product-price-ssr {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+    @media (max-width: 479px) {
+      .product-price-ssr {
+        font-size: 20px;
+      }
+    }
+  \`;
+  
   return (
     <section style={baseStyle}>
+      <style dangerouslySetInnerHTML={{ __html: responsiveCSS }} />
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
         {props.description && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', textAlign: 'center' }}>{props.description}</p>}
@@ -2608,21 +2727,20 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
             <p>No products available.</p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: '24px' }}>
+          <div className="product-grid-ssr">
             {displayProducts.map((product: any) => (
-              <div key={product.id} style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.1)' }}>
-                {product.image_url ? (
-                  <img src={product.image_url} alt={product.name} style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: '100%', aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
-                    📦
-                  </div>
-                )}
-                <div style={{ padding: '16px' }}>
-                  <h3 style={{ fontWeight: 600, marginBottom: '4px' }}>{product.name}</h3>
-                  {product.category && <p style={{ fontSize: '12px', opacity: 0.6, marginBottom: '8px' }}>{product.category}</p>}
-                  {product.description && <p style={{ fontSize: '14px', opacity: 0.8, marginBottom: '12px' }}>{product.description}</p>}
-                  <p style={{ fontSize: '20px', fontWeight: 700 }}>\${parseFloat(product.price).toFixed(2)}</p>
+              <div key={product.id} className="product-card-ssr">
+                <div className="product-image-ssr">
+                  {product.image_url ? (
+                    <img src={product.image_url} alt={product.name} />
+                  ) : (
+                    <div className="product-placeholder-ssr">📦</div>
+                  )}
+                </div>
+                <div className="product-info-ssr">
+                  <h3 className="product-name-ssr">{product.name}</h3>
+                  {product.category && <p className="product-category-ssr">{product.category}</p>}
+                  <p className="product-price-ssr">\${parseFloat(product.price).toFixed(2)}</p>
                 </div>
               </div>
             ))}
@@ -3804,13 +3922,19 @@ export default function ProductGrid({ styles, props }: Props) {
         <style>{\`
           .product-grid-responsive {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
+            grid-template-columns: 1fr;
+            gap: 20px;
           }
-          @media (min-width: 640px) {
+          @media (min-width: 480px) {
+            .product-grid-responsive {
+              grid-template-columns: repeat(2, 1fr);
+              gap: 16px;
+            }
+          }
+          @media (min-width: 768px) {
             .product-grid-responsive {
               grid-template-columns: repeat(3, 1fr);
-              gap: 16px;
+              gap: 20px;
             }
           }
           @media (min-width: 1024px) {
@@ -3820,25 +3944,31 @@ export default function ProductGrid({ styles, props }: Props) {
             }
           }
           .product-card {
-            background: #fff;
-            border-radius: 8px;
+            background: rgba(255,255,255,0.98);
+            border-radius: 16px;
             overflow: hidden;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
             text-decoration: none;
             color: inherit;
             display: block;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
           }
           .product-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.12);
           }
           .product-image-wrapper {
             position: relative;
             width: 100%;
-            padding-top: 125%; /* 4:5 aspect ratio */
+            padding-top: 100%;
             overflow: hidden;
-            background: #f5f5f5;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+          }
+          @media (max-width: 479px) {
+            .product-image-wrapper {
+              padding-top: 85%;
+            }
           }
           .product-image-wrapper img {
             position: absolute;
@@ -3857,34 +3987,53 @@ export default function ProductGrid({ styles, props }: Props) {
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 48px;
-            background: #f0f0f0;
+            font-size: 56px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
           }
           .product-info {
-            padding: 12px;
+            padding: 16px;
           }
-          @media (min-width: 640px) {
+          @media (max-width: 479px) {
             .product-info {
-              padding: 16px;
+              padding: 20px;
             }
           }
           .product-title {
             font-size: 14px;
             font-weight: 600;
             margin-bottom: 4px;
+            line-height: 1.3;
             color: #1a1a1a;
+          }
+          @media (max-width: 479px) {
+            .product-title {
+              font-size: 18px;
+              margin-bottom: 6px;
+            }
           }
           .product-category {
             font-size: 11px;
             opacity: 0.5;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            font-weight: 500;
+          }
+          @media (max-width: 479px) {
+            .product-category {
+              font-size: 12px;
+              margin-bottom: 10px;
+            }
           }
           .product-price {
             font-size: 16px;
-            font-weight: 600;
+            font-weight: 700;
             color: #1a1a1a;
+          }
+          @media (max-width: 479px) {
+            .product-price {
+              font-size: 20px;
+            }
           }
         \`}</style>
 
