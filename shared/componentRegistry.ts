@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range';
 
@@ -95,6 +95,38 @@ export const fontWeightPresets = [
   { name: 'Extra Bold', value: '800' },
 ];
 
+// Animation presets for components
+export const animationPresets = {
+  entrance: [
+    { name: 'None', value: 'none' },
+    { name: 'Fade In', value: 'fade-in' },
+    { name: 'Slide Up', value: 'slide-up' },
+    { name: 'Slide Down', value: 'slide-down' },
+    { name: 'Slide Left', value: 'slide-left' },
+    { name: 'Slide Right', value: 'slide-right' },
+    { name: 'Zoom In', value: 'zoom-in' },
+    { name: 'Zoom Out', value: 'zoom-out' },
+    { name: 'Bounce', value: 'bounce' },
+    { name: 'Flip', value: 'flip' },
+  ],
+  trigger: [
+    { name: 'On Page Load', value: 'load' },
+    { name: 'On Scroll Into View', value: 'scroll' },
+  ],
+  duration: [
+    { name: 'Fast', value: '0.3s' },
+    { name: 'Normal', value: '0.5s' },
+    { name: 'Slow', value: '0.8s' },
+    { name: 'Very Slow', value: '1.2s' },
+  ],
+  delay: [
+    { name: 'None', value: '0s' },
+    { name: 'Short', value: '0.1s' },
+    { name: 'Medium', value: '0.3s' },
+    { name: 'Long', value: '0.5s' },
+  ],
+};
+
 // Editable text fields per component type
 export const editableTextFields: Record<ComponentType, string[]> = {
   'hero': ['title', 'subtitle', 'description', 'buttonText'],
@@ -115,6 +147,8 @@ export const editableTextFields: Record<ComponentType, string[]> = {
   'video-embed': ['title', 'description'],
   'divider': [],
   'spacer': [],
+  'newsletter': ['title', 'subtitle', 'buttonText', 'successMessage'],
+  'before-after': ['title', 'beforeLabel', 'afterLabel'],
 };
 
 export type FieldDefinition = {
@@ -187,6 +221,15 @@ export type ComponentProps = {
   stats?: StatItem[];
   height?: string;
   style?: 'solid' | 'dashed' | 'gradient';
+  // Newsletter component props
+  placeholder?: string;
+  successMessage?: string;
+  // Before/After component props
+  beforeImage?: string;
+  afterImage?: string;
+  beforeLabel?: string;
+  afterLabel?: string;
+  sliderPosition?: number;
 };
 
 export type ComponentStyles = {
@@ -224,6 +267,11 @@ export type ComponentStyles = {
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   buttonRadius?: string;
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
+  // Animation settings
+  animationType?: 'none' | 'fade-in' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom-in' | 'zoom-out' | 'bounce' | 'flip';
+  animationTrigger?: 'load' | 'scroll';
+  animationDuration?: string;
+  animationDelay?: string;
 };
 
 export type BuilderComponentData = {
@@ -720,6 +768,74 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     fields: [
       { key: 'height', label: 'Height', type: 'text', group: 'content', placeholder: '60px' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+    ],
+  },
+
+  newsletter: {
+    type: 'newsletter',
+    name: 'Newsletter Signup',
+    icon: 'mail',
+    defaultProps: {
+      title: 'Subscribe to Our Newsletter',
+      subtitle: 'Get the latest updates and exclusive offers delivered to your inbox.',
+      buttonText: 'Subscribe',
+      placeholder: 'Enter your email address',
+      successMessage: 'Thanks for subscribing! Check your email for confirmation.',
+    },
+    defaultStyles: {
+      backgroundColor: '#f8f9fa',
+      textColor: '#1a1a1a',
+      padding: '0',
+      buttonColor: '#4f46e5',
+      animationType: 'none',
+      animationTrigger: 'load',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
+      { key: 'placeholder', label: 'Input Placeholder', type: 'text', group: 'content' },
+      { key: 'successMessage', label: 'Success Message', type: 'textarea', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  'before-after': {
+    type: 'before-after',
+    name: 'Before/After Comparison',
+    icon: 'columns',
+    defaultProps: {
+      title: 'See the Difference',
+      beforeImage: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800',
+      afterImage: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&sat=-100',
+      beforeLabel: 'Before',
+      afterLabel: 'After',
+      sliderPosition: 50,
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      padding: '0',
+      animationType: 'none',
+      animationTrigger: 'load',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'beforeImage', label: 'Before Image', type: 'image', group: 'content' },
+      { key: 'afterImage', label: 'After Image', type: 'image', group: 'content' },
+      { key: 'beforeLabel', label: 'Before Label', type: 'text', group: 'content' },
+      { key: 'afterLabel', label: 'After Label', type: 'text', group: 'content' },
+      { key: 'sliderPosition', label: 'Initial Slider Position', type: 'range', group: 'content', min: 0, max: 100, step: 5, unit: '%' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
     ],
   },
 };

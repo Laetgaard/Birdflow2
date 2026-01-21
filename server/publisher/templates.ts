@@ -2027,7 +2027,7 @@ export default function CartButton({ color = '#1a1a1a' }: CartButtonProps) {
 export function generateComponentRenderer(): string {
   return `'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import theme from '@/theme.json';
 import { useCart } from '@/components/CartProvider';
 
@@ -2100,6 +2100,101 @@ function getImageUrl(image: ImageValue | undefined): string {
   return image.url || '';
 }
 
+const animationKeyframes = \`
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideLeft { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slideRight { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes zoomIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes zoomOut { from { opacity: 0; transform: scale(1.1); } to { opacity: 1; transform: scale(1); } }
+@keyframes bounce { 
+  0% { opacity: 0; transform: translateY(30px); }
+  60% { opacity: 1; transform: translateY(-10px); }
+  80% { transform: translateY(5px); }
+  100% { transform: translateY(0); }
+}
+@keyframes flip { from { opacity: 0; transform: perspective(400px) rotateX(90deg); } to { opacity: 1; transform: perspective(400px) rotateX(0); } }
+\`;
+
+const animationMap: Record<string, string> = {
+  'fade-in': 'fadeIn',
+  'slide-up': 'slideUp',
+  'slide-down': 'slideDown',
+  'slide-left': 'slideLeft',
+  'slide-right': 'slideRight',
+  'zoom-in': 'zoomIn',
+  'zoom-out': 'zoomOut',
+  'bounce': 'bounce',
+  'flip': 'flip',
+};
+
+function AnimatedWrapper({ 
+  children, 
+  styles 
+}: { 
+  children: React.ReactNode; 
+  styles: ComponentStyles;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const [hasAnimated, setHasAnimated] = useState(false);
+  
+  const animationType = styles.animationType || 'none';
+  const animationTrigger = styles.animationTrigger || 'load';
+  const animationDuration = styles.animationDuration || '0.5s';
+  const animationDelay = styles.animationDelay || '0s';
+  
+  useEffect(() => {
+    if (animationType === 'none' || hasAnimated) return;
+    
+    if (animationTrigger === 'load') {
+      setIsVisible(true);
+      setHasAnimated(true);
+    } else if (animationTrigger === 'scroll') {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && !hasAnimated) {
+              setIsVisible(true);
+              setHasAnimated(true);
+            }
+          });
+        },
+        { threshold: 0.1 }
+      );
+      
+      if (ref.current) {
+        observer.observe(ref.current);
+      }
+      
+      return () => observer.disconnect();
+    }
+  }, [animationType, animationTrigger, hasAnimated]);
+  
+  if (animationType === 'none' || !animationMap[animationType]) {
+    return <>{children}</>;
+  }
+  
+  const animationName = animationMap[animationType];
+  const shouldAnimate = isVisible;
+  
+  return (
+    <div
+      ref={ref}
+      style={{
+        opacity: shouldAnimate ? 1 : 0,
+        animation: shouldAnimate 
+          ? \`\${animationName} \${animationDuration} \${animationDelay} ease-out forwards\`
+          : 'none',
+      }}
+    >
+      <style>{\`\${animationKeyframes}\`}</style>
+      {children}
+    </div>
+  );
+}
+
 type ComponentStyles = {
   backgroundColor?: string;
   textColor?: string;
@@ -2107,6 +2202,10 @@ type ComponentStyles = {
   margin?: string;
   borderRadius?: string;
   border?: string;
+  animationType?: string;
+  animationTrigger?: string;
+  animationDuration?: string;
+  animationDelay?: string;
   boxShadow?: string;
   backgroundGradient?: string;
   backgroundImage?: string;
@@ -2642,43 +2741,313 @@ function SpacerSection({ props, styles }: { props: ComponentProps; styles: Compo
   );
 }
 
+function NewsletterSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const [email, setEmail] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || isSubmitting) return;
+    setIsSubmitting(true);
+    setTimeout(() => {
+      setSubmitted(true);
+      setIsSubmitting(false);
+    }, 1000);
+  };
+
+  const textColor = styles.textColor || '#1a1a1a';
+  const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonTextColor = buttonColor && /^#[a-fA-F0-9]{6}$/.test(buttonColor) ? 
+    (parseInt(buttonColor.slice(1), 16) > 0xffffff/2 ? '#000000' : '#ffffff') : '#ffffff';
+
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#f8f9fa',
+        padding: styles.padding || '60px 24px',
+        color: textColor,
+      }}
+    >
+      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '32px', fontWeight: '700', marginBottom: '16px', color: textColor }}>
+            {props.title}
+          </h2>
+        )}
+        {props.subtitle && (
+          <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px', color: textColor }}>
+            {props.subtitle}
+          </p>
+        )}
+        {submitted ? (
+          <div style={{ padding: '20px', backgroundColor: '#10b981', color: '#ffffff', borderRadius: '8px' }}>
+            <p style={{ fontSize: '16px', fontWeight: '500' }}>
+              {props.successMessage || 'Thanks for subscribing!'}
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '12px', maxWidth: '500px', margin: '0 auto', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={props.placeholder || 'Enter your email address'}
+              style={{
+                flex: '1 1 250px',
+                padding: '14px 18px',
+                fontSize: '16px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                minWidth: '200px',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              style={{
+                padding: '14px 28px',
+                fontSize: '16px',
+                fontWeight: '600',
+                backgroundColor: buttonColor,
+                color: buttonTextColor,
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                opacity: isSubmitting ? 0.7 : 1,
+              }}
+            >
+              {props.buttonText || 'Subscribe'}
+            </button>
+          </form>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function BeforeAfterSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const [sliderPosition, setSliderPosition] = useState(props.sliderPosition || 50);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Parse image values that could be strings or objects with url/crop
+  const beforeImageUrl = typeof props.beforeImage === 'object' && props.beforeImage?.url 
+    ? props.beforeImage.url 
+    : (props.beforeImage || '');
+  const afterImageUrl = typeof props.afterImage === 'object' && props.afterImage?.url 
+    ? props.afterImage.url 
+    : (props.afterImage || '');
+
+  const handleMouseDown = () => {
+    setIsDragging(true);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setSliderPosition(percentage);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!containerRef.current) return;
+    const touch = e.touches[0];
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setSliderPosition(percentage);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      const handleGlobalMouseUp = () => setIsDragging(false);
+      window.addEventListener('mouseup', handleGlobalMouseUp);
+      return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+    }
+  }, [isDragging]);
+
+  const textColor = styles.textColor || '#1a1a1a';
+
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '60px 24px',
+        color: textColor,
+      }}
+    >
+      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '32px', fontWeight: '700', marginBottom: '32px', textAlign: 'center', color: textColor }}>
+            {props.title}
+          </h2>
+        )}
+        <div
+          ref={containerRef}
+          style={{
+            position: 'relative',
+            width: '100%',
+            aspectRatio: '16/9',
+            overflow: 'hidden',
+            borderRadius: '12px',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            userSelect: 'none',
+          }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onTouchStart={() => setIsDragging(true)}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={() => setIsDragging(false)}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundImage: afterImageUrl ? \`url(\${afterImageUrl})\` : 'none',
+              backgroundColor: afterImageUrl ? 'transparent' : '#e5e7eb',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundImage: beforeImageUrl ? \`url(\${beforeImageUrl})\` : 'none',
+              backgroundColor: beforeImageUrl ? 'transparent' : '#d1d5db',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              clipPath: \`inset(0 \${100 - sliderPosition}% 0 0)\`,
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: \`\${sliderPosition}%\`,
+              width: '4px',
+              backgroundColor: '#ffffff',
+              boxShadow: '0 0 10px rgba(0,0,0,0.3)',
+              transform: 'translateX(-50%)',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: \`\${sliderPosition}%\`,
+              width: '40px',
+              height: '40px',
+              backgroundColor: '#ffffff',
+              borderRadius: '50%',
+              transform: 'translate(-50%, -50%)',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px',
+            }}
+          >
+            ⟷
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '16px',
+              left: '16px',
+              padding: '6px 12px',
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              color: '#ffffff',
+              borderRadius: '4px',
+              fontSize: '14px',
+              fontWeight: '600',
+            }}
+          >
+            {props.beforeLabel || 'Before'}
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '16px',
+              right: '16px',
+              padding: '6px 12px',
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              color: '#ffffff',
+              borderRadius: '4px',
+              fontSize: '14px',
+              fontWeight: '600',
+            }}
+          >
+            {props.afterLabel || 'After'}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function ComponentRenderer({ component, products = [], pages = [] }: { component: ComponentData; products?: any[]; pages?: BuilderPage[] }) {
-  switch (component.type) {
-    case 'hero':
-      return <HeroSection props={component.props} styles={component.styles} />;
-    case 'image-slider':
-      return <ImageSliderSection props={component.props} styles={component.styles} />;
-    case 'text-image':
-      return <TextImageSection props={component.props} styles={component.styles} />;
-    case 'cta':
-      return <CTASection props={component.props} styles={component.styles} />;
-    case 'features':
-      return <FeaturesSection props={component.props} styles={component.styles} />;
-    case 'testimonials':
-      return <TestimonialsSection props={component.props} styles={component.styles} />;
-    case 'header':
-      return <HeaderSection props={component.props} styles={component.styles} pages={pages} />;
-    case 'footer':
-      return <FooterSection props={component.props} styles={component.styles} />;
-    case 'product-grid':
-      return <ProductGridSection props={component.props} styles={component.styles} products={products} />;
-    case 'gallery':
-      return <GallerySection props={component.props} styles={component.styles} />;
-    case 'pricing-table':
-      return <PricingTableSection props={component.props} styles={component.styles} />;
-    case 'faq':
-      return <FAQSection props={component.props} styles={component.styles} />;
-    case 'stats-counter':
-      return <StatsCounterSection props={component.props} styles={component.styles} />;
-    case 'video-embed':
-      return <VideoEmbedSection props={component.props} styles={component.styles} />;
-    case 'divider':
-      return <DividerSection props={component.props} styles={component.styles} />;
-    case 'spacer':
-      return <SpacerSection props={component.props} styles={component.styles} />;
-    default:
-      return null;
-  }
+  const renderComponent = () => {
+    switch (component.type) {
+      case 'hero':
+        return <HeroSection props={component.props} styles={component.styles} />;
+      case 'image-slider':
+        return <ImageSliderSection props={component.props} styles={component.styles} />;
+      case 'text-image':
+        return <TextImageSection props={component.props} styles={component.styles} />;
+      case 'cta':
+        return <CTASection props={component.props} styles={component.styles} />;
+      case 'features':
+        return <FeaturesSection props={component.props} styles={component.styles} />;
+      case 'testimonials':
+        return <TestimonialsSection props={component.props} styles={component.styles} />;
+      case 'header':
+        return <HeaderSection props={component.props} styles={component.styles} pages={pages} />;
+      case 'footer':
+        return <FooterSection props={component.props} styles={component.styles} />;
+      case 'product-grid':
+        return <ProductGridSection props={component.props} styles={component.styles} products={products} />;
+      case 'gallery':
+        return <GallerySection props={component.props} styles={component.styles} />;
+      case 'pricing-table':
+        return <PricingTableSection props={component.props} styles={component.styles} />;
+      case 'faq':
+        return <FAQSection props={component.props} styles={component.styles} />;
+      case 'stats-counter':
+        return <StatsCounterSection props={component.props} styles={component.styles} />;
+      case 'video-embed':
+        return <VideoEmbedSection props={component.props} styles={component.styles} />;
+      case 'divider':
+        return <DividerSection props={component.props} styles={component.styles} />;
+      case 'spacer':
+        return <SpacerSection props={component.props} styles={component.styles} />;
+      case 'newsletter':
+        return <NewsletterSection props={component.props} styles={component.styles} />;
+      case 'before-after':
+        return <BeforeAfterSection props={component.props} styles={component.styles} />;
+      default:
+        return null;
+    }
+  };
+
+  const componentElement = renderComponent();
+  if (!componentElement) return null;
+
+  return (
+    <AnimatedWrapper styles={component.styles}>
+      {componentElement}
+    </AnimatedWrapper>
+  );
 }
 `;
 }
