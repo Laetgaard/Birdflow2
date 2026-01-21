@@ -2241,18 +2241,56 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
 }
 
 function HeroSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
-  const baseStyle = getBaseStyle(styles);
   const imageUrl = getImageUrl(props.imageUrl);
   const backgroundImage = imageUrl ? { backgroundImage: \`url(\${imageUrl})\`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
   
+  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const titleFontSize = styles.titleFontSize || '48px';
+  const bodyFontSize = styles.bodyFontSize || '18px';
+  const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight as string) : 700;
+  const buttonColor = styles.buttonColor || '#4f46e5';
+  const backgroundOpacity = typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : 1;
+  
+  // Calculate contrasting text color for button
+  const buttonTextColor = (() => {
+    if (!buttonColor) return '#ffffff';
+    const hex = buttonColor.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5 ? '#1a1a1a' : '#ffffff';
+  })();
+  
+  // Calculate background color with opacity
+  const bgColorWithOpacity = (() => {
+    const bgColor = styles.backgroundColor || '#1a1a2e';
+    const hex = bgColor.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return \`rgba(\${r}, \${g}, \${b}, \${backgroundOpacity})\`;
+  })();
+  
+  const heroStyle: React.CSSProperties = {
+    color: styles.textColor || '#ffffff',
+    padding: styles.padding || '0',
+    position: 'relative',
+    overflow: 'hidden',
+    fontFamily,
+    ...backgroundImage,
+  };
+  
   return (
-    <section style={{ ...baseStyle, ...backgroundImage }}>
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
-        <h1 style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h1>
+    <section style={heroStyle}>
+      {/* Color overlay */}
+      <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
+      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 2 }}>
+        <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px' }}>{props.title}</h1>
         {props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{props.subtitle}</p>}
-        {props.description && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
+        {props.description && <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
         {props.buttonText && (
-          <a href={props.buttonLink || '#'} style={{ display: 'inline-block', padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: '#1a1a1a', borderRadius: '8px', textDecoration: 'none' }}>
+          <a href={props.buttonLink || '#'} style={{ display: 'inline-block', padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: buttonColor, color: buttonTextColor, borderRadius: '8px', textDecoration: 'none' }}>
             {props.buttonText}
           </a>
         )}
