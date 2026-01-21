@@ -215,7 +215,7 @@ export type AccordionItem = {
 };
 
 export type AccordionComponentProps = {
-  items: AccordionItem[];
+  accordionItems: AccordionItem[];
   allowMultiple?: boolean;
   defaultOpen?: string[];
 };
@@ -225,7 +225,7 @@ export type ModalComponentProps = {
   title: string;
   content: string;
   triggerStyle?: 'button' | 'link' | 'ghost';
-  size?: 'sm' | 'md' | 'lg' | 'full';
+  modalSize?: 'sm' | 'md' | 'lg' | 'full';
 };
 
 export type ComponentProps = {
