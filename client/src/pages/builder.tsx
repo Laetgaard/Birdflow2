@@ -1005,9 +1005,49 @@ export default function BuilderPage() {
                       accessToken={session?.access_token || ''}
                     />
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
-                      <Settings className="w-8 h-8 mb-3 opacity-50" />
-                      <p className="text-sm">Select a component to edit its properties.</p>
+                    <div className="space-y-4">
+                      <div className="flex flex-col items-center justify-center py-4 text-center text-muted-foreground">
+                        <Settings className="w-8 h-8 mb-3 opacity-50" />
+                        <p className="text-sm">Select a component to edit its properties.</p>
+                      </div>
+                      
+                      <div className="border-t pt-4">
+                        <h3 className="font-semibold text-sm mb-3">Site Settings</h3>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground">Custom CSS</label>
+                            <textarea
+                              value={builderState?.globalStyles?.customCSS || ''}
+                              onChange={(e) => {
+                                if (builderState) {
+                                  const newState = {
+                                    ...builderState,
+                                    globalStyles: {
+                                      ...builderState.globalStyles,
+                                      customCSS: e.target.value,
+                                    },
+                                  };
+                                  updateStateWithHistory(newState, 'Update custom CSS');
+                                }
+                              }}
+                              onBlur={() => {
+                                if (builderState) {
+                                  saveState(builderState);
+                                }
+                              }}
+                              placeholder="/* Add your custom styles here */
+.my-class {
+  color: red;
+}"
+                              className="w-full h-40 mt-1 p-2 text-xs font-mono border rounded-md bg-muted/50 resize-y"
+                              data-testid="input-custom-css"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Write CSS that will be applied to your entire site.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
