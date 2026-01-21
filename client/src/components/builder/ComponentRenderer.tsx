@@ -1038,13 +1038,19 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
         <style>{`
           .product-grid-responsive {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
+            grid-template-columns: 1fr;
+            gap: 20px;
           }
-          @media (min-width: 640px) {
+          @media (min-width: 480px) {
+            .product-grid-responsive {
+              grid-template-columns: repeat(2, 1fr);
+              gap: 16px;
+            }
+          }
+          @media (min-width: 768px) {
             .product-grid-responsive {
               grid-template-columns: repeat(3, 1fr);
-              gap: 16px;
+              gap: 20px;
             }
           }
           @media (min-width: 1024px) {
@@ -1054,25 +1060,31 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
             }
           }
           .product-card-responsive {
-            background: rgba(255,255,255,0.95);
-            border-radius: 8px;
+            background: rgba(255,255,255,0.98);
+            border-radius: 16px;
             overflow: hidden;
-            border: 1px solid rgba(0,0,0,0.08);
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
             text-decoration: none;
             color: inherit;
             display: block;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
           }
           .product-card-responsive:hover {
             transform: translateY(-4px);
-            box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+            box-shadow: 0 12px 32px rgba(0,0,0,0.12);
           }
           .product-image-wrapper {
             position: relative;
             width: 100%;
-            padding-top: 125%; /* 4:5 aspect ratio */
+            padding-top: 100%;
             overflow: hidden;
-            background: #f5f5f5;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+          }
+          @media (max-width: 479px) {
+            .product-image-wrapper {
+              padding-top: 85%;
+            }
           }
           .product-image-wrapper img,
           .product-image-wrapper .placeholder {
@@ -1087,15 +1099,52 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 48px;
-            background: #f0f0f0;
+            font-size: 56px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
           }
           .product-info {
-            padding: 12px;
+            padding: 16px;
           }
-          @media (min-width: 640px) {
+          @media (max-width: 479px) {
             .product-info {
-              padding: 16px;
+              padding: 20px;
+            }
+          }
+          .product-name {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 14px;
+            line-height: 1.3;
+            color: #1a1a1a;
+          }
+          @media (max-width: 479px) {
+            .product-name {
+              font-size: 18px;
+              margin-bottom: 6px;
+            }
+          }
+          .product-category {
+            font-size: 11px;
+            opacity: 0.5;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+          }
+          @media (max-width: 479px) {
+            .product-category {
+              font-size: 12px;
+              margin-bottom: 10px;
+            }
+          }
+          .product-price {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1a1a1a;
+          }
+          @media (max-width: 479px) {
+            .product-price {
+              font-size: 20px;
             }
           }
         `}</style>
@@ -1123,9 +1172,9 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
                     )}
                   </div>
                   <div className="product-info">
-                    <h3 style={{ fontWeight: 600, marginBottom: '4px', fontSize: '14px' }}>{product.name}</h3>
-                    {product.category && <p style={{ fontSize: '11px', opacity: 0.5, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{product.category}</p>}
-                    <p style={{ fontSize: '16px', fontWeight: 600 }}>{formatCurrency(parseFloat(product.price), product.currency)}</p>
+                    <h3 className="product-name">{product.name}</h3>
+                    {product.category && <p className="product-category">{product.category}</p>}
+                    <p className="product-price">{formatCurrency(parseFloat(product.price), product.currency)}</p>
                   </div>
                 </>
               );
