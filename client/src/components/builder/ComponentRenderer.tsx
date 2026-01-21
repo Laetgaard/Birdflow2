@@ -1,9 +1,106 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@shared/componentRegistry';
 import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
 import BookingWidget from './BookingWidget';
 import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
 import ImageResizer from './ImageResizer';
+
+const animationKeyframes = `
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideLeft { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slideRight { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes zoomIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes zoomOut { from { opacity: 0; transform: scale(1.1); } to { opacity: 1; transform: scale(1); } }
+@keyframes bounce { 
+  0% { opacity: 0; transform: translateY(30px); }
+  60% { opacity: 1; transform: translateY(-10px); }
+  80% { transform: translateY(5px); }
+  100% { transform: translateY(0); }
+}
+@keyframes flip { from { opacity: 0; transform: perspective(400px) rotateX(90deg); } to { opacity: 1; transform: perspective(400px) rotateX(0); } }
+`;
+
+const animationMap: Record<string, string> = {
+  'fade-in': 'fadeIn',
+  'slide-up': 'slideUp',
+  'slide-down': 'slideDown',
+  'slide-left': 'slideLeft',
+  'slide-right': 'slideRight',
+  'zoom-in': 'zoomIn',
+  'zoom-out': 'zoomOut',
+  'bounce': 'bounce',
+  'flip': 'flip',
+};
+
+function AnimatedWrapper({ 
+  children, 
+  styles, 
+  isPreview 
+}: { 
+  children: React.ReactNode; 
+  styles: ComponentStyles; 
+  isPreview?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const [hasAnimated, setHasAnimated] = useState(false);
+  
+  const animationType = styles.animationType || 'none';
+  const animationTrigger = styles.animationTrigger || 'load';
+  const animationDuration = styles.animationDuration || '0.5s';
+  const animationDelay = styles.animationDelay || '0s';
+  
+  useEffect(() => {
+    if (animationType === 'none' || hasAnimated) return;
+    
+    if (animationTrigger === 'load') {
+      setIsVisible(true);
+      setHasAnimated(true);
+    } else if (animationTrigger === 'scroll') {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && !hasAnimated) {
+              setIsVisible(true);
+              setHasAnimated(true);
+            }
+          });
+        },
+        { threshold: 0.1 }
+      );
+      
+      if (ref.current) {
+        observer.observe(ref.current);
+      }
+      
+      return () => observer.disconnect();
+    }
+  }, [animationType, animationTrigger, hasAnimated]);
+  
+  if (animationType === 'none' || !animationMap[animationType]) {
+    return <>{children}</>;
+  }
+  
+  const animationName = animationMap[animationType];
+  const shouldAnimate = isVisible;
+  
+  return (
+    <div
+      ref={ref}
+      style={{
+        opacity: shouldAnimate ? 1 : 0,
+        animation: shouldAnimate 
+          ? `${animationName} ${animationDuration} ${animationDelay} ease-out forwards`
+          : 'none',
+      }}
+    >
+      <style>{animationKeyframes}</style>
+      {children}
+    </div>
+  );
+}
 
 type Product = {
   id: string;
@@ -1578,6 +1675,309 @@ function SpacerComponent({ props, styles, isSelected, onClick, isPreview }: Comp
   );
 }
 
+function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+  const [email, setEmail] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || isSubmitting) return;
+    setIsSubmitting(true);
+    setTimeout(() => {
+      setSubmitted(true);
+      setIsSubmitting(false);
+    }, 1000);
+  };
+
+  const textColor = styles.textColor || '#1a1a1a';
+  const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonTextColor = getContrastColor(buttonColor);
+
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#f8f9fa',
+        padding: styles.padding || '60px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+    >
+      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && (
+          <EditableText
+            value={props.title}
+            field="title"
+            isEditing={editingField === 'title'}
+            onEdit={onEditField || (() => {})}
+            onChange={onTextChange || (() => {})}
+            style={{ fontSize: '32px', fontWeight: '700', marginBottom: '16px', display: 'block', color: textColor }}
+            as="h2"
+            isPreview={isPreview}
+          />
+        )}
+        {props.subtitle && (
+          <EditableText
+            value={props.subtitle}
+            field="subtitle"
+            isEditing={editingField === 'subtitle'}
+            onEdit={onEditField || (() => {})}
+            onChange={onTextChange || (() => {})}
+            style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px', display: 'block', color: textColor }}
+            as="p"
+            isPreview={isPreview}
+          />
+        )}
+        {submitted ? (
+          <div style={{ padding: '20px', backgroundColor: '#10b981', color: '#ffffff', borderRadius: '8px' }} data-testid="newsletter-success">
+            <EditableText
+              value={props.successMessage || 'Thanks for subscribing!'}
+              field="successMessage"
+              isEditing={editingField === 'successMessage'}
+              onEdit={onEditField || (() => {})}
+              onChange={onTextChange || (() => {})}
+              style={{ fontSize: '16px', fontWeight: '500' }}
+              as="p"
+              isPreview={isPreview}
+            />
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '12px', maxWidth: '500px', margin: '0 auto', flexWrap: 'wrap', justifyContent: 'center' }} data-testid="newsletter-form">
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={props.placeholder || 'Enter your email address'}
+              style={{
+                flex: '1 1 250px',
+                padding: '14px 18px',
+                fontSize: '16px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                outline: 'none',
+                minWidth: '200px',
+              }}
+              disabled={isPreview}
+              data-testid="input-newsletter-email"
+            />
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              style={{
+                padding: '14px 28px',
+                fontSize: '16px',
+                fontWeight: '600',
+                backgroundColor: buttonColor,
+                color: buttonTextColor,
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                opacity: isSubmitting ? 0.7 : 1,
+              }}
+              data-testid="button-newsletter-submit"
+            >
+              {props.buttonText || 'Subscribe'}
+            </button>
+          </form>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function BeforeAfterComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+  const [sliderPosition, setSliderPosition] = useState(props.sliderPosition || 50);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Parse image values that could be strings or objects with url/crop
+  const beforeImageUrl = typeof props.beforeImage === 'object' && props.beforeImage?.url 
+    ? props.beforeImage.url 
+    : (props.beforeImage || '');
+  const afterImageUrl = typeof props.afterImage === 'object' && props.afterImage?.url 
+    ? props.afterImage.url 
+    : (props.afterImage || '');
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (isPreview) return;
+    setIsDragging(true);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setSliderPosition(percentage);
+  }, [isDragging]);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (!isDragging || !containerRef.current) return;
+    const touch = e.touches[0];
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setSliderPosition(percentage);
+  }, [isDragging]);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('touchmove', handleTouchMove);
+      window.addEventListener('touchend', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleMouseUp);
+    };
+  }, [isDragging, handleMouseMove, handleTouchMove]);
+
+  const textColor = styles.textColor || '#1a1a1a';
+
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '60px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+    >
+      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+        {props.title && (
+          <EditableText
+            value={props.title}
+            field="title"
+            isEditing={editingField === 'title'}
+            onEdit={onEditField || (() => {})}
+            onChange={onTextChange || (() => {})}
+            style={{ fontSize: '32px', fontWeight: '700', marginBottom: '32px', display: 'block', textAlign: 'center', color: textColor }}
+            as="h2"
+            isPreview={isPreview}
+          />
+        )}
+        <div
+          ref={containerRef}
+          style={{
+            position: 'relative',
+            width: '100%',
+            aspectRatio: '16/9',
+            overflow: 'hidden',
+            borderRadius: '12px',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            userSelect: 'none',
+          }}
+          onMouseDown={handleMouseDown}
+          onTouchStart={() => setIsDragging(true)}
+          data-testid="before-after-container"
+        >
+          {/* After Image (full width, behind) */}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundImage: afterImageUrl ? `url(${afterImageUrl})` : 'none',
+              backgroundColor: afterImageUrl ? 'transparent' : '#e5e7eb',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+            data-testid="before-after-image-after"
+          />
+          {/* Before Image (clipped by slider) */}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundImage: beforeImageUrl ? `url(${beforeImageUrl})` : 'none',
+              backgroundColor: beforeImageUrl ? 'transparent' : '#d1d5db',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              clipPath: `inset(0 ${100 - sliderPosition}% 0 0)`,
+            }}
+            data-testid="before-after-image-before"
+          />
+          {/* Slider Line */}
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: `${sliderPosition}%`,
+              width: '4px',
+              backgroundColor: '#ffffff',
+              boxShadow: '0 0 10px rgba(0,0,0,0.3)',
+              transform: 'translateX(-50%)',
+            }}
+          />
+          {/* Slider Handle */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: `${sliderPosition}%`,
+              width: '40px',
+              height: '40px',
+              backgroundColor: '#ffffff',
+              borderRadius: '50%',
+              transform: 'translate(-50%, -50%)',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px',
+            }}
+            data-testid="before-after-slider-handle"
+          >
+            ⟷
+          </div>
+          {/* Labels */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '16px',
+              left: '16px',
+              padding: '6px 12px',
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              color: '#ffffff',
+              borderRadius: '4px',
+              fontSize: '14px',
+              fontWeight: '600',
+            }}
+            data-testid="text-before-label"
+          >
+            {props.beforeLabel || 'Before'}
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '16px',
+              right: '16px',
+              padding: '6px 12px',
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              color: '#ffffff',
+              borderRadius: '4px',
+              fontSize: '14px',
+              fontWeight: '600',
+            }}
+            data-testid="text-after-label"
+          >
+            {props.afterLabel || 'After'}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
@@ -1624,44 +2024,61 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     onMouseLeave: handleMouseLeave,
   };
 
-  switch (component.type) {
-    case 'hero':
-      return <div {...wrapperProps}><HeroComponent {...commonProps} /></div>;
-    case 'image-slider':
-      return <div {...wrapperProps}><ImageSliderComponent {...commonProps} /></div>;
-    case 'text-image':
-      return <div {...wrapperProps}><TextImageComponent {...commonProps} /></div>;
-    case 'cta':
-      return <div {...wrapperProps}><CTAComponent {...commonProps} /></div>;
-    case 'features':
-      return <div {...wrapperProps}><FeaturesComponent {...commonProps} /></div>;
-    case 'testimonials':
-      return <div {...wrapperProps}><TestimonialsComponent {...commonProps} /></div>;
-    case 'header':
-      return <div {...wrapperProps}><HeaderComponent {...headerProps} /></div>;
-    case 'footer':
-      return <div {...wrapperProps}><FooterComponent {...commonProps} /></div>;
-    case 'product-grid':
-      return <div {...wrapperProps}><ProductGridComponent {...commonProps} websiteId={websiteId} /></div>;
-    case 'booking':
-      return <div {...wrapperProps}><BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} /></div>;
-    case 'gallery':
-      return <div {...wrapperProps}><GalleryComponent {...commonProps} /></div>;
-    case 'pricing-table':
-      return <div {...wrapperProps}><PricingTableComponent {...commonProps} /></div>;
-    case 'faq':
-      return <div {...wrapperProps}><FAQComponent {...commonProps} /></div>;
-    case 'stats-counter':
-      return <div {...wrapperProps}><StatsCounterComponent {...commonProps} /></div>;
-    case 'contact-form':
-      return <div {...wrapperProps}><ContactFormComponent {...commonProps} /></div>;
-    case 'video-embed':
-      return <div {...wrapperProps}><VideoEmbedComponent {...commonProps} /></div>;
-    case 'divider':
-      return <div {...wrapperProps}><DividerComponent {...commonProps} /></div>;
-    case 'spacer':
-      return <div {...wrapperProps}><SpacerComponent {...commonProps} /></div>;
-    default:
-      return null;
-  }
+  const renderComponent = () => {
+    switch (component.type) {
+      case 'hero':
+        return <HeroComponent {...commonProps} />;
+      case 'image-slider':
+        return <ImageSliderComponent {...commonProps} />;
+      case 'text-image':
+        return <TextImageComponent {...commonProps} />;
+      case 'cta':
+        return <CTAComponent {...commonProps} />;
+      case 'features':
+        return <FeaturesComponent {...commonProps} />;
+      case 'testimonials':
+        return <TestimonialsComponent {...commonProps} />;
+      case 'header':
+        return <HeaderComponent {...headerProps} />;
+      case 'footer':
+        return <FooterComponent {...commonProps} />;
+      case 'product-grid':
+        return <ProductGridComponent {...commonProps} websiteId={websiteId} />;
+      case 'booking':
+        return <BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} />;
+      case 'gallery':
+        return <GalleryComponent {...commonProps} />;
+      case 'pricing-table':
+        return <PricingTableComponent {...commonProps} />;
+      case 'faq':
+        return <FAQComponent {...commonProps} />;
+      case 'stats-counter':
+        return <StatsCounterComponent {...commonProps} />;
+      case 'contact-form':
+        return <ContactFormComponent {...commonProps} />;
+      case 'video-embed':
+        return <VideoEmbedComponent {...commonProps} />;
+      case 'divider':
+        return <DividerComponent {...commonProps} />;
+      case 'spacer':
+        return <SpacerComponent {...commonProps} />;
+      case 'newsletter':
+        return <NewsletterComponent {...commonProps} />;
+      case 'before-after':
+        return <BeforeAfterComponent {...commonProps} />;
+      default:
+        return null;
+    }
+  };
+
+  const componentElement = renderComponent();
+  if (!componentElement) return null;
+
+  return (
+    <div {...wrapperProps}>
+      <AnimatedWrapper styles={component.styles} isPreview={isPreview}>
+        {componentElement}
+      </AnimatedWrapper>
+    </div>
+  );
 }

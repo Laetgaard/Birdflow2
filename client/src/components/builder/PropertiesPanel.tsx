@@ -18,6 +18,7 @@ import {
   fontFamilyPresets,
   fontSizePresets,
   fontWeightPresets,
+  animationPresets,
   type BuilderComponentData, 
   type ComponentProps, 
   type ComponentStyles,
@@ -691,6 +692,81 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                 onClick={() => onUpdate({ styles: { fontWeight: preset.value } })}
                 style={{ fontWeight: parseInt(preset.value) }}
                 data-testid={`font-weight-${preset.name.toLowerCase()}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <Separator />
+      <div className="space-y-3">
+        <h4 className="font-medium text-sm text-muted-foreground">Animation</h4>
+        
+        <div className="space-y-2">
+          <Label className="text-xs">Entrance Animation</Label>
+          <Select 
+            value={component.styles.animationType || 'none'} 
+            onValueChange={(value) => onUpdate({ styles: { animationType: value as any } })}
+          >
+            <SelectTrigger className="h-8" data-testid="select-animation-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {animationPresets.entrance.map((anim) => (
+                <SelectItem key={anim.value} value={anim.value}>
+                  {anim.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Animation Trigger</Label>
+          <div className="flex flex-wrap gap-1">
+            {animationPresets.trigger.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationTrigger === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => onUpdate({ styles: { animationTrigger: preset.value as any } })}
+                data-testid={`animation-trigger-${preset.value}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Duration</Label>
+          <div className="flex flex-wrap gap-1">
+            {animationPresets.duration.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationDuration === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => onUpdate({ styles: { animationDuration: preset.value } })}
+                data-testid={`animation-duration-${preset.name.toLowerCase()}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Delay</Label>
+          <div className="flex flex-wrap gap-1">
+            {animationPresets.delay.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationDelay === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => onUpdate({ styles: { animationDelay: preset.value } })}
+                data-testid={`animation-delay-${preset.name.toLowerCase()}`}
               >
                 {preset.name}
               </button>
