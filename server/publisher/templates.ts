@@ -4631,10 +4631,7 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
 `;
 }
 
-export function generateRootLayout(siteName: string, websiteId: string, fontFamily?: string): string {
-  // Extract Google Font from fontFamily if it's a known preset
-  const googleFontsImport = getGoogleFontsImport(fontFamily);
-  
+export function generateRootLayout(siteName: string, websiteId: string): string {
   return `import type { Metadata } from 'next';
 import './globals.css';
 import { WebsiteProvider } from '@/components/WebsiteProvider';
@@ -4651,11 +4648,6 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="${googleFontsImport}" rel="stylesheet" />
-      </head>
       <body>
         <WebsiteProvider>
           <CartProvider>
@@ -4670,35 +4662,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   );
 }
 `;
-}
-
-// Helper to generate Google Fonts import URL based on font family
-function getGoogleFontsImport(fontFamily?: string): string {
-  const fontMap: Record<string, string> = {
-    'Inter, system-ui, sans-serif': 'Inter:wght@400;500;600;700',
-    'JetBrains Mono, SF Mono, monospace': 'JetBrains+Mono:wght@400;500;600;700',
-    'Playfair Display, Georgia, serif': 'Playfair+Display:wght@400;500;600;700',
-    'Poppins, Inter, sans-serif': 'Poppins:wght@400;500;600;700',
-    'Merriweather, Georgia, serif': 'Merriweather:wght@400;700',
-    'Cormorant Garamond, Georgia, serif': 'Cormorant+Garamond:wght@400;500;600;700',
-    'Open Sans, Helvetica, sans-serif': 'Open+Sans:wght@400;500;600;700',
-    'Montserrat, Arial, sans-serif': 'Montserrat:wght@400;500;600;700',
-    'Nunito, Arial, sans-serif': 'Nunito:wght@400;500;600;700',
-    'Roboto, Helvetica, sans-serif': 'Roboto:wght@400;500;700',
-    'Raleway, Helvetica, sans-serif': 'Raleway:wght@400;500;600;700',
-    'Libre Baskerville, Georgia, serif': 'Libre+Baskerville:wght@400;700',
-    'Work Sans, Arial, sans-serif': 'Work+Sans:wght@400;500;600;700',
-    'Caveat, cursive': 'Caveat:wght@400;500;600;700',
-    'Source Code Pro, monospace': 'Source+Code+Pro:wght@400;500;600;700',
-    'Lora, Georgia, serif': 'Lora:wght@400;500;600;700',
-    'Josefin Sans, Helvetica, sans-serif': 'Josefin+Sans:wght@400;500;600;700',
-  };
-  
-  const googleFont = fontFamily ? fontMap[fontFamily] : null;
-  const defaultFonts = 'Inter:wght@400;500;600;700';
-  const fontsToLoad = googleFont || defaultFonts;
-  
-  return `https://fonts.googleapis.com/css2?family=${fontsToLoad}&display=swap`;
 }
 
 export function generateGlobalsCss(theme?: ThemeConfig): string {
@@ -4792,9 +4755,6 @@ a {
   from { opacity: 0; transform: perspective(400px) rotateX(90deg); } 
   to { opacity: 1; transform: perspective(400px) rotateX(0); } 
 }
-
-/* Custom CSS from design tokens */
-${theme?.customCSS || ''}
 `;
 }
 
