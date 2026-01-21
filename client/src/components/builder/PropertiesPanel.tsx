@@ -637,7 +637,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             <SelectTrigger className="h-8" data-testid="select-font-family">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-[300px] overflow-y-auto">
               {fontFamilyPresets.map((font) => (
                 <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
                   {font.name}

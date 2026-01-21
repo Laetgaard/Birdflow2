@@ -75,7 +75,7 @@ export default function TextToolbar({
             <ChevronDown className="w-3 h-3" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-48 p-1" align="start">
+        <PopoverContent className="w-48 p-1 max-h-[300px] overflow-y-auto" align="start">
           {fontFamilyPresets.map((font) => (
             <button
               key={font.value}
