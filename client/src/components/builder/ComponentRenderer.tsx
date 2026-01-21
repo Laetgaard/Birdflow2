@@ -96,7 +96,6 @@ function AnimatedWrapper({
           : 'none',
       }}
     >
-      <style>{animationKeyframes}</style>
       {children}
     </div>
   );
@@ -1792,12 +1791,14 @@ function BeforeAfterComponent({ props, styles, isSelected, onClick, isPreview, o
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Parse image values that could be strings or objects with url/crop
-  const beforeImageUrl = typeof props.beforeImage === 'object' && props.beforeImage?.url 
-    ? props.beforeImage.url 
-    : (props.beforeImage || '');
-  const afterImageUrl = typeof props.afterImage === 'object' && props.afterImage?.url 
-    ? props.afterImage.url 
-    : (props.afterImage || '');
+  const beforeImage = props.beforeImage as string | { url?: string } | undefined;
+  const afterImage = props.afterImage as string | { url?: string } | undefined;
+  const beforeImageUrl = typeof beforeImage === 'object' && beforeImage?.url 
+    ? beforeImage.url 
+    : (typeof beforeImage === 'string' ? beforeImage : '');
+  const afterImageUrl = typeof afterImage === 'object' && afterImage?.url 
+    ? afterImage.url 
+    : (typeof afterImage === 'string' ? afterImage : '');
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (isPreview) return;
