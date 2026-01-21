@@ -2194,6 +2194,81 @@ function AnimatedWrapper({
   );
 }
 
+function StyleWrapper({ 
+  children, 
+  styles,
+  componentId
+}: { 
+  children: React.ReactNode; 
+  styles: ComponentStyles;
+  componentId: string;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  // Build advanced wrapper styles from component.styles (matching builder behavior)
+  const advancedWrapperStyles: React.CSSProperties = {
+    ...(styles.containerWidth && { maxWidth: styles.containerWidth === 'full' ? '100%' : styles.containerWidth }),
+    ...(styles.gridColumns && { display: 'grid', gridTemplateColumns: \`repeat(\${styles.gridColumns}, 1fr)\` }),
+    ...(styles.gridGap && { gap: styles.gridGap }),
+    ...(styles.position && styles.position !== 'static' && { position: styles.position }),
+    ...(styles.top && { top: styles.top }),
+    ...(styles.left && { left: styles.left }),
+    ...(styles.right && { right: styles.right }),
+    ...(styles.bottom && { bottom: styles.bottom }),
+    ...(styles.zIndex !== undefined && { zIndex: styles.zIndex }),
+    ...(styles.borderWidth && { borderWidth: styles.borderWidth }),
+    ...(styles.borderColor && { borderColor: styles.borderColor }),
+    ...(styles.borderStyle && { borderStyle: styles.borderStyle }),
+    ...(styles.filter && { filter: styles.filter }),
+    ...(styles.mixBlendMode && { mixBlendMode: styles.mixBlendMode }),
+    ...(styles.opacity && { opacity: styles.opacity }),
+    // Gradient support
+    ...(styles.gradientType && styles.gradientColors?.length && {
+      background: styles.gradientType === 'radial'
+        ? \`radial-gradient(circle, \${styles.gradientColors.join(', ')})\`
+        : \`linear-gradient(\${styles.gradientAngle || 90}deg, \${styles.gradientColors.join(', ')})\`
+    }),
+    // Hover transitions
+    transition: 'all 0.3s ease',
+    // Apply hover styles when hovered
+    ...(isHovered && {
+      ...(styles.hoverBackgroundColor && { backgroundColor: styles.hoverBackgroundColor }),
+      ...(styles.hoverTextColor && { color: styles.hoverTextColor }),
+      ...(styles.hoverTransform && { transform: styles.hoverTransform }),
+      ...(styles.hoverBoxShadow && { boxShadow: styles.hoverBoxShadow }),
+      ...(styles.hoverOpacity && { opacity: styles.hoverOpacity }),
+    }),
+  };
+  
+  // Check if we have any hover effects to apply
+  const hasHoverEffects = styles.hoverBackgroundColor || styles.hoverTextColor || 
+    styles.hoverTransform || styles.hoverBoxShadow || styles.hoverOpacity;
+  
+  // Check if we have any advanced styles to apply
+  const hasAdvancedStyles = styles.containerWidth || styles.gridColumns || styles.gridGap ||
+    (styles.position && styles.position !== 'static') || styles.top || styles.left || 
+    styles.right || styles.bottom || styles.zIndex !== undefined ||
+    styles.borderWidth || styles.borderColor || styles.borderStyle ||
+    styles.filter || styles.mixBlendMode || styles.opacity ||
+    (styles.gradientType && styles.gradientColors?.length);
+  
+  // If no advanced styles or hover effects, just return children
+  if (!hasAdvancedStyles && !hasHoverEffects) {
+    return <>{children}</>;
+  }
+  
+  return (
+    <div
+      data-component-id={componentId}
+      style={advancedWrapperStyles}
+      onMouseEnter={hasHoverEffects ? () => setIsHovered(true) : undefined}
+      onMouseLeave={hasHoverEffects ? () => setIsHovered(false) : undefined}
+    >
+      {children}
+    </div>
+  );
+}
+
 type ComponentStyles = {
   backgroundColor?: string;
   textColor?: string;
@@ -2221,6 +2296,33 @@ type ComponentStyles = {
   buttonStyle?: string;
   buttonRadius?: string;
   cardStyle?: string;
+  // Advanced layout
+  containerWidth?: string;
+  gridColumns?: number;
+  gridGap?: string;
+  position?: 'static' | 'relative' | 'absolute' | 'fixed' | 'sticky';
+  top?: string;
+  left?: string;
+  right?: string;
+  bottom?: string;
+  zIndex?: number;
+  // Advanced borders
+  borderWidth?: string;
+  borderColor?: string;
+  borderStyle?: 'solid' | 'dashed' | 'dotted' | 'none';
+  // Image effects
+  filter?: string;
+  mixBlendMode?: 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'color-dodge' | 'color-burn';
+  // Hover effects
+  hoverBackgroundColor?: string;
+  hoverTextColor?: string;
+  hoverTransform?: string;
+  hoverBoxShadow?: string;
+  hoverOpacity?: string;
+  // Gradient settings
+  gradientType?: 'linear' | 'radial';
+  gradientAngle?: number;
+  gradientColors?: string[];
   [key: string]: any; // Allow additional properties
 };
 
@@ -3399,9 +3501,11 @@ export default function ComponentRenderer({ component, products = [], pages = []
   if (!componentElement) return null;
 
   return (
-    <AnimatedWrapper styles={component.styles}>
-      {componentElement}
-    </AnimatedWrapper>
+    <StyleWrapper styles={component.styles} componentId={component.id}>
+      <AnimatedWrapper styles={component.styles}>
+        {componentElement}
+      </AnimatedWrapper>
+    </StyleWrapper>
   );
 }
 `;
