@@ -257,7 +257,7 @@ export default function InspectorSidebar() {
           <CollapsibleSection title="Typography" defaultOpen={false} testId="section-typography">
             <div className="space-y-2">
               <Label className="text-xs">Font Family</Label>
-              <div className="space-y-1">
+              <div className="space-y-1 max-h-[250px] overflow-y-auto pr-1">
                 {fontFamilyPresets.map(preset => (
                   <Button
                     key={preset.value}
