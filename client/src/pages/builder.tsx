@@ -84,6 +84,7 @@ type BuilderStateData = {
     secondaryColor: string;
     fontFamily: string;
     backgroundColor: string;
+    customCSS?: string;
   };
 };
 
@@ -897,6 +898,10 @@ export default function BuilderPage() {
             onClick={() => setSelectedComponentId(null)}
             data-preview-area
           >
+            {/* Inject custom CSS from global styles */}
+            {builderState?.globalStyles?.customCSS && (
+              <style dangerouslySetInnerHTML={{ __html: builderState.globalStyles.customCSS }} />
+            )}
             <div 
               className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
               style={{ 

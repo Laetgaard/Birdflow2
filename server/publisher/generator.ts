@@ -83,6 +83,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     sectionGap: globalStyles.sectionGap || '0',
     buttonStyle: globalStyles.buttonStyle || 'solid',
     cardStyle: globalStyles.cardStyle || 'elevated',
+    customCSS: globalStyles.customCSS,
   };
   
   const files: Array<{ path: string; content: string }> = [

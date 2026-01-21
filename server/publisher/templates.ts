@@ -4698,7 +4698,7 @@ function getGoogleFontsImport(fontFamily?: string): string {
   const defaultFonts = 'Inter:wght@400;500;600;700';
   const fontsToLoad = googleFont || defaultFonts;
   
-  return \`https://fonts.googleapis.com/css2?family=\${fontsToLoad}&display=swap\`;
+  return `https://fonts.googleapis.com/css2?family=${fontsToLoad}&display=swap`;
 }
 
 export function generateGlobalsCss(theme?: ThemeConfig): string {
@@ -4792,6 +4792,9 @@ a {
   from { opacity: 0; transform: perspective(400px) rotateX(90deg); } 
   to { opacity: 1; transform: perspective(400px) rotateX(0); } 
 }
+
+/* Custom CSS from design tokens */
+${theme?.customCSS || ''}
 `;
 }
 

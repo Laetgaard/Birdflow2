@@ -111,6 +111,7 @@ export type ThemeConfig = {
   sectionGap?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
+  customCSS?: string;
 };
 
 export type PageData = {
