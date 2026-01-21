@@ -3070,6 +3070,281 @@ function BeforeAfterSection({ props, styles }: { props: ComponentProps; styles: 
   );
 }
 
+function TabsSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const [activeTab, setActiveTab] = useState(props.defaultTab || (props.tabs?.[0]?.id || ''));
+  const baseStyle = getBaseStyle(styles);
+  const tabs = props.tabs || [];
+  const tabStyle = props.tabStyle || 'underline';
+  const buttonColor = styles.buttonColor || '#4f46e5';
+  
+  const getTabButtonStyle = (isActive: boolean): React.CSSProperties => {
+    const base: React.CSSProperties = {
+      padding: '12px 24px',
+      fontSize: '16px',
+      fontWeight: 500,
+      cursor: 'pointer',
+      transition: 'all 0.2s',
+      border: 'none',
+      background: 'transparent',
+    };
+    
+    if (tabStyle === 'underline') {
+      return {
+        ...base,
+        borderBottom: isActive ? \`2px solid \${buttonColor}\` : '2px solid transparent',
+        color: isActive ? buttonColor : (styles.textColor || '#64748b'),
+      };
+    } else if (tabStyle === 'pills') {
+      return {
+        ...base,
+        borderRadius: '9999px',
+        backgroundColor: isActive ? buttonColor : 'transparent',
+        color: isActive ? '#ffffff' : (styles.textColor || '#64748b'),
+      };
+    } else {
+      return {
+        ...base,
+        borderRadius: '8px 8px 0 0',
+        backgroundColor: isActive ? (styles.backgroundColor || '#ffffff') : 'rgba(0,0,0,0.05)',
+        color: isActive ? buttonColor : (styles.textColor || '#64748b'),
+        border: isActive ? \`1px solid \${buttonColor}\` : '1px solid transparent',
+        borderBottom: isActive ? 'none' : '1px solid rgba(0,0,0,0.1)',
+      };
+    }
+  };
+  
+  const activeTabContent = tabs.find(t => t.id === activeTab)?.content || '';
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+        <div style={{ 
+          display: 'flex', 
+          flexWrap: 'wrap',
+          gap: tabStyle === 'pills' ? '8px' : '0', 
+          borderBottom: tabStyle === 'underline' ? '1px solid rgba(0,0,0,0.1)' : 'none',
+          marginBottom: '24px',
+        }}>
+          {tabs.map((tab: any) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={getTabButtonStyle(activeTab === tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: '16px 0' }}>
+          {activeTabContent}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AccordionSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const items = props.accordionItems || [];
+  const allowMultiple = props.allowMultiple ?? false;
+  const defaultOpen = props.defaultOpen || [];
+  const [openItems, setOpenItems] = useState<string[]>(defaultOpen);
+  const baseStyle = getBaseStyle(styles);
+  const accentColor = styles.accentColor || styles.buttonColor || '#4f46e5';
+  
+  const toggleItem = (itemId: string) => {
+    if (allowMultiple) {
+      setOpenItems(prev => 
+        prev.includes(itemId) 
+          ? prev.filter(id => id !== itemId)
+          : [...prev, itemId]
+      );
+    } else {
+      setOpenItems(prev => 
+        prev.includes(itemId) ? [] : [itemId]
+      );
+    }
+  };
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '32px', textAlign: 'center' }}>
+            {props.title}
+          </h2>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '12px' }}>
+          {items.map((item: any, index: number) => {
+            const isOpen = openItems.includes(item.id);
+            return (
+              <div 
+                key={item.id || index} 
+                style={{ 
+                  borderRadius: '8px', 
+                  border: '1px solid rgba(0,0,0,0.1)',
+                  overflow: 'hidden',
+                }}
+              >
+                <button
+                  onClick={() => toggleItem(item.id)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '16px 20px',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    color: styles.textColor || 'inherit',
+                  }}
+                >
+                  <span>{item.title}</span>
+                  <span style={{ 
+                    transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.2s',
+                    fontSize: '12px',
+                  }}>
+                    ▼
+                  </span>
+                </button>
+                {isOpen && (
+                  <div style={{ 
+                    padding: '0 20px 16px 20px',
+                    opacity: 0.8,
+                    lineHeight: 1.6,
+                  }}>
+                    {item.content}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ModalSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const baseStyle = getBaseStyle(styles);
+  const triggerText = props.triggerText || 'Open Modal';
+  const title = props.title || '';
+  const content = props.content || '';
+  const triggerStyle = props.triggerStyle || 'button';
+  const modalSize = props.modalSize || 'md';
+  const buttonColor = styles.buttonColor || '#4f46e5';
+  
+  const getSizeStyle = (): React.CSSProperties => {
+    switch (modalSize) {
+      case 'sm': return { maxWidth: '400px' };
+      case 'lg': return { maxWidth: '800px' };
+      case 'full': return { maxWidth: '95vw', width: '100%' };
+      default: return { maxWidth: '600px' };
+    }
+  };
+  
+  const getTriggerStyle = (): React.CSSProperties => {
+    const base: React.CSSProperties = {
+      cursor: 'pointer',
+      fontSize: '16px',
+      fontWeight: 500,
+    };
+    
+    if (triggerStyle === 'link') {
+      return {
+        ...base,
+        background: 'none',
+        border: 'none',
+        color: buttonColor,
+        textDecoration: 'underline',
+        padding: 0,
+      };
+    } else if (triggerStyle === 'ghost') {
+      return {
+        ...base,
+        background: 'transparent',
+        border: \`1px solid \${buttonColor}\`,
+        color: buttonColor,
+        padding: '12px 24px',
+        borderRadius: '8px',
+      };
+    } else {
+      return {
+        ...base,
+        backgroundColor: buttonColor,
+        color: '#ffffff',
+        border: 'none',
+        padding: '12px 24px',
+        borderRadius: '8px',
+      };
+    }
+  };
+  
+  return (
+    <section style={baseStyle}>
+      <div style={{ textAlign: 'center' }}>
+        <button onClick={() => setIsOpen(true)} style={getTriggerStyle()}>
+          {triggerText}
+        </button>
+      </div>
+      
+      {isOpen && (
+        <div
+          onClick={() => setIsOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '24px',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: styles.backgroundColor || '#ffffff',
+              color: styles.textColor || '#1a1a1a',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '100%',
+              ...getSizeStyle(),
+              maxHeight: '90vh',
+              overflow: 'auto',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              {title && <h2 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>{title}</h2>}
+              <button
+                onClick={() => setIsOpen(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  opacity: 0.6,
+                  color: 'inherit',
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ lineHeight: 1.6 }}>{content}</div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function ComponentRenderer({ component, products = [], pages = [] }: { component: ComponentData; products?: any[]; pages?: BuilderPage[] }) {
   const renderComponent = () => {
     switch (component.type) {
@@ -3109,6 +3384,12 @@ export default function ComponentRenderer({ component, products = [], pages = []
         return <NewsletterSection props={component.props} styles={component.styles} />;
       case 'before-after':
         return <BeforeAfterSection props={component.props} styles={component.styles} />;
+      case 'tabs':
+        return <TabsSection props={component.props} styles={component.styles} />;
+      case 'accordion':
+        return <AccordionSection props={component.props} styles={component.styles} />;
+      case 'modal':
+        return <ModalSection props={component.props} styles={component.styles} />;
       default:
         return null;
     }
