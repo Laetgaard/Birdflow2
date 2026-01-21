@@ -83,7 +83,6 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     sectionGap: globalStyles.sectionGap || '0',
     buttonStyle: globalStyles.buttonStyle || 'solid',
     cardStyle: globalStyles.cardStyle || 'elevated',
-    customCSS: globalStyles.customCSS,
   };
   
   const files: Array<{ path: string; content: string }> = [
@@ -104,7 +103,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/ProductGrid.tsx', content: generateProductGrid() },
     { path: 'components/AnalyticsTracker.tsx', content: generateAnalyticsTracker() },
     { path: 'components/CookieBanner.tsx', content: generateCookieBanner() },
-    { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId, theme.fontFamily) },
+    { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId) },
     { path: 'app/globals.css', content: generateGlobalsCss(theme) },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
     { path: 'app/api/checkout/validate/route.ts', content: generateCheckoutValidateApiRoute(websiteId) },
