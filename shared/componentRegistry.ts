@@ -61,12 +61,24 @@ export const alignmentPresets = [
 
 // Font family presets
 export const fontFamilyPresets = [
-  { name: 'Default', value: 'Inter, system-ui, sans-serif' },
-  { name: 'Serif', value: 'Georgia, Times New Roman, serif' },
-  { name: 'Mono', value: 'SF Mono, Menlo, monospace' },
-  { name: 'Display', value: 'Playfair Display, Georgia, serif' },
-  { name: 'Modern', value: 'Poppins, Inter, sans-serif' },
-  { name: 'Classic', value: 'Merriweather, Georgia, serif' },
+  { name: 'Default', value: 'Inter, system-ui, sans-serif', googleFont: 'Inter:wght@400;500;600;700' },
+  { name: 'Serif', value: 'Georgia, Times New Roman, serif', googleFont: null },
+  { name: 'Mono', value: 'JetBrains Mono, SF Mono, monospace', googleFont: 'JetBrains+Mono:wght@400;500;600;700' },
+  { name: 'Display', value: 'Playfair Display, Georgia, serif', googleFont: 'Playfair+Display:wght@400;500;600;700' },
+  { name: 'Modern', value: 'Poppins, Inter, sans-serif', googleFont: 'Poppins:wght@400;500;600;700' },
+  { name: 'Classic', value: 'Merriweather, Georgia, serif', googleFont: 'Merriweather:wght@400;700' },
+  { name: 'Elegant', value: 'Cormorant Garamond, Georgia, serif', googleFont: 'Cormorant+Garamond:wght@400;500;600;700' },
+  { name: 'Clean', value: 'Open Sans, Helvetica, sans-serif', googleFont: 'Open+Sans:wght@400;500;600;700' },
+  { name: 'Bold', value: 'Montserrat, Arial, sans-serif', googleFont: 'Montserrat:wght@400;500;600;700' },
+  { name: 'Friendly', value: 'Nunito, Arial, sans-serif', googleFont: 'Nunito:wght@400;500;600;700' },
+  { name: 'Professional', value: 'Roboto, Helvetica, sans-serif', googleFont: 'Roboto:wght@400;500;700' },
+  { name: 'Creative', value: 'Raleway, Helvetica, sans-serif', googleFont: 'Raleway:wght@400;500;600;700' },
+  { name: 'Luxury', value: 'Libre Baskerville, Georgia, serif', googleFont: 'Libre+Baskerville:wght@400;700' },
+  { name: 'Minimal', value: 'Work Sans, Arial, sans-serif', googleFont: 'Work+Sans:wght@400;500;600;700' },
+  { name: 'Handwritten', value: 'Caveat, cursive', googleFont: 'Caveat:wght@400;500;600;700' },
+  { name: 'Tech', value: 'Source Code Pro, monospace', googleFont: 'Source+Code+Pro:wght@400;500;600;700' },
+  { name: 'News', value: 'Lora, Georgia, serif', googleFont: 'Lora:wght@400;500;600;700' },
+  { name: 'Fashion', value: 'Josefin Sans, Helvetica, sans-serif', googleFont: 'Josefin+Sans:wght@400;500;600;700' },
 ];
 
 // Font size presets
