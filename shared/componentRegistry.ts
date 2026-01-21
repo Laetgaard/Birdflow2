@@ -59,14 +59,72 @@ export const alignmentPresets = [
   { name: 'Right', value: 'right' },
 ];
 
-// Font family presets
+// Font family presets - 50+ professional Google Fonts
 export const fontFamilyPresets = [
-  { name: 'Default', value: 'Inter, system-ui, sans-serif' },
-  { name: 'Serif', value: 'Georgia, Times New Roman, serif' },
-  { name: 'Mono', value: 'SF Mono, Menlo, monospace' },
-  { name: 'Display', value: 'Playfair Display, Georgia, serif' },
-  { name: 'Modern', value: 'Poppins, Inter, sans-serif' },
-  { name: 'Classic', value: 'Merriweather, Georgia, serif' },
+  // Sans-Serif - Modern & Clean
+  { name: 'Inter', value: 'Inter, system-ui, sans-serif' },
+  { name: 'Poppins', value: 'Poppins, sans-serif' },
+  { name: 'Montserrat', value: 'Montserrat, sans-serif' },
+  { name: 'Open Sans', value: 'Open Sans, sans-serif' },
+  { name: 'Roboto', value: 'Roboto, sans-serif' },
+  { name: 'Lato', value: 'Lato, sans-serif' },
+  { name: 'Nunito', value: 'Nunito, sans-serif' },
+  { name: 'Nunito Sans', value: 'Nunito Sans, sans-serif' },
+  { name: 'Raleway', value: 'Raleway, sans-serif' },
+  { name: 'Work Sans', value: 'Work Sans, sans-serif' },
+  { name: 'DM Sans', value: 'DM Sans, sans-serif' },
+  { name: 'Plus Jakarta Sans', value: 'Plus Jakarta Sans, sans-serif' },
+  { name: 'Manrope', value: 'Manrope, sans-serif' },
+  { name: 'Outfit', value: 'Outfit, sans-serif' },
+  { name: 'Figtree', value: 'Figtree, sans-serif' },
+  { name: 'Space Grotesk', value: 'Space Grotesk, sans-serif' },
+  { name: 'Sora', value: 'Sora, sans-serif' },
+  { name: 'Urbanist', value: 'Urbanist, sans-serif' },
+  { name: 'Lexend', value: 'Lexend, sans-serif' },
+  { name: 'Rubik', value: 'Rubik, sans-serif' },
+  { name: 'Quicksand', value: 'Quicksand, sans-serif' },
+  { name: 'Josefin Sans', value: 'Josefin Sans, sans-serif' },
+  { name: 'Barlow', value: 'Barlow, sans-serif' },
+  { name: 'Mulish', value: 'Mulish, sans-serif' },
+  { name: 'Karla', value: 'Karla, sans-serif' },
+  { name: 'Cabin', value: 'Cabin, sans-serif' },
+  { name: 'Archivo', value: 'Archivo, sans-serif' },
+  { name: 'Exo 2', value: 'Exo 2, sans-serif' },
+  { name: 'Overpass', value: 'Overpass, sans-serif' },
+  
+  // Serif - Elegant & Classic
+  { name: 'Playfair Display', value: 'Playfair Display, serif' },
+  { name: 'Merriweather', value: 'Merriweather, serif' },
+  { name: 'Lora', value: 'Lora, serif' },
+  { name: 'PT Serif', value: 'PT Serif, serif' },
+  { name: 'Source Serif 4', value: 'Source Serif 4, serif' },
+  { name: 'Libre Baskerville', value: 'Libre Baskerville, serif' },
+  { name: 'Crimson Text', value: 'Crimson Text, serif' },
+  { name: 'EB Garamond', value: 'EB Garamond, serif' },
+  { name: 'Cormorant Garamond', value: 'Cormorant Garamond, serif' },
+  { name: 'Spectral', value: 'Spectral, serif' },
+  { name: 'Bitter', value: 'Bitter, serif' },
+  { name: 'Vollkorn', value: 'Vollkorn, serif' },
+  { name: 'Cardo', value: 'Cardo, serif' },
+  { name: 'Frank Ruhl Libre', value: 'Frank Ruhl Libre, serif' },
+  
+  // Display - Headlines & Impact
+  { name: 'Bebas Neue', value: 'Bebas Neue, sans-serif' },
+  { name: 'Oswald', value: 'Oswald, sans-serif' },
+  { name: 'Anton', value: 'Anton, sans-serif' },
+  { name: 'Righteous', value: 'Righteous, sans-serif' },
+  { name: 'Teko', value: 'Teko, sans-serif' },
+  { name: 'Cinzel', value: 'Cinzel, serif' },
+  { name: 'Abril Fatface', value: 'Abril Fatface, serif' },
+  { name: 'Big Shoulders Display', value: 'Big Shoulders Display, sans-serif' },
+  
+  // Monospace - Code & Technical
+  { name: 'Fira Code', value: 'Fira Code, monospace' },
+  { name: 'JetBrains Mono', value: 'JetBrains Mono, monospace' },
+  { name: 'Source Code Pro', value: 'Source Code Pro, monospace' },
+  { name: 'IBM Plex Mono', value: 'IBM Plex Mono, monospace' },
+  { name: 'Roboto Mono', value: 'Roboto Mono, monospace' },
+  { name: 'Space Mono', value: 'Space Mono, monospace' },
 ];
 
 // Font size presets
