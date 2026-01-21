@@ -2485,6 +2485,8 @@ function ModalComponent({ props, styles, isSelected, onClick, isPreview }: Compo
 }
 
 export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover }: RenderProps) {
+  const [isHovered, setIsHovered] = useState(false);
+  
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -2493,12 +2495,14 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
   };
 
   const handleMouseEnter = () => {
+    setIsHovered(true);
     if (!isPreview && onHover) {
       onHover(component.id);
     }
   };
 
   const handleMouseLeave = () => {
+    setIsHovered(false);
     if (!isPreview && onHover) {
       onHover(null);
     }
@@ -2522,12 +2526,48 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     pages,
   };
 
-  const wrapperProps: React.HTMLAttributes<HTMLDivElement> & { 'data-testid': string; 'data-component-type': string; 'data-element-id': string } = {
+  // Build advanced wrapper styles from component.styles
+  const advancedWrapperStyles: React.CSSProperties = {
+    ...(component.styles.containerWidth && { maxWidth: component.styles.containerWidth === 'full' ? '100%' : component.styles.containerWidth }),
+    ...(component.styles.gridColumns && { display: 'grid', gridTemplateColumns: `repeat(${component.styles.gridColumns}, 1fr)` }),
+    ...(component.styles.gridGap && { gap: component.styles.gridGap }),
+    ...(component.styles.position && component.styles.position !== 'static' && { position: component.styles.position }),
+    ...(component.styles.top && { top: component.styles.top }),
+    ...(component.styles.left && { left: component.styles.left }),
+    ...(component.styles.right && { right: component.styles.right }),
+    ...(component.styles.bottom && { bottom: component.styles.bottom }),
+    ...(component.styles.zIndex !== undefined && { zIndex: component.styles.zIndex }),
+    ...(component.styles.borderWidth && { borderWidth: component.styles.borderWidth }),
+    ...(component.styles.borderColor && { borderColor: component.styles.borderColor }),
+    ...(component.styles.borderStyle && { borderStyle: component.styles.borderStyle }),
+    ...(component.styles.filter && { filter: component.styles.filter }),
+    ...(component.styles.mixBlendMode && { mixBlendMode: component.styles.mixBlendMode }),
+    ...(component.styles.opacity && { opacity: component.styles.opacity }),
+    // Gradient support
+    ...(component.styles.gradientType && component.styles.gradientColors?.length && {
+      background: component.styles.gradientType === 'radial'
+        ? `radial-gradient(circle, ${component.styles.gradientColors.join(', ')})`
+        : `linear-gradient(${component.styles.gradientAngle || 90}deg, ${component.styles.gradientColors.join(', ')})`
+    }),
+    // Hover transitions
+    transition: 'all 0.3s ease',
+    // Apply hover styles when hovered
+    ...(isHovered && {
+      ...(component.styles.hoverBackgroundColor && { backgroundColor: component.styles.hoverBackgroundColor }),
+      ...(component.styles.hoverTextColor && { color: component.styles.hoverTextColor }),
+      ...(component.styles.hoverTransform && { transform: component.styles.hoverTransform }),
+      ...(component.styles.hoverBoxShadow && { boxShadow: component.styles.hoverBoxShadow }),
+      ...(component.styles.hoverOpacity && { opacity: component.styles.hoverOpacity }),
+    }),
+  };
+
+  const wrapperProps: React.HTMLAttributes<HTMLDivElement> & { 'data-testid': string; 'data-component-type': string; 'data-element-id': string; style?: React.CSSProperties } = {
     'data-testid': `component-${component.id}`,
     'data-component-type': component.type,
     'data-element-id': component.id,
     onMouseEnter: handleMouseEnter,
     onMouseLeave: handleMouseLeave,
+    style: advancedWrapperStyles,
   };
 
   const renderComponent = () => {
