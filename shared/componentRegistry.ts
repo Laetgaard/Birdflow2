@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'tabs' | 'accordion' | 'modal';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range';
 
@@ -149,9 +149,6 @@ export const editableTextFields: Record<ComponentType, string[]> = {
   'spacer': [],
   'newsletter': ['title', 'subtitle', 'buttonText', 'successMessage'],
   'before-after': ['title', 'beforeLabel', 'afterLabel'],
-  'tabs': [],
-  'accordion': ['title'],
-  'modal': ['triggerText', 'title', 'content'],
 };
 
 export type FieldDefinition = {
@@ -196,38 +193,6 @@ export type PricingItem = ComponentItem & {
   features?: string[];
 };
 
-export type TabItem = {
-  id: string;
-  label: string;
-  content: string;
-};
-
-export type TabsComponentProps = {
-  tabs: TabItem[];
-  defaultTab?: string;
-  tabStyle?: 'underline' | 'pills' | 'boxed';
-};
-
-export type AccordionItem = {
-  id: string;
-  title: string;
-  content: string;
-};
-
-export type AccordionComponentProps = {
-  accordionItems: AccordionItem[];
-  allowMultiple?: boolean;
-  defaultOpen?: string[];
-};
-
-export type ModalComponentProps = {
-  triggerText: string;
-  title: string;
-  content: string;
-  triggerStyle?: 'button' | 'link' | 'ghost';
-  modalSize?: 'sm' | 'md' | 'lg' | 'full';
-};
-
 export type ComponentProps = {
   title?: string;
   subtitle?: string;
@@ -265,18 +230,6 @@ export type ComponentProps = {
   beforeLabel?: string;
   afterLabel?: string;
   sliderPosition?: number;
-  // Tabs component props
-  tabs?: TabItem[];
-  defaultTab?: string;
-  tabStyle?: 'underline' | 'pills' | 'boxed';
-  // Accordion component props
-  accordionItems?: AccordionItem[];
-  allowMultiple?: boolean;
-  defaultOpen?: string[];
-  // Modal component props
-  triggerText?: string;
-  triggerStyle?: 'button' | 'link' | 'ghost';
-  modalSize?: 'sm' | 'md' | 'lg' | 'full';
 };
 
 export type ComponentStyles = {
@@ -319,33 +272,6 @@ export type ComponentStyles = {
   animationTrigger?: 'load' | 'scroll';
   animationDuration?: string;
   animationDelay?: string;
-  // Advanced layout
-  containerWidth?: string;
-  gridColumns?: number;
-  gridGap?: string;
-  position?: 'static' | 'relative' | 'absolute' | 'fixed' | 'sticky';
-  top?: string;
-  left?: string;
-  right?: string;
-  bottom?: string;
-  zIndex?: number;
-  // Advanced borders
-  borderWidth?: string;
-  borderColor?: string;
-  borderStyle?: 'solid' | 'dashed' | 'dotted' | 'none';
-  // Image effects
-  filter?: string;
-  mixBlendMode?: 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'color-dodge' | 'color-burn';
-  // Hover effects
-  hoverBackgroundColor?: string;
-  hoverTextColor?: string;
-  hoverTransform?: string;
-  hoverBoxShadow?: string;
-  hoverOpacity?: string;
-  // Gradient settings
-  gradientType?: 'linear' | 'radial';
-  gradientAngle?: number;
-  gradientColors?: string[];
 };
 
 export type BuilderComponentData = {
@@ -910,95 +836,6 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
-    ],
-  },
-
-  tabs: {
-    type: 'tabs',
-    name: 'Tabs',
-    icon: '📑',
-    defaultProps: {
-      tabs: [
-        { id: '1', label: 'Tab 1', content: 'Content for the first tab. Add your text, images, or other content here.' },
-        { id: '2', label: 'Tab 2', content: 'Content for the second tab. This tab has different information.' },
-        { id: '3', label: 'Tab 3', content: 'Content for the third tab. You can customize each tab independently.' },
-      ],
-      defaultTab: '1',
-      tabStyle: 'underline',
-    },
-    defaultStyles: {
-      backgroundColor: '#ffffff',
-      textColor: '#1a1a1a',
-      padding: '40px 24px',
-      accentColor: '#4f46e5',
-    },
-    fields: [
-      { key: 'tabStyle', label: 'Tab Style', type: 'select', group: 'content', options: ['underline', 'pills', 'boxed'] },
-      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
-      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
-      { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
-      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '40px 24px' },
-    ],
-  },
-
-  accordion: {
-    type: 'accordion',
-    name: 'Accordion',
-    icon: '📋',
-    defaultProps: {
-      title: 'Frequently Asked Questions',
-      accordionItems: [
-        { id: '1', title: 'What is an accordion component?', content: 'An accordion is a vertically stacked list of headers that can be clicked to reveal or hide content associated with them.' },
-        { id: '2', title: 'How do I customize the accordion?', content: 'You can add, edit, or remove items using the properties panel. Each item has a title and content section.' },
-        { id: '3', title: 'Can multiple panels be open at once?', content: 'Yes! Enable the "Allow Multiple" option to let users open multiple panels simultaneously.' },
-      ],
-      allowMultiple: false,
-      defaultOpen: ['1'],
-    },
-    defaultStyles: {
-      backgroundColor: '#ffffff',
-      textColor: '#1a1a1a',
-      padding: '40px 24px',
-      accentColor: '#4f46e5',
-    },
-    fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'allowMultiple', label: 'Allow Multiple Open', type: 'select', group: 'content', options: ['true', 'false'] },
-      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
-      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
-      { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
-      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '40px 24px' },
-    ],
-  },
-
-  modal: {
-    type: 'modal',
-    name: 'Modal',
-    icon: '🪟',
-    defaultProps: {
-      triggerText: 'Open Modal',
-      title: 'Modal Title',
-      description: 'This is the modal content. You can add any information here that you want to display when the modal opens.',
-      triggerStyle: 'button',
-      modalSize: 'md',
-    },
-    defaultStyles: {
-      backgroundColor: '#ffffff',
-      textColor: '#1a1a1a',
-      padding: '24px',
-      buttonColor: '#4f46e5',
-      accentColor: '#4f46e5',
-    },
-    fields: [
-      { key: 'triggerText', label: 'Trigger Text', type: 'text', group: 'content' },
-      { key: 'title', label: 'Modal Title', type: 'text', group: 'content' },
-      { key: 'description', label: 'Modal Content', type: 'textarea', group: 'content' },
-      { key: 'triggerStyle', label: 'Trigger Style', type: 'select', group: 'content', options: ['button', 'link', 'ghost'] },
-      { key: 'modalSize', label: 'Modal Size', type: 'select', group: 'content', options: ['sm', 'md', 'lg', 'full'] },
-      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
-      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
-      { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
-      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '24px' },
     ],
   },
 };

@@ -157,7 +157,6 @@ export type StylePreset = 'modern' | 'luxury' | 'playful' | 'corporate' | 'minim
 export type DesignTokens = {
   primaryColor: string;
   secondaryColor: string;
-  accentColor?: string;
   backgroundColor: string;
   fontFamily: string;
   textColor?: string;
@@ -167,21 +166,6 @@ export type DesignTokens = {
   sectionGap?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
-  // Advanced styling
-  defaultShadow?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
-  defaultBorderWidth?: string;
-  defaultBorderColor?: string;
-  // Gradient presets
-  gradientPresets?: {
-    name: string;
-    value: string;
-  }[];
-  // Custom CSS for power users
-  customCSS?: string;
-  // Container settings
-  defaultContainerWidth?: string;
-  // Typography scale
-  headingScale?: 'sm' | 'md' | 'lg' | 'xl';
 };
 
 export type BuilderStateData = {
