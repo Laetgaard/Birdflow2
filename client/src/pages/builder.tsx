@@ -934,6 +934,7 @@ export default function BuilderPage() {
                     onImageResize={(width, height) => updateComponent(comp.id, { props: { imageWidth: width, imageHeight: height } })}
                     onStyleChange={(styles) => updateComponent(comp.id, { styles })}
                     onHover={setHoveredComponentId}
+                    deviceMode={device}
                   />
                 ))
               )}
