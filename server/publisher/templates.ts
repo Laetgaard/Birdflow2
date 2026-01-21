@@ -2189,7 +2189,6 @@ function AnimatedWrapper({
           : 'none',
       }}
     >
-      <style>{\`\${animationKeyframes}\`}</style>
       {children}
     </div>
   );
@@ -4276,6 +4275,25 @@ a {
   border-radius: var(--border-radius);
   background-color: white;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Animation keyframes for component entrance animations */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideLeft { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slideRight { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes zoomIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+@keyframes zoomOut { from { opacity: 0; transform: scale(1.2); } to { opacity: 1; transform: scale(1); } }
+@keyframes bounce { 
+  0% { opacity: 0; transform: translateY(30px); }
+  60% { opacity: 1; transform: translateY(-10px); }
+  80% { transform: translateY(5px); }
+  100% { transform: translateY(0); }
+}
+@keyframes flip { 
+  from { opacity: 0; transform: perspective(400px) rotateX(90deg); } 
+  to { opacity: 1; transform: perspective(400px) rotateX(0); } 
 }
 `;
 }
