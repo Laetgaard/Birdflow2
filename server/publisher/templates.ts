@@ -2292,6 +2292,7 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
   const heroStyle: React.CSSProperties = {
     color: styles.textColor,
     padding: styles.padding || '0',
+    minHeight: styles.minHeight || undefined,
     position: 'relative',
     overflow: 'hidden',
     fontFamily,
