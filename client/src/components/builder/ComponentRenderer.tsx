@@ -150,6 +150,8 @@ type BuilderPage = {
   hidden?: boolean;
 };
 
+type DeviceMode = 'desktop' | 'tablet' | 'mobile';
+
 type RenderProps = {
   component: BuilderComponentData;
   isSelected?: boolean;
@@ -163,6 +165,7 @@ type RenderProps = {
   onImageResize?: (width: string, height: string) => void;
   onStyleChange?: (styles: Partial<ComponentStyles>) => void;
   onHover?: (componentId: string | null) => void;
+  deviceMode?: DeviceMode;
 };
 
 type EditableTextProps = {
@@ -347,6 +350,7 @@ type ComponentRenderProps = {
   onEditField?: (field: string | null) => void;
   onImageResize?: (width: string, height: string) => void;
   onStyleChange?: (styles: Partial<ComponentStyles>) => void;
+  deviceMode?: DeviceMode;
 };
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
@@ -807,20 +811,23 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
   );
 }
 
-function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, onTextChange, editingField, onEditField }: ComponentRenderProps & { pages?: BuilderPage[] }) {
+function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, onTextChange, editingField, onEditField, deviceMode }: ComponentRenderProps & { pages?: BuilderPage[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [windowIsMobile, setWindowIsMobile] = useState(false);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
   const logoImage = props.imageUrl ? parseImageValue(props.imageUrl) : null;
 
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    const checkMobile = () => setWindowIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // Use deviceMode from builder preview if provided, otherwise use window width
+  const isMobile = deviceMode ? (deviceMode === 'mobile' || deviceMode === 'tablet') : windowIsMobile;
 
   const navItems = pages && pages.length > 0
     ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
@@ -1979,7 +1986,7 @@ function BeforeAfterComponent({ props, styles, isSelected, onClick, isPreview, o
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -2010,6 +2017,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     onEditField,
     onImageResize,
     onStyleChange,
+    deviceMode,
   };
 
   const headerProps = {
