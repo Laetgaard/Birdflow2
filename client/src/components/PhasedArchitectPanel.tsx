@@ -195,6 +195,9 @@ export default function PhasedArchitectPanel({
       
       switch (phase) {
         case 'structure':
+          if (!prompt.trim()) {
+            throw new Error("Please enter a website description before regenerating structure");
+          }
           endpoint = `/api/websites/${websiteId}/ai/phased/structure`;
           body = { prompt };
           break;
@@ -213,7 +216,7 @@ export default function PhasedArchitectPanel({
       }
       
       // First go back to clear later phases
-      await fetch(`/api/websites/${websiteId}/ai/phased/goto`, {
+      const gotoResponse = await fetch(`/api/websites/${websiteId}/ai/phased/goto`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -221,6 +224,11 @@ export default function PhasedArchitectPanel({
         },
         body: JSON.stringify({ phase }),
       });
+      
+      if (!gotoResponse.ok) {
+        const error = await gotoResponse.json();
+        throw new Error(error.message || "Failed to reset phase state");
+      }
       
       const response = await fetch(endpoint, {
         method: "POST",
