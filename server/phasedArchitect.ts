@@ -136,7 +136,7 @@ export async function generateStructure(prompt: string, sourceUrl?: string): Pro
 
 ${sourceUrl ? `Reference URL: ${sourceUrl}` : ''}
 
-Focus ONLY on structure - pages and sections. No styling or content yet.`
+Focus ONLY on structure - pages and sections. No styling or content yet. Return your response as JSON.`
         }
       ],
       max_tokens: 4096,
@@ -292,7 +292,7 @@ Target Audience: ${plan.analysis?.targetAudience}
 SECTIONS TO FILL:
 ${JSON.stringify(sectionsToFill, null, 2)}
 
-Write compelling, professional content for EACH section. Include real headlines, descriptions, and image URLs.`
+Write compelling, professional content for EACH section. Include real headlines, descriptions, and image URLs. Return your response as JSON.`
         }
       ],
       max_tokens: 8192,
@@ -400,7 +400,7 @@ Target Audience: ${plan.analysis?.targetAudience}
 PAGES & SECTIONS:
 ${JSON.stringify(plan.pages, null, 2)}
 
-Create a cohesive design system and per-section styling that matches the brand and audience.`
+Create a cohesive design system and per-section styling that matches the brand and audience. Return your response as JSON.`
         }
       ],
       max_tokens: 4096,
@@ -529,7 +529,7 @@ Motion speed: ${designSystem.motion.speed}
 SECTIONS:
 ${JSON.stringify(plan.pages?.flatMap(p => p.sections.map(s => ({ id: s.id, pattern: s.pattern }))), null, 2)}
 
-Create appropriate entrance animations and hover effects for each section.`
+Create appropriate entrance animations and hover effects for each section. Return your response as JSON.`
         }
       ],
       max_tokens: 4096,
