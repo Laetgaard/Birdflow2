@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range';
 
@@ -6,10 +6,15 @@ export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'im
 export const themeColors = {
   backgrounds: [
     { name: 'White', value: '#ffffff' },
+    { name: 'Off White', value: '#fafafa' },
     { name: 'Light Gray', value: '#f8fafc' },
     { name: 'Gray', value: '#e2e8f0' },
+    { name: 'Cool Gray', value: '#f1f5f9' },
+    { name: 'Warm Gray', value: '#faf5f0' },
     { name: 'Dark', value: '#1a1a2e' },
+    { name: 'Charcoal', value: '#27272a' },
     { name: 'Black', value: '#0f0f0f' },
+    { name: 'Navy', value: '#0f172a' },
     { name: 'Primary', value: '#4f46e5' },
     { name: 'Primary Light', value: '#6366f1' },
     { name: 'Success', value: '#10b981' },
@@ -19,11 +24,95 @@ export const themeColors = {
   text: [
     { name: 'Black', value: '#0f0f0f' },
     { name: 'Dark', value: '#1a1a2e' },
+    { name: 'Charcoal', value: '#27272a' },
     { name: 'Gray', value: '#64748b' },
-    { name: 'Light', value: '#94a3b8' },
+    { name: 'Light Gray', value: '#94a3b8' },
+    { name: 'Muted', value: '#a1a1aa' },
     { name: 'White', value: '#ffffff' },
+    { name: 'Off White', value: '#f4f4f5' },
     { name: 'Primary', value: '#4f46e5' },
   ],
+  accents: [
+    { name: 'Blue', value: '#3b82f6' },
+    { name: 'Indigo', value: '#6366f1' },
+    { name: 'Purple', value: '#8b5cf6' },
+    { name: 'Pink', value: '#ec4899' },
+    { name: 'Rose', value: '#f43f5e' },
+    { name: 'Orange', value: '#f97316' },
+    { name: 'Amber', value: '#f59e0b' },
+    { name: 'Green', value: '#22c55e' },
+    { name: 'Teal', value: '#14b8a6' },
+    { name: 'Cyan', value: '#06b6d4' },
+  ],
+};
+
+// Gradient presets for backgrounds and buttons
+export const gradientPresets = [
+  { name: 'None', value: 'none' },
+  { name: 'Primary', value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+  { name: 'Sunset', value: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
+  { name: 'Ocean', value: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
+  { name: 'Forest', value: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' },
+  { name: 'Midnight', value: 'linear-gradient(135deg, #232526 0%, #414345 100%)' },
+  { name: 'Luxury', value: 'linear-gradient(135deg, #c79081 0%, #dfa579 100%)' },
+  { name: 'Aurora', value: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' },
+  { name: 'Cosmic', value: 'linear-gradient(135deg, #ff0844 0%, #ffb199 100%)' },
+  { name: 'Subtle Light', value: 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)' },
+  { name: 'Subtle Dark', value: 'linear-gradient(180deg, #1a1a2e 0%, #0f0f0f 100%)' },
+];
+
+// Shadow presets
+export const shadowPresets = [
+  { name: 'None', value: 'none' },
+  { name: 'Subtle', value: '0 1px 3px rgba(0,0,0,0.08)' },
+  { name: 'Small', value: '0 4px 6px rgba(0,0,0,0.1)' },
+  { name: 'Medium', value: '0 10px 15px rgba(0,0,0,0.1)' },
+  { name: 'Large', value: '0 20px 25px rgba(0,0,0,0.15)' },
+  { name: 'XL', value: '0 25px 50px rgba(0,0,0,0.2)' },
+  { name: 'Inner', value: 'inset 0 2px 4px rgba(0,0,0,0.1)' },
+  { name: 'Glow', value: '0 0 40px rgba(99,102,241,0.3)' },
+  { name: 'Colored', value: '0 10px 40px rgba(99,102,241,0.25)' },
+];
+
+// Border radius presets
+export const borderRadiusPresets = [
+  { name: 'None', value: '0' },
+  { name: 'Subtle', value: '4px' },
+  { name: 'Small', value: '8px' },
+  { name: 'Medium', value: '12px' },
+  { name: 'Large', value: '16px' },
+  { name: 'XL', value: '24px' },
+  { name: '2XL', value: '32px' },
+  { name: 'Pill', value: '9999px' },
+];
+
+// Button style presets
+export const buttonStylePresets = [
+  { name: 'Solid', value: 'solid' },
+  { name: 'Outline', value: 'outline' },
+  { name: 'Ghost', value: 'ghost' },
+  { name: 'Gradient', value: 'gradient' },
+  { name: 'Soft', value: 'soft' },
+];
+
+// Card style presets
+export const cardStylePresets = [
+  { name: 'Flat', value: 'flat' },
+  { name: 'Elevated', value: 'elevated' },
+  { name: 'Bordered', value: 'bordered' },
+  { name: 'Glass', value: 'glass' },
+  { name: 'Gradient', value: 'gradient' },
+];
+
+// Section layout variants
+export const sectionVariants = {
+  hero: ['centered', 'split-left', 'split-right', 'minimal', 'bold', 'video-bg'],
+  features: ['grid-3', 'grid-4', 'alternating', 'icon-left', 'card-style', 'minimal'],
+  testimonials: ['carousel', 'grid', 'single', 'masonry', 'minimal'],
+  pricing: ['cards', 'table', 'minimal', 'featured', 'comparison'],
+  cta: ['centered', 'split', 'banner', 'floating', 'gradient'],
+  team: ['grid', 'carousel', 'cards', 'minimal', 'detailed'],
+  services: ['grid', 'list', 'cards', 'icon-boxes', 'alternating'],
 };
 
 // Theme-based spacing presets
@@ -207,6 +296,15 @@ export const editableTextFields: Record<ComponentType, string[]> = {
   'spacer': [],
   'newsletter': ['title', 'subtitle', 'buttonText', 'successMessage'],
   'before-after': ['title', 'beforeLabel', 'afterLabel'],
+  'logo-cloud': ['title', 'subtitle'],
+  'marquee': [],
+  'tabs': ['title'],
+  'comparison-table': ['title', 'subtitle'],
+  'split-section': ['title', 'subtitle', 'description', 'buttonText'],
+  'rich-text': [],
+  'team': ['title', 'subtitle'],
+  'timeline': ['title', 'subtitle'],
+  'services': ['title', 'subtitle', 'description'],
 };
 
 export type FieldDefinition = {
@@ -224,10 +322,19 @@ export type FieldDefinition = {
 
 export type ComponentItem = {
   id: string;
-  title: string;
-  description: string;
+  title?: string;
+  description?: string;
   icon?: string;
   imageUrl?: string;
+  text?: string;
+  year?: string;
+  name?: string;
+  role?: string;
+  bio?: string;
+  price?: string | number;
+  content?: string;
+  values?: string[];
+  highlighted?: boolean;
 };
 
 export type FormField = {
@@ -265,7 +372,7 @@ export type ComponentProps = {
   imageSide?: 'left' | 'right';
   autoPlay?: boolean;
   speed?: number;
-  columns?: number;
+  columns?: number | string;
   productLimit?: number;
   productMode?: 'all' | 'curated';
   curatedProductIds?: string[];
@@ -288,6 +395,28 @@ export type ComponentProps = {
   beforeLabel?: string;
   afterLabel?: string;
   sliderPosition?: number;
+  // Logo cloud props
+  logos?: ComponentItem[];
+  variant?: string;
+  grayscale?: boolean | string;
+  // Marquee props
+  direction?: string;
+  separator?: string;
+  // Tabs props
+  tabs?: ComponentItem[];
+  // Comparison table props
+  features?: ComponentItem[];
+  // Split section props
+  // Team props
+  members?: ComponentItem[];
+  // Rich text props
+  content?: string;
+  maxWidth?: string;
+  // Timeline props (uses items)
+  // Services props
+  services?: ComponentItem[];
+  // Comparison table props
+  tableColumns?: ComponentItem[];
 };
 
 export type ComponentStyles = {
@@ -894,6 +1023,348 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  'logo-cloud': {
+    type: 'logo-cloud',
+    name: 'Logo Cloud',
+    icon: 'grid-3x3',
+    defaultProps: {
+      title: 'Trusted by leading companies',
+      subtitle: 'Join thousands of satisfied customers worldwide',
+      logos: [
+        { id: '1', name: 'Company 1', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+1' },
+        { id: '2', name: 'Company 2', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+2' },
+        { id: '3', name: 'Company 3', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+3' },
+        { id: '4', name: 'Company 4', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+4' },
+        { id: '5', name: 'Company 5', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+5' },
+      ],
+      variant: 'grid',
+      grayscale: true,
+    },
+    defaultStyles: {
+      backgroundColor: '#f8fafc',
+      textColor: '#64748b',
+      padding: '64px 24px',
+      animationType: 'fade-in',
+      animationTrigger: 'scroll',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'variant', label: 'Layout', type: 'select', group: 'content', options: ['grid', 'row', 'marquee'] },
+      { key: 'grayscale', label: 'Grayscale Logos', type: 'select', group: 'style', options: ['true', 'false'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '64px 24px' },
+    ],
+  },
+
+  'marquee': {
+    type: 'marquee',
+    name: 'Marquee',
+    icon: 'arrow-right',
+    defaultProps: {
+      items: [
+        { id: '1', text: 'Award Winning Design' },
+        { id: '2', text: '24/7 Support' },
+        { id: '3', text: 'Free Shipping' },
+        { id: '4', text: '100% Satisfaction' },
+        { id: '5', text: 'Premium Quality' },
+      ],
+      speed: 30,
+      direction: 'left',
+      separator: '✦',
+    },
+    defaultStyles: {
+      backgroundColor: '#0f0f0f',
+      textColor: '#ffffff',
+      padding: '16px 0',
+      accentColor: '#f59e0b',
+      animationType: 'none',
+      animationTrigger: 'load',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'items', label: 'Marquee Items', type: 'items', group: 'content' },
+      { key: 'speed', label: 'Speed (seconds)', type: 'range', group: 'content', min: 10, max: 60, step: 5 },
+      { key: 'direction', label: 'Direction', type: 'select', group: 'content', options: ['left', 'right'] },
+      { key: 'separator', label: 'Separator', type: 'text', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Separator Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '16px 0' },
+    ],
+  },
+
+  'tabs': {
+    type: 'tabs',
+    name: 'Tabs',
+    icon: 'folder',
+    defaultProps: {
+      title: 'Explore Our Solutions',
+      tabs: [
+        { id: '1', title: 'For Businesses', content: 'Powerful tools designed for enterprise-level operations with advanced analytics and team collaboration.', icon: 'building', imageUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800' },
+        { id: '2', title: 'For Creators', content: 'Everything you need to build, launch, and grow your creative projects with professional-grade tools.', icon: 'palette', imageUrl: 'https://images.unsplash.com/photo-1558655146-9f40138edfeb?w=800' },
+        { id: '3', title: 'For Teams', content: 'Seamless collaboration features that keep your team aligned and productive, no matter where they are.', icon: 'users', imageUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800' },
+      ],
+      variant: 'horizontal',
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      accentColor: '#4f46e5',
+      padding: '80px 24px',
+      animationType: 'fade-in',
+      animationTrigger: 'scroll',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Section Title', type: 'text', group: 'content' },
+      { key: 'variant', label: 'Tab Style', type: 'select', group: 'content', options: ['horizontal', 'vertical', 'pills', 'underlined'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Active Tab Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  'comparison-table': {
+    type: 'comparison-table',
+    name: 'Comparison Table',
+    icon: 'table',
+    defaultProps: {
+      title: 'Compare Plans',
+      subtitle: 'Choose the perfect plan for your needs',
+      tableColumns: [
+        { id: '1', name: 'Starter', price: '$9', highlighted: false },
+        { id: '2', name: 'Professional', price: '$29', highlighted: true },
+        { id: '3', name: 'Enterprise', price: '$99', highlighted: false },
+      ],
+      features: [
+        { id: '1', name: 'Users', values: ['1', '5', 'Unlimited'] },
+        { id: '2', name: 'Storage', values: ['5GB', '50GB', '500GB'] },
+        { id: '3', name: 'Support', values: ['Email', 'Priority', '24/7 Dedicated'] },
+        { id: '4', name: 'API Access', values: ['No', 'Yes', 'Yes'] },
+        { id: '5', name: 'Analytics', values: ['Basic', 'Advanced', 'Custom'] },
+      ],
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      accentColor: '#4f46e5',
+      padding: '80px 24px',
+      animationType: 'fade-in',
+      animationTrigger: 'scroll',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Highlight Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  'split-section': {
+    type: 'split-section',
+    name: 'Split Section',
+    icon: 'columns',
+    defaultProps: {
+      title: 'Transform Your Workflow',
+      subtitle: 'Powerful Features',
+      description: 'Our platform combines cutting-edge technology with intuitive design to help you achieve more in less time. Experience the difference that smart tools can make.',
+      imageUrl: 'https://images.unsplash.com/photo-1551434678-e076c223a692?w=800',
+      imageSide: 'right',
+      buttonText: 'Get Started',
+      buttonLink: '#',
+      features: [
+        { id: '1', title: 'Lightning Fast', description: 'Optimized for speed and performance', icon: 'zap' },
+        { id: '2', title: 'Secure by Default', description: 'Enterprise-grade security built in', icon: 'shield' },
+        { id: '3', title: 'Easy Integration', description: 'Connect with your favorite tools', icon: 'plug' },
+      ],
+      variant: 'features',
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      accentColor: '#4f46e5',
+      padding: '80px 24px',
+      animationType: 'slide-up',
+      animationTrigger: 'scroll',
+      animationDuration: '0.6s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle/Eyebrow', type: 'text', group: 'content' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'imageUrl', label: 'Image', type: 'image', group: 'content' },
+      { key: 'imageSide', label: 'Image Side', type: 'select', group: 'content', options: ['left', 'right'] },
+      { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
+      { key: 'buttonLink', label: 'Button Link', type: 'text', group: 'content' },
+      { key: 'variant', label: 'Content Style', type: 'select', group: 'content', options: ['simple', 'features', 'bullets', 'stats'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  'rich-text': {
+    type: 'rich-text',
+    name: 'Rich Text Block',
+    icon: 'type',
+    defaultProps: {
+      content: '<h2>Welcome to Our Platform</h2><p>We believe in creating exceptional experiences that make a real difference. Our team is dedicated to pushing boundaries and delivering solutions that exceed expectations.</p><blockquote>Innovation is the key to success in today\'s rapidly evolving landscape.</blockquote><p>Join thousands of satisfied customers who have already transformed their businesses with our platform.</p>',
+      maxWidth: '720px',
+      alignment: 'center',
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#374151',
+      accentColor: '#4f46e5',
+      padding: '80px 24px',
+      animationType: 'fade-in',
+      animationTrigger: 'scroll',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'content', label: 'Content (HTML)', type: 'textarea', group: 'content' },
+      { key: 'maxWidth', label: 'Max Width', type: 'text', group: 'content', placeholder: '720px' },
+      { key: 'alignment', label: 'Alignment', type: 'select', group: 'content', options: ['left', 'center', 'right'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Link/Quote Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  'team': {
+    type: 'team',
+    name: 'Team',
+    icon: 'users',
+    defaultProps: {
+      title: 'Meet Our Team',
+      subtitle: 'The people behind our success',
+      members: [
+        { id: '1', name: 'Sarah Johnson', role: 'CEO & Founder', imageUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400', bio: 'Visionary leader with 15+ years of experience in tech.' },
+        { id: '2', name: 'Michael Chen', role: 'CTO', imageUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', bio: 'Engineering expert specializing in scalable systems.' },
+        { id: '3', name: 'Emily Davis', role: 'Head of Design', imageUrl: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400', bio: 'Award-winning designer passionate about UX.' },
+        { id: '4', name: 'James Wilson', role: 'VP of Sales', imageUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400', bio: 'Driven sales leader with global experience.' },
+      ],
+      variant: 'grid',
+      columns: 4,
+    },
+    defaultStyles: {
+      backgroundColor: '#f8fafc',
+      textColor: '#1a1a1a',
+      accentColor: '#4f46e5',
+      padding: '80px 24px',
+      cardStyle: 'elevated',
+      animationType: 'slide-up',
+      animationTrigger: 'scroll',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'variant', label: 'Layout', type: 'select', group: 'content', options: ['grid', 'carousel', 'cards', 'minimal'] },
+      { key: 'columns', label: 'Columns', type: 'select', group: 'content', options: ['2', '3', '4'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
+      { key: 'cardStyle', label: 'Card Style', type: 'select', group: 'style', options: ['flat', 'elevated', 'bordered', 'glass'] },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  'timeline': {
+    type: 'timeline',
+    name: 'Timeline',
+    icon: 'git-branch',
+    defaultProps: {
+      title: 'Our Journey',
+      subtitle: 'Key milestones that shaped our company',
+      items: [
+        { id: '1', year: '2019', title: 'Founded', description: 'Started with a vision to revolutionize the industry.', icon: 'rocket' },
+        { id: '2', year: '2020', title: 'Series A Funding', description: 'Raised $10M to accelerate growth and expansion.', icon: 'trending-up' },
+        { id: '3', year: '2021', title: '10,000 Customers', description: 'Reached our first major customer milestone.', icon: 'users' },
+        { id: '4', year: '2022', title: 'Global Expansion', description: 'Launched in 20+ countries worldwide.', icon: 'globe' },
+        { id: '5', year: '2023', title: 'Industry Leader', description: 'Recognized as the #1 solution in our category.', icon: 'award' },
+      ],
+      variant: 'alternating',
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      accentColor: '#4f46e5',
+      padding: '80px 24px',
+      animationType: 'fade-in',
+      animationTrigger: 'scroll',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'variant', label: 'Layout', type: 'select', group: 'content', options: ['alternating', 'left', 'right', 'centered'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Accent/Line Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  'services': {
+    type: 'services',
+    name: 'Services',
+    icon: 'briefcase',
+    defaultProps: {
+      title: 'Our Services',
+      subtitle: 'What we offer',
+      description: 'Comprehensive solutions tailored to your business needs',
+      services: [
+        { id: '1', title: 'Consulting', description: 'Expert guidance to help you make informed decisions and achieve your goals.', icon: 'message-circle', imageUrl: '', price: 'From $500' },
+        { id: '2', title: 'Development', description: 'Custom software solutions built with the latest technologies and best practices.', icon: 'code', imageUrl: '', price: 'From $2,000' },
+        { id: '3', title: 'Design', description: 'Beautiful, user-centered designs that captivate and convert your audience.', icon: 'palette', imageUrl: '', price: 'From $1,000' },
+        { id: '4', title: 'Marketing', description: 'Strategic marketing campaigns that drive growth and maximize ROI.', icon: 'megaphone', imageUrl: '', price: 'From $800' },
+      ],
+      variant: 'cards',
+      columns: 4,
+    },
+    defaultStyles: {
+      backgroundColor: '#f8fafc',
+      textColor: '#1a1a1a',
+      accentColor: '#4f46e5',
+      padding: '80px 24px',
+      cardStyle: 'elevated',
+      animationType: 'slide-up',
+      animationTrigger: 'scroll',
+      animationDuration: '0.5s',
+      animationDelay: '0s',
+    },
+    fields: [
+      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'variant', label: 'Layout', type: 'select', group: 'content', options: ['cards', 'list', 'icon-boxes', 'alternating', 'grid'] },
+      { key: 'columns', label: 'Columns', type: 'select', group: 'content', options: ['2', '3', '4'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
+      { key: 'cardStyle', label: 'Card Style', type: 'select', group: 'style', options: ['flat', 'elevated', 'bordered', 'glass'] },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
     ],
   },
 };
