@@ -41,29 +41,45 @@ A registry-based component system for the website builder defining 20 component 
 ### AI Builder Assistant
 AI-powered website modification through structured JSON mutations supporting "Build Mode", "Thinking Mode", and "Design Analysis Mode". It includes "Creative Mode" (full CSS freedom) and "Safe Mode" (restricted styling), along with undo/redo functionality. Mutations cover components, pages, global styles, style presets, and section-based composition. Professional UI/UX capabilities include a Design Tokens System, 5 Style Presets, and a Section Registry (15 types with variants) for rapid page creation. AI Design Analysis scores design quality and provides recommendations.
 
-### AI Website Architect System (NEW)
-A professional 2-mode website building system that creates Webflow/Framer quality websites:
+### AI Website Architect System
+A professional 2-mode website building system that creates Webflow/Framer quality websites with complete design systems:
 
 **Mode 1 - Architect/Planning Mode:**
 - Analyzes websites conceptually (from URL or description)
 - Detects site type, navigation structure, section patterns
-- Extracts design system (colors, typography, spacing, tone)
+- Designs a complete design system FIRST (colors, typography, spacing, radius, shadow, motion)
 - Creates detailed plan with pages, sections, UX goals, conversion goals
 - Does NOT modify builder_state until user approves
-- Beautiful plan UI with collapsible sections and "Apply Plan" button
+- Beautiful plan UI with design system preview showing colors, fonts, spacing, motion
 
 **Mode 2 - Build Mode:**
 - Executes approved plan in phases: Structure → Layout → Content → Motion
 - Creates multi-page websites with proper navigation
-- Maintains consistent design system across all pages
+- Applies design system to EVERY component (no hardcoded values)
 - Professional quality: clear hierarchy, proper spacing, reusable patterns
 
+**Comprehensive Design System:**
+- Colors: primary, secondary, accent, background, surface, text
+- Typography: headingFont, bodyFont, scale (modern/editorial/classic/bold)
+- Spacing: section (tight/normal/airy), component (tight/normal/airy)
+- Radius: none/soft/rounded
+- Shadow: none/subtle/elevated
+- Motion: style (none/subtle/expressive), speed (slow/normal/fast)
+- Tone: luxury/modern/playful/corporate/minimal
+
+**Design Presets Registry (`shared/designPresets.ts`):**
+- LuxuryBrand: Elegant, serif fonts, airy spacing, slow subtle animations
+- ModernSaaS: Blue tech palette, Inter font, balanced spacing, subtle motion
+- PlayfulStartup: Vibrant colors, rounded corners, expressive animations
+- CorporateBusiness: Conservative colors, tight spacing, minimal motion
+- MinimalStudio: Few colors, maximum whitespace, no motion
+
 **API Endpoints:**
-- `POST /api/websites/:id/ai/architect-plan` - Create plan without building
-- `POST /api/websites/:id/ai/architect-build` - Build website from plan
+- `POST /api/websites/:id/ai/architect-plan` - Create plan with design system
+- `POST /api/websites/:id/ai/architect-build` - Build website applying design system
 - `POST /api/websites/:id/ai/architect-from-url` - Screenshot + plan flow
 
-**Schema:** `shared/websitePlanSchema.ts` defines WebsitePlan with SiteType, DesignSystem, Pages, Sections, BuildPhases
+**Schema:** `shared/websitePlanSchema.ts` defines WebsitePlan with complete DesignSystem object
 
 ### Inline Editing System
 Webflow-style inline editing for direct text manipulation using `EditableText` components, theme presets, and state management for real-time updates.
