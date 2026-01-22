@@ -3551,6 +3551,67 @@ export async function registerRoutes(
     }
   });
 
+  // AI Builder - Clone from URL (captures screenshot and generates builder_state)
+  app.post("/api/websites/:id/ai/clone-from-url", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { url } = req.body;
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ message: "URL is required" });
+      }
+
+      // Validate URL format
+      try {
+        const parsed = new URL(url);
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          return res.status(400).json({ message: "Invalid URL protocol" });
+        }
+      } catch {
+        return res.status(400).json({ message: "Invalid URL format" });
+      }
+
+      // Capture screenshot of the website
+      const { captureWebsiteScreenshot } = await import("./screenshotService");
+      const screenshotResult = await captureWebsiteScreenshot(url);
+      
+      if (!screenshotResult.success || !screenshotResult.imageBase64) {
+        return res.status(500).json({ 
+          message: screenshotResult.error || "Failed to capture screenshot" 
+        });
+      }
+
+      // Analyze screenshot and generate builder state
+      const { analyzeAndCloneWebsite } = await import("./aiVisionCloner");
+      const cloneResult = await analyzeAndCloneWebsite(screenshotResult.imageBase64, url);
+      
+      if (!cloneResult.success || !cloneResult.builderState) {
+        return res.status(500).json({ 
+          message: cloneResult.error || "Failed to analyze website" 
+        });
+      }
+
+      // Save the new builder state
+      await storage.updateBuilderState(req.params.id, cloneResult.builderState);
+
+      res.json({
+        success: true,
+        newState: cloneResult.builderState,
+        analysis: cloneResult.analysis,
+        sourceUrl: url,
+      });
+    } catch (error: any) {
+      console.error("AI Clone from URL error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Analytics - Track event (public endpoint for published sites)
   // Handle CORS preflight for analytics tracking from custom domains
   app.options("/api/public/analytics/track", (req, res) => {
