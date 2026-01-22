@@ -3612,6 +3612,141 @@ export async function registerRoutes(
     }
   });
 
+  // AI Architect - Analyze and Plan (Thinking Mode) - creates detailed plan WITHOUT modifying builder_state
+  app.post("/api/websites/:id/ai/architect-plan", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { prompt, url, imageBase64 } = req.body;
+      if (!prompt || typeof prompt !== 'string') {
+        return res.status(400).json({ message: "Prompt is required" });
+      }
+
+      const { analyzeAndPlanWebsite } = await import("./websiteArchitect");
+      const result = await analyzeAndPlanWebsite(prompt, imageBase64, url);
+
+      if (!result.success || !result.plan) {
+        return res.status(500).json({
+          message: result.error || "Failed to create website plan",
+        });
+      }
+
+      res.json({
+        success: true,
+        plan: result.plan,
+      });
+    } catch (error: any) {
+      console.error("AI Architect Plan error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // AI Architect - Build from Plan - executes plan and creates builder_state
+  app.post("/api/websites/:id/ai/architect-build", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { plan } = req.body;
+      if (!plan) {
+        return res.status(400).json({ message: "Plan is required" });
+      }
+
+      const { buildFromPlan } = await import("./websiteArchitect");
+      const result = await buildFromPlan(plan);
+
+      if (!result.success || !result.builderState) {
+        return res.status(500).json({
+          message: result.error || "Failed to build website from plan",
+        });
+      }
+
+      // Save the new builder state
+      await storage.updateBuilderState(req.params.id, result.builderState);
+
+      res.json({
+        success: true,
+        newState: result.builderState,
+        phasesCompleted: result.phasesCompleted,
+      });
+    } catch (error: any) {
+      console.error("AI Architect Build error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // AI Architect - Full flow with URL screenshot (combines screenshot + plan)
+  app.post("/api/websites/:id/ai/architect-from-url", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { url, prompt } = req.body;
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ message: "URL is required" });
+      }
+
+      // Validate URL format
+      try {
+        const parsed = new URL(url);
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          return res.status(400).json({ message: "Invalid URL protocol" });
+        }
+      } catch {
+        return res.status(400).json({ message: "Invalid URL format" });
+      }
+
+      // Capture screenshot of the website
+      const { captureWebsiteScreenshot } = await import("./screenshotService");
+      const screenshotResult = await captureWebsiteScreenshot(url);
+
+      if (!screenshotResult.success || !screenshotResult.imageBase64) {
+        return res.status(500).json({
+          message: screenshotResult.error || "Failed to capture screenshot",
+        });
+      }
+
+      // Analyze and create plan
+      const { analyzeAndPlanWebsite } = await import("./websiteArchitect");
+      const result = await analyzeAndPlanWebsite(
+        prompt || `Clone and recreate the website from ${url}`,
+        screenshotResult.imageBase64,
+        url
+      );
+
+      if (!result.success || !result.plan) {
+        return res.status(500).json({
+          message: result.error || "Failed to analyze website",
+        });
+      }
+
+      res.json({
+        success: true,
+        plan: result.plan,
+        screenshotBase64: screenshotResult.imageBase64,
+      });
+    } catch (error: any) {
+      console.error("AI Architect from URL error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Analytics - Track event (public endpoint for published sites)
   // Handle CORS preflight for analytics tracking from custom domains
   app.options("/api/public/analytics/track", (req, res) => {
