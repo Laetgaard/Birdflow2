@@ -1,0 +1,86 @@
+We need to redesign the AI Copilot to work like a professional website architect + UI/UX designer instead of a screenshot cloner.
+
+GOAL:
+The AI should be able to create professional, multi-page, structured websites (like Ralph Lauren, Stripe, Apple, BirdFlow) using builder_state.
+
+CRITICAL CHANGE: 2-MODE SYSTEM
+
+MODE 1 — THINKING / PLANNING MODE
+
+When the user says:
+"Clone from X" or "Create a site like X"
+
+The AI MUST:
+
+1. Analyze the site conceptually:
+   - What type of site is it? (ecommerce, brand, clinic, etc)
+   - What pages does it have?
+   - What is the navigation structure?
+   - What section patterns are used?
+   - What design system is used? (colors, typography, spacing, tone)
+
+2. Produce a PLAN:
+   - List of pages
+   - For each page:
+     - Sections in order (Hero, Grid, CTA, etc)
+   - Describe:
+     - Visual style
+     - Design tone
+     - Animation style
+     - UX goals
+
+3. Show this to the user as:
+   "Here is the plan. Do you want me to build this?"
+
+4. Show a big:
+   [ APPLY PLAN ] button
+
+IMPORTANT:
+In Thinking Mode:
+- Do NOT change builder_state
+- Do NOT create components
+- Only analyze and plan
+
+MODE 2 — BUILD MODE
+
+Only after user clicks APPLY:
+
+1. Build the website step by step:
+   - Create pages
+   - Add sections
+   - Add content
+   - Add animations
+
+2. Use ONLY:
+   - builder_state blocks
+   - No raw HTML
+   - No custom React
+   - No scraped code
+
+3. Build in phases:
+   - Structure first
+   - Then layout
+   - Then content
+   - Then motion
+
+QUALITY RULES:
+
+- The AI must prioritize:
+  - Clear hierarchy
+  - Professional spacing
+  - Reusable patterns
+  - Consistent design system
+  - Conversion-oriented layout
+
+- The AI should aim for:
+  - Webflow / Framer quality
+  - Not "AI demo" quality
+
+ANTI-PATTERNS:
+
+- Do NOT rely on screenshots only
+- Do NOT try to recreate pixel-perfect
+- Do NOT generate everything in one step
+
+Instead:
+- Recreate the SYSTEM and STRUCTURE of the site.
