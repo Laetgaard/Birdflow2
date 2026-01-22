@@ -381,7 +381,7 @@ export type ComponentProps = {
   imageHeight?: string;
   videoUrl?: string;
   videoProvider?: 'youtube' | 'vimeo' | 'custom';
-  layout?: 'grid' | 'masonry' | 'carousel';
+  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right';
   formFields?: FormField[];
   stats?: StatItem[];
   height?: string;
@@ -407,6 +407,7 @@ export type ComponentProps = {
   // Comparison table props
   features?: ComponentItem[];
   // Split section props
+  bullets?: (string | { text: string })[];
   // Team props
   members?: ComponentItem[];
   // Rich text props

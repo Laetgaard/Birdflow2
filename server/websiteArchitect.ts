@@ -195,12 +195,72 @@ Each component needs:
 - CTAs: Action-oriented, urgent, specific ("Start Free Trial" not "Submit")
 - Use the exact design tone from the plan
 
+## IMAGE GENERATION
+For every component that needs images, include imageUrl with Unsplash Source URLs:
+- Format: https://images.unsplash.com/photo-{ID}?w={width}&h={height}&fit=crop
+- Use real Unsplash photo IDs that match the context
+- Hero images: Wide shots, 1200x800
+- Team/profile: Portraits, 400x400
+- Features/services: Contextual icons or abstract, 800x600
+- Gallery: Various sizes based on content
+- Products: Product photography style, 600x600
+
+Common Unsplash photo IDs by category:
+- Business/Corporate: 1560472354959-c2f3aef82263, 1497366216548-37526070297c, 1521791136064-7986c2920216
+- Technology: 1518770660439-4636190af475, 1550751827-4bd374c3f58b, 1526374965328-7f61d4dc18c5
+- Nature/Landscape: 1506905925346-21bda4d32df4, 1469474968028-56623f02e42e, 1447752875215-b2761acb3c5d
+- Food/Restaurant: 1504674900247-0877df9cc836, 1517248135467-4c7edcad34c4, 1555396273-367ea4eb4db5
+- Fashion/Lifestyle: 1441986300917-64674bd600d8, 1529139574466-a303027c1d8b, 1515886657613-9f3515b0c78f
+- Health/Wellness: 1571019613454-1cb2f99b2d8b, 1544367567-0f2fcb009e0b, 1576091160399-112ba8d25d1d
+- Real Estate: 1564013799919-ab600027ffc6, 1600596542815-ffad4c1539a9, 1600585154340-be6161a56a0c
+- People/Portraits: 1507003211169-0a1dd7228f2d, 1494790108377-be9c29b29330, 1472099645785-5658abf4ff4e
+
+Always generate REAL, specific content - never use placeholder text like "Lorem ipsum" or "Your text here".
+
 ## VISUAL HIERARCHY RULES
 1. Hero should be bold and attention-grabbing
 2. Alternate between light and dark sections for visual rhythm
 3. Use accent colors sparingly for emphasis
 4. Ensure adequate contrast for readability
 5. Cards should have consistent styling within a section
+
+## INDUSTRY-SPECIFIC CONTENT GUIDELINES
+
+### SaaS/Technology
+- Headlines: Focus on outcomes ("Automate Your Workflow", "Scale Without Limits")
+- Features: Technical capabilities with clear benefits
+- Stats: Users, uptime %, companies served, time saved
+- CTAs: "Start Free Trial", "See Demo", "Get Started"
+
+### Agency/Creative
+- Headlines: Bold, creative statements ("We Make Brands Unforgettable")
+- Portfolio focus, client results, creative process
+- Stats: Projects completed, awards, client satisfaction
+- CTAs: "Let's Talk", "Start a Project", "View Our Work"
+
+### E-commerce
+- Headlines: Product benefits, urgency ("Shop the Collection")
+- Focus on products, reviews, shipping, returns
+- Stats: Products, happy customers, fast shipping
+- CTAs: "Shop Now", "Add to Cart", "Get Yours"
+
+### Healthcare/Wellness
+- Headlines: Care and trust ("Your Health, Our Priority")
+- Focus on expertise, compassion, outcomes
+- Stats: Patients helped, years experience, success rates
+- CTAs: "Book Consultation", "Learn More", "Get Started"
+
+### Real Estate
+- Headlines: Dream/lifestyle focused ("Find Your Dream Home")
+- Property features, location benefits, agent expertise
+- Stats: Properties sold, average days on market, client satisfaction
+- CTAs: "Schedule Viewing", "Get Valuation", "Browse Listings"
+
+### Restaurant/Food
+- Headlines: Experience focused ("Taste the Difference")
+- Menu highlights, ambiance, chef story
+- Stats: Years serving, dishes, happy customers
+- CTAs: "Reserve Table", "Order Now", "View Menu"
 
 ## OUTPUT FORMAT
 Return a JSON object with:
@@ -443,11 +503,19 @@ function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateDa
           'products': 'product-grid',
           'text': 'text-image',
           'image-text': 'text-image',
-          'team': 'features', // Use features as fallback
-          'partners': 'gallery',
+          'partners': 'logo-cloud',
+          'logos': 'logo-cloud',
+          'clients': 'logo-cloud',
           'stats': 'stats-counter',
           'form': 'contact-form',
           'video': 'video-embed',
+          'comparison': 'comparison-table',
+          'split': 'split-section',
+          'process': 'timeline',
+          'history': 'timeline',
+          'steps': 'timeline',
+          'content': 'rich-text',
+          'article': 'rich-text',
         };
         compType = typeMap[compType] || 'hero';
       }
@@ -513,6 +581,23 @@ function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateDa
   };
 }
 
+// Generate Unsplash image URLs based on context
+function generateUnsplashUrl(category: string, width: number = 800, height: number = 600, index: number = 0): string {
+  const photoIds: Record<string, string[]> = {
+    business: ['1560472354959-c2f3aef82263', '1497366216548-37526070297c', '1521791136064-7986c2920216', '1552664730-d307ca884978', '1542744173-8e7e53415bb0'],
+    technology: ['1518770660439-4636190af475', '1550751827-4bd374c3f58b', '1526374965328-7f61d4dc18c5', '1531297484001-80022131f5a1', '1488590528505-98d2b5aba04b'],
+    nature: ['1506905925346-21bda4d32df4', '1469474968028-56623f02e42e', '1447752875215-b2761acb3c5d', '1501854140801-50d01698950b', '1441974231531-c6227db76b6e'],
+    food: ['1504674900247-0877df9cc836', '1517248135467-4c7edcad34c4', '1555396273-367ea4eb4db5', '1476224203421-9ac39bcb3327', '1540189549336-e6e99c3679fe'],
+    people: ['1507003211169-0a1dd7228f2d', '1494790108377-be9c29b29330', '1472099645785-5658abf4ff4e', '1438761681033-6461ffad8d80', '1500648767791-00dcc994a43e'],
+    health: ['1571019613454-1cb2f99b2d8b', '1544367567-0f2fcb009e0b', '1576091160399-112ba8d25d1d', '1571019614242-c5c5dee9f50b', '1518611012118-696072aa579a'],
+    realestate: ['1564013799919-ab600027ffc6', '1600596542815-ffad4c1539a9', '1600585154340-be6161a56a0c', '1560448204-e02f11c3d0e2', '1600607687939-ce8a6c25118c'],
+    abstract: ['1557682250583-6a0d5c5a7f2d', '1558618666-fcd25c85cd64', '1507908708918-778587c9e563', '1579546929518-9e396f3cc809', '1557683316-973673baf926'],
+  };
+  const ids = photoIds[category] || photoIds.abstract;
+  const id = ids[index % ids.length];
+  return `https://images.unsplash.com/photo-${id}?w=${width}&h=${height}&fit=crop&auto=format`;
+}
+
 function sanitizeProps(props: any, componentType: string): any {
   const registry = componentRegistry[componentType as keyof typeof componentRegistry];
   if (!registry) return props;
@@ -535,10 +620,13 @@ function sanitizeProps(props: any, componentType: string): any {
       title: item.title || '',
       description: item.description || '',
       icon: item.icon,
-      imageUrl: item.imageUrl,
+      imageUrl: item.imageUrl || (componentType === 'gallery' ? generateUnsplashUrl('abstract', 600, 400, index) : undefined),
       price: item.price,
       featured: item.featured,
       features: item.features,
+      text: item.text,
+      year: item.year,
+      content: item.content,
     }));
   }
 
@@ -551,6 +639,90 @@ function sanitizeProps(props: any, componentType: string): any {
       prefix: stat.prefix,
       suffix: stat.suffix,
     }));
+  }
+
+  // Handle team members array - always add fallback images
+  if (props.members && Array.isArray(props.members)) {
+    sanitized.members = props.members.map((member: any, index: number) => ({
+      id: member.id || `member_${index}`,
+      name: member.name || `Team Member ${index + 1}`,
+      role: member.role || '',
+      bio: member.bio || '',
+      imageUrl: member.imageUrl || generateUnsplashUrl('people', 400, 400, index),
+    }));
+  }
+
+  // Handle services array - add fallback icons
+  if (props.services && Array.isArray(props.services)) {
+    sanitized.services = props.services.map((service: any, index: number) => ({
+      id: service.id || `service_${index}`,
+      title: service.title || service.name || `Service ${index + 1}`,
+      name: service.name,
+      description: service.description || '',
+      icon: service.icon || ['🚀', '⚡', '🎯', '💡', '🔧', '📊'][index % 6],
+      price: service.price,
+      imageUrl: service.imageUrl || generateUnsplashUrl('business', 600, 400, index),
+    }));
+  }
+
+  // Handle tabs array - add fallback images
+  if (props.tabs && Array.isArray(props.tabs)) {
+    sanitized.tabs = props.tabs.map((tab: any, index: number) => ({
+      id: tab.id || `tab_${index}`,
+      title: tab.title || `Tab ${index + 1}`,
+      content: tab.content || '',
+      imageUrl: tab.imageUrl || generateUnsplashUrl('technology', 800, 500, index),
+    }));
+  }
+
+  // Handle logos array
+  if (props.logos && Array.isArray(props.logos)) {
+    sanitized.logos = props.logos.map((logo: any, index: number) => ({
+      id: logo.id || `logo_${index}`,
+      name: logo.name || `Company ${index + 1}`,
+      imageUrl: logo.imageUrl,
+    }));
+  }
+
+  // Handle tableColumns for comparison-table
+  if (props.tableColumns && Array.isArray(props.tableColumns)) {
+    sanitized.tableColumns = props.tableColumns.map((col: any, index: number) => ({
+      id: col.id || `col_${index}`,
+      name: col.name || `Plan ${index + 1}`,
+      price: col.price || '',
+      highlighted: col.highlighted || false,
+    }));
+  }
+
+  // Handle features for comparison-table
+  if (props.features && Array.isArray(props.features)) {
+    sanitized.features = props.features.map((feature: any, index: number) => ({
+      id: feature.id || `feature_${index}`,
+      name: feature.name || `Feature ${index + 1}`,
+      values: feature.values || [],
+    }));
+  }
+
+  // Handle bullets for split-section
+  if (props.bullets && Array.isArray(props.bullets)) {
+    sanitized.bullets = props.bullets.map((bullet: any) => 
+      typeof bullet === 'string' ? bullet : (bullet.text || '')
+    );
+  }
+
+  // Add fallback hero image
+  if (componentType === 'hero' && !sanitized.imageUrl && !sanitized.backgroundImage) {
+    sanitized.imageUrl = generateUnsplashUrl('business', 1200, 800, 0);
+  }
+
+  // Add fallback for text-image
+  if (componentType === 'text-image' && !sanitized.imageUrl) {
+    sanitized.imageUrl = generateUnsplashUrl('business', 800, 600, 0);
+  }
+
+  // Add fallback for split-section
+  if (componentType === 'split-section' && !sanitized.imageUrl) {
+    sanitized.imageUrl = generateUnsplashUrl('technology', 800, 600, 0);
   }
 
   return sanitized;
