@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
-import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats } from "@shared/schema";
+import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
@@ -3743,6 +3743,340 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error("AI Architect from URL error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============================================
+  // PHASED ARCHITECT API - Build in 4 phases
+  // ============================================
+
+  // Phase 1: Generate Structure (Wireframe)
+  // Get saved phased build state
+  app.get("/api/websites/:id/ai/phased/state", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const [savedState] = await db.select().from(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
+      
+      res.json({
+        success: true,
+        state: savedState || null,
+      });
+    } catch (error: any) {
+      console.error("Get phased state error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Reset/clear phased build state (go back to beginning)
+  app.delete("/api/websites/:id/ai/phased/state", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      await db.delete(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Delete phased state error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Go back to a specific phase (keeps earlier phase data, clears later phases)
+  app.post("/api/websites/:id/ai/phased/goto", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { phase } = req.body;
+      if (!phase || !['structure', 'content', 'styling', 'polish'].includes(phase)) {
+        return res.status(400).json({ message: "Valid phase is required" });
+      }
+
+      const [existing] = await db.select().from(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
+      if (!existing) {
+        return res.status(404).json({ message: "No phased build in progress" });
+      }
+
+      // Clear later phases based on target phase
+      const updates: any = { currentPhase: phase, updatedAt: new Date() };
+      if (phase === 'structure') {
+        updates.contentData = null;
+        updates.stylingData = null;
+        updates.polishData = null;
+      } else if (phase === 'content') {
+        updates.stylingData = null;
+        updates.polishData = null;
+      } else if (phase === 'styling') {
+        updates.polishData = null;
+      }
+
+      await db.update(phasedBuildState)
+        .set(updates)
+        .where(eq(phasedBuildState.websiteId, req.params.id));
+
+      const [updatedState] = await db.select().from(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
+
+      res.json({
+        success: true,
+        state: updatedState,
+      });
+    } catch (error: any) {
+      console.error("Go to phase error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/websites/:id/ai/phased/structure", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { prompt, sourceUrl } = req.body;
+      if (!prompt || typeof prompt !== 'string') {
+        return res.status(400).json({ message: "Prompt is required" });
+      }
+
+      const { generateStructure } = await import("./phasedArchitect");
+      const result = await generateStructure(prompt, sourceUrl);
+
+      if (!result.success || !result.plan) {
+        return res.status(500).json({
+          message: result.error || "Failed to generate structure",
+        });
+      }
+
+      // Persist the structure phase data
+      const [existing] = await db.select().from(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
+      if (existing) {
+        await db.update(phasedBuildState)
+          .set({
+            currentPhase: 'content',
+            structureData: result.plan,
+            siteDescription: prompt,
+            siteType: result.plan.siteType,
+            contentData: null,
+            stylingData: null,
+            polishData: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(phasedBuildState.websiteId, req.params.id));
+      } else {
+        await db.insert(phasedBuildState).values({
+          websiteId: req.params.id,
+          currentPhase: 'content',
+          structureData: result.plan,
+          siteDescription: prompt,
+          siteType: result.plan.siteType,
+        });
+      }
+
+      res.json({
+        success: true,
+        phase: 'structure',
+        plan: result.plan,
+      });
+    } catch (error: any) {
+      console.error("Phased Architect Structure error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Phase 2: Generate Content
+  app.post("/api/websites/:id/ai/phased/content", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { plan } = req.body;
+      if (!plan) {
+        return res.status(400).json({ message: "Plan is required" });
+      }
+
+      const { generateContent } = await import("./phasedArchitect");
+      const result = await generateContent(plan);
+
+      if (!result.success || !result.content) {
+        return res.status(500).json({
+          message: result.error || "Failed to generate content",
+        });
+      }
+
+      // Persist the content phase data
+      await db.update(phasedBuildState)
+        .set({
+          currentPhase: 'styling',
+          contentData: result.content,
+          updatedAt: new Date(),
+        })
+        .where(eq(phasedBuildState.websiteId, req.params.id));
+
+      res.json({
+        success: true,
+        phase: 'content',
+        content: result.content,
+      });
+    } catch (error: any) {
+      console.error("Phased Architect Content error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Phase 3: Generate Styling
+  app.post("/api/websites/:id/ai/phased/styling", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { plan, content } = req.body;
+      if (!plan) {
+        return res.status(400).json({ message: "Plan is required" });
+      }
+
+      const { generateStyling } = await import("./phasedArchitect");
+      const result = await generateStyling(plan, content || {});
+
+      if (!result.success) {
+        return res.status(500).json({
+          message: result.error || "Failed to generate styling",
+        });
+      }
+
+      // Persist the styling phase data
+      await db.update(phasedBuildState)
+        .set({
+          currentPhase: 'polish',
+          stylingData: { designSystem: result.designSystem, sectionStyles: result.sectionStyles },
+          designSystem: result.designSystem,
+          updatedAt: new Date(),
+        })
+        .where(eq(phasedBuildState.websiteId, req.params.id));
+
+      res.json({
+        success: true,
+        phase: 'styling',
+        designSystem: result.designSystem,
+        sectionStyles: result.sectionStyles,
+      });
+    } catch (error: any) {
+      console.error("Phased Architect Styling error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Phase 4: Generate Polish (Animations)
+  app.post("/api/websites/:id/ai/phased/polish", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { plan, designSystem } = req.body;
+      if (!plan || !designSystem) {
+        return res.status(400).json({ message: "Plan and designSystem are required" });
+      }
+
+      const { generatePolish } = await import("./phasedArchitect");
+      const result = await generatePolish(plan, designSystem);
+
+      if (!result.success) {
+        return res.status(500).json({
+          message: result.error || "Failed to generate polish",
+        });
+      }
+
+      // Persist the polish phase data
+      await db.update(phasedBuildState)
+        .set({
+          currentPhase: 'complete',
+          polishData: { animations: result.animations, hoverEffects: result.hoverEffects },
+          updatedAt: new Date(),
+        })
+        .where(eq(phasedBuildState.websiteId, req.params.id));
+
+      res.json({
+        success: true,
+        phase: 'polish',
+        animations: result.animations,
+        hoverEffects: result.hoverEffects,
+      });
+    } catch (error: any) {
+      console.error("Phased Architect Polish error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Build final website from all phases
+  app.post("/api/websites/:id/ai/phased/build", requireAuth, async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const { plan, phasedState } = req.body;
+      if (!plan || !phasedState) {
+        return res.status(400).json({ message: "Plan and phasedState are required" });
+      }
+
+      const { buildFromPhasedState } = await import("./phasedArchitect");
+      const result = await buildFromPhasedState(plan, phasedState);
+
+      if (!result.success || !result.builderState) {
+        return res.status(500).json({
+          message: result.error || "Failed to build website",
+        });
+      }
+
+      // Save the new builder state
+      await storage.updateBuilderState(req.params.id, result.builderState);
+
+      res.json({
+        success: true,
+        newState: result.builderState,
+      });
+    } catch (error: any) {
+      console.error("Phased Architect Build error:", error);
       res.status(500).json({ message: error.message });
     }
   });

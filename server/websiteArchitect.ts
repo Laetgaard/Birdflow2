@@ -306,6 +306,13 @@ You MUST include:
       siteType: parsed.siteType || 'landing',
       siteName: parsed.siteName || 'My Website',
       tagline: parsed.tagline || '',
+      currentPhase: 'polish',
+      phaseProgress: [
+        { phase: 'structure', status: 'completed' },
+        { phase: 'content', status: 'completed' },
+        { phase: 'styling', status: 'completed' },
+        { phase: 'polish', status: 'completed' },
+      ],
       analysis: {
         sourceUrl: sourceUrl,
         whatThisSiteIs: parsed.analysis?.whatThisSiteIs || parsed.purpose || 'A professional website',
