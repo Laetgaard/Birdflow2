@@ -74,6 +74,50 @@ export const PagePlanSchema = z.object({
   })),
 });
 
+// Extended Design System Schema
+export const TypographyScaleSchema = z.enum(['modern', 'editorial', 'classic', 'bold']);
+export const SpacingStyleSchema = z.enum(['tight', 'normal', 'airy']);
+export const RadiusStyleSchema = z.enum(['none', 'soft', 'rounded']);
+export const ShadowStyleSchema = z.enum(['none', 'subtle', 'elevated']);
+export const MotionStyleSchema = z.enum(['none', 'subtle', 'expressive']);
+export const MotionSpeedSchema = z.enum(['slow', 'normal', 'fast']);
+
+export const ColorPaletteSchema = z.object({
+  primary: z.string(),
+  secondary: z.string(),
+  accent: z.string(),
+  background: z.string(),
+  surface: z.string(),
+  text: z.string(),
+});
+
+export const TypographySchema = z.object({
+  headingFont: z.string(),
+  bodyFont: z.string(),
+  scale: TypographyScaleSchema,
+});
+
+export const SpacingSchema = z.object({
+  section: SpacingStyleSchema,
+  component: SpacingStyleSchema,
+});
+
+export const MotionSchema = z.object({
+  style: MotionStyleSchema,
+  speed: MotionSpeedSchema,
+});
+
+export const DesignSystemSchema = z.object({
+  colors: ColorPaletteSchema,
+  typography: TypographySchema,
+  spacing: SpacingSchema,
+  radius: RadiusStyleSchema,
+  shadow: ShadowStyleSchema,
+  motion: MotionSchema,
+  tone: DesignToneSchema,
+});
+
+// Legacy design system for backward compatibility
 export const DesignSystemPlanSchema = z.object({
   primaryColor: z.string(),
   secondaryColor: z.string(),
@@ -110,7 +154,11 @@ export const WebsitePlanSchema = z.object({
     competitorInsights: z.string().optional(),
   }),
   
-  designSystem: DesignSystemPlanSchema,
+  // New comprehensive design system
+  designSystem: DesignSystemSchema,
+  
+  // Legacy fields for backward compatibility
+  legacyDesignSystem: DesignSystemPlanSchema.optional(),
   designTone: DesignToneSchema,
   animationStyle: AnimationStyleSchema,
   
@@ -137,3 +185,16 @@ export type PagePlan = z.infer<typeof PagePlanSchema>;
 export type DesignSystemPlan = z.infer<typeof DesignSystemPlanSchema>;
 export type NavigationPlan = z.infer<typeof NavigationPlanSchema>;
 export type WebsitePlan = z.infer<typeof WebsitePlanSchema>;
+
+// New types
+export type TypographyScale = z.infer<typeof TypographyScaleSchema>;
+export type SpacingStyle = z.infer<typeof SpacingStyleSchema>;
+export type RadiusStyle = z.infer<typeof RadiusStyleSchema>;
+export type ShadowStyle = z.infer<typeof ShadowStyleSchema>;
+export type MotionStyle = z.infer<typeof MotionStyleSchema>;
+export type MotionSpeed = z.infer<typeof MotionSpeedSchema>;
+export type ColorPalette = z.infer<typeof ColorPaletteSchema>;
+export type Typography = z.infer<typeof TypographySchema>;
+export type Spacing = z.infer<typeof SpacingSchema>;
+export type Motion = z.infer<typeof MotionSchema>;
+export type DesignSystem = z.infer<typeof DesignSystemSchema>;

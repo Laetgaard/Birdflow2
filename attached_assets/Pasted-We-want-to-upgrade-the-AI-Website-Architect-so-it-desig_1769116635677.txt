@@ -1,0 +1,167 @@
+We want to upgrade the AI Website Architect so it designs a real design system (colors, fonts, spacing, motion) and not just places components.
+
+PART 1 — EXTEND WebsitePlan WITH A REAL DESIGN SYSTEM
+
+Update WebsitePlan schema to include:
+
+designSystem: {
+  colors: {
+    primary
+    secondary
+    accent
+    background
+    surface
+    text
+  }
+  typography: {
+    headingFont
+    bodyFont
+    scale: "modern" | "editorial" | "classic" | "bold"
+  }
+  spacing: {
+    section: "tight" | "normal" | "airy"
+    component: "tight" | "normal" | "airy"
+  }
+  radius: "none" | "soft" | "rounded"
+  shadow: "none" | "subtle" | "elevated"
+  motion: {
+    style: "none" | "subtle" | "expressive"
+    speed: "slow" | "normal" | "fast"
+  }
+  tone: "luxury" | "modern" | "playful" | "corporate" | "minimal"
+}
+
+PART 2 — ADD DESIGN PRESETS
+
+Create these presets:
+
+1) LuxuryBrand
+- Few colors (black/white + accent)
+- Serif or elegant font
+- Airy spacing
+- Soft radius
+- Subtle shadows
+- Slow, subtle animations
+
+2) ModernSaaS
+- Blue or tech color palette
+- Clean sans-serif (Inter)
+- Normal spacing
+- Soft radius
+- Subtle motion
+
+3) PlayfulStartup
+- Bright colors
+- Rounded corners
+- Bigger spacing
+- Expressive motion
+
+4) CorporateBusiness
+- Conservative colors
+- Tight spacing
+- Minimal motion
+- Square or soft radius
+
+5) MinimalStudio
+- Very few colors
+- Very large spacing
+- No or very subtle motion
+
+Each preset defines:
+- colors
+- fonts
+- spacing
+- radius
+- shadow
+- motion
+
+Store these as a DesignPresetRegistry.
+
+PART 3 — THINKING MODE: AI MUST DESIGN THE SYSTEM FIRST
+
+In Architect / Planning mode:
+
+The AI must:
+
+1) Identify business type (SaaS, clinic, webshop, portfolio, brand)
+2) Choose:
+   - tone
+   - a base design preset
+3) Customize:
+   - colors
+   - fonts
+   - spacing
+   - motion
+4) Output a WebsitePlan that includes:
+   - pages
+   - sections
+   - AND a complete designSystem object
+
+IMPORTANT:
+In Thinking Mode:
+- Do NOT modify builder_state
+- Only generate the plan
+
+PART 4 — APPLY UI
+
+When showing the plan to the user, display:
+
+- Pages
+- Sections per page
+- 🎨 Design System Preview:
+  - Color palette
+  - Fonts
+  - Spacing style
+  - Motion style
+
+With a button:
+[ APPLY PLAN ]
+
+PART 5 — BUILD MODE: convertToBuilderState()
+
+Update convertToBuilderState() so:
+
+- Every generated block uses designSystem:
+
+Examples:
+- Section padding = based on designSystem.spacing.section
+- Card radius = based on designSystem.radius
+- Shadow = based on designSystem.shadow
+- Colors = from designSystem.colors
+- Fonts = from designSystem.typography
+- Animations = from designSystem.motion
+
+Mapping motion:
+
+If motion.style === "subtle":
+- use fade / fade-up
+
+If motion.style === "expressive":
+- use stagger, slide, zoom
+
+Speed mapping:
+- slow → duration 0.8–1.0s
+- normal → 0.5–0.7s
+- fast → 0.3–0.4s
+
+PART 6 — CRITICAL RULES
+
+- No hardcoded colors in components
+- No hardcoded spacing
+- No hardcoded fonts
+- EVERYTHING must come from designSystem
+
+PART 7 — RESULT
+
+After this:
+- The AI is designing:
+  - A real design system
+  - A real brand feel
+  - Not just placing components
+- Websites can look:
+  - Luxury
+  - SaaS
+  - Corporate
+  - Minimal
+  - Playful
+- With consistent UI, spacing, typography, and motion.
