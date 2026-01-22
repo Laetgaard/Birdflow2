@@ -88,6 +88,31 @@ export const insertWebsiteInputsSchema = createInsertSchema(websiteInputs).omit(
 export type InsertWebsiteInputs = z.infer<typeof insertWebsiteInputsSchema>;
 export type WebsiteInputs = typeof websiteInputs.$inferSelect;
 
+// Phased build state for AI Website Architect
+export const phasedBuildState = pgTable("phased_build_state", {
+  id: serial("id").primaryKey(),
+  websiteId: varchar("website_id").notNull().unique(),
+  currentPhase: text("current_phase").notNull().default("structure"), // structure, content, styling, polish, complete
+  structureData: jsonb("structure_data"),
+  contentData: jsonb("content_data"),
+  stylingData: jsonb("styling_data"),
+  polishData: jsonb("polish_data"),
+  designSystem: jsonb("design_system"),
+  siteDescription: text("site_description"),
+  siteType: text("site_type"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPhasedBuildStateSchema = createInsertSchema(phasedBuildState).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPhasedBuildState = z.infer<typeof insertPhasedBuildStateSchema>;
+export type PhasedBuildState = typeof phasedBuildState.$inferSelect;
+
 // Builder component types - re-exported from componentRegistry for consistency
 export type { 
   ComponentType,
