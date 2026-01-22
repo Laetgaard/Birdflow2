@@ -113,6 +113,66 @@ type Product = {
   category?: string;
 };
 
+type LogoItem = {
+  id: string;
+  name?: string;
+  imageUrl?: string;
+};
+
+type MarqueeItem = {
+  id: string;
+  text?: string;
+  name?: string;
+};
+
+type TabItem = {
+  id: string;
+  title?: string;
+  content?: string;
+  imageUrl?: string;
+  icon?: string;
+};
+
+type TableColumn = {
+  id: string;
+  name: string;
+  price?: string;
+  highlighted?: boolean;
+};
+
+type FeatureRow = {
+  id: string;
+  name: string;
+  values?: string[];
+};
+
+type TeamMember = {
+  id: string;
+  name: string;
+  role?: string;
+  bio?: string;
+  imageUrl?: string;
+};
+
+type TimelineItem = {
+  id: string;
+  title?: string;
+  description?: string;
+  content?: string;
+  year?: string;
+  icon?: string;
+};
+
+type ServiceItem = {
+  id: string;
+  title?: string;
+  name?: string;
+  description?: string;
+  icon?: string;
+  price?: string;
+  imageUrl?: string;
+};
+
 function formatCurrency(amount: number, currency: string = 'USD'): string {
   const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
   const symbol = symbols[currency] || currency;
@@ -2035,6 +2095,541 @@ function BeforeAfterComponent({ props, styles, isSelected, onClick, isPreview, o
   );
 }
 
+function LogoCloudComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const textColor = styles.textColor || '#1a1a1a';
+  const variant = props.variant || 'grid';
+  const logos = (props.logos as LogoItem[]) || [];
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '60px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="logo-cloud-section"
+    >
+      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '14px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.6, marginBottom: '32px' }}>
+            {props.title}
+          </h2>
+        )}
+        <div style={{ 
+          display: 'flex', 
+          flexWrap: 'wrap', 
+          gap: '40px', 
+          justifyContent: 'center', 
+          alignItems: 'center',
+          ...(variant === 'row' ? { flexWrap: 'nowrap', overflowX: 'auto' } : {})
+        }}>
+          {logos.map((logo, index) => (
+            <div key={logo.id || index} style={{ opacity: 0.6, filter: 'grayscale(100%)', transition: 'all 0.3s' }} data-testid={`logo-item-${index}`}>
+              {logo.imageUrl ? (
+                <img src={logo.imageUrl} alt={logo.name || 'Logo'} style={{ height: '40px', width: 'auto', objectFit: 'contain' }} />
+              ) : (
+                <div style={{ padding: '10px 24px', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '8px', fontWeight: '600' }}>
+                  {logo.name || 'Logo'}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MarqueeComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const textColor = styles.textColor || '#1a1a1a';
+  const items = (props.items as MarqueeItem[]) || [];
+  const speed = props.speed || 30;
+  const direction = props.direction || 'left';
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#000000',
+        padding: styles.padding || '20px 0',
+        color: styles.textColor || '#ffffff',
+        overflow: 'hidden',
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="marquee-section"
+    >
+      <style>{`
+        @keyframes marqueeLeft { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+        @keyframes marqueeRight { from { transform: translateX(-50%); } to { transform: translateX(0); } }
+      `}</style>
+      <div style={{ 
+        display: 'flex', 
+        animation: `marquee${direction === 'right' ? 'Right' : 'Left'} ${speed}s linear infinite`,
+        whiteSpace: 'nowrap',
+      }}>
+        {[...items, ...items].map((item, index) => (
+          <span key={index} style={{ padding: '0 48px', fontSize: '24px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '48px' }} data-testid={`marquee-item-${index}`}>
+            {item.text || item.name}
+            <span style={{ opacity: 0.3 }}>★</span>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TabsComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const [activeTab, setActiveTab] = useState(0);
+  const textColor = styles.textColor || '#1a1a1a';
+  const accentColor = styles.accentColor || '#4f46e5';
+  const tabs = (props.tabs as TabItem[]) || [];
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '80px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="tabs-section"
+    >
+      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '36px', fontWeight: '700', textAlign: 'center', marginBottom: '48px' }}>
+            {props.title}
+          </h2>
+        )}
+        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(0,0,0,0.1)', marginBottom: '32px', overflowX: 'auto' }}>
+          {tabs.map((tab, index) => (
+            <button
+              key={tab.id || index}
+              onClick={(e) => { e.stopPropagation(); setActiveTab(index); }}
+              style={{
+                padding: '12px 24px',
+                background: 'none',
+                border: 'none',
+                borderBottom: activeTab === index ? `3px solid ${accentColor}` : '3px solid transparent',
+                fontWeight: activeTab === index ? '600' : '400',
+                color: activeTab === index ? accentColor : textColor,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s',
+              }}
+              data-testid={`tab-button-${index}`}
+            >
+              {tab.title || `Tab ${index + 1}`}
+            </button>
+          ))}
+        </div>
+        <div style={{ minHeight: '200px' }} data-testid="tab-content">
+          {tabs[activeTab] && (
+            <div>
+              <h3 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '16px' }}>{tabs[activeTab].title}</h3>
+              <p style={{ fontSize: '16px', lineHeight: '1.7', opacity: 0.8 }}>{tabs[activeTab].content}</p>
+              {tabs[activeTab].imageUrl && (
+                <img src={tabs[activeTab].imageUrl} alt="" style={{ width: '100%', borderRadius: '12px', marginTop: '24px' }} />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ComparisonTableComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const textColor = styles.textColor || '#1a1a1a';
+  const accentColor = styles.accentColor || '#4f46e5';
+  const tableColumns = (props.tableColumns as TableColumn[]) || [];
+  const features = (props.features as FeatureRow[]) || [];
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '80px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="comparison-table-section"
+    >
+      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '36px', fontWeight: '700', textAlign: 'center', marginBottom: '16px' }}>
+            {props.title}
+          </h2>
+        )}
+        {props.subtitle && (
+          <p style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '48px' }}>
+            {props.subtitle}
+          </p>
+        )}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid rgba(0,0,0,0.1)' }}>Features</th>
+                {tableColumns.map((col, index) => (
+                  <th 
+                    key={col.id || index} 
+                    style={{ 
+                      padding: '16px', 
+                      textAlign: 'center', 
+                      borderBottom: '2px solid rgba(0,0,0,0.1)',
+                      backgroundColor: col.highlighted ? hexToRgba(accentColor, 0.1) : 'transparent',
+                    }}
+                    data-testid={`comparison-col-${index}`}
+                  >
+                    <div style={{ fontWeight: '700', fontSize: '18px' }}>{col.name}</div>
+                    <div style={{ fontSize: '24px', fontWeight: '700', color: accentColor, marginTop: '8px' }}>{col.price}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {features.map((feature, fIndex) => (
+                <tr key={feature.id || fIndex}>
+                  <td style={{ padding: '16px', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>{feature.name}</td>
+                  {(feature.values || []).map((value: string, vIndex: number) => (
+                    <td 
+                      key={vIndex} 
+                      style={{ 
+                        padding: '16px', 
+                        textAlign: 'center', 
+                        borderBottom: '1px solid rgba(0,0,0,0.05)',
+                        backgroundColor: tableColumns[vIndex]?.highlighted ? hexToRgba(accentColor, 0.05) : 'transparent',
+                      }}
+                    >
+                      {value === 'Yes' ? '✓' : value === 'No' ? '—' : value}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const textColor = styles.textColor || '#1a1a1a';
+  const accentColor = styles.accentColor || '#4f46e5';
+  const layout = props.layout || 'image-left';
+  const bullets = (props.bullets as (string | { text: string })[]) || [];
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '100px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="split-section"
+    >
+      <div style={{ 
+        maxWidth: '1200px', 
+        margin: '0 auto', 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(2, 1fr)', 
+        gap: '80px', 
+        alignItems: 'center',
+      }}>
+        <div style={{ order: layout === 'image-right' ? 1 : 2 }}>
+          {props.subtitle && (
+            <div style={{ fontSize: '14px', fontWeight: '600', color: accentColor, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
+              {props.subtitle}
+            </div>
+          )}
+          {props.title && (
+            <h2 style={{ fontSize: '40px', fontWeight: '700', lineHeight: '1.2', marginBottom: '24px' }}>
+              {props.title}
+            </h2>
+          )}
+          {props.description && (
+            <p style={{ fontSize: '18px', lineHeight: '1.7', opacity: 0.8, marginBottom: '32px' }}>
+              {props.description}
+            </p>
+          )}
+          {bullets.length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {bullets.map((bullet, index) => (
+                <li key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '16px' }} data-testid={`bullet-${index}`}>
+                  <span style={{ color: accentColor, fontWeight: '700', fontSize: '20px' }}>✓</span>
+                  <span style={{ fontSize: '16px' }}>{typeof bullet === 'string' ? bullet : bullet.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {props.buttonText && (
+            <button style={{ marginTop: '32px', padding: '14px 32px', backgroundColor: accentColor, color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>
+              {props.buttonText}
+            </button>
+          )}
+        </div>
+        <div style={{ order: layout === 'image-right' ? 2 : 1 }}>
+          {props.imageUrl ? (
+            <img src={props.imageUrl as string} alt="" style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
+          ) : (
+            <div style={{ aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: '48px', opacity: 0.3 }}>🖼️</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RichTextComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+  const textColor = styles.textColor || '#1a1a1a';
+  const content = props.content || '<p>Add your content here...</p>';
+  const maxWidth = props.maxWidth || '800px';
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '80px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="rich-text-section"
+    >
+      <div 
+        style={{ 
+          maxWidth, 
+          margin: '0 auto',
+          fontSize: '18px',
+          lineHeight: '1.8',
+        }}
+        dangerouslySetInnerHTML={{ __html: content }}
+      />
+    </section>
+  );
+}
+
+function TeamComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const textColor = styles.textColor || '#1a1a1a';
+  const accentColor = styles.accentColor || '#4f46e5';
+  const members = (props.members as TeamMember[]) || [];
+  const cardStyle = styles.cardStyle || 'elevated';
+  
+  const getCardStyles = () => {
+    switch (cardStyle) {
+      case 'bordered':
+        return { border: '1px solid rgba(0,0,0,0.1)', boxShadow: 'none' };
+      case 'glass':
+        return { background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.2)' };
+      case 'flat':
+        return { boxShadow: 'none', background: 'rgba(0,0,0,0.02)' };
+      default:
+        return { boxShadow: '0 10px 40px rgba(0,0,0,0.1)' };
+    }
+  };
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '100px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="team-section"
+    >
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px' }}>
+            {props.title}
+          </h2>
+        )}
+        {props.subtitle && (
+          <p style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '60px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto' }}>
+            {props.subtitle}
+          </p>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '32px' }}>
+          {members.map((member, index) => (
+            <div 
+              key={member.id || index} 
+              style={{ 
+                textAlign: 'center', 
+                padding: '32px', 
+                borderRadius: '16px',
+                backgroundColor: '#ffffff',
+                ...getCardStyles(),
+              }}
+              data-testid={`team-member-${index}`}
+            >
+              {member.imageUrl ? (
+                <img src={member.imageUrl} alt={member.name} style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', marginBottom: '20px' }} />
+              ) : (
+                <div style={{ width: '120px', height: '120px', borderRadius: '50%', backgroundColor: hexToRgba(accentColor, 0.1), margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
+                  👤
+                </div>
+              )}
+              <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '4px' }}>{member.name}</h3>
+              <p style={{ fontSize: '14px', color: accentColor, fontWeight: '500', marginBottom: '12px' }}>{member.role}</p>
+              {member.bio && <p style={{ fontSize: '14px', opacity: 0.7, lineHeight: '1.6' }}>{member.bio}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TimelineComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const textColor = styles.textColor || '#1a1a1a';
+  const accentColor = styles.accentColor || '#4f46e5';
+  const items = (props.items as TimelineItem[]) || [];
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '100px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="timeline-section"
+    >
+      <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '60px' }}>
+            {props.title}
+          </h2>
+        )}
+        <div style={{ position: 'relative' }}>
+          <div style={{ position: 'absolute', left: '24px', top: 0, bottom: 0, width: '2px', backgroundColor: hexToRgba(accentColor, 0.2) }} />
+          {items.map((item, index) => (
+            <div 
+              key={item.id || index} 
+              style={{ display: 'flex', gap: '32px', marginBottom: '48px', position: 'relative' }}
+              data-testid={`timeline-item-${index}`}
+            >
+              <div style={{ 
+                width: '50px', 
+                height: '50px', 
+                borderRadius: '50%', 
+                backgroundColor: accentColor, 
+                color: '#fff', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                fontWeight: '700',
+                fontSize: '18px',
+                flexShrink: 0,
+                zIndex: 1,
+              }}>
+                {item.year || index + 1}
+              </div>
+              <div style={{ flex: 1, paddingTop: '8px' }}>
+                <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px' }}>{item.title}</h3>
+                <p style={{ fontSize: '16px', opacity: 0.7, lineHeight: '1.6' }}>{item.description || item.content}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ServicesComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const textColor = styles.textColor || '#1a1a1a';
+  const accentColor = styles.accentColor || '#4f46e5';
+  const services = (props.services as ServiceItem[]) || [];
+  const cardStyle = styles.cardStyle || 'bordered';
+  
+  const getCardStyles = () => {
+    switch (cardStyle) {
+      case 'elevated':
+        return { boxShadow: '0 10px 40px rgba(0,0,0,0.1)', border: 'none' };
+      case 'glass':
+        return { background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.2)' };
+      case 'flat':
+        return { boxShadow: 'none', background: 'rgba(0,0,0,0.02)', border: 'none' };
+      default:
+        return { border: '1px solid rgba(0,0,0,0.1)', boxShadow: 'none' };
+    }
+  };
+  
+  return (
+    <section
+      style={{
+        backgroundColor: styles.backgroundColor || '#ffffff',
+        padding: styles.padding || '100px 24px',
+        color: textColor,
+        cursor: isPreview ? 'default' : 'pointer',
+      }}
+      onClick={onClick}
+      data-testid="services-section"
+    >
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        {props.title && (
+          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px' }}>
+            {props.title}
+          </h2>
+        )}
+        {props.subtitle && (
+          <p style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '60px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto' }}>
+            {props.subtitle}
+          </p>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '32px' }}>
+          {services.map((service, index) => (
+            <div 
+              key={service.id || index} 
+              style={{ 
+                padding: '40px', 
+                borderRadius: '16px',
+                backgroundColor: '#ffffff',
+                transition: 'transform 0.3s, box-shadow 0.3s',
+                ...getCardStyles(),
+              }}
+              data-testid={`service-item-${index}`}
+            >
+              {service.icon && (
+                <div style={{ 
+                  width: '60px', 
+                  height: '60px', 
+                  borderRadius: '12px', 
+                  backgroundColor: hexToRgba(accentColor, 0.1), 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  marginBottom: '24px',
+                  fontSize: '28px',
+                }}>
+                  {service.icon}
+                </div>
+              )}
+              <h3 style={{ fontSize: '22px', fontWeight: '700', marginBottom: '12px' }}>{service.title || service.name}</h3>
+              <p style={{ fontSize: '16px', opacity: 0.7, lineHeight: '1.7', marginBottom: '20px' }}>{service.description}</p>
+              {service.price && (
+                <div style={{ fontSize: '18px', fontWeight: '700', color: accentColor }}>{service.price}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
@@ -2124,6 +2719,24 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
         return <NewsletterComponent {...commonProps} />;
       case 'before-after':
         return <BeforeAfterComponent {...commonProps} />;
+      case 'logo-cloud':
+        return <LogoCloudComponent {...commonProps} />;
+      case 'marquee':
+        return <MarqueeComponent {...commonProps} />;
+      case 'tabs':
+        return <TabsComponent {...commonProps} />;
+      case 'comparison-table':
+        return <ComparisonTableComponent {...commonProps} />;
+      case 'split-section':
+        return <SplitSectionComponent {...commonProps} />;
+      case 'rich-text':
+        return <RichTextComponent {...commonProps} />;
+      case 'team':
+        return <TeamComponent {...commonProps} />;
+      case 'timeline':
+        return <TimelineComponent {...commonProps} />;
+      case 'services':
+        return <ServicesComponent {...commonProps} />;
       default:
         return null;
     }
