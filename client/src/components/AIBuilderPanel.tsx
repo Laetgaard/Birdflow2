@@ -680,37 +680,66 @@ function ArchitectPlanDisplay({
           onToggle={() => toggleSection("design")}
         >
           <div className="space-y-3">
+            {/* Color Palette */}
             <div>
-              <p className="text-[10px] text-muted-foreground mb-2">Colors</p>
-              <div className="flex gap-2">
-                <ColorSwatch color={plan.designSystem.primaryColor} label="Primary" />
-                <ColorSwatch color={plan.designSystem.secondaryColor} label="Secondary" />
-                <ColorSwatch color={plan.designSystem.backgroundColor} label="Background" />
-                <ColorSwatch color={plan.designSystem.textColor} label="Text" />
+              <p className="text-[10px] text-muted-foreground mb-2">Color Palette</p>
+              <div className="flex gap-2 flex-wrap">
+                <ColorSwatch color={plan.designSystem.colors.primary} label="Primary" />
+                <ColorSwatch color={plan.designSystem.colors.secondary} label="Secondary" />
+                <ColorSwatch color={plan.designSystem.colors.accent} label="Accent" />
+                <ColorSwatch color={plan.designSystem.colors.background} label="Background" />
+                <ColorSwatch color={plan.designSystem.colors.surface} label="Surface" />
+                <ColorSwatch color={plan.designSystem.colors.text} label="Text" />
               </div>
             </div>
+            
+            {/* Typography */}
             <div>
               <p className="text-[10px] text-muted-foreground mb-1">Typography</p>
-              <div className="flex gap-2 text-xs">
+              <div className="flex gap-2 text-xs flex-wrap">
                 <Badge variant="outline" className="text-[10px]">
                   <Type className="w-3 h-3 mr-1" />
-                  {plan.designSystem.headingFont}
+                  {plan.designSystem.typography.headingFont}
                 </Badge>
                 <Badge variant="outline" className="text-[10px]">
-                  {plan.designSystem.bodyFont}
+                  {plan.designSystem.typography.bodyFont}
+                </Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  {plan.designSystem.typography.scale} scale
                 </Badge>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Badge variant="secondary" className="text-[10px]">
-                {plan.designTone} tone
-              </Badge>
-              <Badge variant="secondary" className="text-[10px]">
-                {plan.designSystem.spacing} spacing
-              </Badge>
-              <Badge variant="secondary" className="text-[10px]">
-                {plan.animationStyle} animations
-              </Badge>
+            
+            {/* Spacing & Radius */}
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">Layout</p>
+              <div className="flex gap-2 flex-wrap">
+                <Badge variant="secondary" className="text-[10px]">
+                  {plan.designSystem.spacing.section} section spacing
+                </Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  {plan.designSystem.radius} radius
+                </Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  {plan.designSystem.shadow} shadows
+                </Badge>
+              </div>
+            </div>
+            
+            {/* Motion & Tone */}
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">Motion & Tone</p>
+              <div className="flex gap-2 flex-wrap">
+                <Badge variant="secondary" className="text-[10px]">
+                  {plan.designSystem.tone} tone
+                </Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  {plan.designSystem.motion.style} motion
+                </Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  {plan.designSystem.motion.speed} speed
+                </Badge>
+              </div>
             </div>
           </div>
         </CollapsibleSection>

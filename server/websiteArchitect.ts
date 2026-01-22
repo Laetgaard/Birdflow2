@@ -1,8 +1,17 @@
 import OpenAI from "openai";
-import type { WebsitePlan } from "@shared/websitePlanSchema";
+import type { WebsitePlan, DesignSystem, DesignTone } from "@shared/websitePlanSchema";
 import type { BuilderStateData, BuilderPage, DesignTokens } from "@shared/schema";
 import type { BuilderComponentData } from "@shared/componentRegistry";
 import { componentRegistry } from "@shared/componentRegistry";
+import { 
+  DesignPresetRegistry, 
+  getRecommendedPreset, 
+  getSpacingValues, 
+  getRadiusValue, 
+  getShadowValue, 
+  getMotionConfig,
+  getTypographyScale 
+} from "@shared/designPresets";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -26,269 +35,167 @@ function generateId(): string {
   return 'c_' + Math.random().toString(36).substring(2, 11);
 }
 
-const ARCHITECT_SYSTEM_PROMPT = `You are an expert website architect and UI/UX designer. Your job is to analyze website requests and create detailed, professional plans that would rival designs from Webflow, Framer, or top design agencies.
+const ARCHITECT_SYSTEM_PROMPT = `You are an expert website architect and UI/UX designer specializing in DESIGN SYSTEMS. Your job is to analyze website requests and create detailed, professional plans with complete design systems that would rival Webflow, Framer, or top design agencies.
 
 ## YOUR ROLE
-You do NOT create the website directly. You create a comprehensive PLAN that will guide the building process. Think like a senior product designer at Apple or Stripe.
+You create comprehensive PLANS with real design systems. You DON'T just place components - you DESIGN the entire visual language of the website.
 
-## ANALYSIS APPROACH
-When analyzing a website (from URL or description):
-1. Identify the BUSINESS PURPOSE - what does this site need to achieve?
-2. Identify the TARGET AUDIENCE - who will use this site?
-3. Identify DESIGN PATTERNS - what section types are used? In what order?
-4. Identify the DESIGN SYSTEM - colors, typography, spacing, tone
-5. Identify CONVERSION GOALS - what actions should visitors take?
+## DESIGN SYSTEM THINKING (CRITICAL)
+Before creating any pages or sections, you MUST first design the complete design system:
+
+### Step 1: Identify Business Type
+- SaaS, Agency, E-commerce, Healthcare, Portfolio, Restaurant, Corporate, etc.
+- This determines the foundational design approach
+
+### Step 2: Choose Tone & Base Preset
+Select from these presets and customize:
+
+**LuxuryBrand** - Few colors (black/white + gold accent), serif fonts, airy spacing, soft radius, slow animations
+**ModernSaaS** - Blue/purple tech palette, Inter font, normal spacing, soft radius, subtle motion  
+**PlayfulStartup** - Bright vibrant colors, Poppins font, rounded corners, expressive animations
+**CorporateBusiness** - Conservative blues, tight spacing, square corners, minimal motion
+**MinimalStudio** - Almost no colors, maximum whitespace, no motion, pure typography
+
+### Step 3: Design the Complete System
+You must output a designSystem object with:
+
+{
+  "colors": {
+    "primary": "#hex - main brand color",
+    "secondary": "#hex - supporting color", 
+    "accent": "#hex - highlights, CTAs",
+    "background": "#hex - page background",
+    "surface": "#hex - cards, elevated elements",
+    "text": "#hex - body text color"
+  },
+  "typography": {
+    "headingFont": "Font name for headlines",
+    "bodyFont": "Font name for body text",
+    "scale": "modern" | "editorial" | "classic" | "bold"
+  },
+  "spacing": {
+    "section": "tight" | "normal" | "airy",
+    "component": "tight" | "normal" | "airy"
+  },
+  "radius": "none" | "soft" | "rounded",
+  "shadow": "none" | "subtle" | "elevated",
+  "motion": {
+    "style": "none" | "subtle" | "expressive",
+    "speed": "slow" | "normal" | "fast"
+  },
+  "tone": "luxury" | "modern" | "playful" | "corporate" | "minimal"
+}
 
 ## DESIGN QUALITY STANDARDS
-Your plans must achieve Webflow/Framer quality:
-- Clear visual hierarchy
-- Professional spacing (not cramped, not too sparse)
-- Consistent design system
-- Conversion-oriented layouts
-- Mobile-first thinking
-- Modern but timeless aesthetics
+- Clear visual hierarchy with consistent spacing
+- Professional color palette (max 5-6 colors)
+- Typography pairing that matches the brand
+- Consistent border radius throughout
+- Shadow depth that matches the aesthetic
+- Animation style appropriate to the tone
 
-## SECTION PATTERNS (use these exact names)
-
-### Core Navigation
-- header: Navigation header with logo and menu
-- footer: Site footer with links
-
-### Hero & Introduction
-- hero: Main banner with headline, subtitle, CTA (variants: centered, split, minimal, bold, video-bg)
-- about: About section
-
-### Features & Benefits
-- features: Feature grid with icons/descriptions
-- benefits: Key benefits listing
-- services: What the business offers
-- how-it-works: Process explanation with steps
-
-### Social Proof & Trust
-- testimonials: Customer reviews and social proof
-- logo-cloud: Partner/client logos
-- stats: Statistics/numbers
-- trust-badges: Trust indicators
-- case-studies: Portfolio/case studies
-
-### Team & Company
-- team: Team member profiles
-- timeline: Company history or process steps
-
-### Conversion
-- cta: Call-to-action sections
-- pricing: Pricing tables/plans
-- comparison: Feature comparison table
-- newsletter: Email signup
-
-### Engagement
-- faq: Frequently asked questions
-- contact: Contact forms
-- gallery: Image galleries
-- products: Product listings
-- marquee: Scrolling text banners
-
-### Content
-- split: Split section with image and content
-- tabs: Tabbed content sections
-- rich-text: Rich text content blocks
+## SECTION PATTERNS
+- header, footer, hero, about
+- features, benefits, services, how-it-works
+- testimonials, logo-cloud, stats, trust-badges, case-studies
+- team, timeline, cta, pricing, comparison, newsletter
+- faq, contact, gallery, products, marquee, split, tabs, rich-text
 
 ## OUTPUT FORMAT
-Return a JSON object following the WebsitePlan schema exactly. Be thorough but focused.
+Return JSON matching the WebsitePlan schema with a complete designSystem object.
 
 ## IMPORTANT
-- Create MULTIPLE PAGES when appropriate (Home, About, Services, Contact, etc.)
-- Each page should have a clear PURPOSE
-- Sections should flow LOGICALLY
-- Design should feel COHESIVE across all pages
-- Think about the USER JOURNEY`;
+- ALWAYS output the full designSystem object with all properties
+- Every design decision must be intentional and connected to the brand
+- Think about visual rhythm, hierarchy, and user journey
+- Create multiple pages when appropriate`;
 
-const BUILD_SYSTEM_PROMPT = `You are an expert website builder creating Webflow/Framer quality websites. Given a website plan, you create professional, highly-customized component structures.
+const BUILD_SYSTEM_PROMPT = `You are an expert website builder creating Webflow/Framer quality websites. Given a website plan WITH A COMPLETE DESIGN SYSTEM, you apply that system consistently to every component.
 
-## YOUR ROLE
-Transform a website plan into stunning, professional builder components. You must:
-1. Create all pages specified in the plan
-2. Add all sections in the correct order
-3. Apply the design system consistently with granular styling
-4. Write compelling, professional content
-5. Ensure clear visual hierarchy and professional spacing
-6. Use advanced styling options for each component
-
-## AVAILABLE COMPONENT TYPES
-
-### Core Components
-- "header" - Navigation header with logo and menu items
-- "hero" - Hero section with headline, subtitle, CTA buttons (variants: centered, split-left, split-right, minimal, bold)
-- "footer" - Footer with links and info
-
-### Content Sections
-- "features" - Feature grid (3-6 items) with icons and descriptions
-- "text-image" - Text with image side by side (imageSide: left/right)
-- "split-section" - Advanced split layout with features, bullets, or stats
-- "rich-text" - Rich text content block with HTML
-- "tabs" - Tabbed content sections
-
-### Social Proof
-- "testimonials" - Customer testimonials (3-4 reviews)
-- "logo-cloud" - Partner/client logos (variants: grid, row, marquee)
-- "stats-counter" - Statistics/numbers (3-4 stats)
-
-### Team & Services
-- "team" - Team member profiles with photos and bios
-- "services" - Services listing with icons and descriptions
-- "timeline" - Process steps or company history
-
-### Conversion
-- "cta" - Call-to-action section
-- "pricing-table" - Pricing plans (2-4 tiers)
-- "comparison-table" - Feature comparison across plans
-- "newsletter" - Newsletter signup
-
-### Engagement
-- "faq" - FAQ accordion section
-- "contact-form" - Contact form with fields
-- "gallery" - Image gallery grid
-- "product-grid" - E-commerce product grid
-- "marquee" - Scrolling text banner
-- "before-after" - Before/after image comparison
-
-## STYLING OPTIONS
+## CRITICAL: USE THE DESIGN SYSTEM
+The plan includes a complete designSystem. You MUST apply it to every component:
 
 ### Colors
-Use specific hex colors from the design system. Apply per-component:
-- backgroundColor: Section background (#ffffff, #f8fafc, #0f0f0f, etc.)
-- textColor: Main text color
-- accentColor: Highlights, buttons, icons
-
-### Gradients
-- backgroundGradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%)
-
-### Shadows
-- boxShadow: "0 10px 15px rgba(0,0,0,0.1)" for elevated elements
-
-### Card Styles
-- cardStyle: "flat" | "elevated" | "bordered" | "glass"
-
-### Button Styles
-- buttonStyle: "solid" | "outline" | "ghost" | "gradient"
-
-### Spacing
-- padding: Use generous padding like "80px 24px" or "120px 24px" for sections
-- Luxury/premium sites: More whitespace (100-140px vertical)
-- Modern/minimal: Balanced spacing (80px vertical)
-- Bold/energetic: Tighter spacing (60-80px vertical)
+- Use designSystem.colors.primary for CTAs, links, highlights
+- Use designSystem.colors.secondary for secondary elements
+- Use designSystem.colors.accent sparingly for special emphasis
+- Use designSystem.colors.background for page backgrounds
+- Use designSystem.colors.surface for cards and elevated elements
+- Use designSystem.colors.text for all text
 
 ### Typography
-Use fontFamily from plan. Headlines should be impactful.
+- Use designSystem.typography.headingFont for all headings
+- Use designSystem.typography.bodyFont for body text
+- Typography scale affects sizing (editorial = larger, bold = impactful)
+
+### Spacing
+Map designSystem.spacing.section to padding:
+- "tight" → "60px 24px"
+- "normal" → "80px 24px"
+- "airy" → "120px 24px"
+
+### Radius
+Map designSystem.radius to borderRadius:
+- "none" → "0px"
+- "soft" → "8px"
+- "rounded" → "16px"
+
+### Shadow
+Map designSystem.shadow:
+- "none" → no shadow
+- "subtle" → "0 1px 3px rgba(0,0,0,0.1)"
+- "elevated" → "0 10px 15px rgba(0,0,0,0.1)"
+
+### Motion
+Map designSystem.motion:
+- style "none" → no animation
+- style "subtle" → "fade-up" animation
+- style "expressive" → "zoom-in", "stagger" animations
+
+Speed mapping:
+- "slow" → 0.9s duration
+- "normal" → 0.6s duration
+- "fast" → 0.35s duration
+
+## AVAILABLE COMPONENT TYPES
+- "header", "hero", "footer"
+- "features", "text-image", "split-section", "rich-text", "tabs"
+- "testimonials", "logo-cloud", "stats-counter"
+- "team", "services", "timeline"
+- "cta", "pricing-table", "comparison-table", "newsletter"
+- "faq", "contact-form", "gallery", "product-grid", "marquee", "before-after"
 
 ## COMPONENT STRUCTURE
 Each component needs:
 - id: unique string (use "c_" + random chars)
 - type: one of the types above
-- props: content properties (title, subtitle, description, items, etc.)
-- styles: visual styles (backgroundColor, textColor, padding, accentColor, cardStyle, etc.)
-
-## CONTENT QUALITY STANDARDS
-- Headlines: Clear, benefit-focused, emotionally resonant, 5-10 words
-- Subheadlines: Supporting context, 10-20 words
-- Body text: Concise, scannable, value-driven paragraphs
-- CTAs: Action-oriented, urgent, specific ("Start Free Trial" not "Submit")
-- Use the exact design tone from the plan
+- props: content (title, subtitle, items, etc.)
+- styles: visual styles derived FROM THE DESIGN SYSTEM
 
 ## IMAGE GENERATION
-For every component that needs images, include imageUrl with Unsplash Source URLs:
-- Format: https://images.unsplash.com/photo-{ID}?w={width}&h={height}&fit=crop
-- Use real Unsplash photo IDs that match the context
-- Hero images: Wide shots, 1200x800
-- Team/profile: Portraits, 400x400
-- Features/services: Contextual icons or abstract, 800x600
-- Gallery: Various sizes based on content
-- Products: Product photography style, 600x600
+Use Unsplash URLs: https://images.unsplash.com/photo-{ID}?w={width}&h={height}&fit=crop
 
-Common Unsplash photo IDs by category:
-- Business/Corporate: 1560472354959-c2f3aef82263, 1497366216548-37526070297c, 1521791136064-7986c2920216
-- Technology: 1518770660439-4636190af475, 1550751827-4bd374c3f58b, 1526374965328-7f61d4dc18c5
-- Nature/Landscape: 1506905925346-21bda4d32df4, 1469474968028-56623f02e42e, 1447752875215-b2761acb3c5d
-- Food/Restaurant: 1504674900247-0877df9cc836, 1517248135467-4c7edcad34c4, 1555396273-367ea4eb4db5
-- Fashion/Lifestyle: 1441986300917-64674bd600d8, 1529139574466-a303027c1d8b, 1515886657613-9f3515b0c78f
-- Health/Wellness: 1571019613454-1cb2f99b2d8b, 1544367567-0f2fcb009e0b, 1576091160399-112ba8d25d1d
-- Real Estate: 1564013799919-ab600027ffc6, 1600596542815-ffad4c1539a9, 1600585154340-be6161a56a0c
-- People/Portraits: 1507003211169-0a1dd7228f2d, 1494790108377-be9c29b29330, 1472099645785-5658abf4ff4e
-
-Always generate REAL, specific content - never use placeholder text like "Lorem ipsum" or "Your text here".
-
-## VISUAL HIERARCHY RULES
-1. Hero should be bold and attention-grabbing
-2. Alternate between light and dark sections for visual rhythm
-3. Use accent colors sparingly for emphasis
-4. Ensure adequate contrast for readability
-5. Cards should have consistent styling within a section
-
-## INDUSTRY-SPECIFIC CONTENT GUIDELINES
-
-### SaaS/Technology
-- Headlines: Focus on outcomes ("Automate Your Workflow", "Scale Without Limits")
-- Features: Technical capabilities with clear benefits
-- Stats: Users, uptime %, companies served, time saved
-- CTAs: "Start Free Trial", "See Demo", "Get Started"
-
-### Agency/Creative
-- Headlines: Bold, creative statements ("We Make Brands Unforgettable")
-- Portfolio focus, client results, creative process
-- Stats: Projects completed, awards, client satisfaction
-- CTAs: "Let's Talk", "Start a Project", "View Our Work"
-
-### E-commerce
-- Headlines: Product benefits, urgency ("Shop the Collection")
-- Focus on products, reviews, shipping, returns
-- Stats: Products, happy customers, fast shipping
-- CTAs: "Shop Now", "Add to Cart", "Get Yours"
-
-### Healthcare/Wellness
-- Headlines: Care and trust ("Your Health, Our Priority")
-- Focus on expertise, compassion, outcomes
-- Stats: Patients helped, years experience, success rates
-- CTAs: "Book Consultation", "Learn More", "Get Started"
-
-### Real Estate
-- Headlines: Dream/lifestyle focused ("Find Your Dream Home")
-- Property features, location benefits, agent expertise
-- Stats: Properties sold, average days on market, client satisfaction
-- CTAs: "Schedule Viewing", "Get Valuation", "Browse Listings"
-
-### Restaurant/Food
-- Headlines: Experience focused ("Taste the Difference")
-- Menu highlights, ambiance, chef story
-- Stats: Years serving, dishes, happy customers
-- CTAs: "Reserve Table", "Order Now", "View Menu"
+Photo IDs by category:
+- Business: 1560472354959-c2f3aef82263, 1497366216548-37526070297c
+- Technology: 1518770660439-4636190af475, 1550751827-4bd374c3f58b
+- People: 1507003211169-0a1dd7228f2d, 1494790108377-be9c29b29330
+- Nature: 1506905925346-21bda4d32df4, 1469474968028-56623f02e42e
+- Food: 1504674900247-0877df9cc836, 1517248135467-4c7edcad34c4
 
 ## OUTPUT FORMAT
-Return a JSON object with:
+Return JSON:
 {
   "pages": [
     {
       "id": "page-id",
       "name": "Page Name",
       "path": "/path",
-      "components": [
-        {
-          "id": "c_xxx",
-          "type": "component-type",
-          "props": { ... },
-          "styles": { ... }
-        }
-      ]
+      "components": [{ id, type, props, styles }]
     }
-  ],
-  "designTokens": {
-    "primaryColor": "#hex",
-    "secondaryColor": "#hex",
-    "backgroundColor": "#hex",
-    "textColor": "#hex",
-    "fontFamily": "Font Name"
-  },
-  "preset": "modern" | "luxury" | "playful" | "corporate" | "minimal"
-}`;
+  ]
+}
+
+Remember: NO HARDCODED COLORS, SPACING, OR FONTS. Everything comes from the designSystem.`;
 
 export async function analyzeAndPlanWebsite(
   prompt: string,
@@ -309,16 +216,15 @@ export async function analyzeAndPlanWebsite(
         content: [
           {
             type: "text",
-            text: `Analyze this website from ${sourceUrl} and create a comprehensive plan to recreate something similar (not pixel-perfect, but capturing the SYSTEM, STRUCTURE, and QUALITY).
+            text: `Analyze this website from ${sourceUrl} and create a comprehensive plan with a complete DESIGN SYSTEM.
 
 User's request: "${prompt}"
 
-Create a detailed plan including:
-1. What type of site this is and its purpose
-2. The complete page structure
-3. The design system (colors, fonts, spacing)
-4. Each page with its sections in order
-5. The UX and conversion goals`,
+You MUST include:
+1. Site type and purpose
+2. COMPLETE designSystem object (colors, typography, spacing, radius, shadow, motion, tone)
+3. Page structure with sections
+4. UX and conversion goals`,
           },
           {
             type: "image_url",
@@ -332,17 +238,19 @@ Create a detailed plan including:
     } else {
       messages.push({
         role: "user",
-        content: `Create a comprehensive website plan based on this request:
+        content: `Create a comprehensive website plan with a complete DESIGN SYSTEM for:
 
 "${prompt}"
 
-Create a detailed plan including:
-1. What type of site this should be and its purpose
-2. The complete page structure (multiple pages if appropriate)
-3. The design system (colors, fonts, spacing, tone)
-4. Each page with its sections in order
-5. The UX and conversion goals
-6. Build phases for implementation`,
+You MUST include:
+1. Site type and purpose
+2. COMPLETE designSystem object with:
+   - colors (primary, secondary, accent, background, surface, text)
+   - typography (headingFont, bodyFont, scale)
+   - spacing (section, component)
+   - radius, shadow, motion, tone
+3. Page structure with sections
+4. UX and conversion goals`,
       });
     }
 
@@ -360,7 +268,40 @@ Create a detailed plan including:
 
     const parsed = JSON.parse(content);
     
-    // Ensure the plan has all required fields with defaults
+    // Get recommended preset based on site type for defaults
+    const siteType = parsed.siteType || 'landing';
+    const recommendedPreset = getRecommendedPreset(siteType);
+    const defaultDesignSystem = recommendedPreset.designSystem;
+
+    // Build the complete design system with AI output or preset defaults
+    const designSystem: DesignSystem = {
+      colors: {
+        primary: parsed.designSystem?.colors?.primary || defaultDesignSystem.colors.primary,
+        secondary: parsed.designSystem?.colors?.secondary || defaultDesignSystem.colors.secondary,
+        accent: parsed.designSystem?.colors?.accent || defaultDesignSystem.colors.accent,
+        background: parsed.designSystem?.colors?.background || defaultDesignSystem.colors.background,
+        surface: parsed.designSystem?.colors?.surface || defaultDesignSystem.colors.surface,
+        text: parsed.designSystem?.colors?.text || defaultDesignSystem.colors.text,
+      },
+      typography: {
+        headingFont: parsed.designSystem?.typography?.headingFont || parsed.designSystem?.headingFont || defaultDesignSystem.typography.headingFont,
+        bodyFont: parsed.designSystem?.typography?.bodyFont || parsed.designSystem?.bodyFont || defaultDesignSystem.typography.bodyFont,
+        scale: parsed.designSystem?.typography?.scale || defaultDesignSystem.typography.scale,
+      },
+      spacing: {
+        section: parsed.designSystem?.spacing?.section || defaultDesignSystem.spacing.section,
+        component: parsed.designSystem?.spacing?.component || defaultDesignSystem.spacing.component,
+      },
+      radius: parsed.designSystem?.radius || defaultDesignSystem.radius,
+      shadow: parsed.designSystem?.shadow || defaultDesignSystem.shadow,
+      motion: {
+        style: parsed.designSystem?.motion?.style || defaultDesignSystem.motion.style,
+        speed: parsed.designSystem?.motion?.speed || defaultDesignSystem.motion.speed,
+      },
+      tone: parsed.designSystem?.tone || parsed.designTone || defaultDesignSystem.tone,
+    };
+
+    // Build the full plan with new design system structure
     const plan: WebsitePlan = {
       siteType: parsed.siteType || 'landing',
       siteName: parsed.siteName || 'My Website',
@@ -372,20 +313,10 @@ Create a detailed plan including:
         uniqueSellingPoints: parsed.analysis?.uniqueSellingPoints || [],
         competitorInsights: parsed.analysis?.competitorInsights,
       },
-      designSystem: {
-        primaryColor: parsed.designSystem?.primaryColor || '#3b82f6',
-        secondaryColor: parsed.designSystem?.secondaryColor || '#8b5cf6',
-        accentColor: parsed.designSystem?.accentColor,
-        backgroundColor: parsed.designSystem?.backgroundColor || '#ffffff',
-        textColor: parsed.designSystem?.textColor || '#1f2937',
-        headingFont: parsed.designSystem?.headingFont || 'Inter',
-        bodyFont: parsed.designSystem?.bodyFont || 'Inter',
-        spacing: parsed.designSystem?.spacing || 'comfortable',
-        borderRadius: parsed.designSystem?.borderRadius || 'rounded',
-        shadows: parsed.designSystem?.shadows || 'subtle',
-      },
-      designTone: parsed.designTone || 'modern',
-      animationStyle: parsed.animationStyle || 'subtle',
+      designSystem,
+      designTone: designSystem.tone as DesignTone,
+      animationStyle: designSystem.motion.style === 'none' ? 'none' : 
+                       designSystem.motion.style === 'subtle' ? 'subtle' : 'dynamic',
       navigation: {
         style: parsed.navigation?.style || 'minimal',
         items: parsed.navigation?.items || [],
@@ -438,19 +369,20 @@ export async function buildFromPlan(plan: WebsitePlan): Promise<BuildResult> {
         },
         {
           role: "user",
-          content: `Build this website based on the following plan. Create ALL pages with ALL sections.
+          content: `Build this website using the DESIGN SYSTEM from the plan. Apply the design system to EVERY component.
 
-WEBSITE PLAN:
+WEBSITE PLAN WITH DESIGN SYSTEM:
 ${JSON.stringify(plan, null, 2)}
 
-Create the complete builder state with:
-1. All pages listed in the plan
-2. All sections for each page
-3. Professional, compelling content
-4. Consistent design using the design system
-5. Proper navigation linking all pages
+CRITICAL REMINDERS:
+1. Use colors from designSystem.colors
+2. Use fonts from designSystem.typography
+3. Use spacing from designSystem.spacing
+4. Use radius from designSystem.radius
+5. Use shadow from designSystem.shadow
+6. Apply motion from designSystem.motion
 
-Focus on quality over quantity. Each section should look professional.`,
+Create ALL pages with ALL sections. Make it look professional and cohesive.`,
         },
       ],
       max_tokens: 8192,
@@ -482,6 +414,15 @@ Focus on quality over quantity. Each section should look professional.`,
 function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateData {
   const pages: BuilderPage[] = [];
   const validComponentTypes = Object.keys(componentRegistry);
+  const ds = plan.designSystem;
+
+  // Get design system derived values
+  const sectionSpacing = getSpacingValues(ds.spacing.section);
+  const componentSpacing = getSpacingValues(ds.spacing.component);
+  const radiusValue = getRadiusValue(ds.radius);
+  const shadowValue = getShadowValue(ds.shadow);
+  const motionConfig = getMotionConfig(ds.motion);
+  const typographyScale = getTypographyScale(ds.typography.scale);
 
   for (const page of aiOutput.pages || []) {
     const pageId = page.id || generateId();
@@ -493,7 +434,6 @@ function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateDa
       // Validate and map component type
       let compType = comp.type;
       if (!validComponentTypes.includes(compType)) {
-        // Map common variations
         const typeMap: Record<string, string> = {
           'navigation': 'header',
           'nav': 'header',
@@ -520,11 +460,20 @@ function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateDa
         compType = typeMap[compType] || 'hero';
       }
 
+      // Apply design system to styles
+      const styles = applyDesignSystemToStyles(comp.styles || {}, ds, sectionSpacing, radiusValue, shadowValue);
+      
+      // Add animation if motion is enabled
+      if (ds.motion.style !== 'none') {
+        styles.animation = motionConfig.animation;
+        styles.animationDuration = motionConfig.duration;
+      }
+
       components.push({
         id: componentId,
         type: compType as any,
         props: sanitizeProps(comp.props || {}, compType),
-        styles: sanitizeStyles(comp.styles || {}, plan.designSystem),
+        styles,
       });
     }
 
@@ -536,7 +485,6 @@ function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateDa
     });
   }
 
-  // Ensure at least one home page
   if (pages.length === 0) {
     pages.push({
       id: 'home',
@@ -546,16 +494,16 @@ function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateDa
     });
   }
 
-  // Build design tokens from plan
+  // Build design tokens from new design system
   const designTokens: DesignTokens = {
-    primaryColor: plan.designSystem.primaryColor,
-    secondaryColor: plan.designSystem.secondaryColor,
-    backgroundColor: plan.designSystem.backgroundColor,
-    textColor: plan.designSystem.textColor,
-    fontFamily: plan.designSystem.bodyFont,
+    primaryColor: ds.colors.primary,
+    secondaryColor: ds.colors.secondary,
+    backgroundColor: ds.colors.background,
+    textColor: ds.colors.text,
+    fontFamily: ds.typography.bodyFont,
     fontPair: {
-      heading: plan.designSystem.headingFont,
-      body: plan.designSystem.bodyFont,
+      heading: ds.typography.headingFont,
+      body: ds.typography.bodyFont,
     },
   };
 
@@ -577,7 +525,43 @@ function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateDa
     pages,
     activePage: pages[0]?.id || 'home',
     globalStyles: designTokens,
-    stylePreset: (presetMap[plan.designTone] || 'modern') as any,
+    stylePreset: (presetMap[ds.tone] || 'modern') as any,
+  };
+}
+
+// Apply design system values to component styles
+function applyDesignSystemToStyles(
+  styles: any, 
+  ds: DesignSystem, 
+  sectionSpacing: { section: string; component: string },
+  radiusValue: string,
+  shadowValue: string
+): any {
+  return {
+    // Colors from design system
+    backgroundColor: styles.backgroundColor || undefined,
+    textColor: styles.textColor || ds.colors.text,
+    accentColor: styles.accentColor || ds.colors.primary,
+    
+    // Spacing from design system
+    padding: styles.padding || sectionSpacing.section,
+    margin: styles.margin || undefined,
+    
+    // Visual style from design system
+    borderRadius: styles.borderRadius || radiusValue,
+    boxShadow: styles.boxShadow || (ds.shadow !== 'none' ? shadowValue : undefined),
+    
+    // Typography from design system
+    fontFamily: ds.typography.bodyFont,
+    
+    // Card styles inherit design system
+    cardStyle: styles.cardStyle || (ds.shadow === 'elevated' ? 'elevated' : ds.shadow === 'subtle' ? 'bordered' : 'flat'),
+    buttonStyle: styles.buttonStyle || 'solid',
+    
+    // Pass through other styles
+    backgroundGradient: styles.backgroundGradient,
+    backgroundImage: styles.backgroundImage,
+    backgroundOpacity: styles.backgroundOpacity,
   };
 }
 
@@ -641,7 +625,7 @@ function sanitizeProps(props: any, componentType: string): any {
     }));
   }
 
-  // Handle team members array - always add fallback images
+  // Handle team members array
   if (props.members && Array.isArray(props.members)) {
     sanitized.members = props.members.map((member: any, index: number) => ({
       id: member.id || `member_${index}`,
@@ -652,7 +636,7 @@ function sanitizeProps(props: any, componentType: string): any {
     }));
   }
 
-  // Handle services array - add fallback icons
+  // Handle services array
   if (props.services && Array.isArray(props.services)) {
     sanitized.services = props.services.map((service: any, index: number) => ({
       id: service.id || `service_${index}`,
@@ -665,7 +649,7 @@ function sanitizeProps(props: any, componentType: string): any {
     }));
   }
 
-  // Handle tabs array - add fallback images
+  // Handle tabs array
   if (props.tabs && Array.isArray(props.tabs)) {
     sanitized.tabs = props.tabs.map((tab: any, index: number) => ({
       id: tab.id || `tab_${index}`,
@@ -726,16 +710,4 @@ function sanitizeProps(props: any, componentType: string): any {
   }
 
   return sanitized;
-}
-
-function sanitizeStyles(styles: any, designSystem: any): any {
-  return {
-    backgroundColor: styles.backgroundColor || undefined,
-    textColor: styles.textColor || undefined,
-    padding: styles.padding || '80px 24px',
-    margin: styles.margin || undefined,
-    borderRadius: styles.borderRadius || undefined,
-    boxShadow: styles.boxShadow || undefined,
-    accentColor: styles.accentColor || designSystem?.primaryColor,
-  };
 }
