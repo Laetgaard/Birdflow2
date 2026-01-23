@@ -91,6 +91,10 @@ export type ComponentStyles = {
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   buttonRadius?: string;
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
+  // Header scroll behavior settings
+  isTransparent?: boolean | string;
+  scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
+  scrolledBackgroundColor?: string;
 };
 
 export type BuilderComponentData = {

@@ -2447,9 +2447,9 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   const { totalItems, toggleCart } = useCart();
   const showCart = props.showCart !== false && props.showCart !== 'false';
   
-  const isTransparent = props.isTransparent === true || props.isTransparent === 'true';
-  const scrollBehavior = props.scrollBehavior || 'static';
-  const scrolledBackgroundColor = props.scrolledBackgroundColor || styles.backgroundColor || '#ffffff';
+  const isTransparent = styles.isTransparent === true || styles.isTransparent === 'true';
+  const scrollBehavior = (styles.scrollBehavior as string) || 'static';
+  const scrolledBackgroundColor = (styles.scrolledBackgroundColor as string) || styles.backgroundColor || '#ffffff';
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);

@@ -460,6 +460,10 @@ export type ComponentStyles = {
   animationTrigger?: 'load' | 'scroll';
   animationDuration?: string;
   animationDelay?: string;
+  // Header scroll behavior settings
+  isTransparent?: boolean | string;
+  scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
+  scrolledBackgroundColor?: string;
 };
 
 export type BuilderComponentData = {
@@ -653,9 +657,6 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       title: 'Brand',
       imageUrl: '',
       showCart: true,
-      isTransparent: false,
-      scrollBehavior: 'static',
-      scrolledBackgroundColor: '#ffffff',
       items: [
         { id: '1', title: 'Home', description: '/' },
         { id: '2', title: 'About', description: '/about' },
@@ -666,6 +667,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       padding: '0',
+      isTransparent: false,
+      scrollBehavior: 'static',
+      scrolledBackgroundColor: '#ffffff',
     },
     fields: [
       { key: 'title', label: 'Brand Name', type: 'text', group: 'content' },
