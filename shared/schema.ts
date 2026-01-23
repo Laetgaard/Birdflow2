@@ -384,6 +384,7 @@ export const products = pgTable("products", {
   description: text("description"),
   longDescription: text("long_description"),
   price: text("price").notNull().default("0"),
+  compareAtPrice: text("compare_at_price"),
   currency: text("currency").notNull().default("USD"),
   imageUrl: text("image_url"),
   images: text("images").array(),
@@ -406,6 +407,26 @@ export const insertProductSchema = createInsertSchema(products).omit({
 
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
+
+// Product reviews table
+export const productReviews = pgTable("product_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  productId: varchar("product_id").notNull(),
+  websiteId: varchar("website_id").notNull(),
+  name: text("name").notNull(),
+  rating: integer("rating").notNull(),
+  text: text("text"),
+  verified: boolean("verified").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertProductReviewSchema = createInsertSchema(productReviews).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertProductReview = z.infer<typeof insertProductReviewSchema>;
+export type ProductReview = typeof productReviews.$inferSelect;
 
 // Media assets table
 export const mediaAssets = pgTable("media_assets", {

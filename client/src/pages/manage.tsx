@@ -156,6 +156,7 @@ type Product = {
   description?: string;
   longDescription?: string;
   price: string;
+  compareAtPrice?: string | null;
   currency: string;
   imageUrl?: string;
   images?: string[];
@@ -165,6 +166,17 @@ type Product = {
   trackInventory?: boolean;
   stockQuantity?: number;
   variants?: ProductVariant[];
+};
+
+type ProductReview = {
+  id: string;
+  productId: string;
+  websiteId: string;
+  name: string;
+  rating: number;
+  text?: string | null;
+  verified: boolean;
+  createdAt: string;
 };
 
 type BookingService = {
@@ -1446,12 +1458,31 @@ export default function ManagePage() {
     description: '',
     longDescription: '',
     price: '0',
+    compareAtPrice: null,
     currency: 'USD',
     imageUrl: '',
     images: [],
     status: 'active',
     category: '',
     variants: [],
+  });
+
+  // Reviews state
+  const [productReviews, setProductReviews] = useState<ProductReview[]>([]);
+  const [selectedProductForReviews, setSelectedProductForReviews] = useState<Product | null>(null);
+  const [isReviewsDialogOpen, setIsReviewsDialogOpen] = useState(false);
+  const [isReviewFormOpen, setIsReviewFormOpen] = useState(false);
+  const [editingReview, setEditingReview] = useState<ProductReview | null>(null);
+  const [reviewForm, setReviewForm] = useState<{
+    name: string;
+    rating: number;
+    text: string;
+    verified: boolean;
+  }>({
+    name: '',
+    rating: 5,
+    text: '',
+    verified: false,
   });
   
   const [bookingServices, setBookingServices] = useState<BookingService[]>([]);
@@ -1733,6 +1764,7 @@ export default function ManagePage() {
       description: '',
       longDescription: '',
       price: '0',
+      compareAtPrice: null,
       currency: 'USD',
       imageUrl: '',
       images: [],
@@ -1753,6 +1785,7 @@ export default function ManagePage() {
         description: product.description || '',
         longDescription: product.longDescription || '',
         price: product.price,
+        compareAtPrice: product.compareAtPrice || null,
         currency: product.currency,
         imageUrl: product.imageUrl || '',
         images: product.images || [],
@@ -1829,6 +1862,111 @@ export default function ManagePage() {
       toast({
         title: "Product Deleted",
         description: "The product has been removed.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Reviews handlers
+  const fetchProductReviews = async (productId: string) => {
+    if (!session || !id) return;
+    try {
+      const res = await fetch(`/api/websites/${id}/products/${productId}/reviews`, {
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) throw new Error("Failed to fetch reviews");
+      const data = await res.json();
+      setProductReviews(data);
+    } catch (error) {
+      setProductReviews([]);
+    }
+  };
+
+  const openReviewsDialog = async (product: Product) => {
+    setSelectedProductForReviews(product);
+    await fetchProductReviews(product.id);
+    setIsReviewsDialogOpen(true);
+  };
+
+  const resetReviewForm = () => {
+    setReviewForm({ name: '', rating: 5, text: '', verified: false });
+    setEditingReview(null);
+  };
+
+  const openReviewForm = (review?: ProductReview) => {
+    if (review) {
+      setEditingReview(review);
+      setReviewForm({
+        name: review.name,
+        rating: review.rating,
+        text: review.text || '',
+        verified: review.verified,
+      });
+    } else {
+      resetReviewForm();
+    }
+    setIsReviewFormOpen(true);
+  };
+
+  const handleSaveReview = async () => {
+    if (!session || !id || !selectedProductForReviews || !reviewForm.name) return;
+    
+    try {
+      const url = editingReview
+        ? `/api/websites/${id}/products/${selectedProductForReviews.id}/reviews/${editingReview.id}`
+        : `/api/websites/${id}/products/${selectedProductForReviews.id}/reviews`;
+      
+      const method = editingReview ? 'PATCH' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(reviewForm),
+      });
+
+      if (!res.ok) throw new Error("Failed to save review");
+      
+      await fetchProductReviews(selectedProductForReviews.id);
+      setIsReviewFormOpen(false);
+      resetReviewForm();
+      
+      toast({
+        title: editingReview ? "Review Updated" : "Review Added",
+        description: editingReview ? "The review has been updated." : "A new review has been added.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteReview = async (reviewId: string) => {
+    if (!session || !id || !selectedProductForReviews) return;
+    
+    try {
+      const res = await fetch(`/api/websites/${id}/products/${selectedProductForReviews.id}/reviews/${reviewId}`, {
+        method: 'DELETE',
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!res.ok) throw new Error("Failed to delete review");
+      
+      setProductReviews(productReviews.filter(r => r.id !== reviewId));
+      
+      toast({
+        title: "Review Deleted",
+        description: "The review has been removed.",
       });
     } catch (error: any) {
       toast({
@@ -3597,6 +3735,25 @@ export default function ManagePage() {
                           </div>
                         </div>
                         <div className="space-y-2">
+                          <Label htmlFor="compare_at_price">Compare at Price (Original)</Label>
+                          <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <Input 
+                              id="compare_at_price"
+                              type="number"
+                              step="0.01"
+                              className="pl-9"
+                              placeholder="Leave empty if not on sale"
+                              value={productForm.compareAtPrice || ''} 
+                              onChange={(e) => setProductForm({...productForm, compareAtPrice: e.target.value || null})}
+                              data-testid="input-product-compare-price"
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground">Set this higher than the price to show a "Sale" badge</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
                           <Label htmlFor="currency">Currency</Label>
                           <Select 
                             value={productForm.currency || 'USD'} 
@@ -3919,6 +4076,144 @@ export default function ManagePage() {
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+
+                {/* Reviews Management Dialog */}
+                <Dialog open={isReviewsDialogOpen} onOpenChange={(open) => {
+                  setIsReviewsDialogOpen(open);
+                  if (!open) {
+                    setSelectedProductForReviews(null);
+                    setProductReviews([]);
+                  }
+                }}>
+                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Reviews for {selectedProductForReviews?.name}</DialogTitle>
+                      <DialogDescription>
+                        Manage customer reviews for this product. Reviews will appear on the product page.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">{productReviews.length} review{productReviews.length !== 1 ? 's' : ''}</span>
+                        <Button onClick={() => openReviewForm()} size="sm" data-testid="button-add-review">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Review
+                        </Button>
+                      </div>
+                      
+                      {productReviews.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Users className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                          <p className="font-medium">No reviews yet</p>
+                          <p className="text-sm">Add reviews to build trust with potential customers.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {productReviews.map(review => (
+                            <div key={review.id} className="border rounded-lg p-4" data-testid={`review-item-${review.id}`}>
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-medium">{review.name}</span>
+                                    {review.verified && (
+                                      <Badge className="bg-green-100 text-green-800 text-xs">Verified</Badge>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1 mb-2">
+                                    {[1, 2, 3, 4, 5].map(star => (
+                                      <span key={star} className={star <= review.rating ? 'text-yellow-500' : 'text-gray-300'}>★</span>
+                                    ))}
+                                    <span className="text-sm text-muted-foreground ml-2">
+                                      {new Date(review.createdAt).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                  {review.text && <p className="text-sm text-muted-foreground">{review.text}</p>}
+                                </div>
+                                <div className="flex gap-1 ml-4">
+                                  <Button variant="ghost" size="icon" onClick={() => openReviewForm(review)} data-testid={`button-edit-review-${review.id}`}>
+                                    <Pencil className="w-4 h-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteReview(review.id)} data-testid={`button-delete-review-${review.id}`}>
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Add/Edit Review Form Dialog */}
+                <Dialog open={isReviewFormOpen} onOpenChange={(open) => {
+                  setIsReviewFormOpen(open);
+                  if (!open) resetReviewForm();
+                }}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{editingReview ? 'Edit Review' : 'Add Review'}</DialogTitle>
+                      <DialogDescription>
+                        {editingReview ? 'Update the review details.' : 'Add a new review for this product.'}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="reviewer-name">Reviewer Name</Label>
+                        <Input 
+                          id="reviewer-name"
+                          value={reviewForm.name}
+                          onChange={(e) => setReviewForm({...reviewForm, name: e.target.value})}
+                          placeholder="e.g., John D."
+                          data-testid="input-reviewer-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Rating</Label>
+                        <div className="flex gap-1">
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <button
+                              key={star}
+                              type="button"
+                              onClick={() => setReviewForm({...reviewForm, rating: star})}
+                              className={`text-2xl transition-colors ${star <= reviewForm.rating ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-300'}`}
+                              data-testid={`button-rating-${star}`}
+                            >
+                              ★
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="review-text">Review Text (optional)</Label>
+                        <Textarea 
+                          id="review-text"
+                          value={reviewForm.text}
+                          onChange={(e) => setReviewForm({...reviewForm, text: e.target.value})}
+                          placeholder="What did the customer think about this product?"
+                          data-testid="input-review-text"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="checkbox"
+                          id="verified-purchase"
+                          checked={reviewForm.verified}
+                          onChange={(e) => setReviewForm({...reviewForm, verified: e.target.checked})}
+                          data-testid="checkbox-verified"
+                        />
+                        <Label htmlFor="verified-purchase" className="cursor-pointer">Verified Purchase</Label>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsReviewFormOpen(false)}>Cancel</Button>
+                      <Button onClick={handleSaveReview} disabled={!reviewForm.name} data-testid="button-save-review">
+                        {editingReview ? 'Update Review' : 'Add Review'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </CardHeader>
               <CardContent>
                 {products.length === 0 ? (
@@ -3972,8 +4267,19 @@ export default function ManagePage() {
                             </div>
                           )}
                           <div className="flex items-center justify-between mt-4">
-                            <span className="text-lg font-bold">{formatCurrency(parseFloat(product.price), product.currency)}</span>
+                            <div className="flex items-center gap-2">
+                              {product.compareAtPrice && parseFloat(product.compareAtPrice) > parseFloat(product.price) && (
+                                <>
+                                  <span className="text-sm text-muted-foreground line-through">{formatCurrency(parseFloat(product.compareAtPrice), product.currency)}</span>
+                                  <Badge className="bg-red-100 text-red-800 text-xs">Sale</Badge>
+                                </>
+                              )}
+                              <span className="text-lg font-bold">{formatCurrency(parseFloat(product.price), product.currency)}</span>
+                            </div>
                             <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => openReviewsDialog(product)} title="Manage reviews" data-testid={`button-reviews-${product.id}`}>
+                                <Users className="w-4 h-4" />
+                              </Button>
                               <Button variant="ghost" size="icon" onClick={() => openProductDialog(product)} data-testid={`button-edit-${product.id}`}>
                                 <Pencil className="w-4 h-4" />
                               </Button>
