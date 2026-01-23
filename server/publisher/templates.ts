@@ -4737,6 +4737,11 @@ type Product = {
   name: string;
   description?: string;
   long_description?: string;
+  product_details?: string;
+  care_instructions?: string;
+  size_guide?: string;
+  shipping_info?: string;
+  compare_at_price?: string;
   price: string;
   currency?: string;
   image_url?: string;
@@ -4999,6 +5004,183 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
         </div>
       )}
     </>
+  );
+}
+
+function AccordionSection({ title, icon, children, defaultOpen = false }: { title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <div style={{ borderBottom: '1px solid #e5e7eb' }}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '20px 0',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ color: '#6b7280' }}>{icon}</span>
+          <span style={{ fontSize: '16px', fontWeight: 600, color: '#111827' }}>{title}</span>
+        </div>
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#6b7280"
+          strokeWidth="2"
+          style={{
+            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.3s ease',
+          }}
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      <div
+        style={{
+          maxHeight: isOpen ? '500px' : '0',
+          overflow: 'hidden',
+          transition: 'max-height 0.3s ease',
+        }}
+      >
+        <div style={{ paddingBottom: '20px', fontSize: '15px', color: '#4b5563', lineHeight: 1.7 }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccordionSections({ product }: { product: Product }) {
+  const hasAnySection = product.long_description || product.product_details || product.shipping_info || product.care_instructions || product.size_guide;
+  if (!hasAnySection) return null;
+  
+  return (
+    <div style={{ marginTop: '60px', backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #e5e7eb' }}>
+      {(product.long_description || product.product_details) && (
+        <AccordionSection
+          title="Product Details"
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>}
+          defaultOpen={true}
+        >
+          <div style={{ whiteSpace: 'pre-wrap' }}>
+            {product.product_details || product.long_description}
+          </div>
+        </AccordionSection>
+      )}
+      {product.shipping_info && (
+        <AccordionSection
+          title="Shipping & Returns"
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13" /><path d="M16 8h4l3 3v5h-7V8z" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /></svg>}
+        >
+          <div style={{ whiteSpace: 'pre-wrap' }}>{product.shipping_info}</div>
+        </AccordionSection>
+      )}
+      {product.care_instructions && (
+        <AccordionSection
+          title="Care Instructions"
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>}
+        >
+          <div style={{ whiteSpace: 'pre-wrap' }}>{product.care_instructions}</div>
+        </AccordionSection>
+      )}
+      {product.size_guide && (
+        <AccordionSection
+          title="Size Guide"
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 3H3v7h18V3zM21 14H3v7h18v-7z"/></svg>}
+        >
+          <div style={{ whiteSpace: 'pre-wrap' }}>{product.size_guide}</div>
+        </AccordionSection>
+      )}
+    </div>
+  );
+}
+
+function RelatedProducts({ currentProductId, currency = 'USD' }: { currentProductId: string; currency?: string }) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/products')
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        const related = (data || []).filter((p: Product) => p.id !== currentProductId).slice(0, 8);
+        setProducts(related);
+      })
+      .catch(() => setProducts([]));
+  }, [currentProductId]);
+
+  const checkScroll = useCallback(() => {
+    if (scrollRef.current) {
+      setCanScrollLeft(scrollRef.current.scrollLeft > 0);
+      setCanScrollRight(scrollRef.current.scrollLeft < scrollRef.current.scrollWidth - scrollRef.current.clientWidth - 10);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkScroll();
+    window.addEventListener('resize', checkScroll);
+    return () => window.removeEventListener('resize', checkScroll);
+  }, [products, checkScroll]);
+
+  const scroll = (dir: 'left' | 'right') => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollBy({ left: dir === 'left' ? -280 : 280, behavior: 'smooth' });
+      setTimeout(checkScroll, 350);
+    }
+  };
+
+  if (products.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: '80px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px' }}>
+        <div>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '4px' }}>You May Also Like</h2>
+          <p style={{ fontSize: '15px', color: '#6b7280', margin: 0 }}>Explore more products from our collection</p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => scroll('left')} disabled={!canScrollLeft} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '1px solid #e5e7eb', backgroundColor: canScrollLeft ? '#fff' : '#f9fafb', cursor: canScrollLeft ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: canScrollLeft ? 1 : 0.4 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <button onClick={() => scroll('right')} disabled={!canScrollRight} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '1px solid #e5e7eb', backgroundColor: canScrollRight ? '#fff' : '#f9fafb', cursor: canScrollRight ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: canScrollRight ? 1 : 0.4 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div ref={scrollRef} onScroll={checkScroll} style={{ display: 'flex', gap: '20px', overflowX: 'auto', scrollSnapType: 'x mandatory', scrollbarWidth: 'none', paddingBottom: '8px' }}>
+        {products.map(p => {
+          const price = parseFloat(p.price);
+          const comparePrice = p.compare_at_price ? parseFloat(p.compare_at_price) : null;
+          const hasDiscount = comparePrice && comparePrice > price;
+          return (
+            <Link key={p.id} href={'/product/' + p.id} style={{ textDecoration: 'none', color: 'inherit', display: 'block', minWidth: '240px', maxWidth: '240px', backgroundColor: '#fff', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #e5e7eb', scrollSnapAlign: 'start', flexShrink: 0 }}>
+              <div style={{ aspectRatio: '1', backgroundColor: '#f3f4f6', position: 'relative', overflow: 'hidden' }}>
+                {p.image_url && <img src={p.image_url} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                {hasDiscount && <div style={{ position: 'absolute', top: '12px', left: '12px', backgroundColor: '#dc2626', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600 }}>Sale</div>}
+              </div>
+              <div style={{ padding: '16px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', marginBottom: '8px', lineHeight: 1.4 }}>{p.name}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {hasDiscount && comparePrice && <span style={{ fontSize: '13px', color: '#9ca3af', textDecoration: 'line-through' }}>{formatCurrency(comparePrice, currency)}</span>}
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: hasDiscount ? '#dc2626' : '#111827' }}>{formatCurrency(price, currency)}</span>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -5399,53 +5581,46 @@ export default function ProductDetailPage() {
           </div>
         </div>
 
-        {product.long_description && (
-          <div style={{ marginTop: '80px', backgroundColor: '#fff', borderRadius: '16px', padding: '40px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-            <h2 style={{ fontSize: '28px', fontWeight: 700, color: '#111827', marginBottom: '24px' }}>Product Details</h2>
-            <div style={{ fontSize: '16px', color: '#4b5563', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-              {product.long_description}
-            </div>
-          </div>
-        )}
+        <AccordionSections product={product} />
 
-        <div style={{ marginTop: '80px', backgroundColor: '#fff', borderRadius: '16px', padding: '40px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-          <h2 style={{ fontSize: '28px', fontWeight: 700, color: '#111827', marginBottom: '24px' }}>Why Choose Us</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '32px' }}>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2">
-                  <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
-                </svg>
+        <div style={{ marginTop: '60px', backgroundColor: '#f8fafc', borderRadius: '20px', padding: '48px', border: '1px solid #e2e8f0' }}>
+          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '8px', letterSpacing: '-0.02em' }}>Why Choose Us</h2>
+            <p style={{ fontSize: '15px', color: '#6b7280', maxWidth: '500px', margin: '0 auto' }}>We're committed to providing you with the best shopping experience</p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px' }}>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
               </div>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '4px' }}>Premium Quality</h3>
-                <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.5 }}>Crafted with the finest materials for lasting durability</p>
-              </div>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Premium Quality</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>Crafted with the finest materials</p>
             </div>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2">
-                  <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-                </svg>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
               </div>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '4px' }}>Satisfaction Guaranteed</h3>
-                <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.5 }}>30-day money-back guarantee on all orders</p>
-              </div>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Easy Returns</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>30-day hassle-free returns</p>
             </div>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2">
-                  <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                </svg>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
               </div>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '4px' }}>Fast Delivery</h3>
-                <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.5 }}>Quick and reliable shipping to your doorstep</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Fast Delivery</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>2-5 business days shipping</p>
+            </div>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#fce7f3', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#db2777" strokeWidth="2"><path d="M12 2a10 10 0 00-10 10 10 10 0 0010 10 10 10 0 0010-10A10 10 0 0012 2z"/><path d="M12 6v6l4 2"/></svg>
               </div>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>24/7 Support</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>Always here to help you</p>
             </div>
           </div>
         </div>
+
+        <RelatedProducts currentProductId={product.id} currency={product.currency} />
       </div>
     </div>
   );
