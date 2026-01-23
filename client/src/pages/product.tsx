@@ -235,6 +235,74 @@ function ReviewCard({ review }: { review: Review }) {
   );
 }
 
+function AccordionSection({ 
+  icon, 
+  title, 
+  children, 
+  defaultOpen = false 
+}: { 
+  icon: React.ReactNode; 
+  title: string; 
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div style={{ borderBottom: '1px solid #e5e7eb' }} data-testid={`accordion-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '20px 24px',
+          border: 'none',
+          background: 'none',
+          cursor: 'pointer',
+          transition: 'background-color 0.2s',
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f9fafb')}
+        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ color: '#374151' }}>{icon}</span>
+          <span style={{ fontSize: '14px', fontWeight: 600, color: '#374151', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+            {title}
+          </span>
+        </div>
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#9ca3af"
+          strokeWidth="2"
+          style={{
+            transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+            transition: 'transform 0.3s ease',
+          }}
+        >
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+      </button>
+      <div
+        style={{
+          maxHeight: isOpen ? '1000px' : '0',
+          overflow: 'hidden',
+          transition: 'max-height 0.4s ease, opacity 0.3s ease',
+          opacity: isOpen ? 1 : 0,
+        }}
+      >
+        <div style={{ padding: '0 24px 24px 24px' }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProductTabs({ 
   product, 
   reviews 
@@ -242,32 +310,60 @@ function ProductTabs({
   product: Product; 
   reviews: Review[];
 }) {
-  const [activeTab, setActiveTab] = useState('description');
+  const [activeTab, setActiveTab] = useState('details');
   const hasReviews = reviews.length > 0;
   const longDesc = product.longDescription || product.long_description;
 
   const tabs = [
-    { id: 'description', label: 'Description' },
-    { id: 'info', label: 'Additional Information' },
+    { id: 'details', label: 'Product Info' },
     ...(hasReviews ? [{ id: 'reviews', label: `Reviews (${reviews.length})` }] : []),
   ];
 
+  const tagIcon = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
+      <line x1="7" y1="7" x2="7.01" y2="7"/>
+    </svg>
+  );
+
+  const truckIcon = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="1" y="3" width="15" height="13"/>
+      <polygon points="16,8 20,8 23,11 23,16 16,16"/>
+      <circle cx="5.5" cy="18.5" r="2.5"/>
+      <circle cx="18.5" cy="18.5" r="2.5"/>
+    </svg>
+  );
+
+  const careIcon = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+  );
+
+  const sizeIcon = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 3H3v18h18V3z"/>
+      <path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
+    </svg>
+  );
+
   return (
-    <div style={{ marginTop: '80px', backgroundColor: '#fff', borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }} data-testid="product-tabs">
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', overflowX: 'auto' }}>
+    <div style={{ marginTop: '80px' }} data-testid="product-tabs">
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '4px' }}>
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
-              padding: '16px 32px',
+              padding: '12px 28px',
               border: 'none',
-              background: 'none',
+              borderRadius: '30px',
               cursor: 'pointer',
-              fontSize: '15px',
+              fontSize: '14px',
               fontWeight: 600,
-              color: activeTab === tab.id ? '#4f46e5' : '#6b7280',
-              borderBottom: activeTab === tab.id ? '2px solid #4f46e5' : '2px solid transparent',
+              backgroundColor: activeTab === tab.id ? '#111827' : '#f3f4f6',
+              color: activeTab === tab.id ? '#ffffff' : '#6b7280',
               transition: 'all 0.2s',
               whiteSpace: 'nowrap',
             }}
@@ -278,54 +374,118 @@ function ProductTabs({
         ))}
       </div>
 
-      <div style={{ padding: '32px' }}>
-        {activeTab === 'description' && (
-          <div data-testid="tab-content-description">
-            {longDesc ? (
-              <div style={{ fontSize: '16px', color: '#4b5563', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-                {longDesc}
+      {activeTab === 'details' && (
+        <div style={{ backgroundColor: '#fff', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', overflow: 'hidden' }} data-testid="accordion-container">
+          <AccordionSection icon={tagIcon} title="Product Details" defaultOpen={true}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {longDesc && (
+                <p style={{ fontSize: '15px', color: '#4b5563', lineHeight: 1.7, margin: 0 }}>
+                  {longDesc}
+                </p>
+              )}
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
+                <tbody>
+                  {product.category && (
+                    <tr>
+                      <td style={{ padding: '10px 0', color: '#6b7280', fontSize: '14px', width: '140px' }}>Category</td>
+                      <td style={{ padding: '10px 0', color: '#111827', fontSize: '14px', fontWeight: 500 }}>{product.category}</td>
+                    </tr>
+                  )}
+                  <tr>
+                    <td style={{ padding: '10px 0', color: '#6b7280', fontSize: '14px', width: '140px' }}>SKU</td>
+                    <td style={{ padding: '10px 0', color: '#111827', fontSize: '14px', fontWeight: 500 }}>{product.id.slice(0, 8).toUpperCase()}</td>
+                  </tr>
+                  {product.inventory && (
+                    <tr>
+                      <td style={{ padding: '10px 0', color: '#6b7280', fontSize: '14px', width: '140px' }}>Availability</td>
+                      <td style={{ padding: '10px 0', color: parseInt(product.inventory) > 0 ? '#059669' : '#dc2626', fontSize: '14px', fontWeight: 500 }}>
+                        {parseInt(product.inventory) > 0 ? `${product.inventory} in stock` : 'Out of stock'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </AccordionSection>
+
+          <AccordionSection icon={truckIcon} title="Shipping and Returns">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div>
+                <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', marginBottom: '8px' }}>Delivery</h4>
+                <ul style={{ margin: 0, paddingLeft: '20px', color: '#4b5563', fontSize: '14px', lineHeight: 1.8 }}>
+                  <li>Standard shipping: 5-7 business days</li>
+                  <li>Express shipping: 2-3 business days</li>
+                  <li>Free shipping on orders over $50</li>
+                </ul>
               </div>
-            ) : (
-              <p style={{ color: '#9ca3af', fontStyle: 'italic' }}>No detailed description available.</p>
-            )}
-          </div>
-        )}
+              <div>
+                <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', marginBottom: '8px' }}>Returns</h4>
+                <ul style={{ margin: 0, paddingLeft: '20px', color: '#4b5563', fontSize: '14px', lineHeight: 1.8 }}>
+                  <li>30-day return policy</li>
+                  <li>Free returns on all orders</li>
+                  <li>Items must be unused and in original packaging</li>
+                </ul>
+              </div>
+              <div>
+                <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', marginBottom: '8px' }}>International Shipping</h4>
+                <p style={{ margin: 0, color: '#4b5563', fontSize: '14px', lineHeight: 1.8 }}>
+                  We ship to over 100 countries. International delivery times vary by location, typically 7-14 business days. Import duties and taxes may apply.
+                </p>
+              </div>
+            </div>
+          </AccordionSection>
 
-        {activeTab === 'info' && (
-          <div data-testid="tab-content-info">
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                {product.category && (
-                  <tr>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', fontWeight: 500, color: '#374151', width: '200px' }}>Category</td>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280' }}>{product.category}</td>
-                  </tr>
-                )}
-                <tr>
-                  <td style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', fontWeight: 500, color: '#374151', width: '200px' }}>SKU</td>
-                  <td style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280' }}>{product.id.slice(0, 8).toUpperCase()}</td>
-                </tr>
-                {product.inventory && (
-                  <tr>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', fontWeight: 500, color: '#374151', width: '200px' }}>Availability</td>
-                    <td style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', color: '#6b7280' }}>
-                      {parseInt(product.inventory) > 0 ? `${product.inventory} in stock` : 'Out of stock'}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+          <AccordionSection icon={careIcon} title="Care Instructions">
+            <ul style={{ margin: 0, paddingLeft: '20px', color: '#4b5563', fontSize: '14px', lineHeight: 2 }}>
+              <li>Store in a cool, dry place away from direct sunlight</li>
+              <li>Clean with a soft, dry cloth</li>
+              <li>Avoid contact with water, perfumes, and chemicals</li>
+              <li>Handle with care to maintain quality</li>
+            </ul>
+          </AccordionSection>
 
-        {activeTab === 'reviews' && hasReviews && (
-          <div data-testid="tab-content-reviews">
+          <AccordionSection icon={sizeIcon} title="Size Guide">
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '300px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f9fafb' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#374151', borderBottom: '1px solid #e5e7eb' }}>Size</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#374151', borderBottom: '1px solid #e5e7eb' }}>Chest (in)</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#374151', borderBottom: '1px solid #e5e7eb' }}>Waist (in)</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#374151', borderBottom: '1px solid #e5e7eb' }}>Length (in)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { size: 'S', chest: '34-36', waist: '28-30', length: '27' },
+                    { size: 'M', chest: '38-40', waist: '32-34', length: '28' },
+                    { size: 'L', chest: '42-44', waist: '36-38', length: '29' },
+                    { size: 'XL', chest: '46-48', waist: '40-42', length: '30' },
+                  ].map((row, idx) => (
+                    <tr key={row.size} style={{ backgroundColor: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#111827', fontWeight: 500, borderBottom: '1px solid #e5e7eb' }}>{row.size}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563', borderBottom: '1px solid #e5e7eb' }}>{row.chest}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563', borderBottom: '1px solid #e5e7eb' }}>{row.waist}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563', borderBottom: '1px solid #e5e7eb' }}>{row.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </AccordionSection>
+        </div>
+      )}
+
+      {activeTab === 'reviews' && hasReviews && (
+        <div style={{ backgroundColor: '#fff', borderRadius: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', padding: '32px' }} data-testid="tab-content-reviews">
+          <RatingSummary reviews={reviews} />
+          <div style={{ marginTop: '24px', borderTop: '1px solid #e5e7eb', paddingTop: '24px' }}>
             {reviews.map(review => (
               <ReviewCard key={review.id} review={review} />
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -621,6 +781,195 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
   );
 }
 
+function RelatedProducts({ websiteId, currentProductId, currency = 'USD' }: { websiteId: string; currentProductId: string; currency?: string }) {
+  const [products, setProducts] = useState<Product[]>([]);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/public/websites/${websiteId}/products`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        const related = (data || []).filter((p: Product) => p.id !== currentProductId).slice(0, 8);
+        setProducts(related);
+      })
+      .catch(() => setProducts([]));
+  }, [websiteId, currentProductId]);
+
+  const checkScrollability = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      setCanScrollLeft(container.scrollLeft > 0);
+      setCanScrollRight(container.scrollLeft < container.scrollWidth - container.clientWidth - 10);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkScrollability();
+    window.addEventListener('resize', checkScrollability);
+    return () => window.removeEventListener('resize', checkScrollability);
+  }, [products, checkScrollability]);
+
+  const scroll = (direction: 'left' | 'right') => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      const scrollAmount = 280;
+      container.scrollBy({ left: direction === 'left' ? -scrollAmount : scrollAmount, behavior: 'smooth' });
+      setTimeout(checkScrollability, 350);
+    }
+  };
+
+  if (products.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: '80px' }} data-testid="related-products">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px' }}>
+        <div>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '4px', letterSpacing: '-0.02em' }}>You May Also Like</h2>
+          <p style={{ fontSize: '15px', color: '#6b7280', margin: 0 }}>Explore more products from our collection</p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => scroll('left')}
+            disabled={!canScrollLeft}
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '50%',
+              border: '1px solid #e5e7eb',
+              backgroundColor: canScrollLeft ? '#fff' : '#f9fafb',
+              cursor: canScrollLeft ? 'pointer' : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s',
+              opacity: canScrollLeft ? 1 : 0.4,
+            }}
+            data-testid="carousel-prev"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="2">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <button
+            onClick={() => scroll('right')}
+            disabled={!canScrollRight}
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '50%',
+              border: '1px solid #e5e7eb',
+              backgroundColor: canScrollRight ? '#fff' : '#f9fafb',
+              cursor: canScrollRight ? 'pointer' : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.2s',
+              opacity: canScrollRight ? 1 : 0.4,
+            }}
+            data-testid="carousel-next"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="2">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div 
+        ref={scrollContainerRef}
+        onScroll={checkScrollability}
+        style={{ 
+          display: 'flex', 
+          gap: '20px', 
+          overflowX: 'auto',
+          scrollSnapType: 'x mandatory',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          paddingBottom: '8px',
+        }}
+      >
+        {products.map(p => {
+          const imgUrl = p.imageUrl || p.image_url;
+          const price = parseFloat(p.price);
+          const comparePrice = p.compareAtPrice || p.compare_at_price;
+          const originalPrice = comparePrice ? parseFloat(comparePrice) : null;
+          const hasDiscount = originalPrice && originalPrice > price;
+
+          return (
+            <a 
+              key={p.id}
+              href={`/product/${p.id}?website=${websiteId}`}
+              style={{ 
+                textDecoration: 'none', 
+                color: 'inherit',
+                display: 'block',
+                minWidth: '240px',
+                maxWidth: '240px',
+                backgroundColor: '#fff',
+                borderRadius: '16px',
+                overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                border: '1px solid #e5e7eb',
+                transition: 'all 0.3s ease',
+                scrollSnapAlign: 'start',
+                flexShrink: 0,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.12)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+              data-testid={`related-product-${p.id}`}
+            >
+              <div style={{ aspectRatio: '1', backgroundColor: '#f3f4f6', position: 'relative', overflow: 'hidden' }}>
+                {imgUrl && (
+                  <img 
+                    src={imgUrl} 
+                    alt={p.name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease' }}
+                  />
+                )}
+                {hasDiscount && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '12px',
+                    left: '12px',
+                    backgroundColor: '#dc2626',
+                    color: '#fff',
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                  }}>
+                    Sale
+                  </div>
+                )}
+              </div>
+              <div style={{ padding: '16px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', marginBottom: '8px', lineHeight: 1.4 }}>{p.name}</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {hasDiscount && originalPrice && (
+                    <span style={{ fontSize: '13px', color: '#9ca3af', textDecoration: 'line-through' }}>
+                      {formatCurrency(originalPrice, currency)}
+                    </span>
+                  )}
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: hasDiscount ? '#dc2626' : '#111827' }}>
+                    {formatCurrency(price, currency)}
+                  </span>
+                </div>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ProductDetailPageContent({ websiteId }: { websiteId: string | null }) {
   const [, params] = useRoute('/product/:id');
   const productId = params?.id;
@@ -899,44 +1248,120 @@ function ProductDetailPageContent({ websiteId }: { websiteId: string | null }) {
 
         <ProductTabs product={product} reviews={reviews} />
 
-        <div style={{ marginTop: '80px', backgroundColor: '#fff', borderRadius: '16px', padding: '40px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-          <h2 style={{ fontSize: '28px', fontWeight: 700, color: '#111827', marginBottom: '24px' }}>Why Choose Us</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '32px' }}>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2">
-                  <path d="M5 12l5 5L20 7"/>
+        <div style={{ marginTop: '60px', backgroundColor: '#f8fafc', borderRadius: '20px', padding: '48px', border: '1px solid #e2e8f0' }} data-testid="why-choose-section">
+          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '8px', letterSpacing: '-0.02em' }}>Why Choose Us</h2>
+            <p style={{ fontSize: '15px', color: '#6b7280', maxWidth: '500px', margin: '0 auto' }}>We're committed to providing you with the best shopping experience</p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px' }}>
+            <div style={{ 
+              backgroundColor: '#fff', 
+              borderRadius: '16px', 
+              padding: '28px', 
+              textAlign: 'center',
+              border: '1px solid #e5e7eb',
+              transition: 'all 0.3s ease',
+            }}>
+              <div style={{ 
+                width: '56px', 
+                height: '56px', 
+                borderRadius: '50%', 
+                backgroundColor: '#eef2ff', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                margin: '0 auto 16px' 
+              }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  <path d="M9 12l2 2 4-4"/>
                 </svg>
               </div>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '4px' }}>Premium Quality</h3>
-                <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.5 }}>Crafted with the finest materials for lasting durability</p>
-              </div>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Premium Quality</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>Crafted with the finest materials</p>
             </div>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2">
-                  <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+            <div style={{ 
+              backgroundColor: '#fff', 
+              borderRadius: '16px', 
+              padding: '28px', 
+              textAlign: 'center',
+              border: '1px solid #e5e7eb',
+              transition: 'all 0.3s ease',
+            }}>
+              <div style={{ 
+                width: '56px', 
+                height: '56px', 
+                borderRadius: '50%', 
+                backgroundColor: '#ecfdf5', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                margin: '0 auto 16px' 
+              }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2">
+                  <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
               </div>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '4px' }}>Satisfaction Guaranteed</h3>
-                <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.5 }}>30-day money-back guarantee on all orders</p>
-              </div>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Easy Returns</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>30-day hassle-free returns</p>
             </div>
-            <div style={{ display: 'flex', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2">
-                  <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            <div style={{ 
+              backgroundColor: '#fff', 
+              borderRadius: '16px', 
+              padding: '28px', 
+              textAlign: 'center',
+              border: '1px solid #e5e7eb',
+              transition: 'all 0.3s ease',
+            }}>
+              <div style={{ 
+                width: '56px', 
+                height: '56px', 
+                borderRadius: '50%', 
+                backgroundColor: '#fef3c7', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                margin: '0 auto 16px' 
+              }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
                 </svg>
               </div>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '4px' }}>Fast Delivery</h3>
-                <p style={{ fontSize: '14px', color: '#6b7280', lineHeight: 1.5 }}>Quick and reliable shipping to your doorstep</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Fast Delivery</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>2-5 business days shipping</p>
+            </div>
+            <div style={{ 
+              backgroundColor: '#fff', 
+              borderRadius: '16px', 
+              padding: '28px', 
+              textAlign: 'center',
+              border: '1px solid #e5e7eb',
+              transition: 'all 0.3s ease',
+            }}>
+              <div style={{ 
+                width: '56px', 
+                height: '56px', 
+                borderRadius: '50%', 
+                backgroundColor: '#fce7f3', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                margin: '0 auto 16px' 
+              }}>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#db2777" strokeWidth="2">
+                  <path d="M12 2a10 10 0 00-10 10 10 10 0 0010 10 10 10 0 0010-10A10 10 0 0012 2z"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
               </div>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>24/7 Support</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>Always here to help you</p>
             </div>
           </div>
         </div>
+
+        {websiteId && productId && (
+          <RelatedProducts websiteId={websiteId} currentProductId={productId} currency={product?.currency} />
+        )}
       </div>
     </div>
   );
