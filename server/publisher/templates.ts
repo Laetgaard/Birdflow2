@@ -2440,7 +2440,9 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   const [isMobile, setIsMobile] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const [headerHeight, setHeaderHeight] = useState(72);
   const lastScrollYRef = useRef(0);
+  const headerRef = useRef<HTMLElement>(null);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' });
   const { totalItems, toggleCart } = useCart();
   const showCart = props.showCart !== false && props.showCart !== 'false';
@@ -2455,6 +2457,15 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+  
+  useEffect(() => {
+    if (headerRef.current) {
+      const height = headerRef.current.offsetHeight;
+      if (height > 0) {
+        setHeaderHeight(height);
+      }
+    }
+  });
   
   useEffect(() => {
     const handleScroll = () => {
@@ -2499,24 +2510,37 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
       return { ...baseStyle, position: 'relative' };
     }
     
-    const isFixed = scrollBehavior === 'sticky' || scrollBehavior === 'show-on-scroll-up';
+    if (scrollBehavior === 'sticky') {
+      return {
+        ...baseStyle,
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000,
+        backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+        transition: 'background-color 0.3s ease',
+        boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+      };
+    }
     
-    return {
-      ...baseStyle,
-      position: isFixed ? 'fixed' : 'relative',
-      top: 0,
-      left: 0,
-      right: 0,
-      zIndex: 1000,
-      backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
-      transition: 'background-color 0.3s ease, transform 0.3s ease',
-      transform: scrollBehavior === 'show-on-scroll-up' && !isHeaderVisible ? 'translateY(-100%)' : 'translateY(0)',
-      boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
-    };
+    if (scrollBehavior === 'show-on-scroll-up') {
+      return {
+        ...baseStyle,
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000,
+        backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+        transition: 'background-color 0.3s ease, transform 0.3s ease, margin-bottom 0.3s ease',
+        transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-' + headerHeight + 'px)',
+        marginBottom: isHeaderVisible ? 0 : -headerHeight,
+        boxShadow: isScrolled && isHeaderVisible ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+      };
+    }
+    
+    return { ...baseStyle, position: 'relative' };
   };
   
   return (
-    <header style={getHeaderStyle()}>
+    <header ref={headerRef} style={getHeaderStyle()}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
         <a href="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '20px', fontWeight: 700, color: 'inherit', textDecoration: 'none' }}>
           {(() => {

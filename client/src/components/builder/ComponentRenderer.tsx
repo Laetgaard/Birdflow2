@@ -877,13 +877,14 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const [isScrolled, setIsScrolled] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const lastScrollYRef = useRef(0);
+  const headerRef = useRef<HTMLElement>(null);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
   const logoImage = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   
   const isTransparent = props.isTransparent === true || props.isTransparent === 'true';
-  const scrollBehavior = props.scrollBehavior || 'static';
+  const scrollBehavior = (props.scrollBehavior || 'static') as 'static' | 'sticky' | 'show-on-scroll-up';
   const scrolledBackgroundColor = props.scrolledBackgroundColor || styles.backgroundColor || '#ffffff';
 
   useEffect(() => {
@@ -894,8 +895,25 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   }, []);
 
   useEffect(() => {
+    const getScrollContainer = (): Element | Window => {
+      const previewArea = document.querySelector('[data-preview-area]');
+      if (previewArea) {
+        return previewArea;
+      }
+      return window;
+    };
+
+    const getScrollY = (container: Element | Window): number => {
+      if (container instanceof Window) {
+        return window.scrollY;
+      }
+      return container.scrollTop;
+    };
+
+    const container = getScrollContainer();
+
     const handleScroll = () => {
-      const currentScrollY = window.scrollY;
+      const currentScrollY = getScrollY(container);
       setIsScrolled(currentScrollY > 50);
       
       if (scrollBehavior === 'show-on-scroll-up') {
@@ -908,8 +926,9 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
       lastScrollYRef.current = currentScrollY;
     };
     
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => container.removeEventListener('scroll', handleScroll);
   }, [scrollBehavior]);
 
   // Use deviceMode from builder preview if provided, otherwise use window width
@@ -933,7 +952,18 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
     setMobileMenuOpen(false);
   };
   
-  const getHeaderStyle = () => {
+  const [headerHeight, setHeaderHeight] = useState(72);
+  
+  useEffect(() => {
+    if (headerRef.current) {
+      const height = headerRef.current.offsetHeight;
+      if (height > 0) {
+        setHeaderHeight(height);
+      }
+    }
+  });
+  
+  const getHeaderStyle = (): React.CSSProperties => {
     const headerBaseStyle = { ...baseStyle, fontFamily };
     const shouldBeTransparent = isTransparent && !isScrolled;
     
@@ -941,7 +971,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
       if (isTransparent) {
         return { 
           ...headerBaseStyle, 
-          position: 'absolute' as const,
+          position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
@@ -951,52 +981,65 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
           boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
         };
       }
-      return { ...headerBaseStyle, position: 'relative' as const };
+      return { ...headerBaseStyle, position: 'relative' };
     }
     
-    const isFixed = scrollBehavior === 'sticky' || scrollBehavior === 'show-on-scroll-up';
+    if (scrollBehavior === 'sticky') {
+      return {
+        ...headerBaseStyle,
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000,
+        backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+        transition: 'background-color 0.3s ease',
+        boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+      };
+    }
     
-    return {
-      ...headerBaseStyle,
-      position: isFixed ? 'fixed' as const : 'relative' as const,
-      top: 0,
-      left: 0,
-      right: 0,
-      zIndex: 1000,
-      backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
-      transition: 'background-color 0.3s ease, transform 0.3s ease',
-      transform: scrollBehavior === 'show-on-scroll-up' && !isHeaderVisible ? 'translateY(-100%)' : 'translateY(0)',
-      boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
-    };
+    if (scrollBehavior === 'show-on-scroll-up') {
+      return {
+        ...headerBaseStyle,
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000,
+        backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+        transition: 'background-color 0.3s ease, transform 0.3s ease, margin-bottom 0.3s ease',
+        transform: isHeaderVisible ? 'translateY(0)' : `translateY(-${headerHeight}px)`,
+        marginBottom: isHeaderVisible ? 0 : -headerHeight,
+        boxShadow: isScrolled && isHeaderVisible ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+      };
+    }
+    
+    return { ...headerBaseStyle, position: 'relative' };
   };
   
   return (
-    <header style={getHeaderStyle()} onClick={onClick}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {logoImage?.url && (
-            <img 
-              src={logoImage.url} 
-              alt="Logo" 
-              style={{ height: '40px', width: 'auto', objectFit: 'contain' }}
-              data-testid="header-logo"
-            />
-          )}
-          {canEdit ? (
-            <EditableText
-              value={props.title || ''}
-              field="title"
-              isEditing={editingField === 'title'}
-              onEdit={onEditField}
-              onChange={onTextChange}
-              style={{ fontSize: '20px', fontWeight: 700 }}
-              as="span"
-              isPreview={isPreview}
-            />
-          ) : (
-            <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
-          )}
-        </div>
+    <header ref={headerRef} style={getHeaderStyle()} onClick={onClick} data-header-component>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {logoImage?.url && (
+              <img 
+                src={logoImage.url} 
+                alt="Logo" 
+                style={{ height: '40px', width: 'auto', objectFit: 'contain' }}
+                data-testid="header-logo"
+              />
+            )}
+            {canEdit ? (
+              <EditableText
+                value={props.title || ''}
+                field="title"
+                isEditing={editingField === 'title'}
+                onEdit={onEditField}
+                onChange={onTextChange}
+                style={{ fontSize: '20px', fontWeight: 700 }}
+                as="span"
+                isPreview={isPreview}
+              />
+            ) : (
+              <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
+            )}
+          </div>
         
         {!isMobile && (
           <nav style={{ display: 'flex', gap: '24px' }} onClick={handleNavClick}>
