@@ -883,9 +883,9 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
   const logoImage = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   
-  const isTransparent = props.isTransparent === true || props.isTransparent === 'true';
-  const scrollBehavior = (props.scrollBehavior || 'static') as 'static' | 'sticky' | 'show-on-scroll-up';
-  const scrolledBackgroundColor = props.scrolledBackgroundColor || styles.backgroundColor || '#ffffff';
+  const isTransparent = styles.isTransparent === true || styles.isTransparent === 'true';
+  const scrollBehavior = ((styles.scrollBehavior as string) || 'static') as 'static' | 'sticky' | 'show-on-scroll-up';
+  const scrolledBackgroundColor = (styles.scrolledBackgroundColor as string) || styles.backgroundColor || '#ffffff';
 
   useEffect(() => {
     const checkMobile = () => setWindowIsMobile(window.innerWidth < 768);
