@@ -1457,6 +1457,10 @@ export default function ManagePage() {
     name: '',
     description: '',
     longDescription: '',
+    productDetails: '',
+    careInstructions: '',
+    sizeGuide: '',
+    shippingInfo: '',
     price: '0',
     compareAtPrice: null,
     currency: 'USD',
@@ -1763,6 +1767,10 @@ export default function ManagePage() {
       name: '',
       description: '',
       longDescription: '',
+      productDetails: '',
+      careInstructions: '',
+      sizeGuide: '',
+      shippingInfo: '',
       price: '0',
       compareAtPrice: null,
       currency: 'USD',
@@ -1784,6 +1792,10 @@ export default function ManagePage() {
         name: product.name,
         description: product.description || '',
         longDescription: product.longDescription || '',
+        productDetails: product.productDetails || '',
+        careInstructions: product.careInstructions || '',
+        sizeGuide: product.sizeGuide || '',
+        shippingInfo: product.shippingInfo || '',
         price: product.price,
         compareAtPrice: product.compareAtPrice || null,
         currency: product.currency,
@@ -3718,6 +3730,57 @@ export default function ManagePage() {
                           data-testid="input-product-long-description"
                         />
                       </div>
+                      
+                      <div className="border-t pt-4 mt-4">
+                        <h4 className="text-sm font-medium text-muted-foreground mb-4">Product Page Accordion Sections</h4>
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="productDetails">Product Details</Label>
+                            <Textarea 
+                              id="productDetails"
+                              value={productForm.productDetails || ''} 
+                              onChange={(e) => setProductForm({...productForm, productDetails: e.target.value})}
+                              placeholder="Material: Premium cotton&#10;Dimensions: 10 x 8 x 4 inches&#10;Weight: 0.5 lbs"
+                              rows={3}
+                              data-testid="input-product-details"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="careInstructions">Care Instructions</Label>
+                            <Textarea 
+                              id="careInstructions"
+                              value={productForm.careInstructions || ''} 
+                              onChange={(e) => setProductForm({...productForm, careInstructions: e.target.value})}
+                              placeholder="Machine wash cold with like colors. Tumble dry low. Do not bleach."
+                              rows={3}
+                              data-testid="input-care-instructions"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="sizeGuide">Size Guide</Label>
+                            <Textarea 
+                              id="sizeGuide"
+                              value={productForm.sizeGuide || ''} 
+                              onChange={(e) => setProductForm({...productForm, sizeGuide: e.target.value})}
+                              placeholder="S: 34-36 inches&#10;M: 38-40 inches&#10;L: 42-44 inches&#10;XL: 46-48 inches"
+                              rows={3}
+                              data-testid="input-size-guide"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="shippingInfo">Shipping & Returns</Label>
+                            <Textarea 
+                              id="shippingInfo"
+                              value={productForm.shippingInfo || ''} 
+                              onChange={(e) => setProductForm({...productForm, shippingInfo: e.target.value})}
+                              placeholder="Free shipping on orders over $50. 30-day return policy. Easy exchanges available."
+                              rows={3}
+                              data-testid="input-shipping-info"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="price">Price</Label>
