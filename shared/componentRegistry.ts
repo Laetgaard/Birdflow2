@@ -452,6 +452,7 @@ export type ComponentStyles = {
   overflow?: string;
   accentColor?: string;
   buttonColor?: string;
+  buttonHoverColor?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   buttonRadius?: string;
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
@@ -503,6 +504,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       textColor: '#ffffff',
       padding: '0',
       buttonColor: '#4f46e5',
+      buttonHoverColor: '#4338ca',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -515,6 +517,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'backgroundOpacity', label: 'Background Opacity', type: 'range', group: 'style', min: 0, max: 100, step: 5, unit: '%' },
       { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
+      { key: 'buttonHoverColor', label: 'Button Hover Color', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
     ],
@@ -585,6 +588,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       textColor: '#ffffff',
       padding: '0',
       buttonColor: '#ffffff',
+      buttonHoverColor: '#e5e7eb',
     },
     fields: [
       { key: 'title', label: 'Title', type: 'text', group: 'content' },
@@ -593,6 +597,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'buttonLink', label: 'Button URL', type: 'text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
+      { key: 'buttonHoverColor', label: 'Button Hover Color', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
     ],
@@ -991,6 +996,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       textColor: '#1a1a1a',
       padding: '0',
       buttonColor: '#4f46e5',
+      buttonHoverColor: '#4338ca',
       animationType: 'none',
       animationTrigger: 'load',
       animationDuration: '0.5s',
@@ -1005,6 +1011,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
+      { key: 'buttonHoverColor', label: 'Button Hover Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
     ],
   },

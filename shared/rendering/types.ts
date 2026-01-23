@@ -88,6 +88,7 @@ export type ComponentStyles = {
   minHeight?: string;
   overflow?: string;
   accentColor?: string;
+  buttonHoverColor?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   buttonRadius?: string;
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
