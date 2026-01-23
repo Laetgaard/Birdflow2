@@ -465,6 +465,7 @@ export type ComponentStyles = {
   overlayMode?: boolean | string;
   scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
   scrolledBackgroundColor?: string;
+  hoverColor?: string;
 };
 
 export type BuilderComponentData = {
@@ -667,6 +668,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
+      hoverColor: '#6366f1',
       padding: '0',
       isTransparent: false,
       overlayMode: false,
@@ -684,6 +686,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'scrolledBackgroundColor', label: 'Scrolled Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'hoverColor', label: 'Hover Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '16px 24px' },
     ],
   },
