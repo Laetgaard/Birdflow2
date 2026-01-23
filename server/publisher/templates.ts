@@ -2240,6 +2240,74 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
   };
 }
 
+function HoverButtonComponent({ 
+  children, 
+  backgroundColor, 
+  hoverBackgroundColor, 
+  textColor,
+  href,
+  onClick,
+  style,
+  type = 'button',
+  disabled = false,
+}: { 
+  children: React.ReactNode; 
+  backgroundColor: string; 
+  hoverBackgroundColor: string;
+  textColor?: string;
+  href?: string;
+  onClick?: () => void;
+  style?: React.CSSProperties;
+  type?: 'button' | 'submit';
+  disabled?: boolean;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  const buttonStyle: React.CSSProperties = {
+    padding: '12px 24px',
+    backgroundColor: isHovered && !disabled ? hoverBackgroundColor : backgroundColor,
+    color: textColor || '#ffffff',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: 600,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    transition: 'background-color 0.2s ease, transform 0.2s ease',
+    transform: isHovered && !disabled ? 'translateY(-2px)' : 'translateY(0)',
+    textDecoration: 'none',
+    display: 'inline-block',
+    opacity: disabled ? 0.7 : 1,
+    ...style,
+  };
+  
+  if (href) {
+    return (
+      <a
+        href={href}
+        onClick={onClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={buttonStyle}
+      >
+        {children}
+      </a>
+    );
+  }
+  
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={buttonStyle}
+    >
+      {children}
+    </button>
+  );
+}
+
 function HeroSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   // Parse image value (could be string or object with url/crop)
   const imageValue = (() => {
@@ -2260,6 +2328,7 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight as string) : 700;
   const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonHoverColor = (styles.buttonHoverColor as string) || '#4338ca';
   const backgroundOpacity = typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : 1;
   
   // Calculate contrasting text color for button (matches builder's getContrastColor exactly)
@@ -2327,9 +2396,15 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
         {props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{props.subtitle}</p>}
         {props.description && <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
         {props.buttonText && (
-          <a href={props.buttonLink || '#'} style={{ display: 'inline-block', padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: buttonColor, color: buttonTextColor, borderRadius: '8px', textDecoration: 'none' }}>
+          <HoverButtonComponent
+            backgroundColor={buttonColor}
+            hoverBackgroundColor={buttonHoverColor}
+            textColor={buttonTextColor}
+            href={props.buttonLink || '#'}
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
+          >
             {props.buttonText}
-          </a>
+          </HoverButtonComponent>
         )}
       </div>
     </section>
@@ -2377,6 +2452,19 @@ function TextImageSection({ props, styles }: { props: ComponentProps; styles: Co
 
 function CTASection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
+  const buttonColor = styles.buttonColor || '#ffffff';
+  const buttonHoverColor = (styles.buttonHoverColor as string) || '#e5e7eb';
+  const buttonTextColor = (() => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(buttonColor);
+    if (result) {
+      const r = parseInt(result[1], 16);
+      const g = parseInt(result[2], 16);
+      const b = parseInt(result[3], 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.5 ? '#000000' : '#ffffff';
+    }
+    return styles.backgroundColor || '#4f46e5';
+  })();
   
   return (
     <section style={baseStyle}>
@@ -2384,9 +2472,15 @@ function CTASection({ props, styles }: { props: ComponentProps; styles: Componen
         <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
         <p style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px' }}>{props.description}</p>
         {props.buttonText && (
-          <a href={props.buttonLink || '#'} style={{ display: 'inline-block', padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: '#ffffff', color: styles.backgroundColor || '#4f46e5', borderRadius: '8px', textDecoration: 'none' }}>
+          <HoverButtonComponent
+            backgroundColor={buttonColor}
+            hoverBackgroundColor={buttonHoverColor}
+            textColor={buttonTextColor}
+            href={props.buttonLink || '#'}
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
+          >
             {props.buttonText}
-          </a>
+          </HoverButtonComponent>
         )}
       </div>
     </section>
@@ -3171,6 +3265,7 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
 
   const textColor = styles.textColor || '#1a1a1a';
   const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonHoverColor = (styles.buttonHoverColor as string) || '#4338ca';
   const buttonTextColor = buttonColor && /^#[a-fA-F0-9]{6}$/.test(buttonColor) ? 
     (parseInt(buttonColor.slice(1), 16) > 0xffffff/2 ? '#000000' : '#ffffff') : '#ffffff';
 
@@ -3216,23 +3311,20 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
                 minWidth: '200px',
               }}
             />
-            <button
+            <HoverButtonComponent
               type="submit"
               disabled={isSubmitting}
+              backgroundColor={buttonColor}
+              hoverBackgroundColor={buttonHoverColor}
+              textColor={buttonTextColor}
               style={{
                 padding: '14px 28px',
                 fontSize: '16px',
                 fontWeight: '600',
-                backgroundColor: buttonColor,
-                color: buttonTextColor,
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                opacity: isSubmitting ? 0.7 : 1,
               }}
             >
               {props.buttonText || 'Subscribe'}
-            </button>
+            </HoverButtonComponent>
           </form>
         )}
       </div>

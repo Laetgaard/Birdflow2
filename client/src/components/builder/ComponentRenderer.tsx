@@ -101,6 +101,72 @@ function AnimatedWrapper({
   );
 }
 
+function HoverButton({ 
+  children, 
+  backgroundColor, 
+  hoverBackgroundColor, 
+  textColor,
+  href,
+  onClick,
+  style,
+  isPreview,
+  type = 'button',
+}: { 
+  children: React.ReactNode; 
+  backgroundColor: string; 
+  hoverBackgroundColor: string;
+  textColor?: string;
+  href?: string;
+  onClick?: (e: React.MouseEvent) => void;
+  style?: React.CSSProperties;
+  isPreview?: boolean;
+  type?: 'button' | 'submit';
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  const buttonStyle: React.CSSProperties = {
+    padding: '12px 24px',
+    backgroundColor: isHovered ? hoverBackgroundColor : backgroundColor,
+    color: textColor || '#ffffff',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'background-color 0.2s ease, transform 0.2s ease',
+    transform: isHovered ? 'translateY(-2px)' : 'translateY(0)',
+    textDecoration: 'none',
+    display: 'inline-block',
+    ...style,
+  };
+  
+  if (href) {
+    return (
+      <a
+        href={isPreview ? href : '#'}
+        onClick={onClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={buttonStyle}
+      >
+        {children}
+      </a>
+    );
+  }
+  
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={buttonStyle}
+    >
+      {children}
+    </button>
+  );
+}
+
 type Product = {
   id: string;
   name: string;
@@ -423,6 +489,7 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
   const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonHoverColor = styles.buttonHoverColor || '#4338ca';
   const buttonTextColor = getContrastColor(buttonColor);
   const backgroundOpacity = typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : 1;
   
@@ -501,9 +568,14 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
           )
         )}
         {props.buttonText && (
-          <button 
-            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: buttonColor, color: buttonTextColor, border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+          <HoverButton
+            backgroundColor={buttonColor}
+            hoverBackgroundColor={buttonHoverColor}
+            textColor={buttonTextColor}
+            href={props.buttonLink}
+            isPreview={isPreview}
             onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('buttonText'); } : undefined}
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
           >
             {canEdit && editingField === 'buttonText' ? (
               <span
@@ -536,7 +608,7 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
             ) : (
               props.buttonText
             )}
-          </button>
+          </HoverButton>
         )}
       </div>
     </section>
@@ -651,6 +723,7 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
   const buttonColor = styles.buttonColor || '#ffffff';
+  const buttonHoverColor = styles.buttonHoverColor || '#e5e7eb';
   const buttonTextColor = getContrastColor(buttonColor);
   
   return (
@@ -685,9 +758,14 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
           <p style={{ fontSize: bodyFontSize, opacity: 0.9, marginBottom: '32px' }}>{props.description}</p>
         )}
         {props.buttonText && (
-          <button 
-            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600, backgroundColor: buttonColor, color: buttonTextColor, border: 'none', borderRadius: '8px', cursor: 'pointer' }}
+          <HoverButton
+            backgroundColor={buttonColor}
+            hoverBackgroundColor={buttonHoverColor}
+            textColor={buttonTextColor}
+            href={props.buttonLink}
+            isPreview={isPreview}
             onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('buttonText'); } : undefined}
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
           >
             {canEdit && editingField === 'buttonText' ? (
               <span
@@ -720,7 +798,7 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
             ) : (
               props.buttonText
             )}
-          </button>
+          </HoverButton>
         )}
       </div>
     </section>
@@ -2051,6 +2129,7 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
 
   const textColor = styles.textColor || '#1a1a1a';
   const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonHoverColor = styles.buttonHoverColor || '#4338ca';
   const buttonTextColor = getContrastColor(buttonColor);
 
   return (
@@ -2120,24 +2199,20 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
               disabled={isPreview}
               data-testid="input-newsletter-email"
             />
-            <button
+            <HoverButton
               type="submit"
-              disabled={isSubmitting}
+              backgroundColor={buttonColor}
+              hoverBackgroundColor={buttonHoverColor}
+              textColor={buttonTextColor}
               style={{
                 padding: '14px 28px',
                 fontSize: '16px',
                 fontWeight: '600',
-                backgroundColor: buttonColor,
-                color: buttonTextColor,
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
                 opacity: isSubmitting ? 0.7 : 1,
               }}
-              data-testid="button-newsletter-submit"
             >
               {props.buttonText || 'Subscribe'}
-            </button>
+            </HoverButton>
           </form>
         )}
       </div>
