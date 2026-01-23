@@ -884,6 +884,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const logoImage = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   
   const isTransparent = styles.isTransparent === true || styles.isTransparent === 'true';
+  const overlayMode = styles.overlayMode === true || styles.overlayMode === 'true';
   const scrollBehavior = ((styles.scrollBehavior as string) || 'static') as 'static' | 'sticky' | 'show-on-scroll-up';
   const scrolledBackgroundColor = (styles.scrolledBackgroundColor as string) || styles.backgroundColor || '#ffffff';
 
@@ -967,6 +968,48 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
     const headerBaseStyle = { ...baseStyle, fontFamily };
     const shouldBeTransparent = isTransparent && !isScrolled;
     
+    // Overlay mode: header floats over content with absolute positioning
+    if (overlayMode) {
+      if (scrollBehavior === 'sticky') {
+        return {
+          ...headerBaseStyle,
+          position: 'sticky',
+          top: 0,
+          zIndex: 1000,
+          marginBottom: -headerHeight,
+          backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+          transition: 'background-color 0.3s ease',
+          boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+        };
+      }
+      if (scrollBehavior === 'show-on-scroll-up') {
+        return {
+          ...headerBaseStyle,
+          position: 'sticky',
+          top: 0,
+          zIndex: 1000,
+          marginBottom: -headerHeight,
+          backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+          transition: 'background-color 0.3s ease, transform 0.3s ease',
+          transform: isHeaderVisible ? 'translateY(0)' : `translateY(-${headerHeight}px)`,
+          boxShadow: isScrolled && isHeaderVisible ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+        };
+      }
+      // Static overlay - absolute positioning
+      return { 
+        ...headerBaseStyle, 
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+        transition: 'background-color 0.3s ease',
+        boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+      };
+    }
+    
+    // Non-overlay modes (original behavior)
     if (scrollBehavior === 'static') {
       if (isTransparent) {
         return { 
