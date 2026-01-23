@@ -462,6 +462,7 @@ export type ComponentStyles = {
   animationDelay?: string;
   // Header scroll behavior settings
   isTransparent?: boolean | string;
+  overlayMode?: boolean | string;
   scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
   scrolledBackgroundColor?: string;
 };
@@ -668,6 +669,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       textColor: '#1a1a1a',
       padding: '0',
       isTransparent: false,
+      overlayMode: false,
       scrollBehavior: 'static',
       scrolledBackgroundColor: '#ffffff',
     },
@@ -676,6 +678,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'imageUrl', label: 'Logo Image', type: 'image', group: 'content' },
       { key: 'showCart', label: 'Show Shopping Cart', type: 'select', group: 'content', options: ['true', 'false'] },
       { key: 'items', label: 'Nav Items', type: 'items', group: 'content' },
+      { key: 'overlayMode', label: 'Overlay on Content', type: 'select', group: 'style', options: ['true', 'false'] },
       { key: 'isTransparent', label: 'Transparent Header', type: 'select', group: 'style', options: ['true', 'false'] },
       { key: 'scrollBehavior', label: 'Scroll Behavior', type: 'select', group: 'style', options: ['static', 'sticky', 'show-on-scroll-up'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },

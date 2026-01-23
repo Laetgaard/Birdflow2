@@ -93,6 +93,7 @@ export type ComponentStyles = {
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
   // Header scroll behavior settings
   isTransparent?: boolean | string;
+  overlayMode?: boolean | string;
   scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
   scrolledBackgroundColor?: string;
 };
