@@ -2440,7 +2440,7 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   const [isMobile, setIsMobile] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const lastScrollYRef = useRef(0);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' });
   const { totalItems, toggleCart } = useCart();
   const showCart = props.showCart !== false && props.showCart !== 'false';
@@ -2457,37 +2457,49 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   }, []);
   
   useEffect(() => {
-    if (scrollBehavior === 'static') return;
-    
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
       setIsScrolled(currentScrollY > 50);
       
       if (scrollBehavior === 'show-on-scroll-up') {
-        if (currentScrollY < lastScrollY || currentScrollY < 50) {
+        if (currentScrollY < lastScrollYRef.current || currentScrollY < 50) {
           setIsHeaderVisible(true);
-        } else if (currentScrollY > lastScrollY && currentScrollY > 100) {
+        } else if (currentScrollY > lastScrollYRef.current && currentScrollY > 100) {
           setIsHeaderVisible(false);
         }
       }
-      setLastScrollY(currentScrollY);
+      lastScrollYRef.current = currentScrollY;
     };
     
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [scrollBehavior, lastScrollY]);
+  }, [scrollBehavior]);
 
   const navItems = pages && pages.length > 0
     ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
     : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
   
   const getHeaderStyle = (): React.CSSProperties => {
+    const shouldBeTransparent = isTransparent && !isScrolled;
+    
     if (scrollBehavior === 'static') {
+      if (isTransparent) {
+        return { 
+          ...baseStyle, 
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+          backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+          transition: 'background-color 0.3s ease',
+          boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+        };
+      }
       return { ...baseStyle, position: 'relative' };
     }
     
     const isFixed = scrollBehavior === 'sticky' || scrollBehavior === 'show-on-scroll-up';
-    const shouldBeTransparent = isTransparent && !isScrolled;
     
     return {
       ...baseStyle,
