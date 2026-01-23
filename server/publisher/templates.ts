@@ -2438,9 +2438,16 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
 function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles: ComponentStyles; pages?: BuilderPage[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' });
   const { totalItems, toggleCart } = useCart();
   const showCart = props.showCart !== false && props.showCart !== 'false';
+  
+  const isTransparent = props.isTransparent === true || props.isTransparent === 'true';
+  const scrollBehavior = props.scrollBehavior || 'static';
+  const scrolledBackgroundColor = props.scrolledBackgroundColor || styles.backgroundColor || '#ffffff';
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -2448,13 +2455,56 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+  
+  useEffect(() => {
+    if (scrollBehavior === 'static') return;
+    
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      setIsScrolled(currentScrollY > 50);
+      
+      if (scrollBehavior === 'show-on-scroll-up') {
+        if (currentScrollY < lastScrollY || currentScrollY < 50) {
+          setIsHeaderVisible(true);
+        } else if (currentScrollY > lastScrollY && currentScrollY > 100) {
+          setIsHeaderVisible(false);
+        }
+      }
+      setLastScrollY(currentScrollY);
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [scrollBehavior, lastScrollY]);
 
   const navItems = pages && pages.length > 0
     ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
     : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
   
+  const getHeaderStyle = (): React.CSSProperties => {
+    if (scrollBehavior === 'static') {
+      return { ...baseStyle, position: 'relative' };
+    }
+    
+    const isFixed = scrollBehavior === 'sticky' || scrollBehavior === 'show-on-scroll-up';
+    const shouldBeTransparent = isTransparent && !isScrolled;
+    
+    return {
+      ...baseStyle,
+      position: isFixed ? 'fixed' : 'relative',
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 1000,
+      backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+      transition: 'background-color 0.3s ease, transform 0.3s ease',
+      transform: scrollBehavior === 'show-on-scroll-up' && !isHeaderVisible ? 'translateY(-100%)' : 'translateY(0)',
+      boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+    };
+  };
+  
   return (
-    <header style={{ ...baseStyle, position: 'relative' }}>
+    <header style={getHeaderStyle()}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
         <a href="/" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '20px', fontWeight: 700, color: 'inherit', textDecoration: 'none' }}>
           {(() => {
