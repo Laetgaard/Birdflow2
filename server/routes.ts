@@ -1135,6 +1135,135 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // PRODUCT REVIEWS MANAGEMENT
+  // ============================================
+
+  // Get all reviews for a product (authenticated)
+  app.get("/api/websites/:id/products/:productId/reviews", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { productReviews } = await import("@shared/schema");
+      const reviews = await db.select().from(productReviews)
+        .where(eq(productReviews.productId, req.params.productId));
+      res.json(reviews);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create a new review
+  app.post("/api/websites/:id/products/:productId/reviews", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { name, rating, text, verified } = req.body;
+      
+      if (!name || typeof rating !== 'number' || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "Name and rating (1-5) are required" });
+      }
+
+      const { productReviews } = await import("@shared/schema");
+      const [review] = await db.insert(productReviews).values({
+        productId: req.params.productId,
+        websiteId: req.params.id,
+        name,
+        rating,
+        text: text || null,
+        verified: verified || false,
+      }).returning();
+      
+      res.json(review);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update a review
+  app.patch("/api/websites/:id/products/:productId/reviews/:reviewId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { name, rating, text, verified } = req.body;
+      const { productReviews } = await import("@shared/schema");
+      
+      const [updated] = await db.update(productReviews)
+        .set({
+          ...(name !== undefined && { name }),
+          ...(rating !== undefined && { rating }),
+          ...(text !== undefined && { text }),
+          ...(verified !== undefined && { verified }),
+        })
+        .where(eq(productReviews.id, req.params.reviewId))
+        .returning();
+      
+      if (!updated) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+      
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete a review
+  app.delete("/api/websites/:id/products/:productId/reviews/:reviewId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { productReviews } = await import("@shared/schema");
+      const [deleted] = await db.delete(productReviews)
+        .where(eq(productReviews.id, req.params.reviewId))
+        .returning();
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Public endpoint to get active products (for published sites)
   app.get("/api/public/websites/:id/products", async (req, res) => {
     try {
@@ -1153,6 +1282,19 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Product not found" });
       }
       res.json(product);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Public endpoint to get product reviews
+  app.get("/api/public/websites/:id/products/:productId/reviews", async (req, res) => {
+    try {
+      const { productReviews: reviewsTable } = await import("@shared/schema");
+      const reviews = await db.select().from(reviewsTable)
+        .where(eq(reviewsTable.productId, req.params.productId))
+        .orderBy(reviewsTable.createdAt);
+      res.json(reviews);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
