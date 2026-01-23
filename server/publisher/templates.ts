@@ -2435,6 +2435,91 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
   );
 }
 
+function NavLinkItem({ href, children, textColor, hoverColor, onClick, style }: { 
+  href: string; 
+  children: React.ReactNode; 
+  textColor: string; 
+  hoverColor: string; 
+  onClick?: () => void;
+  style?: React.CSSProperties;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  return (
+    <a
+      href={href}
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        color: isHovered ? hoverColor : textColor,
+        textDecoration: 'none',
+        transition: 'color 0.2s ease',
+        ...style,
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+function BurgerMenuButton({ isOpen, textColor, hoverColor, onClick }: {
+  isOpen: boolean;
+  textColor: string;
+  hoverColor: string;
+  onClick: () => void;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  const currentColor = isHovered ? hoverColor : textColor;
+  
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{ 
+        background: 'none', 
+        border: 'none', 
+        cursor: 'pointer', 
+        padding: '8px', 
+        display: 'flex', 
+        flexDirection: 'column', 
+        gap: '4px',
+        transition: 'transform 0.2s ease',
+        transform: isHovered ? 'scale(1.1)' : 'scale(1)',
+      }}
+      aria-label="Toggle menu"
+    >
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease', 
+        transform: isOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' 
+      }} />
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease', 
+        opacity: isOpen ? 0 : 1 
+      }} />
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease', 
+        transform: isOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' 
+      }} />
+    </button>
+  );
+}
+
 function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles: ComponentStyles; pages?: BuilderPage[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -2451,6 +2536,7 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   const overlayMode = styles.overlayMode === true || styles.overlayMode === 'true';
   const scrollBehavior = (styles.scrollBehavior as string) || 'static';
   const scrolledBackgroundColor = (styles.scrolledBackgroundColor as string) || styles.backgroundColor || '#ffffff';
+  const hoverColor = (styles.hoverColor as string) || '#6366f1';
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -2601,7 +2687,14 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
           {!isMobile && (
             <nav style={{ display: 'flex', gap: '24px' }}>
               {navItems.map(item => (
-                <a key={item.id} href={item.href} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+                <NavLinkItem 
+                  key={item.id} 
+                  href={item.href} 
+                  textColor={styles.textColor || '#1a1a1a'}
+                  hoverColor={hoverColor}
+                >
+                  {item.title}
+                </NavLinkItem>
               ))}
             </nav>
           )}
@@ -2662,15 +2755,12 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
           )}
 
           {isMobile && (
-            <button
+            <BurgerMenuButton
+              isOpen={mobileMenuOpen}
+              textColor={styles.textColor || '#1a1a1a'}
+              hoverColor={hoverColor}
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}
-              aria-label="Toggle menu"
-            >
-              <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
-              <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', opacity: mobileMenuOpen ? 0 : 1 }} />
-              <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
-            </button>
+            />
           )}
         </div>
       </div>
@@ -2692,14 +2782,16 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
           }}
         >
           {navItems.map(item => (
-            <a
+            <NavLinkItem
               key={item.id}
               href={item.href}
               onClick={() => setMobileMenuOpen(false)}
-              style={{ color: styles.textColor || '#1a1a1a', textDecoration: 'none', padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
+              textColor={styles.textColor || '#1a1a1a'}
+              hoverColor={hoverColor}
+              style={{ padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
             >
               {item.title}
-            </a>
+            </NavLinkItem>
           ))}
         </nav>
       )}

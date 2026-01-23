@@ -871,6 +871,93 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
   );
 }
 
+function NavLink({ href, children, textColor, hoverColor, isPreview, onClick, style }: { 
+  href: string; 
+  children: React.ReactNode; 
+  textColor: string; 
+  hoverColor: string; 
+  isPreview?: boolean;
+  onClick?: (e: React.MouseEvent) => void;
+  style?: React.CSSProperties;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  return (
+    <a
+      href={isPreview ? href : '#'}
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        color: isHovered ? hoverColor : textColor,
+        textDecoration: 'none',
+        transition: 'color 0.2s ease',
+        ...style,
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+function BurgerButton({ isOpen, textColor, hoverColor, onClick }: {
+  isOpen: boolean;
+  textColor: string;
+  hoverColor: string;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  const [isHovered, setIsHovered] = useState(false);
+  const currentColor = isHovered ? hoverColor : textColor;
+  
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{ 
+        background: 'none', 
+        border: 'none', 
+        cursor: 'pointer', 
+        padding: '8px', 
+        display: 'flex', 
+        flexDirection: 'column', 
+        gap: '4px',
+        transition: 'transform 0.2s ease',
+        transform: isHovered ? 'scale(1.1)' : 'scale(1)',
+      }}
+      aria-label="Toggle menu"
+      data-testid="button-burger-menu"
+    >
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease', 
+        transform: isOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' 
+      }} />
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease', 
+        opacity: isOpen ? 0 : 1 
+      }} />
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease', 
+        transform: isOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' 
+      }} />
+    </button>
+  );
+}
+
 function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, onTextChange, editingField, onEditField, deviceMode }: ComponentRenderProps & { pages?: BuilderPage[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [windowIsMobile, setWindowIsMobile] = useState(false);
@@ -887,6 +974,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const overlayMode = styles.overlayMode === true || styles.overlayMode === 'true';
   const scrollBehavior = ((styles.scrollBehavior as string) || 'static') as 'static' | 'sticky' | 'show-on-scroll-up';
   const scrolledBackgroundColor = (styles.scrolledBackgroundColor as string) || styles.backgroundColor || '#ffffff';
+  const hoverColor = (styles.hoverColor as string) || '#6366f1';
 
   useEffect(() => {
     const checkMobile = () => setWindowIsMobile(window.innerWidth < 768);
@@ -1087,22 +1175,26 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
         {!isMobile && (
           <nav style={{ display: 'flex', gap: '24px' }} onClick={handleNavClick}>
             {navItems.map(item => (
-              <a key={item.id} href={isPreview ? item.href : '#'} style={{ color: 'inherit', textDecoration: 'none' }}>{item.title}</a>
+              <NavLink 
+                key={item.id} 
+                href={item.href} 
+                textColor={styles.textColor || '#1a1a1a'}
+                hoverColor={hoverColor}
+                isPreview={isPreview}
+              >
+                {item.title}
+              </NavLink>
             ))}
           </nav>
         )}
 
         {isMobile && (
-          <button
+          <BurgerButton
+            isOpen={mobileMenuOpen}
+            textColor={styles.textColor || '#1a1a1a'}
+            hoverColor={hoverColor}
             onClick={handleBurgerClick}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}
-            aria-label="Toggle menu"
-            data-testid="button-burger-menu"
-          >
-            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' }} />
-            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', opacity: mobileMenuOpen ? 0 : 1 }} />
-            <span style={{ display: 'block', width: '24px', height: '3px', backgroundColor: styles.textColor || '#1a1a1a', borderRadius: '2px', transition: 'all 0.3s', transform: mobileMenuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' }} />
-          </button>
+          />
         )}
       </div>
 
@@ -1125,14 +1217,17 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
           data-testid="mobile-menu"
         >
           {navItems.map(item => (
-            <a
+            <NavLink
               key={item.id}
-              href={isPreview ? item.href : '#'}
+              href={item.href}
               onClick={handleMobileNavClick}
-              style={{ color: styles.textColor || '#1a1a1a', textDecoration: 'none', padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
+              textColor={styles.textColor || '#1a1a1a'}
+              hoverColor={hoverColor}
+              isPreview={isPreview}
+              style={{ padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
             >
               {item.title}
-            </a>
+            </NavLink>
           ))}
         </nav>
       )}
