@@ -874,10 +874,17 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
 function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, onTextChange, editingField, onEditField, deviceMode }: ComponentRenderProps & { pages?: BuilderPage[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [windowIsMobile, setWindowIsMobile] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
   const logoImage = props.imageUrl ? parseImageValue(props.imageUrl) : null;
+  
+  const isTransparent = props.isTransparent === true || props.isTransparent === 'true';
+  const scrollBehavior = props.scrollBehavior || 'static';
+  const scrolledBackgroundColor = props.scrolledBackgroundColor || styles.backgroundColor || '#ffffff';
 
   useEffect(() => {
     const checkMobile = () => setWindowIsMobile(window.innerWidth < 768);
@@ -885,6 +892,27 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  useEffect(() => {
+    if (!isPreview || scrollBehavior === 'static') return;
+    
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      setIsScrolled(currentScrollY > 50);
+      
+      if (scrollBehavior === 'show-on-scroll-up') {
+        if (currentScrollY < lastScrollY || currentScrollY < 50) {
+          setIsHeaderVisible(true);
+        } else if (currentScrollY > lastScrollY && currentScrollY > 100) {
+          setIsHeaderVisible(false);
+        }
+      }
+      setLastScrollY(currentScrollY);
+    };
+    
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isPreview, scrollBehavior, lastScrollY]);
 
   // Use deviceMode from builder preview if provided, otherwise use window width
   const isMobile = deviceMode ? (deviceMode === 'mobile' || deviceMode === 'tablet') : windowIsMobile;
@@ -907,8 +935,32 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
     setMobileMenuOpen(false);
   };
   
+  const getHeaderStyle = () => {
+    const headerBaseStyle = { ...baseStyle, fontFamily };
+    
+    if (scrollBehavior === 'static') {
+      return { ...headerBaseStyle, position: 'relative' as const };
+    }
+    
+    const isFixed = scrollBehavior === 'sticky' || scrollBehavior === 'show-on-scroll-up';
+    const shouldBeTransparent = isTransparent && !isScrolled;
+    
+    return {
+      ...headerBaseStyle,
+      position: isFixed ? 'fixed' as const : 'relative' as const,
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 1000,
+      backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+      transition: 'background-color 0.3s ease, transform 0.3s ease',
+      transform: scrollBehavior === 'show-on-scroll-up' && !isHeaderVisible ? 'translateY(-100%)' : 'translateY(0)',
+      boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+    };
+  };
+  
   return (
-    <header style={{ ...baseStyle, position: 'relative', fontFamily }} onClick={onClick}>
+    <header style={getHeaderStyle()} onClick={onClick}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {logoImage?.url && (
