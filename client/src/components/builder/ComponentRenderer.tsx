@@ -876,7 +876,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const [windowIsMobile, setWindowIsMobile] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const lastScrollYRef = useRef(0);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
@@ -894,25 +894,23 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   }, []);
 
   useEffect(() => {
-    if (!isPreview || scrollBehavior === 'static') return;
-    
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
       setIsScrolled(currentScrollY > 50);
       
       if (scrollBehavior === 'show-on-scroll-up') {
-        if (currentScrollY < lastScrollY || currentScrollY < 50) {
+        if (currentScrollY < lastScrollYRef.current || currentScrollY < 50) {
           setIsHeaderVisible(true);
-        } else if (currentScrollY > lastScrollY && currentScrollY > 100) {
+        } else if (currentScrollY > lastScrollYRef.current && currentScrollY > 100) {
           setIsHeaderVisible(false);
         }
       }
-      setLastScrollY(currentScrollY);
+      lastScrollYRef.current = currentScrollY;
     };
     
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [isPreview, scrollBehavior, lastScrollY]);
+  }, [scrollBehavior]);
 
   // Use deviceMode from builder preview if provided, otherwise use window width
   const isMobile = deviceMode ? (deviceMode === 'mobile' || deviceMode === 'tablet') : windowIsMobile;
@@ -937,13 +935,26 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   
   const getHeaderStyle = () => {
     const headerBaseStyle = { ...baseStyle, fontFamily };
+    const shouldBeTransparent = isTransparent && !isScrolled;
     
     if (scrollBehavior === 'static') {
+      if (isTransparent) {
+        return { 
+          ...headerBaseStyle, 
+          position: 'absolute' as const,
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+          backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
+          transition: 'background-color 0.3s ease',
+          boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+        };
+      }
       return { ...headerBaseStyle, position: 'relative' as const };
     }
     
     const isFixed = scrollBehavior === 'sticky' || scrollBehavior === 'show-on-scroll-up';
-    const shouldBeTransparent = isTransparent && !isScrolled;
     
     return {
       ...headerBaseStyle,
