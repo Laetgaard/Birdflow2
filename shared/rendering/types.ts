@@ -96,6 +96,7 @@ export type ComponentStyles = {
   overlayMode?: boolean | string;
   scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
   scrolledBackgroundColor?: string;
+  hoverColor?: string;
 };
 
 export type BuilderComponentData = {
