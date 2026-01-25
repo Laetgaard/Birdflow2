@@ -2589,8 +2589,9 @@ function BurgerMenuButton({ isOpen, textColor, hoverColor, onClick }: {
         height: '3px', 
         backgroundColor: currentColor, 
         borderRadius: '2px', 
-        transition: 'all 0.3s ease', 
-        transform: isOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none' 
+        transition: 'all 0.3s ease',
+        transformOrigin: 'center',
+        transform: isOpen ? 'translateY(7px) rotate(45deg)' : 'none' 
       }} />
       <span style={{ 
         display: 'block', 
@@ -2607,8 +2608,9 @@ function BurgerMenuButton({ isOpen, textColor, hoverColor, onClick }: {
         height: '3px', 
         backgroundColor: currentColor, 
         borderRadius: '2px', 
-        transition: 'all 0.3s ease', 
-        transform: isOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none' 
+        transition: 'all 0.3s ease',
+        transformOrigin: 'center',
+        transform: isOpen ? 'translateY(-7px) rotate(-45deg)' : 'none' 
       }} />
     </button>
   );
