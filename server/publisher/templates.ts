@@ -2580,8 +2580,6 @@ function BurgerMenuButton({ isOpen, textColor, hoverColor, onClick }: {
         display: 'flex', 
         flexDirection: 'column', 
         gap: '4px',
-        transition: 'transform 0.2s ease',
-        transform: isHovered ? 'scale(1.1)' : 'scale(1)',
       }}
       aria-label="Toggle menu"
     >
@@ -2884,7 +2882,6 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
               onClick={() => setMobileMenuOpen(false)}
               textColor={styles.textColor || '#1a1a1a'}
               hoverColor={hoverColor}
-              disableHover={true}
               style={{ padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
             >
               {item.title}
