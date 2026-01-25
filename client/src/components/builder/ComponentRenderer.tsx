@@ -949,7 +949,7 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
   );
 }
 
-function NavLink({ href, children, textColor, hoverColor, isPreview, onClick, style }: { 
+function NavLink({ href, children, textColor, hoverColor, isPreview, onClick, style, disableHover }: { 
   href: string; 
   children: React.ReactNode; 
   textColor: string; 
@@ -957,18 +957,20 @@ function NavLink({ href, children, textColor, hoverColor, isPreview, onClick, st
   isPreview?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   style?: React.CSSProperties;
+  disableHover?: boolean;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const showHover = !disableHover && isHovered;
   return (
     <a
       href={isPreview ? href : '#'}
       onClick={onClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => !disableHover && setIsHovered(true)}
+      onMouseLeave={() => !disableHover && setIsHovered(false)}
       style={{
-        color: isHovered ? hoverColor : textColor,
+        color: showHover ? hoverColor : textColor,
         textDecoration: 'none',
-        transition: 'color 0.2s ease',
+        transition: disableHover ? 'none' : 'color 0.2s ease',
         ...style,
       }}
     >
@@ -1302,6 +1304,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
               textColor={styles.textColor || '#1a1a1a'}
               hoverColor={hoverColor}
               isPreview={isPreview}
+              disableHover={true}
               style={{ padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
             >
               {item.title}

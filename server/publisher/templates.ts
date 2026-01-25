@@ -2529,25 +2529,27 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
   );
 }
 
-function NavLinkItem({ href, children, textColor, hoverColor, onClick, style }: { 
+function NavLinkItem({ href, children, textColor, hoverColor, onClick, style, disableHover }: { 
   href: string; 
   children: React.ReactNode; 
   textColor: string; 
   hoverColor: string; 
   onClick?: () => void;
   style?: React.CSSProperties;
+  disableHover?: boolean;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const showHover = !disableHover && isHovered;
   return (
     <a
       href={href}
       onClick={onClick}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => !disableHover && setIsHovered(true)}
+      onMouseLeave={() => !disableHover && setIsHovered(false)}
       style={{
-        color: isHovered ? hoverColor : textColor,
+        color: showHover ? hoverColor : textColor,
         textDecoration: 'none',
-        transition: 'color 0.2s ease',
+        transition: disableHover ? 'none' : 'color 0.2s ease',
         ...style,
       }}
     >
@@ -2882,6 +2884,7 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
               onClick={() => setMobileMenuOpen(false)}
               textColor={styles.textColor || '#1a1a1a'}
               hoverColor={hoverColor}
+              disableHover={true}
               style={{ padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
             >
               {item.title}
