@@ -1039,4 +1039,16 @@ export type SupportTicket = typeof supportTickets.$inferSelect;
 export type SupportTicketType = 'bug' | 'problem' | 'improvement';
 export type SupportTicketStatus = 'open' | 'in_progress' | 'closed';
 
+// OAuth state tokens for replay prevention (persisted for multi-instance deployments)
+export const oauthStateTokens = pgTable("oauth_state_tokens", {
+  jti: varchar("jti").primaryKey(), // Unique token ID
+  websiteId: varchar("website_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"), // NULL if not yet used
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type OAuthStateToken = typeof oauthStateTokens.$inferSelect;
+
 export * from "./models/chat";

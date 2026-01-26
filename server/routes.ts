@@ -3620,52 +3620,108 @@ export async function registerRoutes(
     }
   });
 
-  // Helper to create signed JWT state token for OAuth
+  // Helper to create signed JWT state token for OAuth (with DB persistence)
   const createOAuthStateToken = async (websiteId: string, userId: string): Promise<string> => {
     const crypto = await import('crypto');
+    const { oauthStateTokens } = await import('@shared/schema');
+    
+    // Use Stripe secret key for signing - FAIL if not configured
+    const platformStripeSecretKey = await getStripeSecretKey();
+    if (!platformStripeSecretKey) {
+      throw new Error('Stripe not configured - cannot create secure OAuth state');
+    }
+    
+    const jti = crypto.randomBytes(16).toString('hex');
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    
+    // Persist state token to database for multi-instance replay protection
+    await db.insert(oauthStateTokens).values({
+      jti,
+      websiteId,
+      userId,
+      expiresAt,
+    });
+    
     const payload = {
       websiteId,
       userId,
-      exp: Math.floor(Date.now() / 1000) + 600, // 10 minutes
-      jti: crypto.randomBytes(16).toString('hex'), // Unique token ID
+      exp: Math.floor(expiresAt.getTime() / 1000),
+      jti,
     };
     
-    // Use HMAC-SHA256 to sign the state (using Stripe secret as signing key)
-    const platformStripeSecretKey = await getStripeSecretKey();
-    const signingKey = platformStripeSecretKey || 'fallback-secret-key';
-    
     const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signature = crypto.createHmac('sha256', signingKey).update(payloadStr).digest('base64url');
+    const signature = crypto.createHmac('sha256', platformStripeSecretKey).update(payloadStr).digest('base64url');
     
     return `${payloadStr}.${signature}`;
   };
   
-  // Helper to verify signed JWT state token
-  const verifyOAuthStateToken = async (token: string): Promise<{ websiteId: string; userId: string } | null> => {
+  // Helper to atomically verify and consume OAuth state token
+  // Returns token data if valid and unused, marks as used atomically to prevent race conditions
+  const verifyAndConsumeOAuthStateToken = async (token: string): Promise<{ websiteId: string; userId: string } | null> => {
     try {
       const crypto = await import('crypto');
+      const { oauthStateTokens } = await import('@shared/schema');
+      const { isNull, and } = await import('drizzle-orm');
       const [payloadStr, signature] = token.split('.');
       
       if (!payloadStr || !signature) return null;
       
+      // Use Stripe secret key for verification - FAIL if not configured
       const platformStripeSecretKey = await getStripeSecretKey();
-      const signingKey = platformStripeSecretKey || 'fallback-secret-key';
+      if (!platformStripeSecretKey) return null;
       
-      // Verify signature
-      const expectedSignature = crypto.createHmac('sha256', signingKey).update(payloadStr).digest('base64url');
-      if (signature !== expectedSignature) return null;
+      // Verify signature first (cheap check before DB query)
+      const expectedSignature = crypto.createHmac('sha256', platformStripeSecretKey).update(payloadStr).digest('base64url');
+      if (signature !== expectedSignature) {
+        console.error('OAuth state token signature verification failed');
+        return null;
+      }
       
       // Parse and validate payload
       const payload = JSON.parse(Buffer.from(payloadStr, 'base64url').toString());
       
       // Check expiration
-      if (payload.exp < Math.floor(Date.now() / 1000)) return null;
+      if (payload.exp < Math.floor(Date.now() / 1000)) {
+        console.error('OAuth state token expired');
+        return null;
+      }
+      
+      // ATOMIC: Update token to mark as used WHERE it exists AND usedAt is NULL
+      // This prevents race conditions - only one concurrent request can succeed
+      const updateResult = await db.update(oauthStateTokens)
+        .set({ usedAt: new Date() })
+        .where(
+          and(
+            eq(oauthStateTokens.jti, payload.jti),
+            isNull(oauthStateTokens.usedAt)
+          )
+        )
+        .returning({ jti: oauthStateTokens.jti });
+      
+      if (updateResult.length === 0) {
+        // Either token doesn't exist or was already used
+        console.error('OAuth state token not found or already used (replay attack prevented)');
+        return null;
+      }
       
       return { websiteId: payload.websiteId, userId: payload.userId };
-    } catch {
+    } catch (error) {
+      console.error('OAuth state token verification error:', error);
       return null;
     }
   };
+  
+  // Cleanup expired OAuth state tokens periodically (every 5 minutes)
+  setInterval(async () => {
+    try {
+      const { oauthStateTokens } = await import('@shared/schema');
+      const { lt } = await import('drizzle-orm');
+      await db.delete(oauthStateTokens)
+        .where(lt(oauthStateTokens.expiresAt, new Date()));
+    } catch (error) {
+      console.error('OAuth token cleanup error:', error);
+    }
+  }, 5 * 60 * 1000);
 
   // Stripe Connect OAuth - Initiate connection
   app.get("/api/stripe/connect/:websiteId", requireAuth, async (req, res) => {
@@ -3713,11 +3769,11 @@ export async function registerRoutes(
     try {
       const { code, state: stateToken, error, error_description } = req.query;
 
-      // Verify signed state token (stateless, cryptographically secure)
-      const stateData = await verifyOAuthStateToken(stateToken as string);
+      // Atomically verify and consume state token (prevents replay attacks with race condition protection)
+      const stateData = await verifyAndConsumeOAuthStateToken(stateToken as string);
       
       if (!stateData) {
-        console.error('Invalid or expired OAuth state token');
+        console.error('Invalid, expired, or replayed OAuth state token');
         return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Session expired or invalid. Please try connecting again.')}`);
       }
       
