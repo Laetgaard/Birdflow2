@@ -1404,6 +1404,7 @@ export async function registerRoutes(
       // Check if website has connected Stripe account for destination charges
       const paymentSettings = await storage.getPaymentSettings(websiteId);
       const connectedAccountId = paymentSettings?.stripeAccountId;
+      const isStripeConnected = paymentSettings?.stripeConnectStatus === 'connected' && connectedAccountId;
       
       // Build checkout session params
       const sessionParams: any = {
@@ -1419,8 +1420,8 @@ export async function registerRoutes(
         },
       };
       
-      // If website has connected Stripe account, use destination charges
-      if (connectedAccountId) {
+      // If website has connected Stripe account with active status, use destination charges
+      if (isStripeConnected) {
         const totalCents = Math.round(totalWithShipping * 100);
         // Platform fee: 2% of total (adjust as needed)
         const applicationFee = Math.round(totalCents * 0.02);
@@ -1700,6 +1701,7 @@ export async function registerRoutes(
       // Check if website has connected Stripe account for destination charges
       const paymentSettings = await storage.getPaymentSettings(websiteId);
       const connectedAccountId = paymentSettings?.stripeAccountId;
+      const isStripeConnected = paymentSettings?.stripeConnectStatus === 'connected' && connectedAccountId;
       
       // Build checkout session params
       const sessionParams: any = {
@@ -1715,8 +1717,8 @@ export async function registerRoutes(
         },
       };
       
-      // If website has connected Stripe account, use destination charges
-      if (connectedAccountId) {
+      // If website has connected Stripe account with active status, use destination charges
+      if (isStripeConnected) {
         // Platform fee: 2% of total (adjust as needed)
         const applicationFee = Math.round(totalAmountCents * 0.02);
         
@@ -1845,6 +1847,7 @@ export async function registerRoutes(
       // Check if website has connected Stripe account for destination charges
       const paymentSettings = await storage.getPaymentSettings(websiteId);
       const connectedAccountId = paymentSettings?.stripeAccountId;
+      const isStripeConnected = paymentSettings?.stripeConnectStatus === 'connected' && connectedAccountId;
       
       // Build checkout session params
       const sessionParams: any = {
@@ -1860,8 +1863,8 @@ export async function registerRoutes(
         },
       };
       
-      // If website has connected Stripe account, use destination charges
-      if (connectedAccountId) {
+      // If website has connected Stripe account with active status, use destination charges
+      if (isStripeConnected) {
         const totalCents = Math.round(total * 100);
         // Platform fee: 2% of total (adjust as needed)
         const applicationFee = Math.round(totalCents * 0.02);
@@ -3617,16 +3620,64 @@ export async function registerRoutes(
     }
   });
 
+  // Helper to create signed JWT state token for OAuth
+  const createOAuthStateToken = async (websiteId: string, userId: string): Promise<string> => {
+    const crypto = await import('crypto');
+    const payload = {
+      websiteId,
+      userId,
+      exp: Math.floor(Date.now() / 1000) + 600, // 10 minutes
+      jti: crypto.randomBytes(16).toString('hex'), // Unique token ID
+    };
+    
+    // Use HMAC-SHA256 to sign the state (using Stripe secret as signing key)
+    const platformStripeSecretKey = await getStripeSecretKey();
+    const signingKey = platformStripeSecretKey || 'fallback-secret-key';
+    
+    const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = crypto.createHmac('sha256', signingKey).update(payloadStr).digest('base64url');
+    
+    return `${payloadStr}.${signature}`;
+  };
+  
+  // Helper to verify signed JWT state token
+  const verifyOAuthStateToken = async (token: string): Promise<{ websiteId: string; userId: string } | null> => {
+    try {
+      const crypto = await import('crypto');
+      const [payloadStr, signature] = token.split('.');
+      
+      if (!payloadStr || !signature) return null;
+      
+      const platformStripeSecretKey = await getStripeSecretKey();
+      const signingKey = platformStripeSecretKey || 'fallback-secret-key';
+      
+      // Verify signature
+      const expectedSignature = crypto.createHmac('sha256', signingKey).update(payloadStr).digest('base64url');
+      if (signature !== expectedSignature) return null;
+      
+      // Parse and validate payload
+      const payload = JSON.parse(Buffer.from(payloadStr, 'base64url').toString());
+      
+      // Check expiration
+      if (payload.exp < Math.floor(Date.now() / 1000)) return null;
+      
+      return { websiteId: payload.websiteId, userId: payload.userId };
+    } catch {
+      return null;
+    }
+  };
+
   // Stripe Connect OAuth - Initiate connection
   app.get("/api/stripe/connect/:websiteId", requireAuth, async (req, res) => {
     try {
       const { websiteId } = req.params;
+      const userId = (req as any).user.id;
       
       const website = await storage.getWebsite(websiteId);
       if (!website) {
         return res.status(404).json({ message: "Website not found" });
       }
-      if (website.ownerId !== (req as any).user.id) {
+      if (website.ownerId !== userId) {
         return res.status(403).json({ message: "Not authorized" });
       }
 
@@ -3635,10 +3686,12 @@ export async function registerRoutes(
         return res.status(500).json({ message: "Stripe Connect is not configured" });
       }
 
-      // Get the base URL for the redirect
-      const protocol = req.headers['x-forwarded-proto'] || 'https';
-      const host = req.headers.host;
-      const redirectUri = `${protocol}://${host}/api/stripe/connect/callback`;
+      // Generate signed state token (stateless, survives restarts/multi-instance)
+      const stateToken = await createOAuthStateToken(websiteId, userId);
+
+      // Use configured base URL or derive from host (validated)
+      const baseUrl = process.env.BASE_URL || `https://${req.headers.host}`;
+      const redirectUri = `${baseUrl}/api/stripe/connect/callback`;
 
       // Generate Stripe OAuth URL
       const stripeOAuthUrl = new URL('https://connect.stripe.com/oauth/authorize');
@@ -3646,7 +3699,7 @@ export async function registerRoutes(
       stripeOAuthUrl.searchParams.set('client_id', STRIPE_CONNECT_CLIENT_ID);
       stripeOAuthUrl.searchParams.set('scope', 'read_write');
       stripeOAuthUrl.searchParams.set('redirect_uri', redirectUri);
-      stripeOAuthUrl.searchParams.set('state', websiteId); // Pass websiteId as state
+      stripeOAuthUrl.searchParams.set('state', stateToken); // Signed JWT state
 
       res.redirect(stripeOAuthUrl.toString());
     } catch (error: any) {
@@ -3658,15 +3711,32 @@ export async function registerRoutes(
   // Stripe Connect OAuth - Callback handler
   app.get("/api/stripe/connect/callback", async (req, res) => {
     try {
-      const { code, state: websiteId, error, error_description } = req.query;
+      const { code, state: stateToken, error, error_description } = req.query;
+
+      // Verify signed state token (stateless, cryptographically secure)
+      const stateData = await verifyOAuthStateToken(stateToken as string);
+      
+      if (!stateData) {
+        console.error('Invalid or expired OAuth state token');
+        return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Session expired or invalid. Please try connecting again.')}`);
+      }
+      
+      const { websiteId, userId } = stateData;
 
       if (error) {
         console.error('Stripe OAuth error:', error, error_description);
         return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent(error_description as string || 'Connection failed')}`);
       }
 
-      if (!code || !websiteId) {
-        return res.redirect(`/manage/${websiteId || ''}?stripe_error=Missing required parameters`);
+      if (!code) {
+        return res.redirect(`/manage/${websiteId}?stripe_error=Missing authorization code`);
+      }
+
+      // Verify the user still owns this website (security check)
+      const website = await storage.getWebsite(websiteId);
+      if (!website || website.ownerId !== userId) {
+        console.error(`Ownership verification failed for website ${websiteId}`);
+        return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Authorization failed. Website ownership could not be verified.')}`);
       }
 
       // Get platform Stripe secret key
@@ -3693,10 +3763,10 @@ export async function registerRoutes(
       }
 
       // Store the Stripe account ID in payment settings
-      const existing = await storage.getPaymentSettings(websiteId as string);
+      const existing = await storage.getPaymentSettings(websiteId);
       
       if (existing) {
-        await storage.updatePaymentSettings(websiteId as string, {
+        await storage.updatePaymentSettings(websiteId, {
           stripeAccountId: stripeAccountId,
           stripeConnectStatus: 'connected',
           isConnected: true,
@@ -3706,7 +3776,7 @@ export async function registerRoutes(
         });
       } else {
         await storage.createPaymentSettings({
-          websiteId: websiteId as string,
+          websiteId: websiteId,
           stripeAccountId: stripeAccountId,
           stripeConnectStatus: 'connected',
           isConnected: true,
