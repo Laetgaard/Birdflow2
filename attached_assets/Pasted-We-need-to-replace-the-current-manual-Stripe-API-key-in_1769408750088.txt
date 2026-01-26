@@ -1,0 +1,154 @@
+We need to replace the current “manual Stripe API key input” system with Stripe Connect OAuth so website owners can securely connect their own Stripe accounts.
+
+GOAL:
+
+Website owners click “Connect Stripe Account”
+
+They go through Stripe OAuth
+
+We store ONLY stripe_account_id (acct_xxx)
+
+All payments on their published website go to their Stripe account
+
+Platform can take an application fee
+
+1) Stripe Platform Setup
+
+Assume we already have:
+
+STRIPE_SECRET_KEY (platform)
+
+STRIPE_CONNECT_CLIENT_ID (from Stripe Connect settings)
+
+Use Stripe Connect Express accounts.
+
+2) Database Changes
+
+Update table:
+
+website_payment_settings
+
+Add:
+
+stripe_account_id TEXT
+stripe_connect_status TEXT ('not_connected' | 'connected')
+
+
+Remove:
+
+Any stored Stripe API keys from users
+
+3) OAuth Endpoints
+
+Create:
+
+GET /api/stripe/connect/:websiteId
+
+Check user owns website
+
+Generate Stripe OAuth URL:
+
+client_id = STRIPE_CONNECT_CLIENT_ID
+
+scope = read_write
+
+redirect_uri = /api/stripe/connect/callback
+
+state = websiteId
+
+Redirect user to Stripe
+
+GET /api/stripe/connect/callback
+
+Read:
+
+code
+
+state (websiteId)
+
+Exchange code for:
+
+stripe_user_id (acct_xxx)
+
+Save:
+
+website_payment_settings.stripe_account_id = acct_xxx
+
+stripe_connect_status = 'connected'
+
+Redirect user back to manage page with success state
+
+4) Manage Page UI
+
+Replace manual API key inputs with:
+
+If NOT connected:
+
+Show: “Connect Stripe Account” button
+
+If connected:
+
+Show:
+
+“Connected to Stripe account: acct_xxx”
+
+“Disconnect” button (optional later)
+
+5) Checkout Flow Update
+
+When creating PaymentIntent / Checkout Session:
+
+Use:
+
+stripeAccount: website_payment_settings.stripe_account_id
+
+
+Add:
+
+application_fee_amount
+
+
+So:
+
+Money goes to website owner
+
+Platform gets its fee
+
+6) Security Rules
+
+Never store user API keys
+
+Never expose platform secret
+
+Only store Stripe account ID
+
+Validate website ownership before connecting
+
+7) Edge Cases
+
+If no Stripe account connected:
+
+Disable checkout
+
+Show error in manage page
+
+8) Result
+
+Website owners connect Stripe in 1 click
+
+Secure
+
+Scalable
+
+Real SaaS architecture (like Shopify, Webflow, etc)
+
+IMPORTANT:
+Do NOT break:
+
+Existing orders
+
+Existing checkout
+
+Existing subscriptions system
+
+Just replace the payment account connection method.
