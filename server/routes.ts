@@ -1401,7 +1401,12 @@ export async function registerRoutes(
       // Determine URLs based on request origin
       const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || '';
       
-      const session = await stripe.checkout.sessions.create({
+      // Check if website has connected Stripe account for destination charges
+      const paymentSettings = await storage.getPaymentSettings(websiteId);
+      const connectedAccountId = paymentSettings?.stripeAccountId;
+      
+      // Build checkout session params
+      const sessionParams: any = {
         payment_method_types: ['card'],
         line_items: lineItems,
         mode: 'payment',
@@ -1412,7 +1417,23 @@ export async function registerRoutes(
           websiteId,
           itemsJson: JSON.stringify(validatedItems),
         },
-      });
+      };
+      
+      // If website has connected Stripe account, use destination charges
+      if (connectedAccountId) {
+        const totalCents = Math.round(totalWithShipping * 100);
+        // Platform fee: 2% of total (adjust as needed)
+        const applicationFee = Math.round(totalCents * 0.02);
+        
+        sessionParams.payment_intent_data = {
+          application_fee_amount: applicationFee,
+          transfer_data: {
+            destination: connectedAccountId,
+          },
+        };
+      }
+      
+      const session = await stripe.checkout.sessions.create(sessionParams);
 
       // Create order with pending payment status (including shipping snapshot)
       await storage.createOrder({
@@ -1676,7 +1697,12 @@ export async function registerRoutes(
 
       const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || '';
 
-      const session = await stripe.checkout.sessions.create({
+      // Check if website has connected Stripe account for destination charges
+      const paymentSettings = await storage.getPaymentSettings(websiteId);
+      const connectedAccountId = paymentSettings?.stripeAccountId;
+      
+      // Build checkout session params
+      const sessionParams: any = {
         payment_method_types: ['card'],
         line_items: lineItems,
         mode: 'payment',
@@ -1687,7 +1713,22 @@ export async function registerRoutes(
           websiteId,
           itemsJson: JSON.stringify(validatedItems),
         },
-      });
+      };
+      
+      // If website has connected Stripe account, use destination charges
+      if (connectedAccountId) {
+        // Platform fee: 2% of total (adjust as needed)
+        const applicationFee = Math.round(totalAmountCents * 0.02);
+        
+        sessionParams.payment_intent_data = {
+          application_fee_amount: applicationFee,
+          transfer_data: {
+            destination: connectedAccountId,
+          },
+        };
+      }
+      
+      const session = await stripe.checkout.sessions.create(sessionParams);
 
       const stockResult = await storage.decrementStock(
         websiteId,
@@ -1801,7 +1842,12 @@ export async function registerRoutes(
         quantity: item.quantity,
       }));
 
-      const session = await stripe.checkout.sessions.create({
+      // Check if website has connected Stripe account for destination charges
+      const paymentSettings = await storage.getPaymentSettings(websiteId);
+      const connectedAccountId = paymentSettings?.stripeAccountId;
+      
+      // Build checkout session params
+      const sessionParams: any = {
         payment_method_types: ['card'],
         line_items: lineItems,
         mode: 'payment',
@@ -1812,7 +1858,23 @@ export async function registerRoutes(
           websiteId,
           itemsJson: JSON.stringify(validatedItems),
         },
-      });
+      };
+      
+      // If website has connected Stripe account, use destination charges
+      if (connectedAccountId) {
+        const totalCents = Math.round(total * 100);
+        // Platform fee: 2% of total (adjust as needed)
+        const applicationFee = Math.round(totalCents * 0.02);
+        
+        sessionParams.payment_intent_data = {
+          application_fee_amount: applicationFee,
+          transfer_data: {
+            destination: connectedAccountId,
+          },
+        };
+      }
+      
+      const session = await stripe.checkout.sessions.create(sessionParams);
 
       // Create order with pending payment status
       await storage.createOrder({
