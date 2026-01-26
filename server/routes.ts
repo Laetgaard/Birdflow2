@@ -3777,7 +3777,39 @@ export async function registerRoutes(
         return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Session expired or invalid. Please try connecting again.')}`);
       }
       
-      const { websiteId, userId } = stateData;
+      const { websiteId, userId: stateUserId } = stateData;
+
+      // Defense in depth: Try to validate session if available
+      // This adds an extra security layer - if session exists, it must match state userId
+      const authHeader = req.headers.authorization;
+      const cookieToken = req.cookies?.['sb-access-token'];
+      const sessionToken = authHeader?.replace('Bearer ', '') || cookieToken;
+      
+      if (sessionToken) {
+        try {
+          const { createClient } = await import('@supabase/supabase-js');
+          const supabaseUrl = process.env.SUPABASE_URL;
+          const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+          
+          if (supabaseUrl && supabaseAnonKey) {
+            const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+              auth: { persistSession: false }
+            });
+            
+            const { data: { user } } = await supabase.auth.getUser(sessionToken);
+            
+            if (user && user.id !== stateUserId) {
+              // Session exists but belongs to different user - potential attack
+              console.error(`Session user ${user.id} does not match state user ${stateUserId}`);
+              return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Session mismatch. Please try connecting again.')}`);
+            }
+          }
+        } catch (sessionError) {
+          // Session validation failed - continue with state token validation only
+          // This is expected if user has no active session cookie
+          console.log('Session validation skipped (no valid session found)');
+        }
+      }
 
       if (error) {
         console.error('Stripe OAuth error:', error, error_description);
@@ -3788,9 +3820,9 @@ export async function registerRoutes(
         return res.redirect(`/manage/${websiteId}?stripe_error=Missing authorization code`);
       }
 
-      // Verify the user still owns this website (security check)
+      // Verify the user still owns this website (security check using state userId)
       const website = await storage.getWebsite(websiteId);
-      if (!website || website.ownerId !== userId) {
+      if (!website || website.ownerId !== stateUserId) {
         console.error(`Ownership verification failed for website ${websiteId}`);
         return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Authorization failed. Website ownership could not be verified.')}`);
       }
