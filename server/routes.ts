@@ -3425,13 +3425,17 @@ export async function registerRoutes(
         return res.json({ 
           websiteId: req.params.id,
           isConnected: false,
+          stripeConnectStatus: 'not_connected',
+          stripeAccountId: null,
           testMode: true 
         });
       }
 
-      // Mask sensitive keys
+      // Return settings with Stripe Connect info, mask any legacy keys
       res.json({
         ...settings,
+        stripeAccountId: settings.stripeAccountId || null,
+        stripeConnectStatus: settings.stripeConnectStatus || 'not_connected',
         stripePublishableKey: settings.stripePublishableKey ? `${settings.stripePublishableKey.substring(0, 12)}...` : null,
         stripeSecretKey: settings.stripeSecretKey ? '••••••••••••••••••••' : null,
         stripeWebhookSecret: settings.stripeWebhookSecret ? '••••••••••••••••••••' : null,
@@ -3547,6 +3551,141 @@ export async function registerRoutes(
       
       res.json({ success: true });
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Stripe Connect OAuth - Initiate connection
+  app.get("/api/stripe/connect/:websiteId", requireAuth, async (req, res) => {
+    try {
+      const { websiteId } = req.params;
+      
+      const website = await storage.getWebsite(websiteId);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const STRIPE_CONNECT_CLIENT_ID = process.env.STRIPE_CONNECT_CLIENT_ID;
+      if (!STRIPE_CONNECT_CLIENT_ID) {
+        return res.status(500).json({ message: "Stripe Connect is not configured" });
+      }
+
+      // Get the base URL for the redirect
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers.host;
+      const redirectUri = `${protocol}://${host}/api/stripe/connect/callback`;
+
+      // Generate Stripe OAuth URL
+      const stripeOAuthUrl = new URL('https://connect.stripe.com/oauth/authorize');
+      stripeOAuthUrl.searchParams.set('response_type', 'code');
+      stripeOAuthUrl.searchParams.set('client_id', STRIPE_CONNECT_CLIENT_ID);
+      stripeOAuthUrl.searchParams.set('scope', 'read_write');
+      stripeOAuthUrl.searchParams.set('redirect_uri', redirectUri);
+      stripeOAuthUrl.searchParams.set('state', websiteId); // Pass websiteId as state
+
+      res.redirect(stripeOAuthUrl.toString());
+    } catch (error: any) {
+      console.error('Stripe Connect initiation error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Stripe Connect OAuth - Callback handler
+  app.get("/api/stripe/connect/callback", async (req, res) => {
+    try {
+      const { code, state: websiteId, error, error_description } = req.query;
+
+      if (error) {
+        console.error('Stripe OAuth error:', error, error_description);
+        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent(error_description as string || 'Connection failed')}`);
+      }
+
+      if (!code || !websiteId) {
+        return res.redirect(`/manage/${websiteId || ''}?stripe_error=Missing required parameters`);
+      }
+
+      // Get platform Stripe secret key
+      const platformStripeSecretKey = await getStripeSecretKey();
+      const STRIPE_CONNECT_CLIENT_ID = process.env.STRIPE_CONNECT_CLIENT_ID;
+      
+      if (!platformStripeSecretKey || !STRIPE_CONNECT_CLIENT_ID) {
+        return res.redirect(`/manage/${websiteId}?stripe_error=Stripe Connect not configured`);
+      }
+
+      // Exchange authorization code for account ID
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(platformStripeSecretKey);
+
+      const response = await stripe.oauth.token({
+        grant_type: 'authorization_code',
+        code: code as string,
+      });
+
+      const stripeAccountId = response.stripe_user_id;
+      
+      if (!stripeAccountId) {
+        return res.redirect(`/manage/${websiteId}?stripe_error=Failed to get Stripe account ID`);
+      }
+
+      // Store the Stripe account ID in payment settings
+      const existing = await storage.getPaymentSettings(websiteId as string);
+      
+      if (existing) {
+        await storage.updatePaymentSettings(websiteId as string, {
+          stripeAccountId: stripeAccountId,
+          stripeConnectStatus: 'connected',
+          isConnected: true,
+          stripePublishableKey: null, // Clear old keys
+          stripeSecretKey: null,
+          stripeWebhookSecret: null,
+        });
+      } else {
+        await storage.createPaymentSettings({
+          websiteId: websiteId as string,
+          stripeAccountId: stripeAccountId,
+          stripeConnectStatus: 'connected',
+          isConnected: true,
+          testMode: false,
+        });
+      }
+
+      console.log(`Stripe Connect successful for website ${websiteId}: ${stripeAccountId}`);
+      res.redirect(`/manage/${websiteId}?stripe_connected=true`);
+    } catch (error: any) {
+      console.error('Stripe Connect callback error:', error);
+      const websiteId = req.query.state || '';
+      res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent(error.message)}`);
+    }
+  });
+
+  // Stripe Connect - Disconnect account
+  app.post("/api/stripe/disconnect/:websiteId", requireAuth, async (req, res) => {
+    try {
+      const { websiteId } = req.params;
+      
+      const website = await storage.getWebsite(websiteId);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const existing = await storage.getPaymentSettings(websiteId);
+      if (existing) {
+        await storage.updatePaymentSettings(websiteId, {
+          stripeAccountId: null,
+          stripeConnectStatus: 'not_connected',
+          isConnected: false,
+        });
+      }
+
+      res.json({ success: true, message: "Stripe account disconnected" });
+    } catch (error: any) {
+      console.error('Stripe disconnect error:', error);
       res.status(500).json({ message: error.message });
     }
   });
