@@ -653,9 +653,11 @@ export type CarrierType = 'ups' | 'gls' | 'postnord';
 export const websitePaymentSettings = pgTable("website_payment_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   websiteId: varchar("website_id").notNull().unique(),
-  stripePublishableKey: text("stripe_publishable_key"),
-  stripeSecretKey: text("stripe_secret_key"), // Stored encrypted
-  stripeWebhookSecret: text("stripe_webhook_secret"), // Stored encrypted
+  stripeAccountId: text("stripe_account_id"), // Connected Stripe account ID (acct_xxx)
+  stripeConnectStatus: text("stripe_connect_status").notNull().default("not_connected"), // 'not_connected' | 'connected'
+  stripePublishableKey: text("stripe_publishable_key"), // Keep for backwards compatibility, will be deprecated
+  stripeSecretKey: text("stripe_secret_key"), // Keep for backwards compatibility, will be deprecated
+  stripeWebhookSecret: text("stripe_webhook_secret"), // Keep for backwards compatibility, will be deprecated
   testMode: boolean("test_mode").notNull().default(true),
   isConnected: boolean("is_connected").notNull().default(false),
   connectedAt: timestamp("connected_at"),
