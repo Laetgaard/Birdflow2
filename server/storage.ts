@@ -78,7 +78,8 @@ import {
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
   type AdminUserWithStats, type AdminWebsiteWithOwner,
-  type AdminAnalyticsOverview, type AdminTrafficSource, type AdminDailyVisitors
+  type AdminAnalyticsOverview, type AdminTrafficSource, type AdminDailyVisitors,
+  type AdminUserSubscription
 } from "@shared/schema";
 import { sql, gte, lte, desc, count, countDistinct, and } from "drizzle-orm";
 
@@ -276,6 +277,7 @@ export interface IStorage {
   getAdminGrowthData(days: number): Promise<AdminGrowthData[]>;
   getAdminFunnel(): Promise<AdminFunnelStep[]>;
   getAllUsersWithStats(): Promise<AdminUserWithStats[]>;
+  getAllUsersWithSubscriptions(): Promise<AdminUserSubscription[]>;
   getAllWebsitesWithOwners(): Promise<AdminWebsiteWithOwner[]>;
   isUserAdmin(userId: string): Promise<boolean>;
   
@@ -1509,6 +1511,40 @@ export class DatabaseStorage implements IStorage {
         publishedCount: userWebsites.filter(w => w.status === 'published').length,
         totalOrders: userOrders.length,
         totalBookings: userBookings.length,
+      };
+    });
+  }
+
+  async getAllUsersWithSubscriptions(): Promise<AdminUserSubscription[]> {
+    let allProfiles: any[];
+    try {
+      allProfiles = await db.select().from(profiles).orderBy(desc(profiles.createdAt));
+    } catch (error: any) {
+      if (error.message?.includes("is_admin")) {
+        allProfiles = await db.select(this.profileColumns).from(profiles).orderBy(desc(profiles.createdAt));
+      } else {
+        throw error;
+      }
+    }
+
+    const allWebsites = await db.select().from(websites);
+
+    return allProfiles.map(profile => {
+      const userWebsites = allWebsites.filter(w => w.ownerId === profile.id);
+
+      return {
+        id: profile.id,
+        email: profile.email,
+        fullName: profile.fullName,
+        planSlug: profile.planSlug || null,
+        subscriptionId: profile.subscriptionId || null,
+        subscriptionStatus: profile.subscriptionStatus || null,
+        subscriptionStartedAt: profile.subscriptionStartedAt || null,
+        trialEndsAt: profile.trialEndsAt || null,
+        currentPeriodEnd: profile.currentPeriodEnd || null,
+        stripeCustomerId: profile.stripeCustomerId || null,
+        createdAt: profile.createdAt,
+        websiteCount: userWebsites.length,
       };
     });
   }
