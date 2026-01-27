@@ -730,7 +730,7 @@ export async function createUserSubscriptionCheckoutSession(
 }
 
 export async function getUserSubscriptionStatus(userId: string): Promise<{
-  plan: PlanId;
+  planSlug: PlanId;
   planName: string;
   planPrice: string;
   subscriptionStatus: string | null;
@@ -738,7 +738,7 @@ export async function getUserSubscriptionStatus(userId: string): Promise<{
   trialEndsAt: Date | null;
   currentPeriodEnd: Date | null;
   features: PlanFeatures;
-  featureList: { text: string; included: boolean; tooltip?: string }[];
+  featureList: string[];
   statusInfo: ReturnType<typeof getSubscriptionStatusInfo>;
 }> {
   const profile = await storage.getProfile(userId);
@@ -749,8 +749,12 @@ export async function getUserSubscriptionStatus(userId: string): Promise<{
   const trialEndsAt = profile?.trialEndsAt ? new Date(profile.trialEndsAt) : null;
   const currentPeriodEnd = profile?.currentPeriodEnd ? new Date(profile.currentPeriodEnd) : null;
   
+  const featureList = planDetails.featureList
+    .filter(f => f.included)
+    .map(f => f.text);
+  
   return {
-    plan: planSlug,
+    planSlug,
     planName: planDetails.name,
     planPrice: planDetails.priceDisplay,
     subscriptionStatus: profile?.subscriptionStatus || null,
@@ -758,11 +762,155 @@ export async function getUserSubscriptionStatus(userId: string): Promise<{
     trialEndsAt,
     currentPeriodEnd,
     features: planDetails.features,
-    featureList: planDetails.featureList,
+    featureList,
     statusInfo: getSubscriptionStatusInfo(
       profile?.subscriptionStatus,
       trialEndsAt,
       currentPeriodEnd
     ),
+  };
+}
+
+export interface PlanLimitCheckResult {
+  allowed: boolean;
+  reason?: string;
+  currentCount?: number;
+  limit?: number;
+  planSlug?: PlanId;
+}
+
+export async function checkWebsiteLimit(userId: string): Promise<PlanLimitCheckResult> {
+  const profile = await storage.getProfile(userId);
+  const planSlug = (profile?.planSlug as PlanId) || 'free';
+  const planDetails = PLAN_DETAILS[planSlug];
+  
+  if (!planDetails) {
+    return { allowed: false, reason: 'Ugyldig abonnementsplan' };
+  }
+  
+  const subscriptionStatus = profile?.subscriptionStatus;
+  if (planSlug !== 'free' && subscriptionStatus !== 'active' && subscriptionStatus !== 'trialing') {
+    return { 
+      allowed: false, 
+      reason: 'Dit abonnement er ikke aktivt. Forny venligst dit abonnement for at oprette hjemmesider.',
+      planSlug
+    };
+  }
+  
+  const maxWebsites = planDetails.features.maxWebsites;
+  
+  if (maxWebsites === 0) {
+    return { 
+      allowed: false, 
+      reason: 'Din nuværende plan tillader ikke oprettelse af hjemmesider. Opgrader venligst for at komme i gang.',
+      limit: 0,
+      planSlug
+    };
+  }
+  
+  const websites = await storage.getWebsitesByUserId(userId);
+  const currentCount = websites.length;
+  
+  if (currentCount >= maxWebsites) {
+    return { 
+      allowed: false, 
+      reason: `Du har nået grænsen på ${maxWebsites} hjemmeside${maxWebsites > 1 ? 'r' : ''} for din ${planDetails.name} plan. Opgrader for at oprette flere hjemmesider.`,
+      currentCount,
+      limit: maxWebsites,
+      planSlug
+    };
+  }
+  
+  return { allowed: true, currentCount, limit: maxWebsites, planSlug };
+}
+
+export async function checkPageLimit(userId: string, websiteId: string): Promise<PlanLimitCheckResult> {
+  const profile = await storage.getProfile(userId);
+  const planSlug = (profile?.planSlug as PlanId) || 'free';
+  const planDetails = PLAN_DETAILS[planSlug];
+  
+  if (!planDetails) {
+    return { allowed: false, reason: 'Ugyldig abonnementsplan' };
+  }
+  
+  const subscriptionStatus = profile?.subscriptionStatus;
+  if (planSlug !== 'free' && subscriptionStatus !== 'active' && subscriptionStatus !== 'trialing') {
+    return { 
+      allowed: false, 
+      reason: 'Dit abonnement er ikke aktivt.',
+      planSlug
+    };
+  }
+  
+  const maxPages = planDetails.features.maxPagesPerWebsite;
+  
+  const builderState = await storage.getBuilderState(websiteId);
+  const currentPages = builderState?.pages?.length || 0;
+  
+  if (currentPages >= maxPages) {
+    return { 
+      allowed: false, 
+      reason: `Du har nået grænsen på ${maxPages} sider for din ${planDetails.name} plan. Opgrader for at tilføje flere sider.`,
+      currentCount: currentPages,
+      limit: maxPages,
+      planSlug
+    };
+  }
+  
+  return { allowed: true, currentCount: currentPages, limit: maxPages, planSlug };
+}
+
+export async function checkFeatureAccess(userId: string, feature: 'bookingSystem' | 'ecommerce' | 'customDomain' | 'analytics' | 'advancedAnalytics' | 'prioritySupport'): Promise<PlanLimitCheckResult> {
+  const profile = await storage.getProfile(userId);
+  const planSlug = (profile?.planSlug as PlanId) || 'free';
+  const planDetails = PLAN_DETAILS[planSlug];
+  
+  if (!planDetails) {
+    return { allowed: false, reason: 'Ugyldig abonnementsplan' };
+  }
+  
+  const subscriptionStatus = profile?.subscriptionStatus;
+  if (planSlug !== 'free' && subscriptionStatus !== 'active' && subscriptionStatus !== 'trialing') {
+    return { 
+      allowed: false, 
+      reason: 'Dit abonnement er ikke aktivt.',
+      planSlug
+    };
+  }
+  
+  const featureNames: Record<string, string> = {
+    bookingSystem: 'Booking system',
+    ecommerce: 'Webshop',
+    customDomain: 'Eget domæne',
+    analytics: 'Analytics',
+    advancedAnalytics: 'Avanceret analytics',
+    prioritySupport: 'Prioriteret support',
+  };
+  
+  const hasFeature = planDetails.features[feature];
+  
+  if (!hasFeature) {
+    return { 
+      allowed: false, 
+      reason: `${featureNames[feature]} er ikke inkluderet i din ${planDetails.name} plan. Opgrader for at få adgang til denne funktion.`,
+      planSlug
+    };
+  }
+  
+  return { allowed: true, planSlug };
+}
+
+export async function getUserPlanFeatures(userId: string): Promise<PlanFeatures & { planSlug: PlanId; isActive: boolean }> {
+  const profile = await storage.getProfile(userId);
+  const planSlug = (profile?.planSlug as PlanId) || 'free';
+  const planDetails = PLAN_DETAILS[planSlug] || PLAN_DETAILS.free;
+  
+  const subscriptionStatus = profile?.subscriptionStatus;
+  const isActive = planSlug === 'free' || subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
+  
+  return {
+    ...planDetails.features,
+    planSlug,
+    isActive
   };
 }

@@ -23,10 +23,16 @@ import {
   Receipt,
   Settings,
   Mail,
+  Globe,
+  FileText,
+  HardDrive,
+  ShoppingBag,
+  CalendarDays,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { format, formatDistanceToNow, isPast, isBefore, addDays } from "date-fns";
+import { da } from "date-fns/locale";
 import { motion } from "framer-motion";
 
 const fadeInUp = {
@@ -43,50 +49,50 @@ const staggerContainer = {
   },
 };
 
-interface SubscriptionInfo {
-  plan: string;
+interface UserSubscription {
+  planSlug: string | null;
   planName: string;
   planPrice: string;
   subscriptionStatus: string | null;
-  stripeSubscriptionId: string | null;
-  trialEnd: string | null;
+  subscriptionId: string | null;
+  trialEndsAt: string | null;
   currentPeriodEnd: string | null;
-  features: Record<string, any>;
+  features: {
+    websites: number;
+    pagesPerWebsite: number;
+    storageGb: number;
+    hasBooking: boolean;
+    hasWebshop: boolean;
+    hasPrioritySupport: boolean;
+  };
   featureList: string[];
 }
 
-interface Website {
-  id: string;
-  name: string;
-  subdomain: string;
-  plan: string;
-}
-
 const planIcons: Record<string, any> = {
-  starter: Zap,
-  business: Crown,
-  enterprise: Building2,
+  basic: Zap,
+  starter: Crown,
+  professional: Building2,
   free: Zap,
 };
 
 const planColors: Record<string, string> = {
-  starter: "text-emerald-500",
-  business: "text-indigo-500",
-  enterprise: "text-amber-500",
+  basic: "text-blue-500",
+  starter: "text-indigo-500",
+  professional: "text-purple-500",
   free: "text-gray-500",
 };
 
 const planGradients: Record<string, string> = {
-  starter: "from-emerald-500/10 to-teal-500/10",
-  business: "from-indigo-500/10 to-purple-500/10",
-  enterprise: "from-amber-500/10 to-orange-500/10",
+  basic: "from-blue-500/10 to-cyan-500/10",
+  starter: "from-indigo-500/10 to-purple-500/10",
+  professional: "from-purple-500/10 to-pink-500/10",
   free: "from-gray-500/10 to-gray-400/10",
 };
 
 const planBorders: Record<string, string> = {
-  starter: "border-emerald-500/30",
-  business: "border-indigo-500/30",
-  enterprise: "border-amber-500/30",
+  basic: "border-blue-500/30",
+  starter: "border-indigo-500/30",
+  professional: "border-purple-500/30",
   free: "border-gray-500/30",
 };
 
@@ -101,13 +107,13 @@ const statusBadgeVariants: Record<string, "default" | "secondary" | "destructive
 };
 
 const statusLabels: Record<string, string> = {
-  active: "Active",
-  trialing: "Trial",
-  canceled: "Canceled",
-  past_due: "Past Due",
-  unpaid: "Unpaid",
-  incomplete: "Incomplete",
-  incomplete_expired: "Expired",
+  active: "Aktiv",
+  trialing: "Prøveperiode",
+  canceled: "Annulleret",
+  past_due: "Forfalden",
+  unpaid: "Ikke betalt",
+  incomplete: "Ufuldstændig",
+  incomplete_expired: "Udløbet",
 };
 
 export default function BillingPage() {
@@ -115,23 +121,16 @@ export default function BillingPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
-  const { data: websites, isLoading: websitesLoading } = useQuery<Website[]>({
-    queryKey: ["/api/websites"],
-    enabled: !!user,
-  });
-
-  const selectedWebsiteId = websites?.[0]?.id;
-
-  const { data: subscription, isLoading: subscriptionLoading } = useQuery<SubscriptionInfo>({
-    queryKey: ["/api/subscriptions/website", selectedWebsiteId],
+  const { data: subscription, isLoading: subscriptionLoading, refetch: refetchSubscription } = useQuery<UserSubscription>({
+    queryKey: ["/api/subscriptions/current"],
     queryFn: async () => {
-      const res = await fetch(`/api/subscriptions/website/${selectedWebsiteId}`, {
+      const res = await fetch("/api/subscriptions/current", {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to fetch subscription");
       return res.json();
     },
-    enabled: !!selectedWebsiteId,
+    enabled: !!user,
   });
 
   const billingPortalMutation = useMutation({
@@ -156,13 +155,13 @@ export default function BillingPage() {
     onError: (error: Error) => {
       if (error.message.includes("No billing account")) {
         toast({
-          title: "No billing account",
-          description: "Please subscribe to a plan first to access billing management.",
+          title: "Ingen faktureringskonto",
+          description: "Tilmeld dig et abonnement først for at få adgang til faktureringsstyring.",
           variant: "destructive",
         });
       } else {
         toast({
-          title: "Error",
+          title: "Fejl",
           description: error.message,
           variant: "destructive",
         });
@@ -170,21 +169,21 @@ export default function BillingPage() {
     },
   });
 
-  const isLoading = authLoading || websitesLoading || subscriptionLoading;
+  const isLoading = authLoading || subscriptionLoading;
 
   if (!user && !authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Sign in required</CardTitle>
+            <CardTitle>Log ind kræves</CardTitle>
             <CardDescription>
-              Please sign in to view your billing information.
+              Log ind for at se dine faktureringsoplysninger.
             </CardDescription>
           </CardHeader>
           <CardFooter>
             <Button asChild className="w-full">
-              <Link href="/auth">Sign In</Link>
+              <Link href="/auth">Log ind</Link>
             </Button>
           </CardFooter>
         </Card>
@@ -192,16 +191,16 @@ export default function BillingPage() {
     );
   }
 
-  const plan = subscription?.plan || "free";
-  const trialEnd = subscription?.trialEnd ? new Date(subscription.trialEnd) : null;
+  const plan = subscription?.planSlug || "free";
+  const trialEnd = subscription?.trialEndsAt ? new Date(subscription.trialEndsAt) : null;
   const periodEnd = subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
   const isTrialing = subscription?.subscriptionStatus === "trialing";
   const isActive = subscription?.subscriptionStatus === "active";
   const isPastDue = subscription?.subscriptionStatus === "past_due";
   const isCanceled = subscription?.subscriptionStatus === "canceled";
-  const hasPaidPlan = subscription?.plan && subscription.plan !== "free";
+  const hasPaidPlan = subscription?.planSlug && subscription.planSlug !== "free";
 
-  const trialEndsIn = trialEnd ? formatDistanceToNow(trialEnd, { addSuffix: true }) : null;
+  const trialEndsIn = trialEnd ? formatDistanceToNow(trialEnd, { addSuffix: true, locale: da }) : null;
   const trialEndingSoon = trialEnd && isBefore(trialEnd, addDays(new Date(), 7));
   const trialExpired = trialEnd && isPast(trialEnd);
 
@@ -224,12 +223,12 @@ export default function BillingPage() {
               Dashboard
             </Link>
             <Link href="/pricing" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              Plans
+              Priser
             </Link>
           </nav>
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => signOut()}>
-              Sign Out
+              Log ud
             </Button>
           </div>
         </div>
@@ -245,10 +244,10 @@ export default function BillingPage() {
               className="text-center mb-12"
             >
               <h1 className="text-4xl md:text-5xl font-bold mb-4" data-testid="text-billing-title">
-                Billing & Subscription
+                Fakturering & Abonnement
               </h1>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Manage your subscription, view billing history, and update payment methods.
+                Administrer dit abonnement, se faktureringshistorik og opdater betalingsmetoder.
               </p>
             </motion.div>
 
@@ -260,9 +259,9 @@ export default function BillingPage() {
               >
                 <Alert variant="destructive" data-testid="alert-past-due">
                   <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Payment Failed</AlertTitle>
+                  <AlertTitle>Betaling mislykkedes</AlertTitle>
                   <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <span>Your last payment failed. Please update your payment method to avoid service interruption.</span>
+                    <span>Din sidste betaling mislykkedes. Opdater venligst din betalingsmetode for at undgå serviceafbrydelse.</span>
                     <Button 
                       variant="destructive" 
                       size="sm"
@@ -271,7 +270,7 @@ export default function BillingPage() {
                       data-testid="button-update-payment"
                     >
                       {billingPortalMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                      Update Payment
+                      Opdater betaling
                     </Button>
                   </AlertDescription>
                 </Alert>
@@ -286,9 +285,9 @@ export default function BillingPage() {
               >
                 <Alert className="border-amber-500/50 bg-gradient-to-r from-amber-500/10 to-orange-500/10" data-testid="alert-trial-ending">
                   <Clock className="h-4 w-4 text-amber-500" />
-                  <AlertTitle className="text-amber-600">Trial Ending Soon</AlertTitle>
+                  <AlertTitle className="text-amber-600">Prøveperiode slutter snart</AlertTitle>
                   <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <span>Your free trial ends {trialEndsIn}. Add a payment method to continue using all features.</span>
+                    <span>Din gratis prøveperiode slutter {trialEndsIn}. Tilføj en betalingsmetode for at fortsætte med at bruge alle funktioner.</span>
                     <Button 
                       variant="outline" 
                       size="sm"
@@ -297,7 +296,7 @@ export default function BillingPage() {
                       data-testid="button-add-payment-trial"
                     >
                       {billingPortalMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                      Add Payment Method
+                      Tilføj betalingsmetode
                     </Button>
                   </AlertDescription>
                 </Alert>
@@ -312,11 +311,11 @@ export default function BillingPage() {
               >
                 <Alert className="border-gray-500/50" data-testid="alert-canceled">
                   <XCircle className="h-4 w-4" />
-                  <AlertTitle>Subscription Canceled</AlertTitle>
+                  <AlertTitle>Abonnement annulleret</AlertTitle>
                   <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <span>Your subscription has been canceled. You'll have access until {periodEnd ? format(periodEnd, "MMMM d, yyyy") : "the end of your billing period"}.</span>
+                    <span>Dit abonnement er annulleret. Du har adgang indtil {periodEnd ? format(periodEnd, "d. MMMM yyyy", { locale: da }) : "slutningen af din faktureringsperiode"}.</span>
                     <Button variant="outline" size="sm" asChild>
-                      <Link href="/pricing">Resubscribe</Link>
+                      <Link href="/pricing">Gentilmeld dig</Link>
                     </Button>
                   </AlertDescription>
                 </Alert>
@@ -335,12 +334,12 @@ export default function BillingPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${plan === 'starter' ? 'from-emerald-500 to-teal-600' : plan === 'business' ? 'from-indigo-500 to-purple-600' : plan === 'enterprise' ? 'from-amber-500 to-orange-600' : 'from-gray-500 to-gray-600'} flex items-center justify-center`}>
+                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${plan === 'basic' ? 'from-blue-500 to-cyan-600' : plan === 'starter' ? 'from-indigo-500 to-purple-600' : plan === 'professional' ? 'from-purple-500 to-pink-600' : 'from-gray-500 to-gray-600'} flex items-center justify-center`}>
                           <PlanIcon className="h-6 w-6 text-white" />
                         </div>
                         <div>
-                          <CardTitle className="text-2xl">Current Plan</CardTitle>
-                          <CardDescription>Your active subscription</CardDescription>
+                          <CardTitle className="text-2xl">Nuværende abonnement</CardTitle>
+                          <CardDescription>Dit aktive abonnement</CardDescription>
                         </div>
                       </div>
                       {subscription?.subscriptionStatus && (
@@ -364,10 +363,10 @@ export default function BillingPage() {
                       <>
                         <div>
                           <h3 className="text-4xl font-bold" data-testid="text-plan-name">
-                            {subscription?.planName || "Free"}
+                            {subscription?.planName || "Gratis"}
                           </h3>
                           <p className="text-lg text-muted-foreground mt-1">
-                            {subscription?.planPrice || "No active subscription"}
+                            {subscription?.planPrice || "Intet aktivt abonnement"}
                           </p>
                         </div>
 
@@ -378,8 +377,8 @@ export default function BillingPage() {
                             <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
                               <Clock className="h-5 w-5 text-amber-500" />
                               <div>
-                                <p className="font-medium">Trial Period</p>
-                                <p className="text-sm text-muted-foreground">Ends {format(trialEnd, "MMMM d, yyyy")}</p>
+                                <p className="font-medium">Prøveperiode</p>
+                                <p className="text-sm text-muted-foreground">Udløber {format(trialEnd, "d. MMMM yyyy", { locale: da })}</p>
                               </div>
                             </div>
                           )}
@@ -387,8 +386,8 @@ export default function BillingPage() {
                             <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
                               <Calendar className="h-5 w-5 text-indigo-500" />
                               <div>
-                                <p className="font-medium">{isCanceled ? "Access Until" : "Next Billing"}</p>
-                                <p className="text-sm text-muted-foreground">{format(periodEnd, "MMMM d, yyyy")}</p>
+                                <p className="font-medium">{isCanceled ? "Adgang indtil" : "Næste fakturering"}</p>
+                                <p className="text-sm text-muted-foreground">{format(periodEnd, "d. MMMM yyyy", { locale: da })}</p>
                               </div>
                             </div>
                           )}
@@ -396,8 +395,8 @@ export default function BillingPage() {
                             <div className="flex items-center gap-3 p-3 rounded-lg bg-green-500/10">
                               <CheckCircle2 className="h-5 w-5 text-green-500" />
                               <div>
-                                <p className="font-medium text-green-700">Subscription Active</p>
-                                <p className="text-sm text-green-600/80">All features unlocked</p>
+                                <p className="font-medium text-green-700">Abonnement aktivt</p>
+                                <p className="text-sm text-green-600/80">Alle funktioner er låst op</p>
                               </div>
                             </div>
                           )}
@@ -419,11 +418,11 @@ export default function BillingPage() {
                           ) : (
                             <CreditCard className="h-4 w-4 mr-2" />
                           )}
-                          Manage Subscription
+                          Administrer abonnement
                         </Button>
                         <Button variant="outline" className="flex-1" asChild>
                           <Link href="/pricing">
-                            Change Plan
+                            Skift plan
                             <ArrowRight className="h-4 w-4 ml-2" />
                           </Link>
                         </Button>
@@ -432,7 +431,7 @@ export default function BillingPage() {
                       <Button className="w-full" asChild data-testid="button-upgrade">
                         <Link href="/pricing">
                           <Zap className="h-4 w-4 mr-2" />
-                          Upgrade Now
+                          Opgrader nu
                         </Link>
                       </Button>
                     )}
@@ -448,8 +447,8 @@ export default function BillingPage() {
                         <CheckCircle2 className="h-6 w-6 text-white" />
                       </div>
                       <div>
-                        <CardTitle className="text-2xl">Plan Features</CardTitle>
-                        <CardDescription>What's included in your plan</CardDescription>
+                        <CardTitle className="text-2xl">Plan-funktioner</CardTitle>
+                        <CardDescription>Hvad er inkluderet i din plan</CardDescription>
                       </div>
                     </div>
                   </CardHeader>
@@ -460,32 +459,63 @@ export default function BillingPage() {
                           <Skeleton key={i} className="h-5 w-full" />
                         ))}
                       </div>
-                    ) : subscription?.featureList?.length ? (
-                      <ul className="space-y-3">
-                        {subscription.featureList.slice(0, 10).map((feature, index) => (
-                          <li key={index} className="flex items-center gap-3">
-                            <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
-                              <CheckCircle2 className="h-3 w-3 text-green-500" />
+                    ) : subscription?.features ? (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                            <Globe className="h-5 w-5 text-blue-500" />
+                            <div>
+                              <p className="text-sm text-muted-foreground">Hjemmesider</p>
+                              <p className="font-semibold">{subscription.features.websites}</p>
                             </div>
-                            <span className="text-sm">{feature}</span>
-                          </li>
-                        ))}
-                        {subscription.featureList.length > 10 && (
-                          <li className="text-sm text-muted-foreground pl-8">
-                            +{subscription.featureList.length - 10} more features
-                          </li>
-                        )}
-                      </ul>
+                          </div>
+                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                            <FileText className="h-5 w-5 text-green-500" />
+                            <div>
+                              <p className="text-sm text-muted-foreground">Sider pr. site</p>
+                              <p className="font-semibold">{subscription.features.pagesPerWebsite}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                            <HardDrive className="h-5 w-5 text-purple-500" />
+                            <div>
+                              <p className="text-sm text-muted-foreground">Lagerplads</p>
+                              <p className="font-semibold">{subscription.features.storageGb} GB</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                            <CalendarDays className={`h-5 w-5 ${subscription.features.hasBooking ? 'text-indigo-500' : 'text-gray-400'}`} />
+                            <div>
+                              <p className="text-sm text-muted-foreground">Booking</p>
+                              <p className="font-semibold">{subscription.features.hasBooking ? 'Inkluderet' : 'Ikke inkluderet'}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                            <ShoppingBag className={`h-5 w-5 ${subscription.features.hasWebshop ? 'text-amber-500' : 'text-gray-400'}`} />
+                            <div>
+                              <p className="text-sm text-muted-foreground">Webshop</p>
+                              <p className="font-semibold">{subscription.features.hasWebshop ? 'Inkluderet' : 'Ikke inkluderet'}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                            <Crown className={`h-5 w-5 ${subscription.features.hasPrioritySupport ? 'text-yellow-500' : 'text-gray-400'}`} />
+                            <div>
+                              <p className="text-sm text-muted-foreground">Prioriteret support</p>
+                              <p className="font-semibold">{subscription.features.hasPrioritySupport ? 'Inkluderet' : 'Ikke inkluderet'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
                       <div className="text-center py-8">
                         <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
                           <Zap className="h-8 w-8 text-muted-foreground" />
                         </div>
                         <p className="text-muted-foreground">
-                          Upgrade to unlock premium features
+                          Opgrader for at låse premium-funktioner op
                         </p>
                         <Button className="mt-4" asChild>
-                          <Link href="/pricing">View Plans</Link>
+                          <Link href="/pricing">Se planer</Link>
                         </Button>
                       </div>
                     )}
@@ -493,7 +523,7 @@ export default function BillingPage() {
                   <CardFooter>
                     <Button variant="link" asChild className="px-0">
                       <Link href="/pricing">
-                        Compare all plans
+                        Sammenlign alle planer
                         <ExternalLink className="h-4 w-4 ml-2" />
                       </Link>
                     </Button>
@@ -515,8 +545,8 @@ export default function BillingPage() {
                       <Settings className="h-6 w-6 text-white" />
                     </div>
                     <div>
-                      <CardTitle className="text-2xl">Billing Options</CardTitle>
-                      <CardDescription>Manage your payment and subscription settings</CardDescription>
+                      <CardTitle className="text-2xl">Faktureringsindstillinger</CardTitle>
+                      <CardDescription>Administrer dine betalings- og abonnementsindstillinger</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
@@ -529,9 +559,9 @@ export default function BillingPage() {
                       data-testid="button-change-payment"
                     >
                       <CreditCard className="h-6 w-6 text-indigo-500 mb-3" />
-                      <h4 className="font-semibold mb-1">Payment Method</h4>
+                      <h4 className="font-semibold mb-1">Betalingsmetode</h4>
                       <p className="text-sm text-muted-foreground">
-                        Update your credit card
+                        Opdater dit betalingskort
                       </p>
                     </button>
                     <button
@@ -541,9 +571,9 @@ export default function BillingPage() {
                       data-testid="button-view-invoices"
                     >
                       <Receipt className="h-6 w-6 text-emerald-500 mb-3" />
-                      <h4 className="font-semibold mb-1">Invoices</h4>
+                      <h4 className="font-semibold mb-1">Fakturaer</h4>
                       <p className="text-sm text-muted-foreground">
-                        Download past invoices
+                        Download tidligere fakturaer
                       </p>
                     </button>
                     <button
@@ -553,9 +583,9 @@ export default function BillingPage() {
                       data-testid="button-cancel-subscription"
                     >
                       <XCircle className="h-6 w-6 text-red-500 mb-3" />
-                      <h4 className="font-semibold mb-1">Cancel Plan</h4>
+                      <h4 className="font-semibold mb-1">Annuller plan</h4>
                       <p className="text-sm text-muted-foreground">
-                        Cancel your subscription
+                        Annuller dit abonnement
                       </p>
                     </button>
                     <a
@@ -563,9 +593,9 @@ export default function BillingPage() {
                       className="p-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors text-left"
                     >
                       <Mail className="h-6 w-6 text-amber-500 mb-3" />
-                      <h4 className="font-semibold mb-1">Contact Support</h4>
+                      <h4 className="font-semibold mb-1">Kontakt support</h4>
                       <p className="text-sm text-muted-foreground">
-                        Get help with billing
+                        Få hjælp til fakturering
                       </p>
                     </a>
                   </div>
@@ -578,7 +608,7 @@ export default function BillingPage() {
 
       <footer className="border-t py-8">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} BirdFlow. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} BirdFlow. Alle rettigheder forbeholdes.</p>
         </div>
       </footer>
     </div>

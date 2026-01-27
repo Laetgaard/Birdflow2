@@ -22,6 +22,10 @@ import {
   handleUserInvoicePaymentFailed,
   createUserSubscriptionCheckoutSession,
   getUserSubscriptionStatus,
+  checkWebsiteLimit,
+  checkPageLimit,
+  checkFeatureAccess,
+  getUserPlanFeatures,
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
@@ -667,6 +671,17 @@ export async function registerRoutes(
 
       if (!name || !setupType) {
         return res.status(400).json({ message: "Name and setup type are required" });
+      }
+
+      const limitCheck = await checkWebsiteLimit(user.id);
+      if (!limitCheck.allowed) {
+        return res.status(403).json({ 
+          message: limitCheck.reason,
+          code: 'PLAN_LIMIT_EXCEEDED',
+          currentCount: limitCheck.currentCount,
+          limit: limitCheck.limit,
+          planSlug: limitCheck.planSlug
+        });
       }
 
       // Generate a URL-friendly slug from the name
@@ -5290,6 +5305,56 @@ export async function registerRoutes(
       res.json(subscriptionStatus);
     } catch (error: any) {
       console.error("Get user subscription error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Check plan limits for various resources
+  app.get("/api/subscriptions/limits", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { websiteId } = req.query;
+      
+      const websiteLimitCheck = await checkWebsiteLimit(userId);
+      const planFeatures = await getUserPlanFeatures(userId);
+      
+      let pageLimitCheck = null;
+      if (websiteId && typeof websiteId === 'string') {
+        const website = await storage.getWebsite(websiteId);
+        if (website && website.ownerId === userId) {
+          pageLimitCheck = await checkPageLimit(userId, websiteId);
+        }
+      }
+      
+      res.json({
+        websites: {
+          canCreate: websiteLimitCheck.allowed,
+          current: websiteLimitCheck.currentCount,
+          limit: websiteLimitCheck.limit,
+          reason: websiteLimitCheck.reason
+        },
+        pages: pageLimitCheck ? {
+          canCreate: pageLimitCheck.allowed,
+          current: pageLimitCheck.currentCount,
+          limit: pageLimitCheck.limit,
+          reason: pageLimitCheck.reason
+        } : null,
+        features: {
+          hasBooking: planFeatures.bookingSystem,
+          hasWebshop: planFeatures.ecommerce,
+          hasCustomDomain: planFeatures.customDomain,
+          hasAnalytics: planFeatures.analytics,
+          hasAdvancedAnalytics: planFeatures.advancedAnalytics,
+          hasPrioritySupport: planFeatures.prioritySupport,
+          storageGB: planFeatures.storageGB,
+          maxWebsites: planFeatures.maxWebsites,
+          maxPages: planFeatures.maxPagesPerWebsite
+        },
+        planSlug: planFeatures.planSlug,
+        isActive: planFeatures.isActive
+      });
+    } catch (error: any) {
+      console.error("Get plan limits error:", error);
       res.status(500).json({ message: error.message });
     }
   });
