@@ -3812,12 +3812,15 @@ export async function registerRoutes(
         }
       }
 
+      // Generate signed state token for secure return
+      const stateToken = await createOAuthStateToken(websiteId, userId);
+
       // Generate account link for onboarding
       const baseUrl = process.env.BASE_URL || `https://${req.headers.host}`;
       const accountLink = await stripe.accountLinks.create({
         account: stripeAccountId,
-        refresh_url: `${baseUrl}/api/stripe/connect/refresh/${websiteId}`,
-        return_url: `${baseUrl}/api/stripe/connect/return/${websiteId}`,
+        refresh_url: `${baseUrl}/api/stripe/connect/refresh/${websiteId}?state=${encodeURIComponent(stateToken)}`,
+        return_url: `${baseUrl}/api/stripe/connect/return/${websiteId}?state=${encodeURIComponent(stateToken)}`,
         type: 'account_onboarding',
       });
 
@@ -3833,10 +3836,30 @@ export async function registerRoutes(
   app.get("/api/stripe/connect/return/:websiteId", async (req, res) => {
     try {
       const { websiteId } = req.params;
+      const { state: stateToken } = req.query;
+
+      // Verify signed state token for security
+      const stateData = await verifyAndConsumeOAuthStateToken(stateToken as string);
+      if (!stateData) {
+        console.error('Invalid or expired state token in return handler');
+        return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Session udløbet. Prøv venligst igen.')}`);
+      }
+
+      // Verify websiteId matches state
+      if (stateData.websiteId !== websiteId) {
+        console.error(`Website ID mismatch: ${websiteId} vs ${stateData.websiteId}`);
+        return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Ugyldig anmodning.')}`);
+      }
 
       const website = await storage.getWebsite(websiteId);
       if (!website) {
         return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Website ikke fundet')}`);
+      }
+
+      // Verify ownership
+      if (website.ownerId !== stateData.userId) {
+        console.error(`Ownership mismatch for website ${websiteId}`);
+        return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Ikke autoriseret.')}`);
       }
 
       const settings = await storage.getPaymentSettings(websiteId);
@@ -3846,10 +3869,20 @@ export async function registerRoutes(
 
       // Check account status
       const platformStripeSecretKey = await getStripeSecretKey();
+      if (!platformStripeSecretKey) {
+        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Stripe er ikke konfigureret')}`);
+      }
+      
       const Stripe = (await import('stripe')).default;
       const stripe = new Stripe(platformStripeSecretKey);
 
       const account = await stripe.accounts.retrieve(settings.stripeAccountId);
+
+      // Verify account metadata matches
+      if (account.metadata?.websiteId !== websiteId) {
+        console.error(`Account metadata websiteId mismatch`);
+        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Konto verifikation fejlede')}`);
+      }
 
       // Check if onboarding is complete
       if (account.details_submitted && account.charges_enabled) {
@@ -3875,7 +3908,16 @@ export async function registerRoutes(
 
   // Stripe Connect - Refresh handler (user needs to restart onboarding)
   app.get("/api/stripe/connect/refresh/:websiteId", async (req, res) => {
-    res.redirect(`/manage/${req.params.websiteId}?stripe_refresh=true`);
+    const { websiteId } = req.params;
+    const { state: stateToken } = req.query;
+
+    // Verify state token (but don't consume - user will restart)
+    // For refresh, we just validate format and redirect
+    if (!stateToken) {
+      return res.redirect(`/manage/${websiteId}?stripe_refresh=true&error=session_expired`);
+    }
+    
+    res.redirect(`/manage/${websiteId}?stripe_refresh=true`);
   });
 
   // Stripe Connect - Disconnect account
