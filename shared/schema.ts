@@ -3,6 +3,60 @@ import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean } fr
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Platform subscription plans
+export type PlatformPlanSlug = 'basic' | 'starter' | 'professional';
+
+export const PLATFORM_PLANS = {
+  basic: {
+    slug: 'basic' as const,
+    name: 'Basic',
+    priceMonthlyDKK: 69,
+    stripePriceAmount: 6900, // DKK minor units
+    maxWebsites: 1,
+    maxPagesPerWebsite: 4,
+    storageGB: 2,
+    features: {
+      customDomain: true,
+      automaticEmail: true,
+      booking: false,
+      webshop: false,
+    },
+    trialDays: 0,
+  },
+  starter: {
+    slug: 'starter' as const,
+    name: 'Starter',
+    priceMonthlyDKK: 149,
+    stripePriceAmount: 14900,
+    maxWebsites: 1,
+    maxPagesPerWebsite: 5,
+    storageGB: 4,
+    features: {
+      customDomain: true,
+      automaticEmail: true,
+      booking: true,
+      webshop: false,
+    },
+    trialDays: 14,
+  },
+  professional: {
+    slug: 'professional' as const,
+    name: 'Professional',
+    priceMonthlyDKK: 249,
+    stripePriceAmount: 24900,
+    maxWebsites: 5,
+    maxPagesPerWebsite: 20,
+    storageGB: 15,
+    features: {
+      customDomain: true,
+      automaticEmail: true,
+      booking: true,
+      webshop: true,
+    },
+    trialDays: 14,
+  },
+} as const;
+
 export const profiles = pgTable("profiles", {
   id: varchar("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -12,6 +66,14 @@ export const profiles = pgTable("profiles", {
   isAdmin: boolean("is_admin").default(false).notNull(),
   stripeCustomerId: text("stripe_customer_id"),
   verifiedOnboardingSubscriptionId: text("verified_onboarding_subscription_id"),
+  // Platform subscription fields
+  planSlug: text("plan_slug").$type<PlatformPlanSlug>(),
+  subscriptionId: text("subscription_id"),
+  subscriptionStatus: text("subscription_status"), // active, canceled, past_due, trialing, incomplete, manual
+  subscriptionPriceId: text("subscription_price_id"),
+  subscriptionStartedAt: timestamp("subscription_started_at"),
+  trialEndsAt: timestamp("trial_ends_at"),
+  currentPeriodEnd: timestamp("current_period_end"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -31,6 +93,30 @@ export const insertProfileSchema = createInsertSchema(profiles).omit({
 
 export type InsertProfile = z.infer<typeof insertProfileSchema>;
 export type Profile = typeof profiles.$inferSelect;
+
+// User invoices for billing history
+export const userInvoices = pgTable("user_invoices", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  stripeInvoiceId: text("stripe_invoice_id").notNull().unique(),
+  amountDue: integer("amount_due").notNull(), // in minor units (øre)
+  amountPaid: integer("amount_paid").notNull(),
+  currency: text("currency").default("dkk").notNull(),
+  status: text("status").notNull(), // draft, open, paid, uncollectible, void
+  invoiceUrl: text("invoice_url"),
+  invoicePdf: text("invoice_pdf"),
+  periodStart: timestamp("period_start"),
+  periodEnd: timestamp("period_end"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertUserInvoiceSchema = createInsertSchema(userInvoices).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertUserInvoice = z.infer<typeof insertUserInvoiceSchema>;
+export type UserInvoice = typeof userInvoices.$inferSelect;
 
 // Website plans
 export type WebsitePlan = 'free' | 'starter' | 'professional' | 'enterprise';

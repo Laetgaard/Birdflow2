@@ -344,10 +344,21 @@ export class DatabaseStorage implements IStorage {
       const result = await db.select().from(profiles).where(eq(profiles.id, id)).limit(1);
       return result[0];
     } catch (error: any) {
-      // Handle missing columns gracefully
-      if (error.message?.includes("is_admin") || error.message?.includes("stripe_customer_id")) {
+      // Handle missing columns gracefully - fall back to basic columns
+      if (error.message?.includes("does not exist")) {
         const result = await db.select(this.profileColumns).from(profiles).where(eq(profiles.id, id)).limit(1);
-        return result[0] ? { ...result[0], isAdmin: false, stripeCustomerId: null } as any : undefined;
+        return result[0] ? { 
+          ...result[0], 
+          isAdmin: false, 
+          stripeCustomerId: null,
+          planSlug: null,
+          subscriptionId: null,
+          subscriptionStatus: null,
+          subscriptionPriceId: null,
+          subscriptionStartedAt: null,
+          trialEndsAt: null,
+          currentPeriodEnd: null,
+        } as any : undefined;
       }
       throw error;
     }
@@ -358,21 +369,32 @@ export class DatabaseStorage implements IStorage {
       const result = await db.select().from(profiles).where(eq(profiles.email, email)).limit(1);
       return result[0];
     } catch (error: any) {
-      if (error.message?.includes("is_admin") || error.message?.includes("stripe_customer_id")) {
+      if (error.message?.includes("does not exist")) {
         const result = await db.select(this.profileColumns).from(profiles).where(eq(profiles.email, email)).limit(1);
-        return result[0] ? { ...result[0], isAdmin: false, stripeCustomerId: null } as any : undefined;
+        return result[0] ? { 
+          ...result[0], 
+          isAdmin: false, 
+          stripeCustomerId: null,
+          planSlug: null,
+          subscriptionId: null,
+          subscriptionStatus: null,
+          subscriptionPriceId: null,
+          subscriptionStartedAt: null,
+          trialEndsAt: null,
+          currentPeriodEnd: null,
+        } as any : undefined;
       }
       throw error;
     }
   }
 
   async createProfile(profile: InsertProfile & { id: string }): Promise<Profile> {
-    const result = await db.insert(profiles).values(profile).returning();
+    const result = await db.insert(profiles).values(profile as any).returning();
     return result[0];
   }
 
   async updateProfile(id: string, data: Partial<InsertProfile>): Promise<Profile | undefined> {
-    const result = await db.update(profiles).set(data).where(eq(profiles.id, id)).returning();
+    const result = await db.update(profiles).set(data as any).where(eq(profiles.id, id)).returning();
     return result[0];
   }
 
