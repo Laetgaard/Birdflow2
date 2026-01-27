@@ -16,6 +16,12 @@ import {
   handleInvoicePaymentFailed,
   PLAN_DETAILS,
   getSubscriptionStatusInfo,
+  handleUserSubscriptionCreated,
+  handleUserSubscriptionUpdated,
+  handleUserSubscriptionDeleted,
+  handleUserInvoicePaymentFailed,
+  createUserSubscriptionCheckoutSession,
+  getUserSubscriptionStatus,
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
@@ -5276,6 +5282,61 @@ export async function registerRoutes(
     }
   });
 
+  // Get current user subscription status (platform-level)
+  app.get("/api/subscriptions/current", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const subscriptionStatus = await getUserSubscriptionStatus(userId);
+      res.json(subscriptionStatus);
+    } catch (error: any) {
+      console.error("Get user subscription error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create checkout session for user subscription
+  app.post("/api/subscriptions/user-checkout", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { planId: rawPlanId } = req.body;
+      
+      if (!rawPlanId) {
+        return res.status(400).json({ message: "Missing plan selection" });
+      }
+      
+      const planId = rawPlanId.toLowerCase() as PlanId;
+      
+      if (!PLAN_DETAILS[planId]) {
+        return res.status(400).json({ message: "Invalid plan selected" });
+      }
+      
+      if (planId === 'free') {
+        return res.status(400).json({ message: "Cannot checkout for free plan" });
+      }
+      
+      const profile = await storage.getProfile(userId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      const origin = req.headers.origin || 'https://birdflow.dk';
+      
+      const result = await createUserSubscriptionCheckoutSession(
+        userId,
+        profile.email,
+        profile.fullName || profile.email,
+        planId,
+        `${origin}/dashboard?subscription=success`,
+        `${origin}/pricing?subscription=cancelled`
+      );
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Create user checkout session error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Get current subscription status for a website
   app.get("/api/subscriptions/website/:websiteId", requireAuth, async (req, res) => {
     try {
@@ -5538,21 +5599,43 @@ export async function registerRoutes(
     }
     
     try {
+      const subscription = event.data.object;
+      const isUserSubscription = subscription?.metadata?.type === 'user_subscription' || 
+                                 subscription?.metadata?.type === 'onboarding';
+      
       switch (event.type) {
         case 'checkout.session.completed':
           await handleCheckoutSessionCompleted(event.data.object);
           break;
         case 'customer.subscription.created':
-          await handleSubscriptionCreated(event.data.object);
+          if (isUserSubscription) {
+            await handleUserSubscriptionCreated(event.data.object);
+          } else {
+            await handleSubscriptionCreated(event.data.object);
+          }
           break;
         case 'customer.subscription.updated':
-          await handleSubscriptionUpdated(event.data.object);
+          if (isUserSubscription) {
+            await handleUserSubscriptionUpdated(event.data.object);
+          } else {
+            await handleSubscriptionUpdated(event.data.object);
+          }
           break;
         case 'customer.subscription.deleted':
-          await handleSubscriptionDeleted(event.data.object);
+          if (isUserSubscription) {
+            await handleUserSubscriptionDeleted(event.data.object);
+          } else {
+            await handleSubscriptionDeleted(event.data.object);
+          }
           break;
         case 'invoice.payment_failed':
+          // Try user subscription first, then fall back to website
+          await handleUserInvoicePaymentFailed(event.data.object);
           await handleInvoicePaymentFailed(event.data.object);
+          break;
+        case 'invoice.paid':
+          // Handle successful invoice payments
+          console.log(`[Webhook] Invoice paid: ${event.data.object.id}`);
           break;
         default:
           console.log(`Unhandled subscription event type: ${event.type}`);

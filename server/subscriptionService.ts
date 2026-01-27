@@ -515,3 +515,254 @@ export function getSubscriptionStatusInfo(
     statusColor,
   };
 }
+
+// User-level subscription handlers (for platform subscriptions tied to user profile)
+
+export async function handleUserSubscriptionCreated(
+  subscription: Stripe.Subscription
+): Promise<void> {
+  const userId = subscription.metadata?.userId;
+  const planId = subscription.metadata?.planId as PlanId;
+  
+  if (!userId) {
+    // Try to find user by customer ID
+    const customerId = typeof subscription.customer === 'string' 
+      ? subscription.customer 
+      : subscription.customer?.id;
+    if (customerId) {
+      const profile = await storage.getProfileByStripeCustomerId(customerId);
+      if (profile) {
+        await updateUserSubscription(profile.id, subscription, planId);
+        return;
+      }
+    }
+    console.error('[UserSubscription] No userId in metadata and couldn\'t find by customer:', subscription.id);
+    return;
+  }
+  
+  await updateUserSubscription(userId, subscription, planId);
+}
+
+export async function handleUserSubscriptionUpdated(
+  subscription: Stripe.Subscription
+): Promise<void> {
+  let userId = subscription.metadata?.userId;
+  
+  if (!userId) {
+    // Try to find by subscription ID
+    const profile = await storage.getProfileBySubscriptionId(subscription.id);
+    if (profile) {
+      userId = profile.id;
+    } else {
+      // Try by customer ID
+      const customerId = typeof subscription.customer === 'string' 
+        ? subscription.customer 
+        : subscription.customer?.id;
+      if (customerId) {
+        const profile = await storage.getProfileByStripeCustomerId(customerId);
+        if (profile) {
+          userId = profile.id;
+        }
+      }
+    }
+  }
+  
+  if (!userId) {
+    console.error('[UserSubscription] No user found for subscription update:', subscription.id);
+    return;
+  }
+  
+  const planId = subscription.metadata?.planId as PlanId;
+  await updateUserSubscription(userId, subscription, planId);
+}
+
+export async function handleUserSubscriptionDeleted(
+  subscription: Stripe.Subscription
+): Promise<void> {
+  const profile = await storage.getProfileBySubscriptionId(subscription.id);
+  
+  if (!profile) {
+    console.error('[UserSubscription] No user found for deleted subscription:', subscription.id);
+    return;
+  }
+  
+  await storage.updateProfile(profile.id, {
+    planSlug: 'free',
+    subscriptionId: null,
+    subscriptionStatus: 'canceled',
+    subscriptionPriceId: null,
+    trialEndsAt: null,
+    currentPeriodEnd: null,
+  } as any);
+  
+  console.log(`[UserSubscription] Deleted subscription ${subscription.id} - user ${profile.id} downgraded to free`);
+}
+
+async function updateUserSubscription(
+  userId: string,
+  subscription: Stripe.Subscription,
+  planId?: PlanId
+): Promise<void> {
+  const trialEnd = (subscription as any).trial_end 
+    ? new Date((subscription as any).trial_end * 1000) 
+    : null;
+  const currentPeriodEnd = new Date((subscription as any).current_period_end * 1000);
+  const subscriptionStartedAt = (subscription as any).start_date
+    ? new Date((subscription as any).start_date * 1000)
+    : new Date();
+  
+  const updateData: any = {
+    subscriptionId: subscription.id,
+    subscriptionStatus: subscription.status,
+    subscriptionPriceId: subscription.items.data[0]?.price.id || null,
+    subscriptionStartedAt,
+    trialEndsAt: trialEnd,
+    currentPeriodEnd,
+  };
+  
+  if (planId) {
+    updateData.planSlug = planId;
+  }
+  
+  await storage.updateProfile(userId, updateData);
+  
+  console.log(`[UserSubscription] ${planId ? 'Created' : 'Updated'} subscription ${subscription.id} for user ${userId}, plan: ${planId || 'unchanged'}, status: ${subscription.status}, trial ends: ${trialEnd?.toISOString() || 'none'}`);
+}
+
+export async function handleUserInvoicePaid(
+  invoice: Stripe.Invoice
+): Promise<void> {
+  const subscriptionId = invoice.subscription as string;
+  if (!subscriptionId) return;
+  
+  const profile = await storage.getProfileBySubscriptionId(subscriptionId);
+  if (!profile) {
+    console.log('[UserSubscription] No user found for paid invoice, may be website subscription');
+    return;
+  }
+  
+  // Could store invoice in user_invoices table here
+  console.log(`[UserSubscription] Invoice paid for user ${profile.id}, amount: ${invoice.amount_paid} ${invoice.currency}`);
+}
+
+export async function handleUserInvoicePaymentFailed(
+  invoice: Stripe.Invoice
+): Promise<void> {
+  const subscriptionId = invoice.subscription as string;
+  if (!subscriptionId) return;
+  
+  const profile = await storage.getProfileBySubscriptionId(subscriptionId);
+  if (!profile) {
+    console.log('[UserSubscription] No user found for failed invoice, may be website subscription');
+    return;
+  }
+  
+  await storage.updateProfile(profile.id, {
+    subscriptionStatus: 'past_due',
+  } as any);
+  
+  console.log(`[UserSubscription] Payment failed for user ${profile.id} - marked as past_due`);
+}
+
+export async function createUserSubscriptionCheckoutSession(
+  userId: string,
+  email: string,
+  name: string,
+  planId: PlanId,
+  successUrl: string,
+  cancelUrl: string
+): Promise<{ url: string; sessionId: string }> {
+  if (planId === 'free') {
+    throw new Error('Cannot create checkout session for free plan');
+  }
+  
+  const plan = PLAN_DETAILS[planId];
+  if (!plan.stripePriceId) {
+    throw new Error(`Stripe price ID not configured for plan: ${planId}. Please set STRIPE_${planId.toUpperCase()}_PRICE_ID environment variable.`);
+  }
+  
+  const customerId = await getOrCreateStripeCustomer(userId, email, name);
+  const stripe = await getUncachableStripeClient();
+  
+  const sessionConfig: Stripe.Checkout.SessionCreateParams = {
+    customer: customerId,
+    mode: 'subscription',
+    payment_method_types: ['card'],
+    line_items: [
+      {
+        price: plan.stripePriceId,
+        quantity: 1,
+      },
+    ],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    metadata: {
+      userId,
+      planId,
+      type: 'user_subscription',
+    },
+    subscription_data: {
+      metadata: {
+        userId,
+        planId,
+        type: 'user_subscription',
+      },
+    },
+    allow_promotion_codes: true,
+  };
+
+  if (plan.trialDays > 0) {
+    sessionConfig.subscription_data!.trial_period_days = plan.trialDays;
+  }
+  
+  const session = await stripe.checkout.sessions.create(sessionConfig);
+  
+  if (!session.url) {
+    throw new Error('Failed to create checkout session');
+  }
+  
+  console.log(`[UserSubscription] Created checkout session for user ${userId}, plan ${planId}, trial days: ${plan.trialDays}`);
+  
+  return {
+    url: session.url,
+    sessionId: session.id,
+  };
+}
+
+export async function getUserSubscriptionStatus(userId: string): Promise<{
+  plan: PlanId;
+  planName: string;
+  planPrice: string;
+  subscriptionStatus: string | null;
+  subscriptionId: string | null;
+  trialEndsAt: Date | null;
+  currentPeriodEnd: Date | null;
+  features: PlanFeatures;
+  featureList: { text: string; included: boolean; tooltip?: string }[];
+  statusInfo: ReturnType<typeof getSubscriptionStatusInfo>;
+}> {
+  const profile = await storage.getProfile(userId);
+  
+  const planSlug = (profile?.planSlug as PlanId) || 'free';
+  const planDetails = PLAN_DETAILS[planSlug] || PLAN_DETAILS.free;
+  
+  const trialEndsAt = profile?.trialEndsAt ? new Date(profile.trialEndsAt) : null;
+  const currentPeriodEnd = profile?.currentPeriodEnd ? new Date(profile.currentPeriodEnd) : null;
+  
+  return {
+    plan: planSlug,
+    planName: planDetails.name,
+    planPrice: planDetails.priceDisplay,
+    subscriptionStatus: profile?.subscriptionStatus || null,
+    subscriptionId: profile?.subscriptionId || null,
+    trialEndsAt,
+    currentPeriodEnd,
+    features: planDetails.features,
+    featureList: planDetails.featureList,
+    statusInfo: getSubscriptionStatusInfo(
+      profile?.subscriptionStatus,
+      trialEndsAt,
+      currentPeriodEnd
+    ),
+  };
+}
