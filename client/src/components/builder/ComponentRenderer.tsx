@@ -1000,7 +1000,11 @@ function BurgerButton({ isOpen, textColor, hoverColor, onClick }: {
         padding: '8px', 
         display: 'flex', 
         flexDirection: 'column', 
-        gap: '4px',
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: '40px',
+        height: '40px',
+        position: 'relative',
       }}
       aria-label="Toggle menu"
       data-testid="button-burger-menu"
@@ -1008,31 +1012,45 @@ function BurgerButton({ isOpen, textColor, hoverColor, onClick }: {
       <span style={{ 
         display: 'block', 
         width: '24px', 
-        height: '3px', 
+        height: '2px', 
         backgroundColor: currentColor, 
-        borderRadius: '2px', 
+        borderRadius: '1px', 
         transition: 'all 0.3s ease',
-        transformOrigin: 'center',
-        transform: isOpen ? 'translateY(7px) rotate(45deg)' : 'none' 
+        transformOrigin: 'center center',
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: isOpen 
+          ? 'translate(-50%, -50%) rotate(45deg)' 
+          : 'translate(-50%, calc(-50% - 6px))',
       }} />
       <span style={{ 
         display: 'block', 
         width: '24px', 
-        height: '3px', 
+        height: '2px', 
         backgroundColor: currentColor, 
-        borderRadius: '2px', 
-        transition: 'all 0.3s ease', 
-        opacity: isOpen ? 0 : 1 
+        borderRadius: '1px', 
+        transition: 'all 0.2s ease', 
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        opacity: isOpen ? 0 : 1,
       }} />
       <span style={{ 
         display: 'block', 
         width: '24px', 
-        height: '3px', 
+        height: '2px', 
         backgroundColor: currentColor, 
-        borderRadius: '2px', 
+        borderRadius: '1px', 
         transition: 'all 0.3s ease',
-        transformOrigin: 'center',
-        transform: isOpen ? 'translateY(-7px) rotate(-45deg)' : 'none' 
+        transformOrigin: 'center center',
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: isOpen 
+          ? 'translate(-50%, -50%) rotate(-45deg)' 
+          : 'translate(-50%, calc(-50% + 6px))',
       }} />
     </button>
   );
