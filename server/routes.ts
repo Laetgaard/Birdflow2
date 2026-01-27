@@ -5637,7 +5637,7 @@ export async function registerRoutes(
       
       if (!profile.stripeCustomerId) {
         return res.status(400).json({ 
-          message: "No billing account found. Please upgrade to a paid plan first.",
+          message: "Ingen faktureringskonto fundet. Opgrader venligst til et betalt abonnement først.",
           code: "NO_BILLING_ACCOUNT"
         });
       }
