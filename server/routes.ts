@@ -3642,13 +3642,13 @@ export async function registerRoutes(
   });
 
   // Helper to get OAuth signing secret (derived from STRIPE_CONNECT_CLIENT_ID)
-  const getOAuthSigningSecret = (): string => {
+  const getOAuthSigningSecret = async (): Promise<string> => {
     const clientId = process.env.STRIPE_CONNECT_CLIENT_ID;
     if (!clientId) {
       throw new Error('STRIPE_CONNECT_CLIENT_ID ikke konfigureret');
     }
     // Derive a secure signing key from client ID + a static salt
-    const crypto = require('crypto');
+    const crypto = await import('crypto');
     return crypto.createHash('sha256').update(`oauth_state_${clientId}_birdflow`).digest('hex');
   };
 
@@ -3658,7 +3658,7 @@ export async function registerRoutes(
     const { oauthStateTokens } = await import('@shared/schema');
     
     // Use derived signing secret from STRIPE_CONNECT_CLIENT_ID
-    const signingSecret = getOAuthSigningSecret();
+    const signingSecret = await getOAuthSigningSecret();
     
     const jti = crypto.randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -3696,7 +3696,7 @@ export async function registerRoutes(
       if (!payloadStr || !signature) return null;
       
       // Use derived signing secret from STRIPE_CONNECT_CLIENT_ID
-      const signingSecret = getOAuthSigningSecret();
+      const signingSecret = await getOAuthSigningSecret();
       
       // Verify signature first (cheap check before DB query)
       const expectedSignature = crypto.createHmac('sha256', signingSecret).update(payloadStr).digest('base64url');
