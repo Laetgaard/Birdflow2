@@ -35,7 +35,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { subscriptionPlans, getPlanById, isUpgrade } from "@shared/subscriptionPlans";
+import { subscriptionPlans, isUpgrade } from "@shared/subscriptionPlans";
 import { useState } from "react";
 
 const fadeInUp = {
