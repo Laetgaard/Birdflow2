@@ -181,6 +181,8 @@ export interface IStorage {
   // Profile methods
   getProfile(id: string): Promise<Profile | undefined>;
   getProfileByEmail(email: string): Promise<Profile | undefined>;
+  getProfileBySubscriptionId(subscriptionId: string): Promise<Profile | undefined>;
+  getProfileByStripeCustomerId(customerId: string): Promise<Profile | undefined>;
   createProfile(profile: InsertProfile & { id: string }): Promise<Profile>;
   updateProfile(id: string, data: Partial<InsertProfile>): Promise<Profile | undefined>;
   
@@ -385,6 +387,26 @@ export class DatabaseStorage implements IStorage {
         } as any : undefined;
       }
       throw error;
+    }
+  }
+
+  async getProfileBySubscriptionId(subscriptionId: string): Promise<Profile | undefined> {
+    try {
+      const result = await db.select().from(profiles).where(eq(profiles.subscriptionId, subscriptionId)).limit(1);
+      return result[0];
+    } catch (error: any) {
+      console.error('[Storage] getProfileBySubscriptionId error:', error.message);
+      return undefined;
+    }
+  }
+
+  async getProfileByStripeCustomerId(customerId: string): Promise<Profile | undefined> {
+    try {
+      const result = await db.select().from(profiles).where(eq(profiles.stripeCustomerId, customerId)).limit(1);
+      return result[0];
+    } catch (error: any) {
+      console.error('[Storage] getProfileByStripeCustomerId error:', error.message);
+      return undefined;
     }
   }
 
