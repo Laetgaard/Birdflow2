@@ -5113,6 +5113,17 @@ export async function registerRoutes(
     }
   });
 
+  // Admin billing - user subscriptions
+  app.get("/api/admin/billing/subscriptions", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const subscriptions = await storage.getAllUsersWithSubscriptions();
+      res.json(subscriptions);
+    } catch (error: any) {
+      console.error("Admin billing subscriptions error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Admin analytics - platform-wide visitor and traffic analytics
   app.get("/api/admin/analytics/overview", requireAuth, requireAdmin, async (req, res) => {
     try {

@@ -1078,6 +1078,22 @@ export type AdminDailyVisitors = {
   pageViews: number;
 };
 
+// Admin billing/subscription types
+export type AdminUserSubscription = {
+  id: string;
+  email: string;
+  fullName: string;
+  planSlug: string | null;
+  subscriptionId: string | null;
+  subscriptionStatus: string | null;
+  subscriptionStartedAt: Date | null;
+  trialEndsAt: Date | null;
+  currentPeriodEnd: Date | null;
+  stripeCustomerId: string | null;
+  createdAt: Date;
+  websiteCount: number;
+};
+
 // Legal settings for websites (Terms of Service, Privacy Policy placeholders)
 export const legalSettings = pgTable("legal_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

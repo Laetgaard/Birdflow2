@@ -41,6 +41,7 @@ import {
   AlertCircle,
   Lightbulb,
   Eye,
+  CreditCard,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -69,6 +70,7 @@ import type {
   AdminTrafficSource,
   AdminDailyVisitors,
   SupportTicket,
+  AdminUserSubscription,
 } from "@shared/schema";
 import { PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
@@ -729,6 +731,204 @@ function UsersTab({
   );
 }
 
+function BillingTab({ subscriptions }: { subscriptions: AdminUserSubscription[] }) {
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "active" | "trialing" | "canceled" | "none">("all");
+
+  const getStatusBadge = (status: string | null) => {
+    switch (status) {
+      case "active":
+        return <Badge className="bg-green-500">Aktiv</Badge>;
+      case "trialing":
+        return <Badge className="bg-blue-500">Prøveperiode</Badge>;
+      case "past_due":
+        return <Badge className="bg-yellow-500">Forfalden</Badge>;
+      case "canceled":
+        return <Badge className="bg-red-500">Annulleret</Badge>;
+      case "incomplete":
+        return <Badge className="bg-orange-500">Ufuldstændig</Badge>;
+      case "manual":
+        return <Badge className="bg-purple-500">Manuel</Badge>;
+      default:
+        return <Badge variant="secondary">Ingen</Badge>;
+    }
+  };
+
+  const getPlanBadge = (planSlug: string | null) => {
+    switch (planSlug) {
+      case "professional":
+        return <Badge className="bg-indigo-600">Professional</Badge>;
+      case "starter":
+        return <Badge className="bg-teal-500">Starter</Badge>;
+      case "basic":
+        return <Badge className="bg-slate-500">Basic</Badge>;
+      default:
+        return <Badge variant="outline">Ingen plan</Badge>;
+    }
+  };
+
+  const formatDKK = (amount: number | null): string => {
+    if (!amount) return "-";
+    return new Intl.NumberFormat("da-DK", {
+      style: "currency",
+      currency: "DKK",
+    }).format(amount / 100);
+  };
+
+  const formatDateDK = (date: Date | string | null): string => {
+    if (!date) return "-";
+    return new Date(date).toLocaleDateString("da-DK", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const isTrialExpired = (trialEndsAt: Date | string | null): boolean => {
+    if (!trialEndsAt) return false;
+    return new Date(trialEndsAt) < new Date();
+  };
+
+  const filteredSubscriptions = subscriptions.filter((sub) => {
+    const matchesSearch =
+      sub.email.toLowerCase().includes(search.toLowerCase()) ||
+      sub.fullName.toLowerCase().includes(search.toLowerCase());
+    
+    if (filter === "all") return matchesSearch;
+    if (filter === "none") return matchesSearch && !sub.subscriptionStatus;
+    return matchesSearch && sub.subscriptionStatus === filter;
+  });
+
+  const stats = {
+    total: subscriptions.length,
+    active: subscriptions.filter(s => s.subscriptionStatus === "active").length,
+    trialing: subscriptions.filter(s => s.subscriptionStatus === "trialing").length,
+    canceled: subscriptions.filter(s => s.subscriptionStatus === "canceled").length,
+    noSubscription: subscriptions.filter(s => !s.subscriptionStatus).length,
+    professional: subscriptions.filter(s => s.planSlug === "professional").length,
+    starter: subscriptions.filter(s => s.planSlug === "starter").length,
+    basic: subscriptions.filter(s => s.planSlug === "basic").length,
+  };
+
+  // Calculate monthly recurring revenue (MRR) based on active subscriptions
+  const calculateMRR = () => {
+    const activeProf = subscriptions.filter(s => s.subscriptionStatus === "active" && s.planSlug === "professional").length;
+    const activeStarter = subscriptions.filter(s => s.subscriptionStatus === "active" && s.planSlug === "starter").length;
+    const activeBasic = subscriptions.filter(s => s.subscriptionStatus === "active" && s.planSlug === "basic").length;
+    return (activeProf * 24900) + (activeStarter * 14900) + (activeBasic * 6900);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          title="Aktive abonnementer"
+          value={stats.active}
+          icon={CreditCard}
+          description={`${stats.trialing} i prøveperiode`}
+        />
+        <StatCard
+          title="Månedlig omsætning"
+          value={formatDKK(calculateMRR())}
+          icon={DollarSign}
+          description="Fra aktive abonnementer"
+        />
+        <StatCard
+          title="Professional"
+          value={stats.professional}
+          icon={TrendingUp}
+          description="249 kr/md"
+        />
+        <StatCard
+          title="Starter"
+          value={stats.starter}
+          icon={TrendingUp}
+          description="149 kr/md"
+        />
+        <StatCard
+          title="Basic"
+          value={stats.basic}
+          icon={TrendingUp}
+          description="69 kr/md"
+        />
+      </div>
+
+      <div className="flex gap-4 items-center">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Søg efter bruger..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+            data-testid="input-search-billing"
+          />
+        </div>
+        <Select value={filter} onValueChange={(v: any) => setFilter(v)}>
+          <SelectTrigger className="w-[180px]" data-testid="select-filter-billing">
+            <Filter className="h-4 w-4 mr-2" />
+            <SelectValue placeholder="Filter" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Alle brugere</SelectItem>
+            <SelectItem value="active">Aktive</SelectItem>
+            <SelectItem value="trialing">Prøveperiode</SelectItem>
+            <SelectItem value="canceled">Annullerede</SelectItem>
+            <SelectItem value="none">Ingen abonnement</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Bruger</TableHead>
+              <TableHead>Plan</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-center">Sites</TableHead>
+              <TableHead>Prøveperiode slutter</TableHead>
+              <TableHead>Næste betaling</TableHead>
+              <TableHead>Oprettet</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredSubscriptions.map((sub) => (
+              <TableRow key={sub.id} data-testid={`row-subscription-${sub.id}`}>
+                <TableCell>
+                  <div>
+                    <div className="font-medium">{sub.fullName}</div>
+                    <div className="text-sm text-muted-foreground">{sub.email}</div>
+                  </div>
+                </TableCell>
+                <TableCell>{getPlanBadge(sub.planSlug)}</TableCell>
+                <TableCell>{getStatusBadge(sub.subscriptionStatus)}</TableCell>
+                <TableCell className="text-center">{sub.websiteCount}</TableCell>
+                <TableCell>
+                  {sub.trialEndsAt ? (
+                    <span className={isTrialExpired(sub.trialEndsAt) ? "text-red-500" : ""}>
+                      {formatDateDK(sub.trialEndsAt)}
+                      {isTrialExpired(sub.trialEndsAt) && " (udløbet)"}
+                    </span>
+                  ) : (
+                    "-"
+                  )}
+                </TableCell>
+                <TableCell>{formatDateDK(sub.currentPeriodEnd)}</TableCell>
+                <TableCell>{formatDateDK(sub.createdAt)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <div className="text-sm text-muted-foreground">
+        Viser {filteredSubscriptions.length} af {subscriptions.length} brugere
+      </div>
+    </div>
+  );
+}
+
 function WebsitesTab({ websites }: { websites: AdminWebsiteWithOwner[] }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "published" | "draft">("all");
@@ -1148,6 +1348,18 @@ export default function AdminPage() {
     enabled: adminCheck?.isAdmin && !!session,
   });
 
+  const { data: billingSubscriptions, isLoading: billingLoading } = useQuery({
+    queryKey: ["admin-billing-subscriptions"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/billing/subscriptions", {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to fetch billing subscriptions");
+      return res.json() as Promise<AdminUserSubscription[]>;
+    },
+    enabled: adminCheck?.isAdmin && !!session,
+  });
+
   const [analyticsDays, setAnalyticsDays] = useState(30);
 
   const { data: analyticsOverview, isLoading: analyticsOverviewLoading } = useQuery({
@@ -1336,6 +1548,9 @@ export default function AdminPage() {
             <TabsTrigger value="websites" data-testid="tab-websites">
               Websites ({websites?.length || 0})
             </TabsTrigger>
+            <TabsTrigger value="billing" data-testid="tab-billing">
+              Billing ({billingSubscriptions?.length || 0})
+            </TabsTrigger>
             <TabsTrigger value="support" data-testid="tab-support">
               Support ({supportTickets?.length || 0})
             </TabsTrigger>
@@ -1412,6 +1627,14 @@ export default function AdminPage() {
               <Skeleton className="h-[400px]" />
             ) : websites ? (
               <WebsitesTab websites={websites} />
+            ) : null}
+          </TabsContent>
+
+          <TabsContent value="billing">
+            {billingLoading ? (
+              <Skeleton className="h-[400px]" />
+            ) : billingSubscriptions ? (
+              <BillingTab subscriptions={billingSubscriptions} />
             ) : null}
           </TabsContent>
 
