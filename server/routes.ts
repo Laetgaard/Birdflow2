@@ -3828,7 +3828,16 @@ export async function registerRoutes(
       res.json({ url: accountLink.url });
     } catch (error: any) {
       console.error('Stripe Connect initiation error:', error);
-      res.status(500).json({ message: error.message });
+      
+      // Provide user-friendly error messages in Danish
+      let userMessage = error.message;
+      if (error.message?.includes("signed up for Connect")) {
+        userMessage = "Stripe Connect er ikke aktiveret på din platform-konto. Gå til dashboard.stripe.com/connect for at aktivere det.";
+      } else if (error.message?.includes("production")) {
+        userMessage = "Stripe produktion er ikke konfigureret. Kontakt support.";
+      }
+      
+      res.status(500).json({ message: userMessage });
     }
   });
 
