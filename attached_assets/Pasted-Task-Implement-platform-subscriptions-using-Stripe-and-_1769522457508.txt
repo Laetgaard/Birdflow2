@@ -1,0 +1,160 @@
+Task: Implement platform subscriptions using Stripe and wire them into onboarding, pricing, and billing pages. Make the system complete, secure, and production-ready.
+
+GOAL
+- Create three subscription plans in Stripe and implement subscription checkout and billing management in the app.
+- Wire plan selection into onboarding, pricing page, and the billing page in user settings.
+- Enforce feature limits in the app based on active subscription plan.
+- Provide safe migration for existing users.
+
+PLANS (currency DKK)
+1) Basic — 69 kr / month
+   - 1 website
+   - 3–4 pages
+   - 2 GB storage
+   - Custom domain
+   - Automatic email
+   - NO booking
+   - NO webshop
+
+2) Starter — 149 kr / month
+   - 1 website
+   - 5 pages
+   - 3–5 GB storage
+   - Custom domain
+   - Automatic email
+   - ✅ Booking included
+   - ❌ Webshop NOT included
+   - (Include configurable free trial; default 14 days)
+
+3) Professional — 249 kr / month
+   - 5 websites
+   - 20 pages
+   - 10–20 GB storage
+   - Custom domain
+   - Automatic email
+   - ✅ Booking
+   - ✅ Webshop
+
+DATABASE CHANGES
+- Add fields (if missing):
+  - users: stripe_customer_id TEXT, subscription_status TEXT, subscription_id TEXT, subscription_price_id TEXT, subscription_started_at timestamptz, trial_ends_at timestamptz, plan_slug TEXT
+  - website_payment_settings (existing): ensure no user API keys stored for Stripe subscriptions
+- Add a billing_usage table or extend usage tables to track usage (e.g., websites_count, pages_count, storage_bytes) and a computed or scheduled job to calculate current usage per account.
+
+STRIPE SETUP
+- Create 3 Stripe Products and recurring Prices (monthly) in DKK. Use price IDs in code/config.
+  - Note: store Stripe Price IDs in environment or DB.
+  - Use Stripe best practice: use webhooks and server-side calls only; never call Stripe secret from client.
+- Implement configurable trial days (default 14) per plan.
+
+API ENDPOINTS (server-side)
+- POST /api/subscriptions/create-checkout-session
+  - Input: userId, plan_slug, optional coupon, success_url, cancel_url
+  - Create/attach Stripe Customer (store stripe_customer_id)
+  - Create Checkout Session for subscription with price, trial days if applicable
+  - Return session.url to client
+- POST /api/subscriptions/create-portal-session
+  - Create Stripe Customer Portal session and return url
+- POST /api/stripe/webhook
+  - Secure webhook handler to process events:
+    - invoice.paid
+    - invoice.payment_failed
+    - customer.subscription.created
+    - customer.subscription.updated
+    - customer.subscription.deleted
+    - checkout.session.completed
+  - Update users.subscription_status, subscription_id, subscription_price_id, trial_ends_at accordingly
+  - Create local invoice records for billing page
+  - Send transactional emails on subscription created/failed (use existing email service)
+- GET /api/subscriptions/current
+  - Returns current plan, trial status, next_invoice_date, invoice history
+- POST /api/subscriptions/change-plan
+  - Handle upgrade/downgrade logic and proration settings (use Stripe proration or set manual behavior)
+- POST /api/subscriptions/cancel
+  - Cancel at period_end or immediate (optionally)
+- POST /api/subscriptions/resume
+
+PRICING / ONBOARDING / BILLING PAGES (UI)
+- Pricing page:
+  - Show three plan cards with features, price, CTA "Start trial" / "Subscribe"
+  - Highlight Professional as “Most popular”
+  - Show short FAQ about billing, cancellations, trial
+- Onboarding subscription step:
+  - If user not on plan, present plan picker during onboarding (default to Starter suggestion)
+  - Allow trial start: create Checkout Session with trial
+- Billing page (Manage / Billing):
+  - Show current plan, plan benefits, next billing date, billing status
+  - Show usage (websites used, pages used, storage used) vs plan limits
+  - Button: "Change plan" → opens modal with plan options (calls /api/subscriptions/create-checkout-session)
+  - Button: "Manage payment method / invoices" → opens Stripe billing portal (create-portal-session)
+  - Show recent invoices + download link
+  - Show subscription cancel/resume and proration info
+- Notifications:
+  - Show in-app banners for approaching limits (e.g., storage > 90%)
+  - On failed payment, show instructions + link to portal to update card
+
+FEATURE ENFORCEMENTS (server + middleware)
+- Add middleware or server-side checks that enforce plan limits:
+  - On website creation: check websites_count < allowed
+  - On page creation: check pages_count < allowed per plan
+  - On storage uploads: block or throttle if storage bytes exceed plan
+  - On enabling booking/webshop: check plan supports feature (return 403 and UI message)
+- These checks should rely on the DB subscription_status and plan_slug for each user.
+
+MIGRATION FOR EXISTING USERS
+- Add script endpoint or migration job (safe idempotent):
+  - Map users without plan to Starter by default (plan_slug = 'starter', subscription_status = 'manual')
+  - Create local placeholder billing records for old customers if needed
+  - Flag migrated users to be emailed about the new billing model
+- Notify users in-app and email before enforcement (grace period e.g., 30 days)
+
+SECURITY & BEST PRACTICES
+- Use server-only Stripe secret (STRIPE_SECRET_KEY) from env vars
+- Validate webhook signatures (STRIPE_WEBHOOK_SECRET)
+- Never store or expose raw card data
+- Use Stripe PCI-compliant flows (Checkout / Portal)
+- Ensure rate-limiting on subscription endpoints
+- Log billing events securely for audit
+
+TESTING & QA
+- Use Stripe test mode keys for development
+- Test flows:
+  - Create new subscription (trial and immediate)
+  - Successful invoice.payment
+  - Failed payment and dunning behavior
+  - Plan change (upgrade / downgrade, proration)
+  - Cancel at period end / immediate cancel / resume
+  - Customer portal session works
+- Test feature enforcement:
+  - Try to create website/page beyond limits as test user
+  - Try to enable booking/webshop on Basic plan
+- Test migration script on a staging DB first
+
+ADMIN TOOLS
+- Admin UI to:
+  - View users’ stripe_customer_id and subscription_status
+  - Force-change plan, cancel subscriptions, issue refunds
+  - See invoice history and payment failures
+
+DELIVERABLES
+1. Create Stripe Products & Price IDs (or instructions + config)
+2. Implement server endpoints and webhook
+3. Update DB schema and add migration script
+4. Implement Pricing, Onboarding subscription step, Billing page UI (billing portal)
+5. Implement middleware checks for plan enforcement
+6. Migration plan & run on staging
+7. Testing checklist passed and documented
+8. Communication copy to users about new billing model
+
+MISC NOTES
+- Default free trial: make it configurable but set to 14 days by default (apply on checkout creation)
+- Use DKK minor units for Stripe Price creation (e.g., 69.00 DKK → 6900 in Stripe currency_minor_unit)
+- Provide clear UI copy for trial, cancellation, proration behavior
+
+IMPORTANT: Before you deploy to production — run the migration and Stripe setup in a staging environment and test webhooks & billing portal end-to-end.
+
+If you implement this, reply here with:
+- Stripe Product & Price IDs (test and live)
+- DB migration SQL
+- A list of any env vars you added
+- A summary of the migration run results
