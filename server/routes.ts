@@ -3744,8 +3744,8 @@ export async function registerRoutes(
     }
   }, 5 * 60 * 1000);
 
-  // Stripe Connect OAuth - Initiate connection
-  app.get("/api/stripe/connect/:websiteId", requireAuth, async (req, res) => {
+  // Stripe Connect OAuth - Initiate connection (POST to get OAuth URL with auth token)
+  app.post("/api/stripe/connect/:websiteId", requireAuth, async (req, res) => {
     try {
       const { websiteId } = req.params;
       const userId = (req as any).user.id;
@@ -3778,7 +3778,8 @@ export async function registerRoutes(
       stripeOAuthUrl.searchParams.set('redirect_uri', redirectUri);
       stripeOAuthUrl.searchParams.set('state', stateToken); // Signed JWT state
 
-      res.redirect(stripeOAuthUrl.toString());
+      // Return OAuth URL for client-side redirect (instead of server-side redirect)
+      res.json({ url: stripeOAuthUrl.toString() });
     } catch (error: any) {
       console.error('Stripe Connect initiation error:', error);
       res.status(500).json({ message: error.message });
