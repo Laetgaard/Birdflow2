@@ -13,9 +13,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Zap, Crown, Building2, ArrowLeft, Loader2, User, CreditCard, Shield, Clock, Calendar, CheckCircle2, X, HelpCircle } from "lucide-react";
+import { Check, Zap, Crown, Building2, ArrowLeft, Loader2, User, CreditCard, Shield, Clock, Calendar, CheckCircle2, X, HelpCircle, Settings } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { format, formatDistanceToNow, isPast, isBefore, addDays } from "date-fns";
+import { da } from "date-fns/locale";
+import { subscriptionPlans, isUpgrade, isDowngrade } from "@shared/subscriptionPlans";
 
 interface SubscriptionInfo {
   plan: string;
@@ -36,93 +38,36 @@ interface Website {
   plan: string;
 }
 
-const plans = [
-  {
-    id: "starter",
-    name: "Starter",
-    description: "Perfect for growing businesses",
-    price: "$19",
-    priceDetail: "/month",
-    trialText: "2 months free trial",
-    icon: Zap,
-    iconColor: "text-emerald-500",
-    bgGradient: "from-emerald-500/10 to-teal-500/10",
-    borderColor: "border-emerald-500/20",
-    iconBg: "from-emerald-500 to-teal-600",
-    popular: true,
-    features: [
-      { text: "2 months free trial", included: true, highlight: true, tooltip: "Full access for 60 days, then $19/month" },
-      { text: "3 websites", included: true },
-      { text: "All premium templates", included: true },
-      { text: "AI builder assistant", included: true },
-      { text: "Custom domain support", included: true },
-      { text: "E-commerce (up to 50 products)", included: true },
-      { text: "Booking system", included: true },
-      { text: "Email notifications", included: true },
-      { text: "Basic analytics", included: true },
-    ],
-    cta: "Start Free Trial",
-    ctaVariant: "default" as const,
-  },
-  {
-    id: "business",
-    name: "Business",
-    description: "For scaling teams",
-    price: "$49",
-    priceDetail: "/month",
-    trialText: "14-day free trial",
-    icon: Crown,
-    iconColor: "text-indigo-500",
-    bgGradient: "from-indigo-500/10 to-purple-500/10",
-    borderColor: "border-indigo-500/20",
-    iconBg: "from-indigo-500 to-purple-600",
-    popular: false,
-    features: [
-      { text: "14-day free trial", included: true },
-      { text: "10 websites", included: true },
-      { text: "Everything in Starter", included: true },
-      { text: "Unlimited products", included: true },
-      { text: "Advanced analytics", included: true },
-      { text: "Team collaboration", included: true, tooltip: "Up to 5 team members" },
-      { text: "API access", included: true },
-      { text: "Priority email support", included: true },
-    ],
-    cta: "Start Free Trial",
-    ctaVariant: "outline" as const,
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    description: "For large organizations",
-    price: "$149",
-    priceDetail: "/month",
-    trialText: "14-day free trial",
-    icon: Building2,
-    iconColor: "text-amber-500",
-    bgGradient: "from-amber-500/10 to-orange-500/10",
-    borderColor: "border-amber-500/20",
-    iconBg: "from-amber-500 to-orange-600",
-    popular: false,
-    features: [
-      { text: "14-day free trial", included: true },
-      { text: "Unlimited websites", included: true },
-      { text: "Everything in Business", included: true },
-      { text: "White-label solution", included: true },
-      { text: "Unlimited team members", included: true },
-      { text: "Dedicated account manager", included: true },
-      { text: "SLA guarantee (99.9% uptime)", included: true },
-      { text: "Phone support", included: true },
-    ],
-    cta: "Start Free Trial",
-    ctaVariant: "outline" as const,
-  },
-];
+const planIcons: Record<string, any> = {
+  basic: Zap,
+  starter: Crown,
+  professional: Building2,
+};
+
+const planBgGradients: Record<string, string> = {
+  basic: "from-blue-500/10 to-cyan-500/10",
+  starter: "from-emerald-500/10 to-teal-500/10",
+  professional: "from-purple-500/10 to-pink-500/10",
+};
+
+const planBorderColors: Record<string, string> = {
+  basic: "border-blue-500/20",
+  starter: "border-emerald-500/20",
+  professional: "border-purple-500/20",
+};
+
+const planIconBg: Record<string, string> = {
+  basic: "from-blue-500 to-cyan-600",
+  starter: "from-emerald-500 to-teal-600",
+  professional: "from-purple-500 to-pink-600",
+};
 
 const statusLabels: Record<string, string> = {
-  active: "Active",
-  trialing: "Trial",
-  canceled: "Canceled",
-  past_due: "Past Due",
+  active: "Aktiv",
+  trialing: "Prøveperiode",
+  canceled: "Annulleret",
+  past_due: "Forfalden",
+  unpaid: "Ikke betalt",
 };
 
 const statusBadgeVariants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -130,6 +75,7 @@ const statusBadgeVariants: Record<string, "default" | "secondary" | "destructive
   trialing: "secondary",
   canceled: "destructive",
   past_due: "destructive",
+  unpaid: "destructive",
 };
 
 export default function ProfilePage() {
@@ -162,7 +108,7 @@ export default function ProfilePage() {
     queryKey: ["/api/websites"],
     queryFn: async () => {
       const res = await fetch("/api/websites", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch websites");
+      if (!res.ok) throw new Error("Kunne ikke hente hjemmesider");
       return res.json();
     },
     enabled: !!user,
@@ -177,7 +123,7 @@ export default function ProfilePage() {
       const res = await fetch(`/api/subscriptions/website/${selectedWebsiteId}`, {
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to fetch subscription");
+      if (!res.ok) throw new Error("Kunne ikke hente abonnement");
       return res.json();
     },
     enabled: !!selectedWebsiteId,
@@ -199,7 +145,7 @@ export default function ProfilePage() {
       });
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Failed to start checkout");
+        throw new Error(error.message || "Kunne ikke starte betaling");
       }
       return res.json();
     },
@@ -210,8 +156,8 @@ export default function ProfilePage() {
     },
     onError: (error: any) => {
       toast({
-        title: "Checkout Error",
-        description: error.message || "Failed to start checkout. Please try again.",
+        title: "Betalingsfejl",
+        description: error.message || "Kunne ikke starte betaling. Prøv venligst igen.",
         variant: "destructive",
       });
       setSelectedPlan(null);
@@ -231,7 +177,7 @@ export default function ProfilePage() {
       });
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Failed to open billing portal");
+        throw new Error(error.message || "Kunne ikke åbne faktureringsoversigt");
       }
       return res.json();
     },
@@ -239,15 +185,15 @@ export default function ProfilePage() {
       window.location.href = data.url;
     },
     onError: (error: Error) => {
-      if (error.message.includes("No billing account")) {
+      if (error.message.includes("faktureringskonto") || error.message.includes("NO_BILLING_ACCOUNT")) {
         toast({
-          title: "No billing account",
-          description: "Please subscribe to a plan first.",
+          title: "Ingen faktureringskonto",
+          description: "Tilmeld dig et abonnement først.",
           variant: "destructive",
         });
       } else {
         toast({
-          title: "Error",
+          title: "Fejl",
           description: error.message,
           variant: "destructive",
         });
@@ -287,23 +233,23 @@ export default function ProfilePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!response.ok) throw new Error('Failed to update profile');
+      if (!response.ok) throw new Error('Kunne ikke opdatere profil');
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/profile', user?.id] });
-      toast({ title: "Profile updated successfully" });
+      toast({ title: "Profil opdateret" });
     },
     onError: () => {
-      toast({ title: "Failed to update profile", variant: "destructive" });
+      toast({ title: "Kunne ikke opdatere profil", variant: "destructive" });
     },
   });
 
   const handleSelectPlan = (planId: string) => {
     if (!selectedWebsiteId) {
       toast({
-        title: "No Website Found",
-        description: "Please create a website first before subscribing.",
+        title: "Ingen hjemmeside fundet",
+        description: "Opret venligst en hjemmeside først.",
       });
       navigate("/onboarding");
       return;
@@ -329,18 +275,18 @@ export default function ProfilePage() {
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to submit');
+      if (!response.ok) throw new Error('Kunne ikke sende');
 
       toast({
-        title: "Request submitted!",
-        description: "We'll be in touch within 24 hours to help you get started.",
+        title: "Anmodning sendt!",
+        description: "Vi kontakter dig inden for 24 timer.",
       });
       setContactOpen(false);
       setFormData({ name: '', email: '', company: '', message: '' });
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to submit your request. Please try again.",
+        title: "Fejl",
+        description: "Kunne ikke sende din anmodning. Prøv venligst igen.",
         variant: "destructive",
       });
     } finally {
@@ -363,31 +309,31 @@ export default function ProfilePage() {
           data-testid="button-back"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Dashboard
+          Tilbage til dashboard
         </Button>
 
         <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Profile Settings</h1>
-          <p className="text-muted-foreground mt-2">Manage your account and billing</p>
+          <h1 className="text-3xl font-bold tracking-tight">Profilindstillinger</h1>
+          <p className="text-muted-foreground mt-2">Administrer din konto og fakturering</p>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="account" data-testid="tab-account">
               <User className="w-4 h-4 mr-2" />
-              Account
+              Konto
             </TabsTrigger>
             <TabsTrigger value="billing" data-testid="tab-billing">
               <CreditCard className="w-4 h-4 mr-2" />
-              Billing
+              Fakturering
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="account">
             <Card>
               <CardHeader>
-                <CardTitle>Account Information</CardTitle>
-                <CardDescription>Update your personal details</CardDescription>
+                <CardTitle>Kontoinformation</CardTitle>
+                <CardDescription>Opdater dine personlige oplysninger</CardDescription>
               </CardHeader>
               <form onSubmit={handleSaveAccount}>
                 <CardContent className="space-y-4">
@@ -401,10 +347,10 @@ export default function ProfilePage() {
                       className="bg-muted"
                       data-testid="input-email"
                     />
-                    <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                    <p className="text-xs text-muted-foreground">Email kan ikke ændres</p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="fullName">Full Name</Label>
+                    <Label htmlFor="fullName">Fulde navn</Label>
                     <Input
                       id="fullName"
                       value={accountForm.fullName}
@@ -413,7 +359,7 @@ export default function ProfilePage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="phoneNumber">Phone Number</Label>
+                    <Label htmlFor="phoneNumber">Telefonnummer</Label>
                     <Input
                       id="phoneNumber"
                       value={accountForm.phoneNumber}
@@ -429,7 +375,7 @@ export default function ProfilePage() {
                     data-testid="button-save-account"
                   >
                     {updateProfileMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    Save Changes
+                    Gem ændringer
                   </Button>
                 </CardFooter>
               </form>
@@ -440,9 +386,9 @@ export default function ProfilePage() {
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <Shield className="w-5 h-5 text-amber-600" />
-                    <CardTitle className="text-amber-900">Admin Access</CardTitle>
+                    <CardTitle className="text-amber-900">Administrator adgang</CardTitle>
                   </div>
-                  <CardDescription>You have administrator privileges</CardDescription>
+                  <CardDescription>Du har administratorrettigheder</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Button 
@@ -451,7 +397,7 @@ export default function ProfilePage() {
                     data-testid="button-admin-dashboard"
                   >
                     <Shield className="w-4 h-4 mr-2" />
-                    Open Admin Dashboard
+                    Åbn admin dashboard
                   </Button>
                 </CardContent>
               </Card>
@@ -460,157 +406,90 @@ export default function ProfilePage() {
 
           <TabsContent value="billing">
             <div className="space-y-8">
-              {/* Current Plan Card */}
-              <Card className={`relative overflow-hidden border-2 ${
-                subscription?.plan === 'starter' ? 'border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-teal-500/10' :
-                subscription?.plan === 'business' ? 'border-indigo-500/30 bg-gradient-to-br from-indigo-500/10 to-purple-500/10' :
-                subscription?.plan === 'enterprise' ? 'border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-orange-500/10' :
-                'border-gray-500/30 bg-gradient-to-br from-gray-500/5 to-gray-400/5'
-              }`}>
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-white/5 to-transparent rounded-bl-full" />
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br ${
-                        subscription?.plan === 'starter' ? 'from-emerald-500 to-teal-600' :
-                        subscription?.plan === 'business' ? 'from-indigo-500 to-purple-600' :
-                        subscription?.plan === 'enterprise' ? 'from-amber-500 to-orange-600' :
-                        'from-gray-500 to-gray-600'
-                      }`}>
-                        {subscription?.plan === 'starter' ? <Zap className="h-6 w-6 text-white" /> :
-                         subscription?.plan === 'business' ? <Crown className="h-6 w-6 text-white" /> :
-                         subscription?.plan === 'enterprise' ? <Building2 className="h-6 w-6 text-white" /> :
-                         <Zap className="h-6 w-6 text-white" />}
-                      </div>
-                      <div>
-                        <CardTitle className="text-2xl">Current Plan</CardTitle>
-                        <CardDescription>Your active subscription</CardDescription>
-                      </div>
-                    </div>
-                    {subscription?.subscriptionStatus && (
-                      <Badge 
-                        variant={statusBadgeVariants[subscription.subscriptionStatus] || "secondary"}
-                        className="text-sm"
-                      >
-                        {statusLabels[subscription.subscriptionStatus] || subscription.subscriptionStatus}
-                      </Badge>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {subscriptionLoading || websitesLoading ? (
-                    <div className="space-y-3">
-                      <Skeleton className="h-10 w-40" />
-                      <Skeleton className="h-4 w-32" />
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <h3 className="text-4xl font-bold">{subscription?.planName || "Free"}</h3>
-                        <p className="text-lg text-muted-foreground mt-1">
-                          {subscription?.planPrice || "No active subscription"}
-                        </p>
-                      </div>
-                      
-                      {subscription?.subscriptionStatus === 'trialing' && subscription?.trialEnd && (
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
-                          <Clock className="h-5 w-5 text-amber-500" />
-                          <div>
-                            <p className="font-medium">Trial Period</p>
-                            <p className="text-sm text-muted-foreground">
-                              Ends {format(new Date(subscription.trialEnd), "MMMM d, yyyy")}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                      
-                      {subscription?.currentPeriodEnd && subscription?.subscriptionStatus === 'active' && (
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
-                          <Calendar className="h-5 w-5 text-indigo-500" />
-                          <div>
-                            <p className="font-medium">Next Billing</p>
-                            <p className="text-sm text-muted-foreground">
-                              {format(new Date(subscription.currentPeriodEnd), "MMMM d, yyyy")}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-                <CardFooter className="flex flex-col sm:flex-row gap-3">
-                  {subscription?.plan && subscription.plan !== 'free' ? (
-                    <Button 
-                      onClick={() => billingPortalMutation.mutate()}
-                      disabled={billingPortalMutation.isPending}
-                      className="flex-1"
-                    >
-                      {billingPortalMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <CreditCard className="h-4 w-4 mr-2" />
-                      )}
-                      Manage Subscription
-                    </Button>
-                  ) : null}
-                </CardFooter>
-              </Card>
-
-              {/* Plan Cards */}
+              {/* Plan Cards - 3 column grid matching pricing page */}
               <div>
                 <h2 className="text-2xl font-bold mb-2">
-                  {subscription?.plan && subscription.plan !== 'free' ? 'Change Your Plan' : 'Choose Your Plan'}
+                  {subscription?.plan && subscription.plan !== 'free' ? 'Skift din plan' : 'Vælg din plan'}
                 </h2>
-                <p className="text-muted-foreground mb-6">Select the plan that best fits your needs</p>
+                <p className="text-muted-foreground mb-6">Vælg det abonnement der passer til din virksomhed</p>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {plans.map((plan) => {
-                    const Icon = plan.icon;
+                  {subscriptionPlans.map((plan) => {
+                    const PlanIcon = planIcons[plan.id] || Zap;
+                    const bgGradient = planBgGradients[plan.id] || "from-gray-500/10 to-gray-400/10";
+                    const borderColor = planBorderColors[plan.id] || "border-gray-500/20";
+                    const iconBg = planIconBg[plan.id] || "from-gray-500 to-gray-600";
                     const isCurrentPlan = subscription?.plan === plan.id;
+                    
                     return (
                       <Card 
                         key={plan.id} 
-                        className={`relative flex flex-col overflow-hidden border-2 transition-all hover:shadow-lg ${plan.borderColor} bg-gradient-to-br ${plan.bgGradient} ${isCurrentPlan ? 'ring-2 ring-primary' : ''}`}
+                        className={`relative flex flex-col overflow-hidden border-2 transition-all hover:shadow-lg ${borderColor} bg-gradient-to-br ${bgGradient} ${
+                          isCurrentPlan ? 'ring-2 ring-primary shadow-lg' : ''
+                        }`}
                         data-testid={`card-plan-${plan.id}`}
                       >
-                        {plan.popular && (
-                          <div className="absolute -top-0 -right-0">
-                            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
-                              POPULAR
-                            </div>
-                          </div>
-                        )}
                         {isCurrentPlan && (
-                          <div className="absolute top-2 left-2">
-                            <Badge variant="default" className="bg-green-500">Current</Badge>
+                          <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-10">
+                            <span className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-semibold px-4 py-1.5 rounded-full flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Din nuværende plan
+                            </span>
                           </div>
                         )}
+                        {!isCurrentPlan && plan.popular && (
+                          <div className="absolute -top-4 left-1/2 -translate-x-1/2 z-10">
+                            <span className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
+                              Mest populære
+                            </span>
+                          </div>
+                        )}
+                        
                         <CardHeader className="text-center pb-4 pt-8">
-                          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${plan.iconBg} flex items-center justify-center mx-auto mb-4`}>
-                            <Icon className="w-7 h-7 text-white" />
+                          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${iconBg} flex items-center justify-center mx-auto mb-4`}>
+                            <PlanIcon className="w-7 h-7 text-white" />
                           </div>
                           <CardTitle className="text-xl">{plan.name}</CardTitle>
                           <div className="mt-3">
                             <span className="text-4xl font-bold">{plan.price}</span>
                             <span className="text-muted-foreground">{plan.priceDetail}</span>
                           </div>
-                          <p className="text-sm font-medium text-primary mt-2">{plan.trialText}</p>
+                          <p className="text-sm font-medium text-emerald-600 mt-2">{plan.trialText}</p>
                           <CardDescription className="mt-2">{plan.description}</CardDescription>
                         </CardHeader>
+                        
+                        {isCurrentPlan && subscription?.subscriptionStatus && (
+                          <div className="px-6 pb-4">
+                            <div className="flex items-center justify-center gap-2">
+                              <Badge 
+                                variant={statusBadgeVariants[subscription.subscriptionStatus] || "secondary"}
+                              >
+                                {statusLabels[subscription.subscriptionStatus] || subscription.subscriptionStatus}
+                              </Badge>
+                              {subscription?.subscriptionStatus === 'trialing' && subscription?.trialEnd && (
+                                <span className="text-xs text-muted-foreground">
+                                  Udløber {format(new Date(subscription.trialEnd), "d. MMM", { locale: da })}
+                                </span>
+                              )}
+                              {subscription?.currentPeriodEnd && subscription?.subscriptionStatus === 'active' && (
+                                <span className="text-xs text-muted-foreground">
+                                  Fornyes {format(new Date(subscription.currentPeriodEnd), "d. MMM", { locale: da })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
                         <CardContent className="flex-1">
                           <ul className="space-y-3">
                             {plan.features.map((feature, i) => (
                               <li key={i} className="flex items-start gap-2">
                                 {feature.included ? (
-                                  <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                                    <Check className="w-3 h-3 text-green-600" />
-                                  </div>
+                                  <Check className="w-5 h-5 shrink-0 mt-0.5 text-emerald-500" />
                                 ) : (
-                                  <div className="w-5 h-5 rounded-full bg-gray-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                                    <X className="w-3 h-3 text-gray-400" />
-                                  </div>
+                                  <X className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground/30" />
                                 )}
-                                <span className={`text-sm ${'highlight' in feature && feature.highlight ? 'font-semibold text-primary' : ''} ${!feature.included ? 'text-muted-foreground' : ''}`}>
+                                <span className={`text-sm ${feature.highlight ? 'font-semibold text-emerald-600' : ''} ${!feature.included ? 'text-muted-foreground/50' : ''}`}>
                                   {feature.text}
                                 </span>
                                 {feature.tooltip && (
@@ -629,16 +508,39 @@ export default function ProfilePage() {
                         </CardContent>
                         <CardFooter>
                           <Button 
-                            className="w-full" 
-                            variant={plan.ctaVariant}
-                            onClick={() => handleSelectPlan(plan.id)}
-                            disabled={isCurrentPlan || checkoutMutation.isPending && selectedPlan === plan.id}
+                            className={`w-full ${
+                              isCurrentPlan 
+                                ? "" 
+                                : plan.popular 
+                                  ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600" 
+                                  : ""
+                            }`}
+                            variant={isCurrentPlan ? "outline" : plan.ctaVariant}
+                            onClick={() => {
+                              if (isCurrentPlan) {
+                                billingPortalMutation.mutate();
+                              } else {
+                                handleSelectPlan(plan.id);
+                              }
+                            }}
+                            disabled={(checkoutMutation.isPending && selectedPlan === plan.id) || billingPortalMutation.isPending}
                             data-testid={`button-select-${plan.id}`}
                           >
-                            {checkoutMutation.isPending && selectedPlan === plan.id ? (
+                            {(checkoutMutation.isPending && selectedPlan === plan.id) || (isCurrentPlan && billingPortalMutation.isPending) ? (
                               <Loader2 className="w-4 h-4 animate-spin mr-2" />
                             ) : null}
-                            {isCurrentPlan ? 'Current Plan' : plan.cta}
+                            {isCurrentPlan ? (
+                              <>
+                                <Settings className="w-4 h-4 mr-2" />
+                                Administrer
+                              </>
+                            ) : isUpgrade(subscription?.plan || null, plan.id) ? (
+                              'Opgrader'
+                            ) : isDowngrade(subscription?.plan || null, plan.id) ? (
+                              'Skift plan'
+                            ) : (
+                              plan.cta
+                            )}
                           </Button>
                         </CardFooter>
                       </Card>
@@ -648,7 +550,7 @@ export default function ProfilePage() {
               </div>
 
               <p className="text-center text-sm text-muted-foreground">
-                Starter includes a 2-month free trial. Business and Enterprise include 14-day trials. Cancel anytime.
+                Starter og Professionel inkluderer 14 dages gratis prøveperiode. Annuller når som helst.
               </p>
             </div>
           </TabsContent>
@@ -658,14 +560,14 @@ export default function ProfilePage() {
       <Dialog open={contactOpen} onOpenChange={setContactOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Get Started with {plans.find(p => p.id === selectedPlan)?.name}</DialogTitle>
+            <DialogTitle>Kom i gang med {subscriptionPlans.find(p => p.id === selectedPlan)?.name}</DialogTitle>
             <DialogDescription>
-              Fill out the form below and our team will contact you within 24 hours to help you get started.
+              Udfyld formularen nedenfor, og vores team vil kontakte dig inden for 24 timer.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmitContact} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="contact-name">Name</Label>
+              <Label htmlFor="contact-name">Navn</Label>
               <Input
                 id="contact-name"
                 value={formData.name}
@@ -686,7 +588,7 @@ export default function ProfilePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="contact-company">Company (optional)</Label>
+              <Label htmlFor="contact-company">Virksomhed (valgfrit)</Label>
               <Input
                 id="contact-company"
                 value={formData.company}
@@ -695,22 +597,22 @@ export default function ProfilePage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="contact-message">Message (optional)</Label>
+              <Label htmlFor="contact-message">Besked (valgfrit)</Label>
               <Textarea
                 id="contact-message"
                 value={formData.message}
                 onChange={(e) => setFormData(prev => ({ ...prev, message: e.target.value }))}
-                placeholder="Tell us about your project..."
+                placeholder="Fortæl os om dit projekt..."
                 data-testid="input-contact-message"
               />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setContactOpen(false)}>
-                Cancel
+                Annuller
               </Button>
               <Button type="submit" disabled={isSubmitting} data-testid="button-submit-contact">
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                Submit Request
+                Send anmodning
               </Button>
             </DialogFooter>
           </form>
