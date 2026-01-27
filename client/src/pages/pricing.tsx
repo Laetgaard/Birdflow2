@@ -21,6 +21,7 @@ import { useAuth } from "@/lib/auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { subscriptionPlans } from "@shared/subscriptionPlans";
 
 const fadeInUp = {
   initial: { opacity: 0, y: 30 },
@@ -36,89 +37,23 @@ const staggerContainer = {
   },
 };
 
-const plans = [
-  {
-    id: "basic",
-    name: "Basic",
-    description: "Få din virksomhed online",
-    price: "69 kr",
-    priceDetail: "/md",
-    trialText: "Kom hurtigt i gang",
-    icon: Zap,
-    iconColor: "text-blue-500",
-    bgGradient: "from-blue-500/10 to-cyan-500/10",
-    borderColor: "border-blue-500/20",
-    popular: false,
-    features: [
-      { text: "1 hjemmeside", included: true },
-      { text: "Op til 4 sider", included: true },
-      { text: "2 GB lagerplads", included: true },
-      { text: "Eget domæne", included: true },
-      { text: "AI hjemmeside-assistent", included: true },
-      { text: "Automatiske emails", included: true },
-      { text: "Basis analytics", included: true },
-      { text: "Booking system", included: false },
-      { text: "Webshop", included: false },
-    ],
-    cta: "Vælg Basic",
-    ctaVariant: "outline" as const,
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    description: "Perfekt til voksende virksomheder",
-    price: "149 kr",
-    priceDetail: "/md",
-    trialText: "14 dages gratis prøveperiode",
-    icon: Crown,
-    iconColor: "text-emerald-500",
-    bgGradient: "from-emerald-500/10 to-teal-500/10",
-    borderColor: "border-emerald-500/20",
-    popular: true,
-    features: [
-      { text: "14 dages gratis prøveperiode", included: true, highlight: true, tooltip: "Prøv alle funktioner gratis i 14 dage" },
-      { text: "1 hjemmeside", included: true },
-      { text: "Op til 5 sider", included: true },
-      { text: "4 GB lagerplads", included: true },
-      { text: "Eget domæne", included: true },
-      { text: "AI hjemmeside-assistent", included: true },
-      { text: "Automatiske emails", included: true },
-      { text: "Booking system", included: true },
-      { text: "Basis analytics", included: true },
-      { text: "Webshop", included: false },
-    ],
-    cta: "Start Gratis Prøveperiode",
-    ctaVariant: "default" as const,
-  },
-  {
-    id: "professional",
-    name: "Professional",
-    description: "Alt hvad du behøver",
-    price: "249 kr",
-    priceDetail: "/md",
-    trialText: "14 dages gratis prøveperiode",
-    icon: Building2,
-    iconColor: "text-purple-500",
-    bgGradient: "from-purple-500/10 to-pink-500/10",
-    borderColor: "border-purple-500/20",
-    popular: false,
-    features: [
-      { text: "14 dages gratis prøveperiode", included: true, highlight: true, tooltip: "Prøv alle funktioner gratis i 14 dage" },
-      { text: "5 hjemmesider", included: true },
-      { text: "Op til 20 sider per site", included: true },
-      { text: "15 GB lagerplads", included: true },
-      { text: "Eget domæne", included: true },
-      { text: "AI hjemmeside-assistent", included: true },
-      { text: "Automatiske emails", included: true },
-      { text: "Booking system", included: true },
-      { text: "Fuld webshop med Stripe", included: true },
-      { text: "Avanceret analytics", included: true },
-      { text: "Priority support", included: true },
-    ],
-    cta: "Start Gratis Prøveperiode",
-    ctaVariant: "outline" as const,
-  },
-];
+const planIcons: Record<string, any> = {
+  basic: Zap,
+  starter: Crown,
+  professional: Building2,
+};
+
+const planIconColors: Record<string, string> = {
+  basic: "text-blue-500",
+  starter: "text-emerald-500",
+  professional: "text-purple-500",
+};
+
+const planBgGradients: Record<string, string> = {
+  basic: "from-blue-500/10 to-cyan-500/10",
+  starter: "from-emerald-500/10 to-teal-500/10",
+  professional: "from-purple-500/10 to-pink-500/10",
+};
 
 const faqs = [
   {
@@ -262,85 +197,91 @@ export default function PricingPage() {
               animate="animate"
               className="grid md:grid-cols-3 gap-8 mb-20"
             >
-              {plans.map((plan) => (
-                <motion.div
-                  key={plan.id}
-                  variants={fadeInUp}
-                  className={`relative rounded-2xl border bg-card p-8 ${
-                    plan.popular 
-                      ? "border-primary shadow-lg shadow-primary/10 scale-105 z-10" 
-                      : "hover:border-primary/50"
-                  } transition-all`}
-                >
-                  {plan.popular && (
-                    <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                      <span className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
-                        Most Popular
-                      </span>
-                    </div>
-                  )}
-                  
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${plan.bgGradient} flex items-center justify-center`}>
-                      <plan.icon className={`w-5 h-5 ${plan.iconColor}`} />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-lg">{plan.name}</h3>
-                      <p className="text-sm text-muted-foreground">{plan.description}</p>
-                    </div>
-                  </div>
-
-                  <div className="mb-2">
-                    <span className="text-4xl font-bold">{plan.price}</span>
-                    <span className="text-muted-foreground ml-1">{plan.priceDetail}</span>
-                  </div>
-                  
-                  <p className="text-sm text-emerald-600 font-medium mb-6">{plan.trialText}</p>
-
-                  <Button 
-                    className={`w-full mb-6 ${plan.popular ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600" : ""}`}
-                    variant={plan.ctaVariant}
-                    data-testid={`button-plan-${plan.id}`}
-                    onClick={() => handlePlanSelect(plan.id)}
-                    disabled={checkoutMutation.isPending && selectedPlan === plan.id}
+              {subscriptionPlans.map((plan) => {
+                const PlanIcon = planIcons[plan.id] || Zap;
+                const iconColor = planIconColors[plan.id] || "text-gray-500";
+                const bgGradient = planBgGradients[plan.id] || "from-gray-500/10 to-gray-400/10";
+                
+                return (
+                  <motion.div
+                    key={plan.id}
+                    variants={fadeInUp}
+                    className={`relative rounded-2xl border bg-card p-8 ${
+                      plan.popular 
+                        ? "border-emerald-500/50 shadow-lg shadow-emerald-500/10 scale-105 z-10" 
+                        : "hover:border-primary/50"
+                    } transition-all`}
                   >
-                    {checkoutMutation.isPending && selectedPlan === plan.id ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        {plan.cta}
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </>
-                    )}
-                  </Button>
-
-                  <ul className="space-y-3">
-                    {plan.features.map((feature, j) => (
-                      <li key={j} className="flex items-start gap-3">
-                        {feature.included ? (
-                          <Check className={`w-5 h-5 shrink-0 mt-0.5 ${(feature as any).highlight ? "text-emerald-500" : "text-emerald-500"}`} />
-                        ) : (
-                          <X className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground/30" />
-                        )}
-                        <span className={`${feature.included ? "" : "text-muted-foreground/50"} ${(feature as any).highlight ? "font-medium text-emerald-600" : ""}`}>
-                          {feature.text}
-                          {(feature as any).tooltip && (
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
-                              </TooltipTrigger>
-                              <TooltipContent>{(feature as any).tooltip}</TooltipContent>
-                            </Tooltip>
-                          )}
+                    {plan.popular && (
+                      <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                        <span className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
+                          Mest populære
                         </span>
-                      </li>
-                    ))}
-                  </ul>
-                </motion.div>
-              ))}
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${bgGradient} flex items-center justify-center`}>
+                        <PlanIcon className={`w-5 h-5 ${iconColor}`} />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg">{plan.name}</h3>
+                        <p className="text-sm text-muted-foreground">{plan.description}</p>
+                      </div>
+                    </div>
+
+                    <div className="mb-2">
+                      <span className="text-4xl font-bold">{plan.price}</span>
+                      <span className="text-muted-foreground ml-1">{plan.priceDetail}</span>
+                    </div>
+                    
+                    <p className="text-sm text-emerald-600 font-medium mb-6">{plan.trialText}</p>
+
+                    <Button 
+                      className={`w-full mb-6 ${plan.popular ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600" : ""}`}
+                      variant={plan.ctaVariant}
+                      data-testid={`button-plan-${plan.id}`}
+                      onClick={() => handlePlanSelect(plan.id)}
+                      disabled={checkoutMutation.isPending && selectedPlan === plan.id}
+                    >
+                      {checkoutMutation.isPending && selectedPlan === plan.id ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Behandler...
+                        </>
+                      ) : (
+                        <>
+                          {plan.cta}
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </>
+                      )}
+                    </Button>
+
+                    <ul className="space-y-3">
+                      {plan.features.map((feature, j) => (
+                        <li key={j} className="flex items-start gap-3">
+                          {feature.included ? (
+                            <Check className={`w-5 h-5 shrink-0 mt-0.5 ${feature.highlight ? "text-emerald-500" : "text-emerald-500"}`} />
+                          ) : (
+                            <X className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground/30" />
+                          )}
+                          <span className={`${feature.included ? "" : "text-muted-foreground/50"} ${feature.highlight ? "font-medium text-emerald-600" : ""}`}>
+                            {feature.text}
+                            {feature.tooltip && (
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
+                                </TooltipTrigger>
+                                <TooltipContent>{feature.tooltip}</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </motion.div>
+                );
+              })}
             </motion.div>
 
             <motion.div
