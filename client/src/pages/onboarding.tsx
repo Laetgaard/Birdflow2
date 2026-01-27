@@ -23,62 +23,64 @@ import {
 
 type WebsiteType = "booking" | "webshop" | "simple";
 
-type PlanId = "starter" | "business" | "enterprise";
+type PlanId = "basic" | "starter" | "professional";
 
 type Step = "welcome" | "choose-plan" | "choose-type" | "website-name" | "setup" | "success";
 
-const subscriptionPlans: { id: PlanId; name: string; price: string; description: string; icon: React.ElementType; color: string; popular: boolean; features: string[] }[] = [
+const subscriptionPlans: { id: PlanId; name: string; price: string; description: string; icon: React.ElementType; color: string; popular: boolean; features: string[]; trialText?: string }[] = [
+  {
+    id: "basic",
+    name: "Basic",
+    price: "69 kr/md",
+    description: "Få din virksomhed online",
+    icon: Zap,
+    color: "from-blue-500 to-cyan-500",
+    popular: false,
+    features: ["1 hjemmeside", "4 sider", "2 GB lager", "Eget domæne", "AI-assistent"],
+  },
   {
     id: "starter",
     name: "Starter",
-    price: "$19/mo",
-    description: "Perfect for growing businesses",
-    icon: Zap,
-    color: "from-blue-500 to-cyan-500",
-    popular: true,
-    features: ["3 websites", "AI builder", "Custom domain", "E-commerce (50 products)", "60-day free trial"],
-  },
-  {
-    id: "business",
-    name: "Business",
-    price: "$49/mo",
-    description: "For scaling teams",
+    price: "149 kr/md",
+    description: "Perfekt til voksende virksomheder",
     icon: Building2,
-    color: "from-purple-500 to-indigo-500",
-    popular: false,
-    features: ["10 websites", "Everything in Starter", "500 products", "Priority support", "Team members (5)"],
+    color: "from-emerald-500 to-teal-500",
+    popular: true,
+    features: ["1 hjemmeside", "5 sider", "4 GB lager", "Booking system", "14 dages prøve"],
+    trialText: "14 dages gratis prøveperiode",
   },
   {
-    id: "enterprise",
-    name: "Enterprise",
-    price: "$149/mo",
-    description: "For large organizations",
+    id: "professional",
+    name: "Professional",
+    price: "249 kr/md",
+    description: "Alt hvad du behøver",
     icon: Crown,
-    color: "from-amber-500 to-orange-500",
+    color: "from-purple-500 to-pink-500",
     popular: false,
-    features: ["Unlimited websites", "Everything in Business", "White-label", "Dedicated manager", "SLA guarantee"],
+    features: ["5 hjemmesider", "20 sider/site", "Webshop", "15 GB lager", "14 dages prøve"],
+    trialText: "14 dages gratis prøveperiode",
   },
 ];
 
 const websiteTypes: { id: WebsiteType; title: string; description: string; icon: React.ElementType; color: string }[] = [
   {
     id: "booking",
-    title: "Booking Website",
-    description: "Perfect for salons, clinics, or consultants",
+    title: "Booking Hjemmeside",
+    description: "Perfekt til saloner, klinikker eller konsulenter",
     icon: Calendar,
     color: "from-blue-500 to-cyan-500",
   },
   {
     id: "webshop",
-    title: "Online Store",
-    description: "Sell products with inventory and checkout",
+    title: "Online Webshop",
+    description: "Sælg produkter med lager og checkout",
     icon: ShoppingCart,
     color: "from-green-500 to-emerald-500",
   },
   {
     id: "simple",
-    title: "Simple Website",
-    description: "Portfolio, landing page, or business site",
+    title: "Simpel Hjemmeside",
+    description: "Portfolio, landingsside eller virksomhedssite",
     icon: FileText,
     color: "from-purple-500 to-indigo-500",
   },
@@ -91,16 +93,16 @@ const templateMap: Record<WebsiteType, string> = {
 };
 
 const setupSteps = [
-  "Creating your website...",
-  "Setting up pages...",
-  "Adding demo content...",
-  "Almost done...",
+  "Opretter din hjemmeside...",
+  "Opsætter sider...",
+  "Tilføjer demo-indhold...",
+  "Næsten færdig...",
 ];
 
 function ProgressIndicator({ currentStep, totalSteps }: { currentStep: number; totalSteps: number }) {
   return (
     <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
-      <span className="font-medium">Step {currentStep} of {totalSteps}</span>
+      <span className="font-medium">Trin {currentStep} af {totalSteps}</span>
       <div className="flex gap-1">
         {Array.from({ length: totalSteps }).map((_, i) => (
           <div
@@ -167,15 +169,15 @@ export default function OnboardingPage() {
             setStep("choose-type");
             window.history.replaceState({}, "", "/onboarding");
             toast({
-              title: "Subscription activated!",
-              description: "Your payment info has been saved. Let's create your website.",
+              title: "Abonnement aktiveret!",
+              description: "Dine betalingsoplysninger er gemt. Lad os oprette din hjemmeside.",
             });
           } else {
             setStep("choose-plan");
             window.history.replaceState({}, "", "/onboarding");
             toast({
-              title: "Verification failed",
-              description: "Could not verify your subscription. Please try again.",
+              title: "Bekræftelse mislykkedes",
+              description: "Kunne ikke bekræfte dit abonnement. Prøv venligst igen.",
               variant: "destructive",
             });
           }
@@ -183,8 +185,8 @@ export default function OnboardingPage() {
           setStep("choose-plan");
           window.history.replaceState({}, "", "/onboarding");
           toast({
-            title: "Error",
-            description: "Something went wrong. Please try again.",
+            title: "Fejl",
+            description: "Noget gik galt. Prøv venligst igen.",
             variant: "destructive",
           });
         }
@@ -193,8 +195,8 @@ export default function OnboardingPage() {
       setStep("choose-plan");
       window.history.replaceState({}, "", "/onboarding");
       toast({
-        title: "Subscription cancelled",
-        description: "You can try again when you're ready.",
+        title: "Abonnement annulleret",
+        description: "Du kan prøve igen når du er klar.",
         variant: "destructive",
       });
     }
@@ -256,8 +258,8 @@ export default function OnboardingPage() {
       setIsCreating(false);
       setStep("website-name");
       toast({
-        title: "Error",
-        description: error.message || "Failed to create website",
+        title: "Fejl",
+        description: error.message || "Kunne ikke oprette hjemmeside",
         variant: "destructive",
       });
     }
@@ -293,8 +295,8 @@ export default function OnboardingPage() {
     } catch (error: any) {
       setIsRedirectingToStripe(false);
       toast({
-        title: "Error",
-        description: error.message || "Failed to start checkout",
+        title: "Fejl",
+        description: error.message || "Kunne ikke starte betaling",
         variant: "destructive",
       });
     }
@@ -351,14 +353,14 @@ export default function OnboardingPage() {
                 </div>
 
                 <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-                  Welcome to{" "}
+                  Velkommen til{" "}
                   <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                     BirdFlow
                   </span>
                 </h1>
 
                 <p className="text-xl text-muted-foreground mb-8">
-                  Let's get your website live in minutes.
+                  Få din hjemmeside op at køre på få minutter.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -368,7 +370,7 @@ export default function OnboardingPage() {
                     onClick={() => setStep("choose-plan")}
                     data-testid="button-create-website"
                   >
-                    Get started
+                    Kom i gang
                     <ArrowRight className="ml-2 w-5 h-5" />
                   </Button>
                   <Button
@@ -378,7 +380,7 @@ export default function OnboardingPage() {
                     onClick={handleSkip}
                     data-testid="button-skip-onboarding"
                   >
-                    Skip for now
+                    Spring over
                   </Button>
                 </div>
               </motion.div>
@@ -395,10 +397,10 @@ export default function OnboardingPage() {
                 <ProgressIndicator currentStep={1} totalSteps={4} />
 
                 <h2 className="text-3xl font-bold tracking-tight mb-2">
-                  Choose your plan
+                  Vælg dit abonnement
                 </h2>
                 <p className="text-muted-foreground mb-8">
-                  Start with a free trial. No credit card required upfront.
+                  Start med en gratis prøveperiode. Betalingsoplysninger kræves ved opstart.
                 </p>
 
                 <div className="grid gap-4 mb-8">
@@ -418,8 +420,8 @@ export default function OnboardingPage() {
                         data-testid={`button-plan-${plan.id}`}
                       >
                         {plan.popular && (
-                          <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-semibold rounded-full">
-                            Most Popular
+                          <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-semibold rounded-full">
+                            Mest Populær
                           </div>
                         )}
                         <div
@@ -455,10 +457,10 @@ export default function OnboardingPage() {
 
                 <div className="flex items-center justify-between">
                   <Button variant="ghost" onClick={() => setStep("welcome")} disabled={isRedirectingToStripe}>
-                    Back
+                    Tilbage
                   </Button>
                   <p className="text-sm text-muted-foreground">
-                    Select a plan to continue
+                    Vælg et abonnement for at fortsætte
                   </p>
                 </div>
               </motion.div>
@@ -475,10 +477,10 @@ export default function OnboardingPage() {
                 <ProgressIndicator currentStep={2} totalSteps={4} />
 
                 <h2 className="text-3xl font-bold tracking-tight mb-2">
-                  What kind of website do you want to build?
+                  Hvilken type hjemmeside vil du bygge?
                 </h2>
                 <p className="text-muted-foreground mb-8">
-                  Choose a type and we'll set up the perfect starting template.
+                  Vælg en type og vi sætter den perfekte startskabelon op for dig.
                 </p>
 
                 <div className="grid gap-4 mb-8">
@@ -519,7 +521,7 @@ export default function OnboardingPage() {
 
                 <div className="flex items-center justify-between">
                   <Button variant="ghost" onClick={() => setStep("choose-plan")}>
-                    Back
+                    Tilbage
                   </Button>
                   <Button
                     size="lg"
@@ -527,7 +529,7 @@ export default function OnboardingPage() {
                     onClick={() => setStep("website-name")}
                     data-testid="button-next-step"
                   >
-                    Continue
+                    Fortsæt
                     <ArrowRight className="ml-2 w-4 h-4" />
                   </Button>
                 </div>
@@ -545,20 +547,20 @@ export default function OnboardingPage() {
                 <ProgressIndicator currentStep={3} totalSteps={4} />
 
                 <h2 className="text-3xl font-bold tracking-tight mb-2">
-                  Name your website
+                  Navngiv din hjemmeside
                 </h2>
                 <p className="text-muted-foreground mb-8">
-                  This will be the title of your website. You can change it later.
+                  Dette bliver titlen på din hjemmeside. Du kan ændre det senere.
                 </p>
 
                 <div className="space-y-4 mb-8">
                   <div>
                     <Label htmlFor="website-name" className="text-base">
-                      Website name
+                      Hjemmesidens navn
                     </Label>
                     <Input
                       id="website-name"
-                      placeholder="e.g., My Business Name"
+                      placeholder="f.eks. Min Virksomhed"
                       className="h-14 text-lg mt-2"
                       value={websiteName}
                       onChange={(e) => setWebsiteName(e.target.value)}
@@ -569,7 +571,7 @@ export default function OnboardingPage() {
 
                   {websiteName && (
                     <p className="text-sm text-muted-foreground">
-                      Your URL will be:{" "}
+                      Din URL bliver:{" "}
                       <code className="bg-muted px-2 py-1 rounded">
                         {generateSlug(websiteName)}.birdflow.app
                       </code>
@@ -579,7 +581,7 @@ export default function OnboardingPage() {
 
                 <div className="flex items-center justify-between">
                   <Button variant="ghost" onClick={() => setStep("choose-type")}>
-                    Back
+                    Tilbage
                   </Button>
                   <Button
                     size="lg"
@@ -588,7 +590,7 @@ export default function OnboardingPage() {
                     className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
                     data-testid="button-create"
                   >
-                    Create website
+                    Opret hjemmeside
                     <ArrowRight className="ml-2 w-4 h-4" />
                   </Button>
                 </div>
@@ -609,7 +611,7 @@ export default function OnboardingPage() {
                 </div>
 
                 <h2 className="text-3xl font-bold tracking-tight mb-4">
-                  Setting up your website
+                  Opsætter din hjemmeside
                 </h2>
 
                 <div className="max-w-md mx-auto space-y-3 mb-8">
@@ -659,11 +661,11 @@ export default function OnboardingPage() {
                 </div>
 
                 <h2 className="text-4xl font-bold tracking-tight mb-4">
-                  Your website is ready!
+                  Din hjemmeside er klar!
                 </h2>
 
                 <p className="text-xl text-muted-foreground mb-8">
-                  Start editing and make it your own.
+                  Begynd at redigere og gør den til din egen.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -673,7 +675,7 @@ export default function OnboardingPage() {
                     onClick={() => navigate(`/builder/${createdWebsiteId}`)}
                     data-testid="button-open-editor"
                   >
-                    Open editor
+                    Åbn editor
                     <ArrowRight className="ml-2 w-5 h-5" />
                   </Button>
                   <Button
@@ -684,7 +686,7 @@ export default function OnboardingPage() {
                     data-testid="button-preview-site"
                   >
                     <ExternalLink className="mr-2 w-5 h-5" />
-                    Preview site
+                    Vis hjemmeside
                   </Button>
                 </div>
               </motion.div>
