@@ -3,7 +3,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
@@ -11,7 +10,6 @@ import {
   Calendar, 
   AlertTriangle, 
   CheckCircle2, 
-  ExternalLink,
   Zap,
   Crown,
   Building2,
@@ -23,17 +21,22 @@ import {
   Receipt,
   Settings,
   Mail,
-  Globe,
-  FileText,
-  HardDrive,
-  ShoppingBag,
-  CalendarDays,
+  Check,
+  X,
+  HelpCircle,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { format, formatDistanceToNow, isPast, isBefore, addDays } from "date-fns";
 import { da } from "date-fns/locale";
 import { motion } from "framer-motion";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { subscriptionPlans, getPlanById, isUpgrade } from "@shared/subscriptionPlans";
+import { useState } from "react";
 
 const fadeInUp = {
   initial: { opacity: 0, y: 30 },
@@ -75,25 +78,18 @@ const planIcons: Record<string, any> = {
   free: Zap,
 };
 
-const planColors: Record<string, string> = {
+const planIconColors: Record<string, string> = {
   basic: "text-blue-500",
-  starter: "text-indigo-500",
+  starter: "text-emerald-500",
   professional: "text-purple-500",
   free: "text-gray-500",
 };
 
-const planGradients: Record<string, string> = {
+const planBgGradients: Record<string, string> = {
   basic: "from-blue-500/10 to-cyan-500/10",
-  starter: "from-indigo-500/10 to-purple-500/10",
+  starter: "from-emerald-500/10 to-teal-500/10",
   professional: "from-purple-500/10 to-pink-500/10",
   free: "from-gray-500/10 to-gray-400/10",
-};
-
-const planBorders: Record<string, string> = {
-  basic: "border-blue-500/30",
-  starter: "border-indigo-500/30",
-  professional: "border-purple-500/30",
-  free: "border-gray-500/30",
 };
 
 const statusBadgeVariants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -120,6 +116,7 @@ export default function BillingPage() {
   const { user, isLoading: authLoading, signOut } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
 
   const { data: subscription, isLoading: subscriptionLoading, refetch: refetchSubscription } = useQuery<UserSubscription>({
     queryKey: ["/api/subscriptions/current"],
@@ -169,6 +166,44 @@ export default function BillingPage() {
     },
   });
 
+  const checkoutMutation = useMutation({
+    mutationFn: async ({ planId }: { planId: string }) => {
+      const res = await fetch("/api/subscriptions/user-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ planId }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Kunne ikke starte betaling");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Betalingsfejl",
+        description: error.message || "Kunne ikke starte betaling. Prøv venligst igen.",
+        variant: "destructive",
+      });
+      setSelectedPlan(null);
+    },
+  });
+
+  const handlePlanSelect = (planId: string) => {
+    if (planId === subscription?.planSlug) {
+      billingPortalMutation.mutate();
+      return;
+    }
+    setSelectedPlan(planId);
+    checkoutMutation.mutate({ planId });
+  };
+
   const isLoading = authLoading || subscriptionLoading;
 
   if (!user && !authLoading) {
@@ -191,7 +226,7 @@ export default function BillingPage() {
     );
   }
 
-  const plan = subscription?.planSlug || "free";
+  const currentPlanSlug = subscription?.planSlug || null;
   const trialEnd = subscription?.trialEndsAt ? new Date(subscription.trialEndsAt) : null;
   const periodEnd = subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
   const isTrialing = subscription?.subscriptionStatus === "trialing";
@@ -204,7 +239,25 @@ export default function BillingPage() {
   const trialEndingSoon = trialEnd && isBefore(trialEnd, addDays(new Date(), 7));
   const trialExpired = trialEnd && isPast(trialEnd);
 
-  const PlanIcon = planIcons[plan] || Zap;
+  const getButtonText = (planId: string): string => {
+    if (planId === currentPlanSlug) {
+      return "Administrer";
+    }
+    if (isUpgrade(currentPlanSlug, planId)) {
+      return "Opgrader";
+    }
+    return "Skift plan";
+  };
+
+  const getButtonVariant = (planId: string, isPopular: boolean): "default" | "outline" => {
+    if (planId === currentPlanSlug) {
+      return "outline";
+    }
+    if (isPopular) {
+      return "default";
+    }
+    return "outline";
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-x-hidden">
@@ -236,7 +289,7 @@ export default function BillingPage() {
 
       <main className="flex-1">
         <section className="py-16 md:py-24">
-          <div className="container mx-auto px-4 max-w-5xl">
+          <div className="container mx-auto px-4 max-w-6xl">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -247,7 +300,7 @@ export default function BillingPage() {
                 Fakturering & Abonnement
               </h1>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Administrer dit abonnement, se faktureringshistorik og opdater betalingsmetoder.
+                Administrer dit abonnement, se dine planer og opdater betalingsmetoder.
               </p>
             </motion.div>
 
@@ -314,229 +367,179 @@ export default function BillingPage() {
                   <AlertTitle>Abonnement annulleret</AlertTitle>
                   <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-4">
                     <span>Dit abonnement er annulleret. Du har adgang indtil {periodEnd ? format(periodEnd, "d. MMMM yyyy", { locale: da }) : "slutningen af din faktureringsperiode"}.</span>
-                    <Button variant="outline" size="sm" asChild>
-                      <Link href="/pricing">Gentilmeld dig</Link>
+                    <Button variant="outline" size="sm" onClick={() => navigate("/pricing")}>
+                      Gentilmeld dig
                     </Button>
                   </AlertDescription>
                 </Alert>
               </motion.div>
             )}
 
-            <motion.div
-              variants={staggerContainer}
-              initial="initial"
-              animate="animate"
-              className="grid gap-8 md:grid-cols-2"
-            >
-              <motion.div variants={fadeInUp}>
-                <Card className={`relative overflow-hidden border-2 ${planBorders[plan]} bg-gradient-to-br ${planGradients[plan]}`} data-testid="card-current-plan">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-white/5 to-transparent rounded-bl-full" />
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${plan === 'basic' ? 'from-blue-500 to-cyan-600' : plan === 'starter' ? 'from-indigo-500 to-purple-600' : plan === 'professional' ? 'from-purple-500 to-pink-600' : 'from-gray-500 to-gray-600'} flex items-center justify-center`}>
-                          <PlanIcon className="h-6 w-6 text-white" />
+            {isLoading ? (
+              <div className="grid md:grid-cols-3 gap-8">
+                {[1, 2, 3].map((i) => (
+                  <Card key={i} className="p-8">
+                    <Skeleton className="h-10 w-10 rounded-lg mb-4" />
+                    <Skeleton className="h-6 w-24 mb-2" />
+                    <Skeleton className="h-4 w-32 mb-4" />
+                    <Skeleton className="h-10 w-32 mb-6" />
+                    <Skeleton className="h-10 w-full mb-6" />
+                    <div className="space-y-3">
+                      {[1, 2, 3, 4, 5].map((j) => (
+                        <Skeleton key={j} className="h-5 w-full" />
+                      ))}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <motion.div
+                variants={staggerContainer}
+                initial="initial"
+                animate="animate"
+                className="grid md:grid-cols-3 gap-8 mb-12"
+              >
+                {subscriptionPlans.map((plan) => {
+                  const isCurrentPlan = plan.id === currentPlanSlug;
+                  const PlanIcon = planIcons[plan.id] || Zap;
+                  const iconColor = planIconColors[plan.id] || "text-gray-500";
+                  const bgGradient = planBgGradients[plan.id] || "from-gray-500/10 to-gray-400/10";
+                  
+                  return (
+                    <motion.div
+                      key={plan.id}
+                      variants={fadeInUp}
+                      className={`relative rounded-2xl border bg-card p-8 ${
+                        isCurrentPlan
+                          ? "border-primary shadow-lg shadow-primary/10 ring-2 ring-primary/20"
+                          : plan.popular 
+                            ? "border-emerald-500/50 shadow-lg shadow-emerald-500/10" 
+                            : "hover:border-primary/50"
+                      } transition-all`}
+                      data-testid={`card-plan-${plan.id}`}
+                    >
+                      {isCurrentPlan && (
+                        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                          <span className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-semibold px-4 py-1.5 rounded-full flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Din nuværende plan
+                          </span>
                         </div>
-                        <div>
-                          <CardTitle className="text-2xl">Nuværende abonnement</CardTitle>
-                          <CardDescription>Dit aktive abonnement</CardDescription>
-                        </div>
-                      </div>
-                      {subscription?.subscriptionStatus && (
-                        <Badge 
-                          variant={statusBadgeVariants[subscription.subscriptionStatus] || "secondary"}
-                          className="text-sm"
-                          data-testid="badge-subscription-status"
-                        >
-                          {statusLabels[subscription.subscriptionStatus] || subscription.subscriptionStatus}
-                        </Badge>
                       )}
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    {isLoading ? (
-                      <div className="space-y-3">
-                        <Skeleton className="h-10 w-40" />
-                        <Skeleton className="h-4 w-32" />
-                      </div>
-                    ) : (
-                      <>
+                      
+                      {!isCurrentPlan && plan.popular && (
+                        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                          <span className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
+                            Mest populære
+                          </span>
+                        </div>
+                      )}
+                      
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${bgGradient} flex items-center justify-center`}>
+                          <PlanIcon className={`w-5 h-5 ${iconColor}`} />
+                        </div>
                         <div>
-                          <h3 className="text-4xl font-bold" data-testid="text-plan-name">
-                            {subscription?.planName || "Gratis"}
-                          </h3>
-                          <p className="text-lg text-muted-foreground mt-1">
-                            {subscription?.planPrice || "Intet aktivt abonnement"}
-                          </p>
+                          <h3 className="font-bold text-lg">{plan.name}</h3>
+                          <p className="text-sm text-muted-foreground">{plan.description}</p>
                         </div>
+                      </div>
 
-                        <Separator />
+                      <div className="mb-2">
+                        <span className="text-4xl font-bold">{plan.price}</span>
+                        <span className="text-muted-foreground ml-1">{plan.priceDetail}</span>
+                      </div>
+                      
+                      <p className="text-sm text-emerald-600 font-medium mb-4">{plan.trialText}</p>
 
-                        <div className="space-y-3">
+                      {isCurrentPlan && subscription?.subscriptionStatus && (
+                        <div className="mb-4 flex items-center gap-2">
+                          <Badge 
+                            variant={statusBadgeVariants[subscription.subscriptionStatus] || "secondary"}
+                            data-testid="badge-subscription-status"
+                          >
+                            {statusLabels[subscription.subscriptionStatus] || subscription.subscriptionStatus}
+                          </Badge>
                           {isTrialing && trialEnd && (
-                            <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
-                              <Clock className="h-5 w-5 text-amber-500" />
-                              <div>
-                                <p className="font-medium">Prøveperiode</p>
-                                <p className="text-sm text-muted-foreground">Udløber {format(trialEnd, "d. MMMM yyyy", { locale: da })}</p>
-                              </div>
-                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              Udløber {format(trialEnd, "d. MMM", { locale: da })}
+                            </span>
                           )}
-                          {periodEnd && !isTrialing && (
-                            <div className="flex items-center gap-3 p-3 rounded-lg bg-background/50">
-                              <Calendar className="h-5 w-5 text-indigo-500" />
-                              <div>
-                                <p className="font-medium">{isCanceled ? "Adgang indtil" : "Næste fakturering"}</p>
-                                <p className="text-sm text-muted-foreground">{format(periodEnd, "d. MMMM yyyy", { locale: da })}</p>
-                              </div>
-                            </div>
-                          )}
-                          {isActive && (
-                            <div className="flex items-center gap-3 p-3 rounded-lg bg-green-500/10">
-                              <CheckCircle2 className="h-5 w-5 text-green-500" />
-                              <div>
-                                <p className="font-medium text-green-700">Abonnement aktivt</p>
-                                <p className="text-sm text-green-600/80">Alle funktioner er låst op</p>
-                              </div>
-                            </div>
+                          {periodEnd && !isTrialing && isActive && (
+                            <span className="text-xs text-muted-foreground">
+                              Fornyes {format(periodEnd, "d. MMM", { locale: da })}
+                            </span>
                           )}
                         </div>
-                      </>
-                    )}
-                  </CardContent>
-                  <CardFooter className="flex flex-col sm:flex-row gap-3">
-                    {hasPaidPlan ? (
-                      <>
-                        <Button 
-                          className="flex-1"
-                          onClick={() => billingPortalMutation.mutate()}
-                          disabled={billingPortalMutation.isPending}
-                          data-testid="button-manage-subscription"
-                        >
-                          {billingPortalMutation.isPending ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : (
-                            <CreditCard className="h-4 w-4 mr-2" />
-                          )}
-                          Administrer abonnement
-                        </Button>
-                        <Button variant="outline" className="flex-1" asChild>
-                          <Link href="/pricing">
-                            Skift plan
-                            <ArrowRight className="h-4 w-4 ml-2" />
-                          </Link>
-                        </Button>
-                      </>
-                    ) : (
-                      <Button className="w-full" asChild data-testid="button-upgrade">
-                        <Link href="/pricing">
-                          <Zap className="h-4 w-4 mr-2" />
-                          Opgrader nu
-                        </Link>
-                      </Button>
-                    )}
-                  </CardFooter>
-                </Card>
-              </motion.div>
+                      )}
 
-              <motion.div variants={fadeInUp}>
-                <Card className="h-full" data-testid="card-features">
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                        <CheckCircle2 className="h-6 w-6 text-white" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-2xl">Plan-funktioner</CardTitle>
-                        <CardDescription>Hvad er inkluderet i din plan</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex-1">
-                    {isLoading ? (
-                      <div className="space-y-3">
-                        {[1, 2, 3, 4, 5, 6].map((i) => (
-                          <Skeleton key={i} className="h-5 w-full" />
+                      <Button 
+                        className={`w-full mb-6 ${
+                          isCurrentPlan 
+                            ? "" 
+                            : plan.popular 
+                              ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600" 
+                              : ""
+                        }`}
+                        variant={getButtonVariant(plan.id, plan.popular)}
+                        data-testid={`button-plan-${plan.id}`}
+                        onClick={() => handlePlanSelect(plan.id)}
+                        disabled={(checkoutMutation.isPending && selectedPlan === plan.id) || billingPortalMutation.isPending}
+                      >
+                        {(checkoutMutation.isPending && selectedPlan === plan.id) || (isCurrentPlan && billingPortalMutation.isPending) ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Behandler...
+                          </>
+                        ) : (
+                          <>
+                            {isCurrentPlan ? (
+                              <>
+                                <Settings className="w-4 h-4 mr-2" />
+                                {getButtonText(plan.id)}
+                              </>
+                            ) : (
+                              <>
+                                {getButtonText(plan.id)}
+                                <ArrowRight className="w-4 h-4 ml-2" />
+                              </>
+                            )}
+                          </>
+                        )}
+                      </Button>
+
+                      <ul className="space-y-3">
+                        {plan.features.map((feature, j) => (
+                          <li key={j} className="flex items-start gap-3">
+                            {feature.included ? (
+                              <Check className={`w-5 h-5 shrink-0 mt-0.5 ${feature.highlight ? "text-emerald-500" : "text-emerald-500"}`} />
+                            ) : (
+                              <X className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground/30" />
+                            )}
+                            <span className={`${feature.included ? "" : "text-muted-foreground/50"} ${feature.highlight ? "font-medium text-emerald-600" : ""}`}>
+                              {feature.text}
+                              {feature.tooltip && (
+                                <Tooltip>
+                                  <TooltipTrigger>
+                                    <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
+                                  </TooltipTrigger>
+                                  <TooltipContent>{feature.tooltip}</TooltipContent>
+                                </Tooltip>
+                              )}
+                            </span>
+                          </li>
                         ))}
-                      </div>
-                    ) : subscription?.features ? (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                            <Globe className="h-5 w-5 text-blue-500" />
-                            <div>
-                              <p className="text-sm text-muted-foreground">Hjemmesider</p>
-                              <p className="font-semibold">{subscription.features.websites}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                            <FileText className="h-5 w-5 text-green-500" />
-                            <div>
-                              <p className="text-sm text-muted-foreground">Sider pr. site</p>
-                              <p className="font-semibold">{subscription.features.pagesPerWebsite}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                            <HardDrive className="h-5 w-5 text-purple-500" />
-                            <div>
-                              <p className="text-sm text-muted-foreground">Lagerplads</p>
-                              <p className="font-semibold">{subscription.features.storageGb} GB</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                            <CalendarDays className={`h-5 w-5 ${subscription.features.hasBooking ? 'text-indigo-500' : 'text-gray-400'}`} />
-                            <div>
-                              <p className="text-sm text-muted-foreground">Booking</p>
-                              <p className="font-semibold">{subscription.features.hasBooking ? 'Inkluderet' : 'Ikke inkluderet'}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                            <ShoppingBag className={`h-5 w-5 ${subscription.features.hasWebshop ? 'text-amber-500' : 'text-gray-400'}`} />
-                            <div>
-                              <p className="text-sm text-muted-foreground">Webshop</p>
-                              <p className="font-semibold">{subscription.features.hasWebshop ? 'Inkluderet' : 'Ikke inkluderet'}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                            <Crown className={`h-5 w-5 ${subscription.features.hasPrioritySupport ? 'text-yellow-500' : 'text-gray-400'}`} />
-                            <div>
-                              <p className="text-sm text-muted-foreground">Prioriteret support</p>
-                              <p className="font-semibold">{subscription.features.hasPrioritySupport ? 'Inkluderet' : 'Ikke inkluderet'}</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
-                          <Zap className="h-8 w-8 text-muted-foreground" />
-                        </div>
-                        <p className="text-muted-foreground">
-                          Opgrader for at låse premium-funktioner op
-                        </p>
-                        <Button className="mt-4" asChild>
-                          <Link href="/pricing">Se planer</Link>
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                  <CardFooter>
-                    <Button variant="link" asChild className="px-0">
-                      <Link href="/pricing">
-                        Sammenlign alle planer
-                        <ExternalLink className="h-4 w-4 ml-2" />
-                      </Link>
-                    </Button>
-                  </CardFooter>
-                </Card>
+                      </ul>
+                    </motion.div>
+                  );
+                })}
               </motion.div>
-            </motion.div>
+            )}
 
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="mt-8"
             >
               <Card data-testid="card-billing-help">
                 <CardHeader>
