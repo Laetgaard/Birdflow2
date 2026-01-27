@@ -38,113 +38,112 @@ const staggerContainer = {
 
 const plans = [
   {
+    id: "basic",
+    name: "Basic",
+    description: "Få din virksomhed online",
+    price: "69 kr",
+    priceDetail: "/md",
+    trialText: "Kom hurtigt i gang",
+    icon: Zap,
+    iconColor: "text-blue-500",
+    bgGradient: "from-blue-500/10 to-cyan-500/10",
+    borderColor: "border-blue-500/20",
+    popular: false,
+    features: [
+      { text: "1 hjemmeside", included: true },
+      { text: "Op til 4 sider", included: true },
+      { text: "2 GB lagerplads", included: true },
+      { text: "Eget domæne", included: true },
+      { text: "AI hjemmeside-assistent", included: true },
+      { text: "Automatiske emails", included: true },
+      { text: "Basis analytics", included: true },
+      { text: "Booking system", included: false },
+      { text: "Webshop", included: false },
+    ],
+    cta: "Vælg Basic",
+    ctaVariant: "outline" as const,
+  },
+  {
     id: "starter",
     name: "Starter",
-    description: "Perfect for growing businesses",
-    price: "$19",
-    priceDetail: "/month",
-    trialText: "2 months free trial",
-    icon: Zap,
+    description: "Perfekt til voksende virksomheder",
+    price: "149 kr",
+    priceDetail: "/md",
+    trialText: "14 dages gratis prøveperiode",
+    icon: Crown,
     iconColor: "text-emerald-500",
     bgGradient: "from-emerald-500/10 to-teal-500/10",
     borderColor: "border-emerald-500/20",
     popular: true,
     features: [
-      { text: "2 months free trial", included: true, highlight: true, tooltip: "Full access for 60 days, then $19/month" },
-      { text: "3 websites", included: true },
-      { text: "All premium templates", included: true },
-      { text: "AI builder assistant", included: true },
-      { text: "Custom domain support", included: true },
-      { text: "E-commerce (up to 50 products)", included: true },
+      { text: "14 dages gratis prøveperiode", included: true, highlight: true, tooltip: "Prøv alle funktioner gratis i 14 dage" },
+      { text: "1 hjemmeside", included: true },
+      { text: "Op til 5 sider", included: true },
+      { text: "4 GB lagerplads", included: true },
+      { text: "Eget domæne", included: true },
+      { text: "AI hjemmeside-assistent", included: true },
+      { text: "Automatiske emails", included: true },
       { text: "Booking system", included: true },
-      { text: "Email notifications", included: true },
-      { text: "Basic analytics", included: true },
-      { text: "Remove BirdFlow branding", included: true },
-      { text: "Connect your Stripe account", included: true },
-      { text: "Advanced analytics", included: false },
-      { text: "Team collaboration", included: false },
+      { text: "Basis analytics", included: true },
+      { text: "Webshop", included: false },
     ],
-    cta: "Start Free Trial",
+    cta: "Start Gratis Prøveperiode",
     ctaVariant: "default" as const,
   },
   {
-    id: "business",
-    name: "Business",
-    description: "For scaling teams",
-    price: "$49",
-    priceDetail: "/month",
-    trialText: "14-day free trial",
-    icon: Crown,
-    iconColor: "text-indigo-500",
-    bgGradient: "from-indigo-500/10 to-purple-500/10",
-    borderColor: "border-indigo-500/20",
-    popular: false,
-    features: [
-      { text: "14-day free trial", included: true },
-      { text: "10 websites", included: true },
-      { text: "Everything in Starter", included: true },
-      { text: "Unlimited products", included: true },
-      { text: "Advanced analytics", included: true },
-      { text: "Team collaboration", included: true, tooltip: "Up to 5 team members" },
-      { text: "API access", included: true },
-      { text: "Priority email support", included: true },
-      { text: "Custom integrations", included: true },
-      { text: "White-label solution", included: false },
-      { text: "Dedicated account manager", included: false },
-    ],
-    cta: "Start Free Trial",
-    ctaVariant: "outline" as const,
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    description: "For large organizations",
-    price: "$149",
-    priceDetail: "/month",
-    trialText: "14-day free trial",
+    id: "professional",
+    name: "Professional",
+    description: "Alt hvad du behøver",
+    price: "249 kr",
+    priceDetail: "/md",
+    trialText: "14 dages gratis prøveperiode",
     icon: Building2,
-    iconColor: "text-amber-500",
-    bgGradient: "from-amber-500/10 to-orange-500/10",
-    borderColor: "border-amber-500/20",
+    iconColor: "text-purple-500",
+    bgGradient: "from-purple-500/10 to-pink-500/10",
+    borderColor: "border-purple-500/20",
     popular: false,
     features: [
-      { text: "14-day free trial", included: true },
-      { text: "Unlimited websites", included: true },
-      { text: "Everything in Business", included: true },
-      { text: "White-label solution", included: true },
-      { text: "Unlimited team members", included: true },
-      { text: "Dedicated account manager", included: true },
-      { text: "SLA guarantee (99.9% uptime)", included: true },
-      { text: "Phone support", included: true },
-      { text: "Custom contracts", included: true },
-      { text: "Advanced security features", included: true },
-      { text: "Onboarding assistance", included: true },
+      { text: "14 dages gratis prøveperiode", included: true, highlight: true, tooltip: "Prøv alle funktioner gratis i 14 dage" },
+      { text: "5 hjemmesider", included: true },
+      { text: "Op til 20 sider per site", included: true },
+      { text: "15 GB lagerplads", included: true },
+      { text: "Eget domæne", included: true },
+      { text: "AI hjemmeside-assistent", included: true },
+      { text: "Automatiske emails", included: true },
+      { text: "Booking system", included: true },
+      { text: "Fuld webshop med Stripe", included: true },
+      { text: "Avanceret analytics", included: true },
+      { text: "Priority support", included: true },
     ],
-    cta: "Start Free Trial",
+    cta: "Start Gratis Prøveperiode",
     ctaVariant: "outline" as const,
   },
 ];
 
 const faqs = [
   {
-    question: "How does the free trial work?",
-    answer: "Start with our Starter plan and get 2 full months of access completely free. No credit card required to start. After the trial, you'll be charged $19/month. You can cancel anytime before the trial ends.",
+    question: "Hvordan fungerer den gratis prøveperiode?",
+    answer: "Med Starter og Professional får du 14 dages gratis prøveperiode med fuld adgang til alle funktioner. Du skal indtaste betalingsoplysninger, men bliver først opkrævet efter prøveperioden. Du kan opsige når som helst i prøveperioden.",
   },
   {
-    question: "Can I change plans later?",
-    answer: "Yes! You can upgrade or downgrade your plan at any time. When upgrading, you'll get immediate access to new features. When downgrading, changes take effect at the end of your billing cycle.",
+    question: "Kan jeg skifte abonnement senere?",
+    answer: "Ja! Du kan opgradere eller nedgradere dit abonnement når som helst. Ved opgradering får du straks adgang til nye funktioner. Ved nedgradering træder ændringen i kraft ved næste faktureringsperiode.",
   },
   {
-    question: "What payment methods do you accept?",
-    answer: "We accept all major credit cards (Visa, Mastercard, American Express) through Stripe. Enterprise customers can also pay via invoice.",
+    question: "Hvilke betalingsmetoder accepterer I?",
+    answer: "Vi accepterer alle større betalingskort (Visa, Mastercard, American Express) via Stripe. Alle priser er i danske kroner (DKK).",
   },
   {
-    question: "Can I cancel anytime?",
-    answer: "Absolutely. There are no long-term contracts. You can cancel your subscription at any time, and you'll retain access until the end of your billing period.",
+    question: "Kan jeg opsige når som helst?",
+    answer: "Ja, absolut. Der er ingen bindingsperiode. Du kan opsige dit abonnement når som helst, og du beholder adgang til dine features indtil slutningen af din betalingsperiode.",
   },
   {
-    question: "What happens when my trial ends?",
-    answer: "You'll receive email reminders before your trial ends. If you don't cancel, your card will be charged automatically. If you cancel, you'll lose access to premium features but can continue with a free account.",
+    question: "Hvad sker der når min prøveperiode udløber?",
+    answer: "Du modtager email-påmindelser før din prøveperiode udløber. Hvis du ikke opsiger, bliver dit kort automatisk opkrævet. Hvis du opsiger, mister du adgang til premium-funktioner.",
+  },
+  {
+    question: "Er mine data sikre?",
+    answer: "Ja, vi tager datasikkerhed meget alvorligt. Alle betalinger håndteres sikkert via Stripe, og dine data hostes på sikre servere med SSL-kryptering.",
   },
 ];
 
@@ -156,27 +155,17 @@ export default function PricingPage() {
   
   const isAuthenticated = !!user;
 
-  const { data: websites } = useQuery({
-    queryKey: ["/api/websites"],
-    enabled: isAuthenticated,
-  });
-
   const checkoutMutation = useMutation({
-    mutationFn: async ({ planId, websiteId }: { planId: string; websiteId: string }) => {
-      const res = await fetch("/api/subscriptions/checkout", {
+    mutationFn: async ({ planId }: { planId: string }) => {
+      const res = await fetch("/api/subscriptions/user-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          planId,
-          websiteId,
-          successUrl: `${window.location.origin}/dashboard?upgrade=success`,
-          cancelUrl: `${window.location.origin}/pricing?upgrade=cancelled`,
-        }),
+        body: JSON.stringify({ planId }),
       });
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Failed to start checkout");
+        throw new Error(error.message || "Kunne ikke starte betaling");
       }
       return res.json();
     },
@@ -187,8 +176,8 @@ export default function PricingPage() {
     },
     onError: (error: any) => {
       toast({
-        title: "Checkout Error",
-        description: error.message || "Failed to start checkout. Please try again.",
+        title: "Betalingsfejl",
+        description: error.message || "Kunne ikke starte betaling. Prøv venligst igen.",
         variant: "destructive",
       });
       setSelectedPlan(null);
@@ -201,18 +190,8 @@ export default function PricingPage() {
       return;
     }
     
-    const userWebsites = websites as any[];
-    if (!userWebsites?.length) {
-      toast({
-        title: "No Website Found",
-        description: "Please create a website first before subscribing to a plan.",
-      });
-      navigate("/onboarding");
-      return;
-    }
-    
     setSelectedPlan(planId);
-    checkoutMutation.mutate({ planId, websiteId: userWebsites[0].id });
+    checkoutMutation.mutate({ planId });
   };
 
   return (
@@ -267,13 +246,13 @@ export default function PricingPage() {
             >
               <div className="inline-flex items-center gap-2 bg-emerald-500/10 text-emerald-600 px-4 py-2 rounded-full text-sm font-medium mb-6">
                 <Sparkles className="w-4 h-4" />
-                2 months free on Starter plan
+                14 dages gratis prøveperiode
               </div>
               <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-                Simple, transparent pricing
+                Enkel og gennemsigtig prissætning
               </h1>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Choose the plan that's right for your business. Start with a free trial and upgrade as you grow.
+                Vælg det abonnement der passer til din virksomhed. Start med en gratis prøveperiode og opgrader efterhånden som du vokser.
               </p>
             </motion.div>
 
@@ -371,7 +350,7 @@ export default function PricingPage() {
               transition={{ duration: 0.6 }}
               className="max-w-3xl mx-auto"
             >
-              <h2 className="text-2xl font-bold text-center mb-8">Frequently Asked Questions</h2>
+              <h2 className="text-2xl font-bold text-center mb-8">Ofte stillede spørgsmål</h2>
               <div className="space-y-4">
                 {faqs.map((faq, i) => (
                   <motion.div
@@ -399,14 +378,14 @@ export default function PricingPage() {
               viewport={{ once: true }}
             >
               <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-                Ready to build your website?
+                Klar til at bygge din hjemmeside?
               </h2>
               <p className="text-white/80 text-lg mb-8 max-w-2xl mx-auto">
-                Join thousands of entrepreneurs who've launched their dream websites with BirdFlow. Start your 2-month free trial today.
+                Slut dig til tusindvis af iværksættere der har lanceret deres drømmehjemmeside med BirdFlow. Start din gratis prøveperiode i dag.
               </p>
               <Link href="/auth?mode=signup&plan=starter">
                 <Button size="lg" variant="secondary" className="font-semibold" data-testid="button-cta-bottom">
-                  Start Your Free Trial
+                  Start Gratis Prøveperiode
                   <ArrowRight className="w-5 h-5 ml-2" />
                 </Button>
               </Link>
