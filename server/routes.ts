@@ -3641,16 +3641,24 @@ export async function registerRoutes(
     }
   });
 
+  // Helper to get OAuth signing secret (derived from STRIPE_CONNECT_CLIENT_ID)
+  const getOAuthSigningSecret = (): string => {
+    const clientId = process.env.STRIPE_CONNECT_CLIENT_ID;
+    if (!clientId) {
+      throw new Error('STRIPE_CONNECT_CLIENT_ID ikke konfigureret');
+    }
+    // Derive a secure signing key from client ID + a static salt
+    const crypto = require('crypto');
+    return crypto.createHash('sha256').update(`oauth_state_${clientId}_birdflow`).digest('hex');
+  };
+
   // Helper to create signed JWT state token for OAuth (with DB persistence)
   const createOAuthStateToken = async (websiteId: string, userId: string): Promise<string> => {
     const crypto = await import('crypto');
     const { oauthStateTokens } = await import('@shared/schema');
     
-    // Use Stripe secret key for signing - FAIL if not configured
-    const platformStripeSecretKey = await getStripeSecretKey();
-    if (!platformStripeSecretKey) {
-      throw new Error('Stripe not configured - cannot create secure OAuth state');
-    }
+    // Use derived signing secret from STRIPE_CONNECT_CLIENT_ID
+    const signingSecret = getOAuthSigningSecret();
     
     const jti = crypto.randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -3671,7 +3679,7 @@ export async function registerRoutes(
     };
     
     const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signature = crypto.createHmac('sha256', platformStripeSecretKey).update(payloadStr).digest('base64url');
+    const signature = crypto.createHmac('sha256', signingSecret).update(payloadStr).digest('base64url');
     
     return `${payloadStr}.${signature}`;
   };
@@ -3687,12 +3695,11 @@ export async function registerRoutes(
       
       if (!payloadStr || !signature) return null;
       
-      // Use Stripe secret key for verification - FAIL if not configured
-      const platformStripeSecretKey = await getStripeSecretKey();
-      if (!platformStripeSecretKey) return null;
+      // Use derived signing secret from STRIPE_CONNECT_CLIENT_ID
+      const signingSecret = getOAuthSigningSecret();
       
       // Verify signature first (cheap check before DB query)
-      const expectedSignature = crypto.createHmac('sha256', platformStripeSecretKey).update(payloadStr).digest('base64url');
+      const expectedSignature = crypto.createHmac('sha256', signingSecret).update(payloadStr).digest('base64url');
       if (signature !== expectedSignature) {
         console.error('OAuth state token signature verification failed');
         return null;
