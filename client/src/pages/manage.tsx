@@ -2289,11 +2289,38 @@ export default function ManagePage() {
     }
   };
 
-  const handleConnectStripe = () => {
+  const handleConnectStripe = async () => {
     if (!session || !id) return;
     setIsConnectingStripe(true);
-    // Redirect to Stripe Connect OAuth flow
-    window.location.href = `/api/stripe/connect/${id}`;
+    
+    try {
+      // Fetch OAuth URL with auth credentials
+      const response = await fetch(`/api/stripe/connect/${id}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Kunne ikke starte Stripe forbindelse');
+      }
+      
+      const data = await response.json();
+      // Redirect to Stripe OAuth URL
+      window.location.href = data.url;
+    } catch (error: any) {
+      console.error('Stripe Connect error:', error);
+      toast({
+        title: "Fejl",
+        description: error.message || "Kunne ikke starte Stripe forbindelse",
+        variant: "destructive",
+      });
+      setIsConnectingStripe(false);
+    }
   };
 
   const handleDisconnectPayment = async () => {
