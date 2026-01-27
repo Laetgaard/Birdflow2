@@ -3751,7 +3751,7 @@ export async function registerRoutes(
     }
   }, 5 * 60 * 1000);
 
-  // Stripe Connect OAuth - Initiate connection (POST to get OAuth URL with auth token)
+  // Stripe Connect - Initiate connection using Account Links API (Express accounts)
   app.post("/api/stripe/connect/:websiteId", requireAuth, async (req, res) => {
     try {
       const { websiteId } = req.params;
@@ -3759,155 +3759,123 @@ export async function registerRoutes(
       
       const website = await storage.getWebsite(websiteId);
       if (!website) {
-        return res.status(404).json({ message: "Website not found" });
+        return res.status(404).json({ message: "Website ikke fundet" });
       }
       if (website.ownerId !== userId) {
-        return res.status(403).json({ message: "Not authorized" });
+        return res.status(403).json({ message: "Ikke autoriseret" });
       }
 
-      const STRIPE_CONNECT_CLIENT_ID = process.env.STRIPE_CONNECT_CLIENT_ID;
-      if (!STRIPE_CONNECT_CLIENT_ID) {
-        return res.status(500).json({ message: "Stripe Connect is not configured" });
+      // Get platform Stripe secret key
+      const platformStripeSecretKey = await getStripeSecretKey();
+      if (!platformStripeSecretKey) {
+        return res.status(500).json({ message: "Stripe er ikke konfigureret" });
       }
 
-      // Generate signed state token (stateless, survives restarts/multi-instance)
-      const stateToken = await createOAuthStateToken(websiteId, userId);
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(platformStripeSecretKey);
 
-      // Use configured base URL or derive from host (validated)
+      // Check if we already have an account for this website
+      const existingSettings = await storage.getPaymentSettings(websiteId);
+      let stripeAccountId = existingSettings?.stripeAccountId;
+
+      // Create new Express account if none exists
+      if (!stripeAccountId) {
+        const account = await stripe.accounts.create({
+          type: 'express',
+          country: 'DK',
+          capabilities: {
+            card_payments: { requested: true },
+            transfers: { requested: true },
+          },
+          business_type: 'individual',
+          metadata: {
+            websiteId: websiteId,
+            userId: userId,
+          },
+        });
+        stripeAccountId = account.id;
+
+        // Store the account ID
+        if (existingSettings) {
+          await storage.updatePaymentSettings(websiteId, {
+            stripeAccountId: stripeAccountId,
+            stripeConnectStatus: 'pending',
+          });
+        } else {
+          await storage.createPaymentSettings({
+            websiteId: websiteId,
+            stripeAccountId: stripeAccountId,
+            stripeConnectStatus: 'pending',
+            isConnected: false,
+            testMode: true,
+          });
+        }
+      }
+
+      // Generate account link for onboarding
       const baseUrl = process.env.BASE_URL || `https://${req.headers.host}`;
-      const redirectUri = `${baseUrl}/api/stripe/connect/callback`;
+      const accountLink = await stripe.accountLinks.create({
+        account: stripeAccountId,
+        refresh_url: `${baseUrl}/api/stripe/connect/refresh/${websiteId}`,
+        return_url: `${baseUrl}/api/stripe/connect/return/${websiteId}`,
+        type: 'account_onboarding',
+      });
 
-      // Generate Stripe OAuth URL
-      const stripeOAuthUrl = new URL('https://connect.stripe.com/oauth/authorize');
-      stripeOAuthUrl.searchParams.set('response_type', 'code');
-      stripeOAuthUrl.searchParams.set('client_id', STRIPE_CONNECT_CLIENT_ID);
-      stripeOAuthUrl.searchParams.set('scope', 'read_write');
-      stripeOAuthUrl.searchParams.set('redirect_uri', redirectUri);
-      stripeOAuthUrl.searchParams.set('state', stateToken); // Signed JWT state
-
-      // Return OAuth URL for client-side redirect (instead of server-side redirect)
-      res.json({ url: stripeOAuthUrl.toString() });
+      console.log(`Stripe Connect account link created for website ${websiteId}: ${stripeAccountId}`);
+      res.json({ url: accountLink.url });
     } catch (error: any) {
       console.error('Stripe Connect initiation error:', error);
       res.status(500).json({ message: error.message });
     }
   });
 
-  // Stripe Connect OAuth - Callback handler
-  app.get("/api/stripe/connect/callback", async (req, res) => {
+  // Stripe Connect - Return handler (user completed or exited onboarding)
+  app.get("/api/stripe/connect/return/:websiteId", async (req, res) => {
     try {
-      const { code, state: stateToken, error, error_description } = req.query;
+      const { websiteId } = req.params;
 
-      // Atomically verify and consume state token (prevents replay attacks with race condition protection)
-      const stateData = await verifyAndConsumeOAuthStateToken(stateToken as string);
-      
-      if (!stateData) {
-        console.error('Invalid, expired, or replayed OAuth state token');
-        return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Session expired or invalid. Please try connecting again.')}`);
-      }
-      
-      const { websiteId, userId: stateUserId } = stateData;
-
-      // Defense in depth: Try to validate session if available
-      // This adds an extra security layer - if session exists, it must match state userId
-      const authHeader = req.headers.authorization;
-      const cookieToken = req.cookies?.['sb-access-token'];
-      const sessionToken = authHeader?.replace('Bearer ', '') || cookieToken;
-      
-      if (sessionToken) {
-        try {
-          const { createClient } = await import('@supabase/supabase-js');
-          const supabaseUrl = process.env.SUPABASE_URL;
-          const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-          
-          if (supabaseUrl && supabaseAnonKey) {
-            const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-              auth: { persistSession: false }
-            });
-            
-            const { data: { user } } = await supabase.auth.getUser(sessionToken);
-            
-            if (user && user.id !== stateUserId) {
-              // Session exists but belongs to different user - potential attack
-              console.error(`Session user ${user.id} does not match state user ${stateUserId}`);
-              return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Session mismatch. Please try connecting again.')}`);
-            }
-          }
-        } catch (sessionError) {
-          // Session validation failed - continue with state token validation only
-          // This is expected if user has no active session cookie
-          console.log('Session validation skipped (no valid session found)');
-        }
-      }
-
-      if (error) {
-        console.error('Stripe OAuth error:', error, error_description);
-        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent(error_description as string || 'Connection failed')}`);
-      }
-
-      if (!code) {
-        return res.redirect(`/manage/${websiteId}?stripe_error=Missing authorization code`);
-      }
-
-      // Verify the user still owns this website (security check using state userId)
       const website = await storage.getWebsite(websiteId);
-      if (!website || website.ownerId !== stateUserId) {
-        console.error(`Ownership verification failed for website ${websiteId}`);
-        return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Authorization failed. Website ownership could not be verified.')}`);
+      if (!website) {
+        return res.redirect(`/dashboard?stripe_error=${encodeURIComponent('Website ikke fundet')}`);
       }
 
-      // Get platform Stripe secret key
+      const settings = await storage.getPaymentSettings(websiteId);
+      if (!settings?.stripeAccountId) {
+        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Stripe konto ikke fundet')}`);
+      }
+
+      // Check account status
       const platformStripeSecretKey = await getStripeSecretKey();
-      const STRIPE_CONNECT_CLIENT_ID = process.env.STRIPE_CONNECT_CLIENT_ID;
-      
-      if (!platformStripeSecretKey || !STRIPE_CONNECT_CLIENT_ID) {
-        return res.redirect(`/manage/${websiteId}?stripe_error=Stripe Connect not configured`);
-      }
-
-      // Exchange authorization code for account ID
       const Stripe = (await import('stripe')).default;
       const stripe = new Stripe(platformStripeSecretKey);
 
-      const response = await stripe.oauth.token({
-        grant_type: 'authorization_code',
-        code: code as string,
-      });
+      const account = await stripe.accounts.retrieve(settings.stripeAccountId);
 
-      const stripeAccountId = response.stripe_user_id;
-      
-      if (!stripeAccountId) {
-        return res.redirect(`/manage/${websiteId}?stripe_error=Failed to get Stripe account ID`);
-      }
-
-      // Store the Stripe account ID in payment settings
-      const existing = await storage.getPaymentSettings(websiteId);
-      
-      if (existing) {
+      // Check if onboarding is complete
+      if (account.details_submitted && account.charges_enabled) {
         await storage.updatePaymentSettings(websiteId, {
-          stripeAccountId: stripeAccountId,
           stripeConnectStatus: 'connected',
           isConnected: true,
-          stripePublishableKey: null, // Clear old keys
-          stripeSecretKey: null,
-          stripeWebhookSecret: null,
         });
+        console.log(`Stripe Connect completed for website ${websiteId}: ${settings.stripeAccountId}`);
+        res.redirect(`/manage/${websiteId}?stripe_connected=true`);
       } else {
-        await storage.createPaymentSettings({
-          websiteId: websiteId,
-          stripeAccountId: stripeAccountId,
-          stripeConnectStatus: 'connected',
-          isConnected: true,
-          testMode: false,
+        // Onboarding not complete yet
+        await storage.updatePaymentSettings(websiteId, {
+          stripeConnectStatus: 'pending',
+          isConnected: false,
         });
+        res.redirect(`/manage/${websiteId}?stripe_pending=true`);
       }
-
-      console.log(`Stripe Connect successful for website ${websiteId}: ${stripeAccountId}`);
-      res.redirect(`/manage/${websiteId}?stripe_connected=true`);
     } catch (error: any) {
-      console.error('Stripe Connect callback error:', error);
-      const websiteId = req.query.state || '';
-      res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent(error.message)}`);
+      console.error('Stripe Connect return error:', error);
+      res.redirect(`/dashboard?stripe_error=${encodeURIComponent(error.message)}`);
     }
+  });
+
+  // Stripe Connect - Refresh handler (user needs to restart onboarding)
+  app.get("/api/stripe/connect/refresh/:websiteId", async (req, res) => {
+    res.redirect(`/manage/${req.params.websiteId}?stripe_refresh=true`);
   });
 
   // Stripe Connect - Disconnect account
