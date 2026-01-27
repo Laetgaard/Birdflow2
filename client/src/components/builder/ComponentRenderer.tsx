@@ -998,45 +998,42 @@ function BurgerButton({ isOpen, textColor, hoverColor, onClick }: {
         border: 'none', 
         cursor: 'pointer', 
         padding: '8px', 
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '40px',
-        height: '40px',
-        position: 'relative',
+        display: 'flex', 
+        flexDirection: 'column', 
+        gap: '4px',
       }}
       aria-label="Toggle menu"
       data-testid="button-burger-menu"
     >
-      {/* Burger icon - hidden when open */}
-      <div style={{
-        position: 'absolute',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '5px',
-        opacity: isOpen ? 0 : 1,
-        transform: isOpen ? 'scale(0.8)' : 'scale(1)',
-        transition: 'opacity 0.2s ease, transform 0.2s ease',
-        pointerEvents: 'none',
-      }}>
-        <span style={{ display: 'block', width: '22px', height: '2px', backgroundColor: currentColor, borderRadius: '1px' }} />
-        <span style={{ display: 'block', width: '22px', height: '2px', backgroundColor: currentColor, borderRadius: '1px' }} />
-        <span style={{ display: 'block', width: '22px', height: '2px', backgroundColor: currentColor, borderRadius: '1px' }} />
-      </div>
-      
-      {/* X icon - shown when open */}
-      <div style={{
-        position: 'absolute',
-        opacity: isOpen ? 1 : 0,
-        transform: isOpen ? 'scale(1) rotate(0deg)' : 'scale(0.8) rotate(-90deg)',
-        transition: 'opacity 0.2s ease, transform 0.2s ease',
-        pointerEvents: 'none',
-      }}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={currentColor} strokeWidth="2.5" strokeLinecap="round">
-          <line x1="6" y1="6" x2="18" y2="18" />
-          <line x1="6" y1="18" x2="18" y2="6" />
-        </svg>
-      </div>
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease',
+        transformOrigin: 'center',
+        transform: isOpen ? 'translateY(7px) rotate(45deg)' : 'none' 
+      }} />
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease', 
+        opacity: isOpen ? 0 : 1 
+      }} />
+      <span style={{ 
+        display: 'block', 
+        width: '24px', 
+        height: '3px', 
+        backgroundColor: currentColor, 
+        borderRadius: '2px', 
+        transition: 'all 0.3s ease',
+        transformOrigin: 'center',
+        transform: isOpen ? 'translateY(-7px) rotate(-45deg)' : 'none' 
+      }} />
     </button>
   );
 }
@@ -1288,16 +1285,12 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
             top: '100%',
             left: 0,
             right: 0,
-            backgroundColor: isTransparent 
-              ? 'rgba(0, 0, 0, 0.85)' 
-              : (styles.backgroundColor || '#ffffff'),
-            backdropFilter: isTransparent ? 'blur(12px)' : 'none',
-            WebkitBackdropFilter: isTransparent ? 'blur(12px)' : 'none',
+            backgroundColor: styles.backgroundColor || '#ffffff',
             padding: '16px 24px',
             display: 'flex',
             flexDirection: 'column',
             gap: '16px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
             zIndex: 1000,
           }}
           onClick={handleNavClick}
@@ -1308,16 +1301,10 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
               key={item.id}
               href={item.href}
               onClick={handleMobileNavClick}
-              textColor={isTransparent ? '#ffffff' : (styles.textColor || '#1a1a1a')}
+              textColor={styles.textColor || '#1a1a1a'}
               hoverColor={hoverColor}
               isPreview={isPreview}
-              style={{ 
-                padding: '8px 0', 
-                fontSize: '16px', 
-                borderBottom: isTransparent 
-                  ? '1px solid rgba(255,255,255,0.15)' 
-                  : '1px solid rgba(0,0,0,0.1)' 
-              }}
+              style={{ padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
             >
               {item.title}
             </NavLink>
