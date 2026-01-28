@@ -129,19 +129,14 @@ export default function ProfilePage() {
     enabled: !!selectedWebsiteId,
   });
 
-  // Checkout mutation for Stripe
+  // Checkout mutation for Stripe (user-level, no website required)
   const checkoutMutation = useMutation({
-    mutationFn: async ({ planId, websiteId }: { planId: string; websiteId: string }) => {
-      const res = await fetch("/api/subscriptions/checkout", {
+    mutationFn: async ({ planId }: { planId: string }) => {
+      const res = await fetch("/api/subscriptions/user-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          planId,
-          websiteId,
-          successUrl: `${window.location.origin}/profile?tab=billing&upgrade=success`,
-          cancelUrl: `${window.location.origin}/profile?tab=billing&upgrade=cancelled`,
-        }),
+        body: JSON.stringify({ planId }),
       });
       if (!res.ok) {
         const error = await res.json();
@@ -246,17 +241,8 @@ export default function ProfilePage() {
   });
 
   const handleSelectPlan = (planId: string) => {
-    if (!selectedWebsiteId) {
-      toast({
-        title: "Ingen hjemmeside fundet",
-        description: "Opret venligst en hjemmeside først.",
-      });
-      navigate("/onboarding");
-      return;
-    }
-    
     setSelectedPlan(planId);
-    checkoutMutation.mutate({ planId, websiteId: selectedWebsiteId });
+    checkoutMutation.mutate({ planId });
   };
 
   const handleSubmitContact = async (e: React.FormEvent) => {
