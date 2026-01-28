@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Zap, Crown, Building2, ArrowLeft, Loader2, User, CreditCard, Shield, Clock, Calendar, CheckCircle2, X, HelpCircle, Settings } from "lucide-react";
+import { Check, Zap, Crown, Building2, ArrowLeft, Loader2, User, CreditCard, Shield, Clock, Calendar, CheckCircle2, X, HelpCircle, Settings, Receipt, ExternalLink, FileText } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { format, formatDistanceToNow, isPast, isBefore, addDays } from "date-fns";
 import { da } from "date-fns/locale";
@@ -36,6 +36,20 @@ interface Website {
   name: string;
   subdomain: string;
   plan: string;
+}
+
+interface Invoice {
+  id: string;
+  number: string | null;
+  status: string | null;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  created: number;
+  periodStart: number;
+  periodEnd: number;
+  hostedInvoiceUrl: string | null;
+  invoicePdf: string | null;
 }
 
 const planIcons: Record<string, any> = {
@@ -127,6 +141,19 @@ export default function ProfilePage() {
       return res.json();
     },
     enabled: !!selectedWebsiteId,
+  });
+
+  // Fetch user invoices
+  const { data: invoicesData, isLoading: invoicesLoading } = useQuery<{ invoices: Invoice[] }>({
+    queryKey: ["/api/subscriptions/invoices"],
+    queryFn: async () => {
+      const res = await fetch("/api/subscriptions/invoices", {
+        headers: { "Authorization": `Bearer ${session?.access_token}` },
+      });
+      if (!res.ok) throw new Error("Kunne ikke hente fakturaer");
+      return res.json();
+    },
+    enabled: !!session,
   });
 
   // Checkout mutation for Stripe (user-level, no website required)
@@ -394,6 +421,133 @@ export default function ProfilePage() {
 
           <TabsContent value="billing">
             <div className="space-y-8">
+              {/* Current Plan Summary */}
+              {subscription?.plan && subscription.plan !== 'free' && (
+                <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${planIconBg[subscription.plan] || "from-gray-500 to-gray-600"} flex items-center justify-center`}>
+                          {(() => {
+                            const PlanIcon = planIcons[subscription.plan] || Zap;
+                            return <PlanIcon className="w-6 h-6 text-white" />;
+                          })()}
+                        </div>
+                        <div>
+                          <CardTitle className="text-xl">{subscription.planName}</CardTitle>
+                          <CardDescription>{subscription.planPrice}/md</CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {subscription.subscriptionStatus && (
+                          <Badge variant={statusBadgeVariants[subscription.subscriptionStatus] || "secondary"}>
+                            {statusLabels[subscription.subscriptionStatus] || subscription.subscriptionStatus}
+                          </Badge>
+                        )}
+                        <Button variant="outline" onClick={() => billingPortalMutation.mutate()} disabled={billingPortalMutation.isPending}>
+                          {billingPortalMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                          <Settings className="w-4 h-4 mr-2" />
+                          Administrer
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {subscription.subscriptionStatus === 'trialing' && subscription.trialEnd && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Clock className="w-4 h-4 text-amber-500" />
+                          <span className="text-muted-foreground">Prøveperiode udløber:</span>
+                          <span className="font-medium">{format(new Date(subscription.trialEnd), "d. MMM yyyy", { locale: da })}</span>
+                        </div>
+                      )}
+                      {subscription.currentPeriodEnd && subscription.subscriptionStatus === 'active' && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Calendar className="w-4 h-4 text-primary" />
+                          <span className="text-muted-foreground">Næste fornyelse:</span>
+                          <span className="font-medium">{format(new Date(subscription.currentPeriodEnd), "d. MMM yyyy", { locale: da })}</span>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Invoices Section */}
+              {invoicesData?.invoices && invoicesData.invoices.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <Receipt className="w-5 h-5 text-primary" />
+                      <CardTitle>Betalingshistorik</CardTitle>
+                    </div>
+                    <CardDescription>Dine seneste fakturaer og betalinger</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {invoicesData.invoices.map((invoice) => (
+                        <div 
+                          key={invoice.id} 
+                          className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                              <FileText className="w-5 h-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium">Faktura {invoice.number || invoice.id.slice(-8)}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {format(new Date(invoice.created * 1000), "d. MMMM yyyy", { locale: da })}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <p className="font-medium">{(invoice.amountPaid / 100).toFixed(2)} {invoice.currency.toUpperCase()}</p>
+                              <Badge variant={invoice.status === 'paid' ? 'default' : invoice.status === 'open' ? 'secondary' : 'destructive'}>
+                                {invoice.status === 'paid' ? 'Betalt' : invoice.status === 'open' ? 'Åben' : invoice.status === 'draft' ? 'Kladde' : 'Ikke betalt'}
+                              </Badge>
+                            </div>
+                            <div className="flex gap-2">
+                              {invoice.hostedInvoiceUrl && (
+                                <Button variant="ghost" size="sm" asChild>
+                                  <a href={invoice.hostedInvoiceUrl} target="_blank" rel="noopener noreferrer">
+                                    <ExternalLink className="w-4 h-4" />
+                                  </a>
+                                </Button>
+                              )}
+                              {invoice.invoicePdf && (
+                                <Button variant="ghost" size="sm" asChild>
+                                  <a href={invoice.invoicePdf} target="_blank" rel="noopener noreferrer">
+                                    <FileText className="w-4 h-4" />
+                                  </a>
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {invoicesLoading && (
+                <Card>
+                  <CardHeader>
+                    <Skeleton className="h-6 w-40" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <Skeleton className="h-16 w-full" />
+                      <Skeleton className="h-16 w-full" />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Separator />
+
               {/* Plan Cards - 3 column grid matching pricing page */}
               <div>
                 <h2 className="text-2xl font-bold mb-2">
