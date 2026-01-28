@@ -344,10 +344,13 @@ export class DatabaseStorage implements IStorage {
   };
 
   async getProfile(id: string): Promise<Profile | undefined> {
+    console.log('[Storage] getProfile called with id:', id);
     try {
       const result = await db.select().from(profiles).where(eq(profiles.id, id)).limit(1);
+      console.log('[Storage] getProfile result:', result[0] ? 'found' : 'not found');
       return result[0];
     } catch (error: any) {
+      console.error('[Storage] getProfile error:', error.message);
       // Handle missing columns gracefully - fall back to basic columns
       if (error.message?.includes("does not exist")) {
         const result = await db.select(this.profileColumns).from(profiles).where(eq(profiles.id, id)).limit(1);
@@ -413,8 +416,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createProfile(profile: InsertProfile & { id: string }): Promise<Profile> {
-    const result = await db.insert(profiles).values(profile as any).returning();
-    return result[0];
+    console.log('[Storage] createProfile called with:', JSON.stringify(profile));
+    try {
+      const result = await db.insert(profiles).values(profile as any).returning();
+      console.log('[Storage] createProfile success, created profile id:', result[0]?.id);
+      return result[0];
+    } catch (error: any) {
+      console.error('[Storage] createProfile error:', error.message);
+      console.error('[Storage] createProfile error code:', error.code);
+      throw error;
+    }
   }
 
   async updateProfile(id: string, data: Partial<InsertProfile>): Promise<Profile | undefined> {
