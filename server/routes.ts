@@ -239,6 +239,37 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ message: "Email not confirmed" });
     }
 
+    // Ensure profile exists for authenticated user (auto-create if missing)
+    try {
+      let profile = await storage.getProfile(user.id);
+      if (!profile && user.email) {
+        console.log(`[RequireAuth] Profile missing for user ${user.id}, creating automatically...`);
+        const fullName = user.user_metadata?.full_name || user.email.split('@')[0] || '';
+        const phoneNumber = user.user_metadata?.phone_number || '';
+        
+        try {
+          profile = await storage.createProfile({
+            id: user.id,
+            email: user.email,
+            fullName,
+            phoneNumber,
+          });
+          console.log(`[RequireAuth] Profile created successfully for user ${user.id}`);
+        } catch (createError: any) {
+          if (createError.code === '23505') {
+            // Profile already exists (race condition), fetch it
+            profile = await storage.getProfile(user.id);
+            console.log(`[RequireAuth] Profile already existed for user ${user.id}`);
+          } else {
+            console.error(`[RequireAuth] Failed to create profile for user ${user.id}:`, createError);
+          }
+        }
+      }
+    } catch (profileError) {
+      console.error(`[RequireAuth] Profile check error for user ${user.id}:`, profileError);
+      // Continue even if profile creation fails - some endpoints don't need profiles
+    }
+
     // Attach user to request
     (req as any).user = user;
     next();
