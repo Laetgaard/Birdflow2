@@ -336,11 +336,23 @@ export default function BuilderPage() {
     fetchData();
   }, [id, session]);
 
-  // Show coach marks for first-time users
+  // Show coach marks for first-time users or when ?tour=true
   useEffect(() => {
     if (!isLoading && builderState) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const tourParam = urlParams.get("tour");
       const hasSeenCoachMarks = localStorage.getItem("builder_coach_marks_completed");
-      if (!hasSeenCoachMarks) {
+      
+      // Show tour if URL has ?tour=true or if user hasn't seen it before
+      if (tourParam === "true" || !hasSeenCoachMarks) {
+        // Clear only the tour param from URL, preserving other params
+        if (tourParam === "true") {
+          urlParams.delete("tour");
+          const newUrl = urlParams.toString() 
+            ? `${window.location.pathname}?${urlParams.toString()}` 
+            : window.location.pathname;
+          window.history.replaceState({}, "", newUrl);
+        }
         // Delay slightly to ensure UI is fully rendered
         const timer = setTimeout(() => setShowCoachMarks(true), 500);
         return () => clearTimeout(timer);
