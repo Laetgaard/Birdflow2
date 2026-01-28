@@ -345,12 +345,25 @@ export default function OnboardingPage() {
   };
 
   const handlePlanSelection = async (planId: PlanId) => {
-    if (!token) return;
+    console.log("[Onboarding] handlePlanSelection called with planId:", planId);
+    console.log("[Onboarding] Current token:", token ? "exists" : "missing");
+    console.log("[Onboarding] Current user:", user?.id);
+    
+    if (!token) {
+      console.error("[Onboarding] No token available, cannot proceed");
+      toast({
+        title: "Fejl",
+        description: "Du er ikke logget ind. Log venligst ind igen.",
+        variant: "destructive",
+      });
+      return;
+    }
     
     setSelectedPlan(planId);
     setIsRedirectingToStripe(true);
     
     try {
+      console.log("[Onboarding] Making API call to /api/subscriptions/onboarding-checkout");
       const response = await fetch("/api/subscriptions/onboarding-checkout", {
         method: "POST",
         headers: {
@@ -364,14 +377,19 @@ export default function OnboardingPage() {
         }),
       });
       
+      console.log("[Onboarding] Response status:", response.status);
+      
       if (!response.ok) {
         const error = await response.json();
+        console.error("[Onboarding] API error:", error);
         throw new Error(error.message || "Failed to create checkout session");
       }
       
       const { url } = await response.json();
+      console.log("[Onboarding] Redirecting to Stripe:", url);
       window.location.href = url;
     } catch (error: any) {
+      console.error("[Onboarding] Error:", error);
       setIsRedirectingToStripe(false);
       toast({
         title: "Fejl",
