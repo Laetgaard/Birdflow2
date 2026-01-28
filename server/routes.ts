@@ -5681,6 +5681,43 @@ export async function registerRoutes(
     }
   });
 
+  // Get user invoices from Stripe
+  app.get("/api/subscriptions/invoices", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const profile = await storage.getProfile(userId);
+      
+      if (!profile?.stripeCustomerId) {
+        return res.json({ invoices: [] });
+      }
+      
+      const stripe = await getUncachableStripeClient();
+      const invoices = await stripe.invoices.list({
+        customer: profile.stripeCustomerId,
+        limit: 10,
+      });
+      
+      const formattedInvoices = invoices.data.map(inv => ({
+        id: inv.id,
+        number: inv.number,
+        status: inv.status,
+        amountDue: inv.amount_due,
+        amountPaid: inv.amount_paid,
+        currency: inv.currency,
+        created: inv.created,
+        periodStart: inv.period_start,
+        periodEnd: inv.period_end,
+        hostedInvoiceUrl: inv.hosted_invoice_url,
+        invoicePdf: inv.invoice_pdf,
+      }));
+      
+      res.json({ invoices: formattedInvoices });
+    } catch (error: any) {
+      console.error("Get invoices error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Stripe webhook for subscription events
   app.post("/api/subscriptions/webhook", express.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'] as string;
