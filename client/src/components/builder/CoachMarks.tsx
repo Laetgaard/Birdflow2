@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { X, ArrowRight, ArrowLeft, Sparkles, Layout, Settings, Wand2, Upload, MousePointer } from "lucide-react";
+import { X, ArrowRight, ArrowLeft, Sparkles, Layout, Settings, Wand2, Upload, MousePointer, Rocket } from "lucide-react";
 
 type CoachStep = {
   id: string;
@@ -15,50 +15,57 @@ type CoachStep = {
 const COACH_STEPS: CoachStep[] = [
   {
     id: "welcome",
-    title: "Welcome to your website builder!",
-    description: "Let's take a quick tour to help you get started. This will only take a minute.",
+    title: "Velkommen til din hjemmesidebygger!",
+    description: "Lad os tage en hurtig rundtur, så du kan komme godt i gang. Det tager kun et minut.",
     position: "center",
     icon: <Sparkles className="w-8 h-8" />,
   },
   {
     id: "canvas",
-    title: "This is your canvas",
-    description: "Click on any section to select it. You can edit text directly by clicking on it.",
+    title: "Dit arbejdsområde",
+    description: "Klik på en sektion for at vælge den. Du kan redigere tekst direkte ved at klikke på den.",
     targetSelector: "[data-preview-area]",
     position: "center",
     icon: <MousePointer className="w-8 h-8" />,
   },
   {
     id: "add-components",
-    title: "Add new sections",
-    description: "Click the 'Add' tab to browse and add new sections like headers, features, testimonials, and more.",
+    title: "Tilføj nye sektioner",
+    description: "Klik på 'Tilføj' for at gennemse og tilføje nye sektioner som overskrifter, funktioner, udtalelser og meget mere.",
     targetSelector: "[data-testid='tab-components']",
     position: "bottom-left",
     icon: <Layout className="w-8 h-8" />,
   },
   {
     id: "edit-properties",
-    title: "Customize your content",
-    description: "When you select a section, switch to the 'Edit' tab to change colors, images, and other properties.",
+    title: "Tilpas dit indhold",
+    description: "Når du vælger en sektion, kan du skifte til 'Rediger' for at ændre farver, billeder og andre egenskaber.",
     targetSelector: "[data-testid='tab-properties']",
     position: "bottom-left",
     icon: <Settings className="w-8 h-8" />,
   },
   {
     id: "ai-assistant",
-    title: "AI-powered editing",
-    description: "Use our AI assistant to make changes with natural language. Just describe what you want!",
+    title: "AI-drevet redigering",
+    description: "Brug vores AI-assistent til at lave ændringer med naturligt sprog. Beskriv bare hvad du ønsker!",
     targetSelector: "[data-testid='tab-ai']",
     position: "bottom-left",
     icon: <Wand2 className="w-8 h-8" />,
   },
   {
     id: "publish",
-    title: "Publish when ready",
-    description: "Click 'Publish' to make your website live. You can always edit and republish later.",
+    title: "Udgiv når du er klar",
+    description: "Klik 'Udgiv' for at gøre din hjemmeside live. Du kan altid redigere og genudgive senere.",
     targetSelector: "[data-testid='button-publish']",
     position: "bottom-left",
     icon: <Upload className="w-8 h-8" />,
+  },
+  {
+    id: "complete",
+    title: "Du er klar!",
+    description: "Det var det! Du er nu klar til at bygge din hjemmeside. Held og lykke!",
+    position: "center",
+    icon: <Rocket className="w-8 h-8" />,
   },
 ];
 
@@ -192,19 +199,19 @@ export default function CoachMarks({ onComplete, isFirstTime }: CoachMarksProps)
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
           transition={{ type: "spring", duration: 0.5 }}
-          className="absolute w-[360px] bg-card border rounded-xl shadow-2xl overflow-hidden"
+          className="absolute w-[380px] bg-card border rounded-xl shadow-2xl overflow-hidden"
           style={getTooltipPosition()}
         >
           <div className="p-6">
             <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shrink-0">
                 {step.icon}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-lg mb-2" data-testid="coach-step-title">
+                <h3 className="font-bold text-lg mb-2" data-testid="coach-step-title">
                   {step.title}
                 </h3>
-                <p className="text-sm text-muted-foreground" data-testid="coach-step-description">
+                <p className="text-sm text-muted-foreground leading-relaxed" data-testid="coach-step-description">
                   {step.description}
                 </p>
               </div>
@@ -212,12 +219,12 @@ export default function CoachMarks({ onComplete, isFirstTime }: CoachMarksProps)
           </div>
 
           <div className="px-6 pb-6">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-1.5 mb-4">
               {COACH_STEPS.map((_, idx) => (
                 <div
                   key={idx}
                   className={`h-1.5 rounded-full flex-1 transition-colors ${
-                    idx <= currentStep ? "bg-primary" : "bg-muted"
+                    idx <= currentStep ? "bg-gradient-to-r from-indigo-500 to-purple-600" : "bg-muted"
                   }`}
                 />
               ))}
@@ -231,7 +238,7 @@ export default function CoachMarks({ onComplete, isFirstTime }: CoachMarksProps)
                 className="text-muted-foreground"
                 data-testid="coach-skip-button"
               >
-                Skip tour
+                Spring over
               </Button>
 
               <div className="flex items-center gap-2">
@@ -243,19 +250,23 @@ export default function CoachMarks({ onComplete, isFirstTime }: CoachMarksProps)
                     data-testid="coach-prev-button"
                   >
                     <ArrowLeft className="w-4 h-4 mr-1" />
-                    Back
+                    Tilbage
                   </Button>
                 )}
                 <Button
                   size="sm"
                   onClick={handleNext}
+                  className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
                   data-testid="coach-next-button"
                 >
                   {isLastStep ? (
-                    "Get started"
+                    <>
+                      Kom i gang
+                      <Rocket className="w-4 h-4 ml-1" />
+                    </>
                   ) : (
                     <>
-                      Next
+                      Næste
                       <ArrowRight className="w-4 h-4 ml-1" />
                     </>
                   )}

@@ -10,19 +10,27 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Globe, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, Check, Zap, Building2, Crown } from "lucide-react";
 
 const signUpSchema = z.object({
-  fullName: z.string().min(2, "Name is required"),
-  email: z.string().email("Invalid email address"),
-  phoneNumber: z.string().min(8, "Phone number is required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  fullName: z.string().min(2, "Navn er påkrævet"),
+  email: z.string().email("Ugyldig email adresse"),
+  phoneNumber: z.string().min(8, "Telefonnummer er påkrævet"),
+  password: z.string().min(8, "Adgangskode skal være mindst 8 tegn"),
 });
 
 const signInSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
+  email: z.string().email("Ugyldig email adresse"),
+  password: z.string().min(1, "Adgangskode er påkrævet"),
 });
+
+const features = [
+  "Professionelle hjemmeside-skabeloner",
+  "AI-drevet website builder",
+  "Eget domæne inkluderet",
+  "Booking- og webshop funktioner",
+  "Sikker betaling via Stripe",
+];
 
 export default function AuthPage() {
   const [, setLocation] = useLocation();
@@ -65,14 +73,14 @@ export default function AuthPage() {
         setLocation(`/check-email?email=${encodeURIComponent(data.email)}`);
       } else {
         toast({
-          title: "Account created!",
-          description: "Welcome to your new dashboard.",
+          title: "Konto oprettet!",
+          description: "Velkommen til BirdFlow.",
         });
       }
     } catch (error: any) {
       toast({
-        title: "Error",
-        description: error.message || "Something went wrong. Please try again.",
+        title: "Fejl",
+        description: error.message || "Noget gik galt. Prøv venligst igen.",
         variant: "destructive",
       });
     } finally {
@@ -85,13 +93,13 @@ export default function AuthPage() {
       setIsLoading(true);
       await signIn(data.email, data.password);
       toast({
-        title: "Welcome back!",
-        description: "Successfully signed in.",
+        title: "Velkommen tilbage!",
+        description: "Du er nu logget ind.",
       });
     } catch (error: any) {
       toast({
-        title: "Error",
-        description: error.message || "Invalid credentials.",
+        title: "Fejl",
+        description: error.message || "Ugyldige loginoplysninger.",
         variant: "destructive",
       });
     } finally {
@@ -106,8 +114,8 @@ export default function AuthPage() {
         <div className="w-full max-w-md space-y-8">
           <Link href="/">
             <div className="flex items-center gap-2 font-bold text-xl mb-8 cursor-pointer">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground">
-                <Globe className="w-5 h-5" />
+              <div className="w-8 h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white">
+                <Sparkles className="w-5 h-5" />
               </div>
               BirdFlow
             </div>
@@ -115,15 +123,15 @@ export default function AuthPage() {
 
           <Tabs defaultValue={defaultTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-8">
-              <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              <TabsTrigger value="signin">Log ind</TabsTrigger>
+              <TabsTrigger value="signup">Opret konto</TabsTrigger>
             </TabsList>
             
             <TabsContent value="signin">
               <Card className="border-none shadow-none">
                 <CardHeader className="px-0">
-                  <CardTitle className="text-2xl">Welcome back</CardTitle>
-                  <CardDescription>Enter your email to sign in to your account</CardDescription>
+                  <CardTitle className="text-2xl">Velkommen tilbage</CardTitle>
+                  <CardDescription>Indtast din email for at logge ind</CardDescription>
                 </CardHeader>
                 <CardContent className="px-0">
                   <form onSubmit={signInForm.handleSubmit(onSignIn)} className="space-y-4">
@@ -131,7 +139,7 @@ export default function AuthPage() {
                       <Label htmlFor="signin-email">Email</Label>
                       <Input 
                         id="signin-email" 
-                        placeholder="m@example.com" 
+                        placeholder="din@email.dk" 
                         {...signInForm.register("email")}
                         data-testid="input-email-signin"
                       />
@@ -141,9 +149,9 @@ export default function AuthPage() {
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <Label htmlFor="signin-password">Password</Label>
+                        <Label htmlFor="signin-password">Adgangskode</Label>
                         <Link href="/reset-password" className="text-xs text-primary hover:underline">
-                          Forgot password?
+                          Glemt adgangskode?
                         </Link>
                       </div>
                       <Input 
@@ -158,7 +166,7 @@ export default function AuthPage() {
                     </div>
                     <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-signin">
                       {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Sign In
+                      Log ind
                     </Button>
                   </form>
                 </CardContent>
@@ -168,16 +176,16 @@ export default function AuthPage() {
             <TabsContent value="signup">
               <Card className="border-none shadow-none">
                 <CardHeader className="px-0">
-                  <CardTitle className="text-2xl">Create an account</CardTitle>
-                  <CardDescription>Enter your details below to create your account</CardDescription>
+                  <CardTitle className="text-2xl">Opret din konto</CardTitle>
+                  <CardDescription>Udfyld dine oplysninger for at komme i gang</CardDescription>
                 </CardHeader>
                 <CardContent className="px-0">
                   <form onSubmit={signUpForm.handleSubmit(onSignUp)} className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="signup-name">Full Name</Label>
+                      <Label htmlFor="signup-name">Fulde navn</Label>
                       <Input 
                         id="signup-name" 
-                        placeholder="John Doe" 
+                        placeholder="Dit navn" 
                         {...signUpForm.register("fullName")}
                         data-testid="input-name-signup"
                       />
@@ -189,7 +197,7 @@ export default function AuthPage() {
                       <Label htmlFor="signup-email">Email</Label>
                       <Input 
                         id="signup-email" 
-                        placeholder="m@example.com" 
+                        placeholder="din@email.dk" 
                         {...signUpForm.register("email")}
                         data-testid="input-email-signup"
                       />
@@ -198,10 +206,10 @@ export default function AuthPage() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="signup-phone">Phone Number</Label>
+                      <Label htmlFor="signup-phone">Telefonnummer</Label>
                       <Input 
                         id="signup-phone" 
-                        placeholder="+1 (555) 000-0000" 
+                        placeholder="+45 12 34 56 78" 
                         {...signUpForm.register("phoneNumber")}
                         data-testid="input-phone-signup"
                       />
@@ -210,10 +218,11 @@ export default function AuthPage() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="signup-password">Password</Label>
+                      <Label htmlFor="signup-password">Adgangskode</Label>
                       <Input 
                         id="signup-password" 
                         type="password"
+                        placeholder="Mindst 8 tegn"
                         {...signUpForm.register("password")}
                         data-testid="input-password-signup"
                       />
@@ -221,10 +230,21 @@ export default function AuthPage() {
                         <p className="text-xs text-destructive">{signUpForm.formState.errors.password.message}</p>
                       )}
                     </div>
-                    <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-signup">
+                    <Button 
+                      type="submit" 
+                      className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700" 
+                      disabled={isLoading} 
+                      data-testid="button-signup"
+                    >
                       {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Create Account
+                      Opret konto
                     </Button>
+                    <p className="text-xs text-center text-muted-foreground">
+                      Ved at oprette en konto accepterer du vores{" "}
+                      <Link href="/terms" className="text-primary hover:underline">vilkår</Link>
+                      {" "}og{" "}
+                      <Link href="/privacy" className="text-primary hover:underline">privatlivspolitik</Link>
+                    </p>
                   </form>
                 </CardContent>
               </Card>
@@ -234,16 +254,44 @@ export default function AuthPage() {
       </div>
 
       {/* Right Panel: Visual */}
-      <div className="hidden lg:flex flex-col items-center justify-center bg-zinc-900 text-zinc-50 p-8 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&q=80')] opacity-20 bg-cover bg-center" />
-        <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/50 to-transparent" />
+      <div className="hidden lg:flex flex-col items-center justify-center bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white p-12 relative overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute inset-0" style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          }} />
+        </div>
         
-        <div className="relative z-10 max-w-lg text-center space-y-6">
-          <h2 className="text-3xl font-bold tracking-tight">"This platform revolutionized how we build and deploy. Simply incredible."</h2>
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-full bg-zinc-800 border-2 border-zinc-700" />
-            <div className="font-semibold">Sofia Davis</div>
-            <div className="text-sm text-zinc-400">CEO at TechFlow</div>
+        <div className="relative z-10 max-w-lg space-y-8">
+          <div>
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
+              Byg din professionelle hjemmeside på få minutter
+            </h2>
+            <p className="text-lg text-white/80">
+              BirdFlow gør det nemt at oprette en flot hjemmeside med booking, webshop og meget mere.
+            </p>
+          </div>
+          
+          <ul className="space-y-4">
+            {features.map((feature, i) => (
+              <li key={i} className="flex items-center gap-3">
+                <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                  <Check className="w-4 h-4" />
+                </div>
+                <span className="text-white/90">{feature}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="flex items-center gap-4 pt-4">
+            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-lg px-4 py-2">
+              <Zap className="w-5 h-5 text-yellow-300" />
+              <span className="text-sm font-medium">Fra 69 kr/md</span>
+            </div>
+            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-lg px-4 py-2">
+              <Crown className="w-5 h-5 text-yellow-300" />
+              <span className="text-sm font-medium">14 dages gratis prøve</span>
+            </div>
           </div>
         </div>
       </div>

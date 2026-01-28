@@ -4,13 +4,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import {
-  Calendar,
-  ShoppingCart,
-  FileText,
   ArrowRight,
+  ArrowLeft,
   Check,
   Loader2,
   Sparkles,
@@ -19,99 +19,178 @@ import {
   Crown,
   Zap,
   Building2,
+  Store,
+  Calendar,
+  FileText,
+  Palette,
+  Layout,
+  Briefcase,
 } from "lucide-react";
 
-type WebsiteType = "booking" | "webshop" | "simple";
-
 type PlanId = "basic" | "starter" | "professional";
+type Step = "choose-plan" | "choose-template" | "website-name" | "setup" | "success";
 
-type Step = "welcome" | "choose-plan" | "choose-type" | "website-name" | "setup" | "success";
-
-const subscriptionPlans: { id: PlanId; name: string; price: string; description: string; icon: React.ElementType; color: string; popular: boolean; features: string[]; trialText?: string }[] = [
+const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail: string; description: string; icon: React.ElementType; color: string; popular: boolean; features: string[]; trialText?: string }[] = [
   {
     id: "basic",
-    name: "Basic",
-    price: "69 kr/md",
+    name: "Basis",
+    price: "69 kr",
+    priceDetail: "/md",
     description: "Få din virksomhed online",
     icon: Zap,
     color: "from-blue-500 to-cyan-500",
     popular: false,
-    features: ["1 hjemmeside", "4 sider", "2 GB lager", "Eget domæne", "AI-assistent"],
+    features: ["1 hjemmeside", "Op til 4 sider", "2 GB lagerplads", "Eget domæne", "AI-assistent"],
   },
   {
     id: "starter",
     name: "Starter",
-    price: "149 kr/md",
+    price: "149 kr",
+    priceDetail: "/md",
     description: "Perfekt til voksende virksomheder",
     icon: Building2,
     color: "from-emerald-500 to-teal-500",
     popular: true,
-    features: ["1 hjemmeside", "5 sider", "4 GB lager", "Booking system", "14 dages prøve"],
+    features: ["1 hjemmeside", "Op til 5 sider", "4 GB lagerplads", "Booking system", "14 dages gratis"],
     trialText: "14 dages gratis prøveperiode",
   },
   {
     id: "professional",
-    name: "Professional",
-    price: "249 kr/md",
+    name: "Professionel",
+    price: "249 kr",
+    priceDetail: "/md",
     description: "Alt hvad du behøver",
     icon: Crown,
     color: "from-purple-500 to-pink-500",
     popular: false,
-    features: ["5 hjemmesider", "20 sider/site", "Webshop", "15 GB lager", "14 dages prøve"],
+    features: ["5 hjemmesider", "Op til 20 sider", "Webshop", "15 GB lagerplads", "14 dages gratis"],
     trialText: "14 dages gratis prøveperiode",
   },
 ];
 
-const websiteTypes: { id: WebsiteType; title: string; description: string; icon: React.ElementType; color: string }[] = [
+const websiteTemplates = [
   {
-    id: "booking",
-    title: "Booking Hjemmeside",
-    description: "Perfekt til saloner, klinikker eller konsulenter",
+    id: "modern-business",
+    name: "Moderne Virksomhed",
+    description: "Professionel hjemmeside til virksomheder",
+    category: "business",
+    icon: Briefcase,
+    color: "from-slate-600 to-slate-800",
+    thumbnail: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=400&h=300&fit=crop",
+  },
+  {
+    id: "service-booking",
+    name: "Booking & Services",
+    description: "Perfekt til saloner, klinikker og konsulenter",
+    category: "services",
     icon: Calendar,
     color: "from-blue-500 to-cyan-500",
+    thumbnail: "https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=400&h=300&fit=crop",
   },
   {
-    id: "webshop",
-    title: "Online Webshop",
-    description: "Sælg produkter med lager og checkout",
-    icon: ShoppingCart,
+    id: "ecommerce-store",
+    name: "Webshop",
+    description: "Sælg produkter online med checkout",
+    category: "ecommerce",
+    icon: Store,
     color: "from-green-500 to-emerald-500",
+    thumbnail: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=400&h=300&fit=crop",
   },
   {
-    id: "simple",
-    title: "Simpel Hjemmeside",
-    description: "Portfolio, landingsside eller virksomhedssite",
+    id: "creative-portfolio",
+    name: "Portfolio",
+    description: "Vis dine projekter og arbejde frem",
+    category: "portfolio",
+    icon: Palette,
+    color: "from-purple-500 to-pink-500",
+    thumbnail: "https://images.unsplash.com/photo-1545235617-9465d2a55698?w=400&h=300&fit=crop",
+  },
+  {
+    id: "minimal-landing",
+    name: "Landingsside",
+    description: "Simpel og effektiv landingsside",
+    category: "landing",
+    icon: Layout,
+    color: "from-orange-500 to-red-500",
+    thumbnail: "https://images.unsplash.com/photo-1467232004584-a241de8bcf5d?w=400&h=300&fit=crop",
+  },
+  {
+    id: "blank",
+    name: "Start fra bunden",
+    description: "Byg din egen hjemmeside fra scratch",
+    category: "blank",
     icon: FileText,
-    color: "from-purple-500 to-indigo-500",
+    color: "from-gray-400 to-gray-600",
+    thumbnail: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&h=300&fit=crop",
   },
 ];
-
-const templateMap: Record<WebsiteType, string> = {
-  booking: "service-booking",
-  webshop: "ecommerce-store",
-  simple: "modern-business",
-};
 
 const setupSteps = [
   "Opretter din hjemmeside...",
-  "Opsætter sider...",
-  "Tilføjer demo-indhold...",
-  "Næsten færdig...",
+  "Opsætter sider og navigation...",
+  "Tilføjer indhold fra skabelon...",
+  "Forbereder editoren...",
 ];
 
-function ProgressIndicator({ currentStep, totalSteps }: { currentStep: number; totalSteps: number }) {
+const STEPS: { id: Step; label: string; number: number }[] = [
+  { id: "choose-plan", label: "Abonnement", number: 1 },
+  { id: "choose-template", label: "Skabelon", number: 2 },
+  { id: "website-name", label: "Navn", number: 3 },
+  { id: "setup", label: "Opsætning", number: 4 },
+];
+
+function ProgressBar({ currentStep, steps }: { currentStep: Step; steps: typeof STEPS }) {
+  const currentIndex = steps.findIndex(s => s.id === currentStep);
+  
   return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
-      <span className="font-medium">Trin {currentStep} af {totalSteps}</span>
-      <div className="flex gap-1">
-        {Array.from({ length: totalSteps }).map((_, i) => (
-          <div
-            key={i}
-            className={`w-2 h-2 rounded-full transition-colors ${
-              i < currentStep ? "bg-primary" : "bg-muted"
-            }`}
+    <div className="w-full max-w-2xl mx-auto mb-12">
+      <div className="relative">
+        {/* Progress Line */}
+        <div className="absolute top-5 left-0 right-0 h-0.5 bg-muted">
+          <motion.div
+            className="h-full bg-gradient-to-r from-indigo-500 to-purple-600"
+            initial={{ width: "0%" }}
+            animate={{ width: `${(currentIndex / (steps.length - 1)) * 100}%` }}
+            transition={{ duration: 0.5, ease: "easeInOut" }}
           />
-        ))}
+        </div>
+        
+        {/* Step Indicators */}
+        <div className="relative flex justify-between">
+          {steps.map((step, index) => {
+            const isCompleted = index < currentIndex;
+            const isCurrent = index === currentIndex;
+            const isPending = index > currentIndex;
+            
+            return (
+              <div key={step.id} className="flex flex-col items-center">
+                <motion.div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold border-2 transition-colors z-10 ${
+                    isCompleted
+                      ? "bg-gradient-to-r from-indigo-500 to-purple-600 border-transparent text-white"
+                      : isCurrent
+                      ? "bg-background border-indigo-500 text-indigo-600"
+                      : "bg-background border-muted text-muted-foreground"
+                  }`}
+                  initial={{ scale: 0.8 }}
+                  animate={{ scale: isCurrent ? 1.1 : 1 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {isCompleted ? (
+                    <Check className="w-5 h-5" />
+                  ) : (
+                    step.number
+                  )}
+                </motion.div>
+                <span className={`mt-2 text-xs font-medium ${
+                  isCurrent ? "text-foreground" : "text-muted-foreground"
+                }`}>
+                  {step.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -122,9 +201,9 @@ export default function OnboardingPage() {
   const { user, token, profile, loading: authLoading, refreshProfile } = useAuth();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<Step>("welcome");
+  const [step, setStep] = useState<Step>("choose-plan");
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
-  const [websiteType, setWebsiteType] = useState<WebsiteType | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [websiteName, setWebsiteName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isRedirectingToStripe, setIsRedirectingToStripe] = useState(false);
@@ -133,7 +212,7 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (!authLoading && !user) {
-      navigate("/auth?mode=signin");
+      navigate("/auth?mode=signup");
     }
   }, [authLoading, user, navigate]);
 
@@ -149,9 +228,9 @@ export default function OnboardingPage() {
     const stripeSuccess = params.get("subscription_success");
     const stripeCancel = params.get("subscription_cancel");
     const sessionId = params.get("session_id");
+    const planFromUrl = params.get("plan") as PlanId | null;
     
     if (stripeSuccess === "true" && sessionId && token) {
-      // Verify the session with the backend
       (async () => {
         try {
           const response = await fetch("/api/subscriptions/verify-onboarding", {
@@ -165,12 +244,12 @@ export default function OnboardingPage() {
           
           if (response.ok) {
             const data = await response.json();
-            setSelectedPlan(data.planId);
-            setStep("choose-type");
+            setSelectedPlan(data.planId || planFromUrl);
+            setStep("choose-template");
             window.history.replaceState({}, "", "/onboarding");
             toast({
               title: "Abonnement aktiveret!",
-              description: "Dine betalingsoplysninger er gemt. Lad os oprette din hjemmeside.",
+              description: "Dine betalingsoplysninger er gemt. Vælg nu en skabelon.",
             });
           } else {
             setStep("choose-plan");
@@ -195,7 +274,7 @@ export default function OnboardingPage() {
       setStep("choose-plan");
       window.history.replaceState({}, "", "/onboarding");
       toast({
-        title: "Abonnement annulleret",
+        title: "Betaling annulleret",
         description: "Du kan prøve igen når du er klar.",
         variant: "destructive",
       });
@@ -211,7 +290,7 @@ export default function OnboardingPage() {
   };
 
   const handleCreateWebsite = async () => {
-    if (!websiteName.trim() || !websiteType || !token) return;
+    if (!websiteName.trim() || !selectedTemplate || !token) return;
 
     setStep("setup");
     setIsCreating(true);
@@ -231,8 +310,8 @@ export default function OnboardingPage() {
         body: JSON.stringify({
           name: websiteName.trim(),
           slug: generateSlug(websiteName),
-          templateId: templateMap[websiteType],
-          websiteType,
+          templateId: selectedTemplate,
+          websiteType: websiteTemplates.find(t => t.id === selectedTemplate)?.category || "business",
         }),
       });
 
@@ -302,25 +381,6 @@ export default function OnboardingPage() {
     }
   };
 
-  const handleSkip = () => {
-    navigate("/dashboard");
-  };
-
-  const getStepNumber = () => {
-    switch (step) {
-      case "choose-plan":
-        return 1;
-      case "choose-type":
-        return 2;
-      case "website-name":
-        return 3;
-      case "setup":
-        return 4;
-      default:
-        return 0;
-    }
-  };
-
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -331,61 +391,31 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/20">
+      {/* Background Effects */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-indigo-200/30 dark:bg-indigo-900/20 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-200/30 dark:bg-purple-900/20 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative z-10 container mx-auto px-4 py-12 min-h-screen flex items-center justify-center">
-        <div className="w-full max-w-2xl">
+      <div className="relative z-10 container mx-auto px-4 py-8 min-h-screen">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 font-bold text-xl mb-4">
+            <div className="w-8 h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            BirdFlow
+          </div>
+        </div>
+
+        {/* Progress Bar - Only show during main steps */}
+        {step !== "success" && (
+          <ProgressBar currentStep={step} steps={STEPS} />
+        )}
+
+        <div className="max-w-4xl mx-auto">
           <AnimatePresence mode="wait">
-            {step === "welcome" && (
-              <motion.div
-                key="welcome"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="text-center"
-              >
-                <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white mb-8 shadow-xl">
-                  <Sparkles className="w-10 h-10" />
-                </div>
-
-                <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-                  Velkommen til{" "}
-                  <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                    BirdFlow
-                  </span>
-                </h1>
-
-                <p className="text-xl text-muted-foreground mb-8">
-                  Få din hjemmeside op at køre på få minutter.
-                </p>
-
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                  <Button
-                    size="lg"
-                    className="h-14 px-8 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    onClick={() => setStep("choose-plan")}
-                    data-testid="button-create-website"
-                  >
-                    Kom i gang
-                    <ArrowRight className="ml-2 w-5 h-5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="lg"
-                    className="h-14 px-8 text-lg"
-                    onClick={handleSkip}
-                    data-testid="button-skip-onboarding"
-                  >
-                    Spring over
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-
+            {/* Step 1: Choose Plan */}
             {step === "choose-plan" && (
               <motion.div
                 key="choose-plan"
@@ -394,148 +424,194 @@ export default function OnboardingPage() {
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <ProgressIndicator currentStep={1} totalSteps={4} />
+                <div className="text-center mb-8">
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
+                    Vælg dit abonnement
+                  </h1>
+                  <p className="text-lg text-muted-foreground">
+                    Start med en gratis prøveperiode. Annuller når som helst.
+                  </p>
+                </div>
 
-                <h2 className="text-3xl font-bold tracking-tight mb-2">
-                  Vælg dit abonnement
-                </h2>
-                <p className="text-muted-foreground mb-8">
-                  Start med en gratis prøveperiode. Betalingsoplysninger kræves ved opstart.
-                </p>
-
-                <div className="grid gap-4 mb-8">
+                <div className="grid md:grid-cols-3 gap-6 mb-8">
                   {subscriptionPlans.map((plan) => {
                     const Icon = plan.icon;
                     const isSelected = selectedPlan === plan.id;
+                    
                     return (
-                      <button
+                      <motion.div
                         key={plan.id}
-                        onClick={() => handlePlanSelection(plan.id)}
-                        disabled={isRedirectingToStripe}
-                        className={`relative flex items-start gap-4 p-6 rounded-2xl border-2 transition-all text-left ${
-                          isSelected
-                            ? "border-primary bg-primary/5 shadow-lg"
-                            : "border-border hover:border-primary/50 hover:bg-muted/50"
-                        } ${isRedirectingToStripe ? "opacity-50 cursor-not-allowed" : ""}`}
-                        data-testid={`button-plan-${plan.id}`}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
                       >
-                        {plan.popular && (
-                          <div className="absolute -top-3 left-6 px-3 py-1 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-semibold rounded-full">
-                            Mest Populær
-                          </div>
-                        )}
-                        <div
-                          className={`w-14 h-14 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-white shadow-lg flex-shrink-0`}
+                        <Card
+                          className={`relative cursor-pointer p-6 h-full transition-all ${
+                            isSelected
+                              ? "border-2 border-primary shadow-lg ring-2 ring-primary/20"
+                              : "border hover:border-primary/50 hover:shadow-md"
+                          } ${isRedirectingToStripe ? "opacity-50 pointer-events-none" : ""}`}
+                          onClick={() => handlePlanSelection(plan.id)}
+                          data-testid={`card-plan-${plan.id}`}
                         >
-                          <Icon className="w-7 h-7" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-lg">{plan.name}</h3>
-                            <span className="text-lg font-bold text-primary">{plan.price}</span>
+                          {plan.popular && (
+                            <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0">
+                              Mest Populær
+                            </Badge>
+                          )}
+                          
+                          <div className="flex flex-col h-full">
+                            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-white mb-4`}>
+                              <Icon className="w-6 h-6" />
+                            </div>
+                            
+                            <h3 className="text-xl font-bold mb-1">{plan.name}</h3>
+                            <div className="flex items-baseline gap-1 mb-2">
+                              <span className="text-3xl font-bold">{plan.price}</span>
+                              <span className="text-muted-foreground">{plan.priceDetail}</span>
+                            </div>
+                            
+                            {plan.trialText && (
+                              <p className="text-sm text-emerald-600 font-medium mb-3">
+                                {plan.trialText}
+                              </p>
+                            )}
+                            
+                            <p className="text-sm text-muted-foreground mb-4">
+                              {plan.description}
+                            </p>
+                            
+                            <ul className="space-y-2 mt-auto">
+                              {plan.features.map((feature, i) => (
+                                <li key={i} className="flex items-center gap-2 text-sm">
+                                  <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                                  <span>{feature}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            
+                            <Button
+                              className={`w-full mt-6 ${
+                                plan.popular
+                                  ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                                  : ""
+                              }`}
+                              variant={plan.popular ? "default" : "outline"}
+                              disabled={isRedirectingToStripe}
+                              data-testid={`button-plan-${plan.id}`}
+                            >
+                              {isRedirectingToStripe && isSelected ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : null}
+                              {plan.trialText ? "Start gratis prøve" : "Vælg plan"}
+                              <ArrowRight className="w-4 h-4 ml-2" />
+                            </Button>
                           </div>
-                          <p className="text-muted-foreground text-sm mb-2">
-                            {plan.description}
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {plan.features.slice(0, 3).map((feature, i) => (
-                              <span key={i} className="text-xs bg-muted px-2 py-1 rounded">
-                                {feature}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        {isRedirectingToStripe && isSelected ? (
-                          <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                        ) : (
-                          <ArrowRight className="w-6 h-6 text-muted-foreground" />
-                        )}
-                      </button>
+                        </Card>
+                      </motion.div>
                     );
                   })}
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={() => setStep("welcome")} disabled={isRedirectingToStripe}>
-                    Tilbage
-                  </Button>
-                  <p className="text-sm text-muted-foreground">
-                    Vælg et abonnement for at fortsætte
-                  </p>
-                </div>
+                <p className="text-center text-sm text-muted-foreground">
+                  Sikker betaling via Stripe. Du kan annullere når som helst.
+                </p>
               </motion.div>
             )}
 
-            {step === "choose-type" && (
+            {/* Step 2: Choose Template */}
+            {step === "choose-template" && (
               <motion.div
-                key="choose-type"
+                key="choose-template"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
               >
-                <ProgressIndicator currentStep={2} totalSteps={4} />
+                <div className="text-center mb-8">
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
+                    Vælg en skabelon
+                  </h1>
+                  <p className="text-lg text-muted-foreground">
+                    Start med en professionel skabelon og tilpas den til dit brand.
+                  </p>
+                </div>
 
-                <h2 className="text-3xl font-bold tracking-tight mb-2">
-                  Hvilken type hjemmeside vil du bygge?
-                </h2>
-                <p className="text-muted-foreground mb-8">
-                  Vælg en type og vi sætter den perfekte startskabelon op for dig.
-                </p>
-
-                <div className="grid gap-4 mb-8">
-                  {websiteTypes.map((type) => {
-                    const Icon = type.icon;
-                    const isSelected = websiteType === type.id;
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                  {websiteTemplates.map((template) => {
+                    const Icon = template.icon;
+                    const isSelected = selectedTemplate === template.id;
+                    
                     return (
-                      <button
-                        key={type.id}
-                        onClick={() => setWebsiteType(type.id)}
-                        className={`relative flex items-center gap-4 p-6 rounded-2xl border-2 transition-all text-left ${
-                          isSelected
-                            ? "border-primary bg-primary/5 shadow-lg"
-                            : "border-border hover:border-primary/50 hover:bg-muted/50"
-                        }`}
-                        data-testid={`button-type-${type.id}`}
+                      <motion.div
+                        key={template.id}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
                       >
-                        <div
-                          className={`w-14 h-14 rounded-xl bg-gradient-to-br ${type.color} flex items-center justify-center text-white shadow-lg`}
+                        <Card
+                          className={`relative cursor-pointer overflow-hidden transition-all ${
+                            isSelected
+                              ? "border-2 border-primary shadow-lg ring-2 ring-primary/20"
+                              : "border hover:border-primary/50 hover:shadow-md"
+                          }`}
+                          onClick={() => setSelectedTemplate(template.id)}
+                          data-testid={`card-template-${template.id}`}
                         >
-                          <Icon className="w-7 h-7" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-lg">{type.title}</h3>
-                          <p className="text-muted-foreground text-sm">
-                            {type.description}
-                          </p>
-                        </div>
-                        {isSelected && (
-                          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white">
-                            <Check className="w-5 h-5" />
+                          {isSelected && (
+                            <div className="absolute top-3 right-3 z-10">
+                              <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
+                                <Check className="w-4 h-4 text-white" />
+                              </div>
+                            </div>
+                          )}
+                          
+                          <div className="aspect-video relative overflow-hidden bg-muted">
+                            <img
+                              src={template.thumbnail}
+                              alt={template.name}
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                            <div className={`absolute bottom-3 left-3 w-10 h-10 rounded-lg bg-gradient-to-br ${template.color} flex items-center justify-center text-white`}>
+                              <Icon className="w-5 h-5" />
+                            </div>
                           </div>
-                        )}
-                      </button>
+                          
+                          <div className="p-4">
+                            <h3 className="font-semibold mb-1">{template.name}</h3>
+                            <p className="text-sm text-muted-foreground">
+                              {template.description}
+                            </p>
+                          </div>
+                        </Card>
+                      </motion.div>
                     );
                   })}
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={() => setStep("choose-plan")}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setStep("choose-plan")}
+                    data-testid="button-back"
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
                     Tilbage
                   </Button>
                   <Button
                     size="lg"
-                    disabled={!websiteType}
+                    disabled={!selectedTemplate}
                     onClick={() => setStep("website-name")}
-                    data-testid="button-next-step"
+                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
+                    data-testid="button-next"
                   >
                     Fortsæt
-                    <ArrowRight className="ml-2 w-4 h-4" />
+                    <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
                 </div>
               </motion.div>
             )}
 
+            {/* Step 3: Website Name */}
             {step === "website-name" && (
               <motion.div
                 key="website-name"
@@ -543,44 +619,56 @@ export default function OnboardingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
+                className="max-w-xl mx-auto"
               >
-                <ProgressIndicator currentStep={3} totalSteps={4} />
-
-                <h2 className="text-3xl font-bold tracking-tight mb-2">
-                  Navngiv din hjemmeside
-                </h2>
-                <p className="text-muted-foreground mb-8">
-                  Dette bliver titlen på din hjemmeside. Du kan ændre det senere.
-                </p>
-
-                <div className="space-y-4 mb-8">
-                  <div>
-                    <Label htmlFor="website-name" className="text-base">
-                      Hjemmesidens navn
-                    </Label>
-                    <Input
-                      id="website-name"
-                      placeholder="f.eks. Min Virksomhed"
-                      className="h-14 text-lg mt-2"
-                      value={websiteName}
-                      onChange={(e) => setWebsiteName(e.target.value)}
-                      autoFocus
-                      data-testid="input-website-name"
-                    />
-                  </div>
-
-                  {websiteName && (
-                    <p className="text-sm text-muted-foreground">
-                      Din URL bliver:{" "}
-                      <code className="bg-muted px-2 py-1 rounded">
-                        {generateSlug(websiteName)}.birdflow.app
-                      </code>
-                    </p>
-                  )}
+                <div className="text-center mb-8">
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
+                    Navngiv din hjemmeside
+                  </h1>
+                  <p className="text-lg text-muted-foreground">
+                    Dette bliver titlen på din hjemmeside. Du kan ændre det senere.
+                  </p>
                 </div>
 
+                <Card className="p-8 mb-8">
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="website-name" className="text-base font-medium">
+                        Hjemmesidens navn
+                      </Label>
+                      <Input
+                        id="website-name"
+                        placeholder="f.eks. Min Virksomhed"
+                        className="h-14 text-lg mt-2"
+                        value={websiteName}
+                        onChange={(e) => setWebsiteName(e.target.value)}
+                        autoFocus
+                        data-testid="input-website-name"
+                      />
+                    </div>
+
+                    {websiteName && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg"
+                      >
+                        <span>Din URL bliver:</span>
+                        <code className="bg-background px-2 py-1 rounded font-mono">
+                          {generateSlug(websiteName)}.birdflow.app
+                        </code>
+                      </motion.div>
+                    )}
+                  </div>
+                </Card>
+
                 <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={() => setStep("choose-type")}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setStep("choose-template")}
+                    data-testid="button-back"
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
                     Tilbage
                   </Button>
                   <Button
@@ -591,12 +679,13 @@ export default function OnboardingPage() {
                     data-testid="button-create"
                   >
                     Opret hjemmeside
-                    <ArrowRight className="ml-2 w-4 h-4" />
+                    <Rocket className="w-4 h-4 ml-2" />
                   </Button>
                 </div>
               </motion.div>
             )}
 
+            {/* Step 4: Setup */}
             {step === "setup" && (
               <motion.div
                 key="setup"
@@ -604,7 +693,7 @@ export default function OnboardingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
-                className="text-center"
+                className="max-w-md mx-auto text-center"
               >
                 <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white mb-8 shadow-xl">
                   <Loader2 className="w-10 h-10 animate-spin" />
@@ -614,65 +703,85 @@ export default function OnboardingPage() {
                   Opsætter din hjemmeside
                 </h2>
 
-                <div className="max-w-md mx-auto space-y-3 mb-8">
+                <div className="space-y-3 mb-8">
                   {setupSteps.map((text, i) => (
-                    <div
+                    <motion.div
                       key={i}
-                      className={`flex items-center gap-3 text-left p-3 rounded-lg transition-all ${
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className={`flex items-center gap-3 text-left p-4 rounded-xl transition-all ${
                         i < setupProgress
-                          ? "bg-green-50 dark:bg-green-950/30"
+                          ? "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900"
                           : i === setupProgress
-                          ? "bg-primary/10"
+                          ? "bg-primary/10 border border-primary/20"
                           : "opacity-40"
                       }`}
                     >
                       {i < setupProgress ? (
-                        <Check className="w-5 h-5 text-green-600 dark:text-green-400" />
+                        <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
+                          <Check className="w-4 h-4 text-white" />
+                        </div>
                       ) : i === setupProgress ? (
-                        <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                        <Loader2 className="w-6 h-6 text-primary animate-spin" />
                       ) : (
-                        <div className="w-5 h-5" />
+                        <div className="w-6 h-6 rounded-full border-2 border-muted" />
                       )}
-                      <span
-                        className={
-                          i <= setupProgress
-                            ? "font-medium"
-                            : "text-muted-foreground"
-                        }
-                      >
+                      <span className={i <= setupProgress ? "font-medium" : "text-muted-foreground"}>
                         {text}
                       </span>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               </motion.div>
             )}
 
+            {/* Step 5: Success */}
             {step === "success" && (
               <motion.div
                 key="success"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.4 }}
-                className="text-center"
+                className="max-w-md mx-auto text-center"
               >
-                <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 text-white mb-8 shadow-xl">
-                  <Rocket className="w-10 h-10" />
-                </div>
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+                  className="inline-flex items-center justify-center w-24 h-24 rounded-3xl bg-gradient-to-br from-green-500 to-emerald-600 text-white mb-8 shadow-xl"
+                >
+                  <Rocket className="w-12 h-12" />
+                </motion.div>
 
-                <h2 className="text-4xl font-bold tracking-tight mb-4">
+                <motion.h2
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-4xl font-bold tracking-tight mb-4"
+                >
                   Din hjemmeside er klar!
-                </h2>
+                </motion.h2>
 
-                <p className="text-xl text-muted-foreground mb-8">
+                <motion.p
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="text-xl text-muted-foreground mb-8"
+                >
                   Begynd at redigere og gør den til din egen.
-                </p>
+                </motion.p>
 
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="flex flex-col sm:flex-row items-center justify-center gap-4"
+                >
                   <Button
                     size="lg"
-                    className="h-14 px-8 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    onClick={() => navigate(`/builder/${createdWebsiteId}`)}
+                    className="h-14 px-8 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
+                    onClick={() => navigate(`/builder/${createdWebsiteId}?tour=true`)}
                     data-testid="button-open-editor"
                   >
                     Åbn editor
@@ -688,7 +797,7 @@ export default function OnboardingPage() {
                     <ExternalLink className="mr-2 w-5 h-5" />
                     Vis hjemmeside
                   </Button>
-                </div>
+                </motion.div>
               </motion.div>
             )}
           </AnimatePresence>
