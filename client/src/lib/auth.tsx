@@ -175,7 +175,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         // Fetch profile with auth token
         await fetchProfile(result.user.id, result.session.access_token);
-        setLocation("/dashboard");
+        
+        // Redirect to onboarding for new users, dashboard for existing
+        const profileResponse = await fetch(`/api/profile/${result.user.id}`, {
+          headers: { 'Authorization': `Bearer ${result.session.access_token}` }
+        });
+        if (profileResponse.ok) {
+          const profileData = await profileResponse.json();
+          setLocation(profileData?.onboardingCompleted ? "/dashboard" : "/onboarding");
+        } else {
+          setLocation("/onboarding");
+        }
         return { needsEmailConfirmation: false };
       }
 
