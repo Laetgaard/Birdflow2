@@ -443,18 +443,26 @@ export async function registerRoutes(
 
       // Create profile in our database
       try {
+        console.log(`[Signup] Creating profile for user ${authData.user.id} with email ${email}`);
         await storage.createProfile({
           id: authData.user.id,
           email,
           fullName,
           phoneNumber,
         });
+        console.log(`[Signup] Profile created successfully for user ${authData.user.id}`);
       } catch (profileError: any) {
         // If profile already exists (e.g., user re-signing up), update it
         if (profileError.code === '23505') {
+          console.log(`[Signup] Profile already exists for user ${authData.user.id}, updating...`);
           await storage.updateProfile(authData.user.id, { fullName, phoneNumber });
         } else {
-          console.error("Profile creation error:", profileError);
+          console.error("[Signup] Profile creation error:", profileError);
+          console.error("[Signup] Profile creation error details:", {
+            code: profileError.code,
+            message: profileError.message,
+            detail: profileError.detail
+          });
         }
       }
 
@@ -505,18 +513,39 @@ export async function registerRoutes(
 
       // Get profile from our database
       let profile = await storage.getProfile(data.user.id);
+      console.log(`[Signin] Profile lookup for user ${data.user.id}: ${profile ? 'found' : 'not found'}`);
 
-      // If profile doesn't exist, create it from user metadata
-      if (!profile && data.user.user_metadata) {
+      // If profile doesn't exist, create it (regardless of user_metadata)
+      if (!profile) {
+        console.log(`[Signin] Creating profile for user ${data.user.id}...`);
         try {
-          profile = await storage.createProfile({
-            id: data.user.id,
-            email: data.user.email!,
-            fullName: data.user.user_metadata.full_name || "",
-            phoneNumber: data.user.user_metadata.phone_number || "",
-          });
-        } catch (e) {
-          console.error("Error creating profile on signin:", e);
+          const userEmail = data.user.email;
+          if (!userEmail) {
+            console.error(`[Signin] Cannot create profile - no email for user ${data.user.id}`);
+          } else {
+            const fullName = data.user.user_metadata?.full_name || userEmail.split('@')[0] || '';
+            const phoneNumber = data.user.user_metadata?.phone_number || '';
+            
+            profile = await storage.createProfile({
+              id: data.user.id,
+              email: userEmail,
+              fullName,
+              phoneNumber,
+            });
+            console.log(`[Signin] Profile created successfully for user ${data.user.id}`);
+          }
+        } catch (createError: any) {
+          if (createError.code === '23505') {
+            console.log(`[Signin] Profile already exists, fetching again...`);
+            profile = await storage.getProfile(data.user.id);
+          } else {
+            console.error("[Signin] Error creating profile:", createError);
+            console.error("[Signin] Error details:", {
+              code: createError.code,
+              message: createError.message,
+              detail: createError.detail
+            });
+          }
         }
       }
 
@@ -560,17 +589,34 @@ export async function registerRoutes(
 
       // Get or create profile
       let profile = await storage.getProfile(data.user.id);
+      console.log(`[Verify] Profile lookup for user ${data.user.id}: ${profile ? 'found' : 'not found'}`);
 
-      if (!profile && data.user.user_metadata) {
+      if (!profile) {
+        console.log(`[Verify] Creating profile for user ${data.user.id}...`);
         try {
+          const fullName = data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || '';
+          const phoneNumber = data.user.user_metadata?.phone_number || '';
+          
           profile = await storage.createProfile({
             id: data.user.id,
             email: data.user.email!,
-            fullName: data.user.user_metadata.full_name || "",
-            phoneNumber: data.user.user_metadata.phone_number || "",
+            fullName,
+            phoneNumber,
           });
-        } catch (e) {
-          console.error("Error creating profile:", e);
+          console.log(`[Verify] Profile created successfully for user ${data.user.id}`);
+        } catch (createError: any) {
+          // If profile already exists (race condition), try to fetch it again
+          if (createError.code === '23505') {
+            console.log(`[Verify] Profile already exists, fetching again...`);
+            profile = await storage.getProfile(data.user.id);
+          } else {
+            console.error("[Verify] Error creating profile:", createError);
+            console.error("[Verify] Error details:", {
+              code: createError.code,
+              message: createError.message,
+              detail: createError.detail
+            });
+          }
         }
       }
 
@@ -5577,6 +5623,7 @@ export async function registerRoutes(
   app.post("/api/subscriptions/onboarding-checkout", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).user?.id;
+      const authUser = (req as any).user;
       const { planId: rawPlanId, successUrl, cancelUrl } = req.body;
       
       if (!rawPlanId) {
@@ -5593,9 +5640,37 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cannot checkout for free plan" });
       }
       
-      const profile = await storage.getProfile(userId);
+      let profile = await storage.getProfile(userId);
+      
+      // If profile doesn't exist, try to create it from auth user metadata
+      if (!profile && authUser) {
+        console.log(`[Onboarding] Profile not found for user ${userId}, attempting to create...`);
+        try {
+          const email = authUser.email;
+          const fullName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || '';
+          const phoneNumber = authUser.user_metadata?.phone_number || '';
+          
+          profile = await storage.createProfile({
+            id: userId,
+            email: email || '',
+            fullName,
+            phoneNumber,
+          });
+          console.log(`[Onboarding] Profile created successfully for user ${userId}`);
+        } catch (createError: any) {
+          // If profile already exists (race condition), try to fetch it again
+          if (createError.code === '23505') {
+            console.log(`[Onboarding] Profile already exists, fetching...`);
+            profile = await storage.getProfile(userId);
+          } else {
+            console.error("[Onboarding] Failed to create profile:", createError);
+          }
+        }
+      }
+      
       if (!profile) {
-        return res.status(404).json({ message: "Profile not found" });
+        console.error(`[Onboarding] Profile still not found for user ${userId}`);
+        return res.status(404).json({ message: "Profile not found. Please try signing out and in again." });
       }
       
       // Create or get Stripe customer
