@@ -12,6 +12,7 @@ export type PublishConfig = {
   stripeSecretKey?: string;
   stripePublishableKey?: string;
   stripeWebhookSecret?: string;
+  stripeAccountId?: string; // Connected account ID for Stripe Connect destination charges
   vercelToken: string;
   vercelTeamId?: string;
   customDomain?: string;
@@ -67,6 +68,10 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     
     if (config.stripeWebhookSecret) {
       envVars.STRIPE_WEBHOOK_SECRET = config.stripeWebhookSecret;
+    }
+    
+    if (config.stripeAccountId) {
+      envVars.STRIPE_ACCOUNT_ID = config.stripeAccountId;
     }
     
     await setProjectEnvVars(projectId, vercelConfig, envVars);
