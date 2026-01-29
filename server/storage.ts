@@ -419,12 +419,50 @@ export class DatabaseStorage implements IStorage {
     console.log('[Storage] createProfile called with:', JSON.stringify(profile));
     try {
       const result = await db.insert(profiles).values(profile as any).returning();
-      console.log('[Storage] createProfile success, created profile id:', result[0]?.id);
+      console.log('[Storage] createProfile success via Drizzle, created profile id:', result[0]?.id);
       return result[0];
     } catch (error: any) {
-      console.error('[Storage] createProfile error:', error.message);
+      console.error('[Storage] createProfile Drizzle error:', error.message);
       console.error('[Storage] createProfile error code:', error.code);
-      throw error;
+      
+      // Try raw SQL as fallback
+      console.log('[Storage] Attempting raw SQL INSERT as fallback...');
+      try {
+        const rawResult = await pool.query(
+          `INSERT INTO profiles (id, email, full_name, phone_number, onboarding_completed, created_at)
+           VALUES ($1, $2, $3, $4, false, NOW())
+           ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email
+           RETURNING *`,
+          [profile.id, profile.email, profile.fullName || '', profile.phoneNumber || '']
+        );
+        
+        if (rawResult.rows[0]) {
+          console.log('[Storage] createProfile success via raw SQL, created profile id:', rawResult.rows[0].id);
+          // Map snake_case to camelCase
+          const row = rawResult.rows[0];
+          return {
+            id: row.id,
+            email: row.email,
+            fullName: row.full_name,
+            phoneNumber: row.phone_number,
+            isAdmin: row.is_admin || false,
+            stripeCustomerId: row.stripe_customer_id,
+            planSlug: row.plan_slug,
+            subscriptionId: row.subscription_id,
+            subscriptionStatus: row.subscription_status,
+            subscriptionPriceId: row.subscription_price_id,
+            subscriptionStartedAt: row.subscription_started_at,
+            trialEndsAt: row.trial_ends_at,
+            currentPeriodEnd: row.current_period_end,
+            onboardingCompleted: row.onboarding_completed,
+            createdAt: row.created_at,
+          } as Profile;
+        }
+        throw new Error('Raw SQL INSERT returned no rows');
+      } catch (rawError: any) {
+        console.error('[Storage] createProfile raw SQL error:', rawError.message);
+        throw rawError;
+      }
     }
   }
 
