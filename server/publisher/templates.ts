@@ -785,6 +785,7 @@ export function generateCheckoutApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_ACCOUNT_ID = process.env.STRIPE_ACCOUNT_ID || ''; // Connected account for destination charges
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const WEBSITE_ID = '${websiteId}';
@@ -884,7 +885,9 @@ export async function POST(request: NextRequest) {
     }));
 
     const origin = request.headers.get('origin') || '';
-    const session = await stripe.checkout.sessions.create({
+    
+    // Build checkout session options
+    const sessionOptions: any = {
       payment_method_types: ['card'],
       line_items: lineItems,
       mode: 'payment',
@@ -894,7 +897,18 @@ export async function POST(request: NextRequest) {
       metadata: {
         websiteId: WEBSITE_ID,
       },
-    });
+    };
+    
+    // If using Stripe Connect, route payments to connected account
+    if (STRIPE_ACCOUNT_ID) {
+      sessionOptions.payment_intent_data = {
+        transfer_data: {
+          destination: STRIPE_ACCOUNT_ID,
+        },
+      };
+    }
+    
+    const session = await stripe.checkout.sessions.create(sessionOptions);
 
     // Create order with pending payment status
     await supabase.from('orders').insert({
@@ -1057,6 +1071,7 @@ export function generateCheckoutConfirmApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_ACCOUNT_ID = process.env.STRIPE_ACCOUNT_ID || ''; // Connected account for destination charges
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const WEBSITE_ID = '${websiteId}';
@@ -1199,7 +1214,8 @@ export async function POST(request: NextRequest) {
 
     const origin = request.headers.get('origin') || '';
 
-    const session = await stripe.checkout.sessions.create({
+    // Build checkout session options
+    const sessionOptions: any = {
       payment_method_types: ['card'],
       line_items: lineItems,
       mode: 'payment',
@@ -1207,7 +1223,18 @@ export async function POST(request: NextRequest) {
       cancel_url: origin + '/checkout/cancel',
       customer_email: customerEmail,
       metadata: { websiteId: WEBSITE_ID },
-    });
+    };
+    
+    // If using Stripe Connect, route payments to connected account
+    if (STRIPE_ACCOUNT_ID) {
+      sessionOptions.payment_intent_data = {
+        transfer_data: {
+          destination: STRIPE_ACCOUNT_ID,
+        },
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionOptions);
 
     // Create order with pending status - stock decrement happens in webhook after payment success
     await supabase.from('orders').insert({
@@ -1262,7 +1289,7 @@ const WEBSITE_ID = '${websiteId}';
 
 export async function POST(request: NextRequest) {
   try {
-    if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET) {
+    if (!STRIPE_SECRET_KEY) {
       return NextResponse.json({ message: 'Stripe not configured' }, { status: 500 });
     }
 
@@ -1277,6 +1304,13 @@ export async function POST(request: NextRequest) {
     const sig = headersList.get('stripe-signature') || '';
 
     let event;
+    
+    // Webhook secret is required for security - reject without it
+    if (!STRIPE_WEBHOOK_SECRET) {
+      console.error('STRIPE_WEBHOOK_SECRET not configured - webhook verification required');
+      return NextResponse.json({ message: 'Webhook not configured' }, { status: 500 });
+    }
+    
     try {
       event = stripe.webhooks.constructEvent(body, sig, STRIPE_WEBHOOK_SECRET);
     } catch (err) {
