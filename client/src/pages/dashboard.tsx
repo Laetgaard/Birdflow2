@@ -33,7 +33,7 @@ type Website = {
 };
 
 export default function Dashboard() {
-  const { user, profile, signOut, isLoading, isEmailVerified, session } = useAuth();
+  const { user, profile, signOut, isLoading, isEmailVerified, session, refreshProfile } = useAuth();
   const [, setLocation] = useLocation();
   const [websites, setWebsites] = useState<Website[]>([]);
   const [isLoadingWebsites, setIsLoadingWebsites] = useState(true);
@@ -42,6 +42,48 @@ export default function Dashboard() {
   const [feedbackType, setFeedbackType] = useState<string>("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+  // Handle subscription success from onboarding
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const subscriptionSuccess = params.get("subscription_success");
+    const sessionId = params.get("session_id");
+    
+    if (subscriptionSuccess === "true" && sessionId && session?.access_token) {
+      // Verify the Stripe session and complete onboarding after successful payment
+      (async () => {
+        try {
+          // Verify the Stripe session first
+          const verifyResponse = await fetch("/api/subscriptions/verify-session", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ sessionId }),
+          });
+          
+          if (verifyResponse.ok) {
+            // Only complete onboarding if session is verified
+            await fetch("/api/onboarding/complete", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+              },
+            });
+            await refreshProfile();
+            toast.success("Velkommen! Dit abonnement er nu aktiveret.");
+          } else {
+            toast.error("Kunne ikke bekræfte dit abonnement. Kontakt support.");
+          }
+        } catch (error) {
+          console.error("Failed to complete onboarding:", error);
+        }
+        window.history.replaceState({}, "", "/dashboard");
+      })();
+    }
+  }, [session?.access_token, refreshProfile]);
 
   const handleSubmitFeedback = async (e: React.MouseEvent) => {
     e.preventDefault();

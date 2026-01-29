@@ -25,12 +25,14 @@ import {
   Palette,
   Layout,
   Briefcase,
+  CreditCard,
+  Gift,
 } from "lucide-react";
 
 type PlanId = "basic" | "starter" | "professional";
-type Step = "choose-plan" | "choose-template" | "website-name" | "setup" | "success";
+type Step = "choose-plan" | "choose-template" | "website-name" | "setup" | "success" | "payment";
 
-const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail: string; description: string; icon: React.ElementType; color: string; popular: boolean; features: string[]; trialText?: string }[] = [
+const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail: string; description: string; icon: React.ElementType; color: string; popular: boolean; features: string[]; trialText?: string; hasTrial: boolean }[] = [
   {
     id: "basic",
     name: "Basis",
@@ -41,6 +43,7 @@ const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail:
     color: "from-blue-500 to-cyan-500",
     popular: false,
     features: ["1 hjemmeside", "Op til 4 sider", "2 GB lagerplads", "Eget domæne", "AI-assistent"],
+    hasTrial: false,
   },
   {
     id: "starter",
@@ -53,6 +56,7 @@ const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail:
     popular: true,
     features: ["1 hjemmeside", "Op til 5 sider", "4 GB lagerplads", "Booking system", "14 dages gratis"],
     trialText: "14 dages gratis prøveperiode",
+    hasTrial: true,
   },
   {
     id: "professional",
@@ -65,6 +69,7 @@ const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail:
     popular: false,
     features: ["5 hjemmesider", "Op til 20 sider", "Webshop", "15 GB lagerplads", "14 dages gratis"],
     trialText: "14 dages gratis prøveperiode",
+    hasTrial: true,
   },
 ];
 
@@ -137,6 +142,7 @@ const STEPS: { id: Step; label: string; number: number }[] = [
   { id: "choose-template", label: "Skabelon", number: 2 },
   { id: "website-name", label: "Navn", number: 3 },
   { id: "setup", label: "Opsætning", number: 4 },
+  { id: "payment", label: "Betaling", number: 5 },
 ];
 
 function ProgressBar({ currentStep, steps }: { currentStep: Step; steps: typeof STEPS }) {
@@ -222,64 +228,16 @@ export default function OnboardingPage() {
     }
   }, [authLoading, profile, navigate]);
 
-  // Handle return from Stripe checkout
+  // Handle URL parameters (e.g., returning from cancelled payment)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const stripeSuccess = params.get("subscription_success");
-    const stripeCancel = params.get("subscription_cancel");
-    const sessionId = params.get("session_id");
-    const planFromUrl = params.get("plan") as PlanId | null;
+    const stepParam = params.get("step") as Step | null;
     
-    if (stripeSuccess === "true" && sessionId && token) {
-      (async () => {
-        try {
-          const response = await fetch("/api/subscriptions/verify-onboarding", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ sessionId }),
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            setSelectedPlan(data.planId || planFromUrl);
-            setStep("choose-template");
-            window.history.replaceState({}, "", "/onboarding");
-            toast({
-              title: "Abonnement aktiveret!",
-              description: "Dine betalingsoplysninger er gemt. Vælg nu en skabelon.",
-            });
-          } else {
-            setStep("choose-plan");
-            window.history.replaceState({}, "", "/onboarding");
-            toast({
-              title: "Bekræftelse mislykkedes",
-              description: "Kunne ikke bekræfte dit abonnement. Prøv venligst igen.",
-              variant: "destructive",
-            });
-          }
-        } catch (error) {
-          setStep("choose-plan");
-          window.history.replaceState({}, "", "/onboarding");
-          toast({
-            title: "Fejl",
-            description: "Noget gik galt. Prøv venligst igen.",
-            variant: "destructive",
-          });
-        }
-      })();
-    } else if (stripeCancel === "true") {
-      setStep("choose-plan");
+    if (stepParam === "payment") {
+      setStep("payment");
       window.history.replaceState({}, "", "/onboarding");
-      toast({
-        title: "Betaling annulleret",
-        description: "Du kan prøve igen når du er klar.",
-        variant: "destructive",
-      });
     }
-  }, [toast, token]);
+  }, []);
 
   const generateSlug = (name: string) => {
     return name
@@ -329,7 +287,7 @@ export default function OnboardingPage() {
       setSetupProgress(setupSteps.length);
       
       setTimeout(() => {
-        setStep("success");
+        setStep("payment");
         setIsCreating(false);
       }, 500);
     } catch (error: any) {
@@ -345,25 +303,33 @@ export default function OnboardingPage() {
   };
 
   const handlePlanSelection = async (planId: PlanId) => {
-    console.log("[Onboarding] handlePlanSelection called with planId:", planId);
-    console.log("[Onboarding] Current token:", token ? "exists" : "missing");
-    console.log("[Onboarding] Current user:", user?.id);
+    setSelectedPlan(planId);
     
-    if (!token) {
-      console.error("[Onboarding] No token available, cannot proceed");
-      toast({
-        title: "Fejl",
-        description: "Du er ikke logget ind. Log venligst ind igen.",
-        variant: "destructive",
-      });
-      return;
+    // Save plan selection to backend
+    if (token) {
+      try {
+        await fetch("/api/onboarding/select-plan", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ planId }),
+        });
+      } catch (error) {
+        console.error("Failed to save plan selection:", error);
+      }
     }
     
-    setSelectedPlan(planId);
+    setStep("choose-template");
+  };
+
+  const handleStartPayment = async () => {
+    if (!token || !selectedPlan) return;
+    
     setIsRedirectingToStripe(true);
     
     try {
-      console.log("[Onboarding] Making API call to /api/subscriptions/onboarding-checkout");
       const response = await fetch("/api/subscriptions/onboarding-checkout", {
         method: "POST",
         headers: {
@@ -371,31 +337,54 @@ export default function OnboardingPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          planId,
-          successUrl: `${window.location.origin}/onboarding?subscription_success=true&plan=${planId}`,
-          cancelUrl: `${window.location.origin}/onboarding?subscription_cancel=true`,
+          planId: selectedPlan,
+          successUrl: `${window.location.origin}/dashboard?subscription_success=true&session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${window.location.origin}/onboarding?step=payment`,
         }),
       });
       
-      console.log("[Onboarding] Response status:", response.status);
-      
       if (!response.ok) {
         const error = await response.json();
-        console.error("[Onboarding] API error:", error);
         throw new Error(error.message || "Failed to create checkout session");
       }
       
       const { url } = await response.json();
-      console.log("[Onboarding] Redirecting to Stripe:", url);
       window.location.href = url;
     } catch (error: any) {
-      console.error("[Onboarding] Error:", error);
       setIsRedirectingToStripe(false);
       toast({
         title: "Fejl",
         description: error.message || "Kunne ikke starte betaling",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleSkipToEditor = async () => {
+    if (!token) return;
+    
+    try {
+      // Mark onboarding as complete
+      await fetch("/api/onboarding/complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      if (createdWebsiteId) {
+        navigate(`/builder/${createdWebsiteId}?tour=true`);
+      } else {
+        navigate("/dashboard");
+      }
+    } catch (error) {
+      // Navigate anyway even if completing fails
+      if (createdWebsiteId) {
+        navigate(`/builder/${createdWebsiteId}?tour=true`);
+      } else {
+        navigate("/dashboard");
+      }
     }
   };
 
@@ -427,8 +416,8 @@ export default function OnboardingPage() {
         </div>
 
         {/* Progress Bar - Only show during main steps */}
-        {step !== "success" && (
-          <ProgressBar currentStep={step} steps={STEPS} />
+        {step !== "success" && step !== "payment" && (
+          <ProgressBar currentStep={step} steps={STEPS.filter(s => s.id !== "payment")} />
         )}
 
         <div className="max-w-4xl mx-auto">
@@ -467,7 +456,7 @@ export default function OnboardingPage() {
                             isSelected
                               ? "border-2 border-primary shadow-lg ring-2 ring-primary/20"
                               : "border hover:border-primary/50 hover:shadow-md"
-                          } ${isRedirectingToStripe ? "opacity-50 pointer-events-none" : ""}`}
+                          }`}
                           onClick={() => handlePlanSelection(plan.id)}
                           data-testid={`card-plan-${plan.id}`}
                         >
@@ -514,13 +503,9 @@ export default function OnboardingPage() {
                                   : ""
                               }`}
                               variant={plan.popular ? "default" : "outline"}
-                              disabled={isRedirectingToStripe}
                               data-testid={`button-plan-${plan.id}`}
                             >
-                              {isRedirectingToStripe && isSelected ? (
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              ) : null}
-                              {plan.trialText ? "Start gratis prøve" : "Vælg plan"}
+                              Vælg {plan.name}
                               <ArrowRight className="w-4 h-4 ml-2" />
                             </Button>
                           </div>
@@ -531,7 +516,7 @@ export default function OnboardingPage() {
                 </div>
 
                 <p className="text-center text-sm text-muted-foreground">
-                  Sikker betaling via Stripe. Du kan annullere når som helst.
+                  Vælg den plan der passer til dig. Du betaler først i sidste trin.
                 </p>
               </motion.div>
             )}
@@ -754,7 +739,122 @@ export default function OnboardingPage() {
               </motion.div>
             )}
 
-            {/* Step 5: Success */}
+            {/* Step 5: Payment */}
+            {step === "payment" && (
+              <motion.div
+                key="payment"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+                className="max-w-xl mx-auto"
+              >
+                <div className="text-center mb-8">
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ delay: 0.1, type: "spring", stiffness: 200 }}
+                    className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 text-white mb-6 shadow-xl"
+                  >
+                    <Check className="w-10 h-10" />
+                  </motion.div>
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
+                    Din hjemmeside er klar!
+                  </h1>
+                  <p className="text-lg text-muted-foreground">
+                    Aktiver dit abonnement for at komme i gang
+                  </p>
+                </div>
+
+                {selectedPlan && (
+                  <Card className="p-6 mb-6 border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+                    {(() => {
+                      const plan = subscriptionPlans.find(p => p.id === selectedPlan);
+                      if (!plan) return null;
+                      const Icon = plan.icon;
+                      return (
+                        <div className="flex items-center gap-4">
+                          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-white`}>
+                            <Icon className="w-7 h-7" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="text-xl font-bold">{plan.name}</h3>
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-2xl font-bold">{plan.price}</span>
+                              <span className="text-muted-foreground">{plan.priceDetail}</span>
+                            </div>
+                          </div>
+                          {plan.hasTrial && (
+                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                              <Gift className="w-3 h-3 mr-1" />
+                              14 dages gratis
+                            </Badge>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </Card>
+                )}
+
+                <div className="space-y-4">
+                  {(() => {
+                    const plan = subscriptionPlans.find(p => p.id === selectedPlan);
+                    if (plan?.hasTrial) {
+                      return (
+                        <Button
+                          size="lg"
+                          className="w-full h-14 text-lg bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg"
+                          onClick={handleStartPayment}
+                          disabled={isRedirectingToStripe}
+                          data-testid="button-start-trial"
+                        >
+                          {isRedirectingToStripe ? (
+                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          ) : (
+                            <Gift className="w-5 h-5 mr-2" />
+                          )}
+                          Start 14 dages gratis prøveperiode
+                        </Button>
+                      );
+                    }
+                    return (
+                      <Button
+                        size="lg"
+                        className="w-full h-14 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
+                        onClick={handleStartPayment}
+                        disabled={isRedirectingToStripe}
+                        data-testid="button-pay-now"
+                      >
+                        {isRedirectingToStripe ? (
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        ) : (
+                          <CreditCard className="w-5 h-5 mr-2" />
+                        )}
+                        Betal og aktiver
+                      </Button>
+                    );
+                  })()}
+
+                  <Button
+                    variant="ghost"
+                    size="lg"
+                    className="w-full h-12 text-muted-foreground"
+                    onClick={handleSkipToEditor}
+                    disabled={isRedirectingToStripe}
+                    data-testid="button-skip-payment"
+                  >
+                    Prøv editoren først
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </div>
+
+                <p className="text-center text-sm text-muted-foreground mt-6">
+                  Sikker betaling via Stripe. Du kan annullere når som helst.
+                </p>
+              </motion.div>
+            )}
+
+            {/* Step 6: Success */}
             {step === "success" && (
               <motion.div
                 key="success"
