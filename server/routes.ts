@@ -336,51 +336,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Onboarding already completed" });
       }
       
-      // Verify user has a Stripe customer ID and an active/trialing subscription
-      if (!profile?.stripeCustomerId) {
-        return res.status(403).json({ 
-          message: "Please select a subscription plan before creating your website",
-          code: "SUBSCRIPTION_REQUIRED" 
-        });
-      }
-      
-      // Check for verified onboarding subscription (stored in profile)
-      const verifiedSubscriptionId = profile.verifiedOnboardingSubscriptionId;
-      if (!verifiedSubscriptionId) {
-        return res.status(403).json({ 
-          message: "Please complete the subscription checkout before creating your website",
-          code: "SUBSCRIPTION_REQUIRED" 
-        });
-      }
-      
-      // Verify the specific subscription is active/trialing with Stripe
-      try {
-        const stripe = await getUncachableStripeClient();
-        const subscription = await stripe.subscriptions.retrieve(verifiedSubscriptionId);
-        
-        if (subscription.status !== 'active' && subscription.status !== 'trialing') {
-          return res.status(403).json({ 
-            message: "Your subscription is not active. Please check your payment.",
-            code: "SUBSCRIPTION_INACTIVE" 
-          });
-        }
-        
-        // Clear the verified subscription after successful website creation
-        await db.update(profiles)
-          .set({ verifiedOnboardingSubscriptionId: null })
-          .where(eq(profiles.id, user.id));
-      } catch (stripeError: any) {
-        console.error("Stripe subscription check error:", stripeError);
-        // If Stripe is not configured, allow proceeding (dev environment)
-        if (!process.env.STRIPE_SECRET_KEY) {
-          console.log("Stripe not configured, skipping subscription check");
-          await db.update(profiles)
-            .set({ verifiedOnboardingSubscriptionId: null })
-            .where(eq(profiles.id, user.id));
-        } else {
-          return res.status(500).json({ message: "Could not verify subscription status" });
-        }
-      }
+      // Note: We no longer require payment before website creation
+      // Users can create their website first and pay in the final onboarding step
 
       // Generate unique slug
       const baseSlug = (slug || name).trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'website';
@@ -423,10 +380,8 @@ export async function registerRoutes(
           }
         });
 
-        // 3. Mark onboarding as complete
-        await tx.update(profiles)
-          .set({ onboardingCompleted: true })
-          .where(eq(profiles.id, user.id));
+        // 3. Note: We no longer mark onboarding as complete here
+        // Onboarding is completed after payment or when user explicitly skips payment
 
         // 4. Increment total creators (upsert)
         await tx.execute(sql`
@@ -447,6 +402,54 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error("Onboarding error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Save selected plan during onboarding (before payment)
+  app.post("/api/onboarding/select-plan", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { planId } = req.body;
+      
+      if (!planId) {
+        return res.status(400).json({ message: "Plan ID is required" });
+      }
+      
+      // Save the selected plan to profile (plan_slug field)
+      await db.update(profiles)
+        .set({ planSlug: planId })
+        .where(eq(profiles.id, userId));
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Select plan error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Complete onboarding (called when user skips payment or after successful payment)
+  app.post("/api/onboarding/complete", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      
+      const profile = await storage.getProfile(userId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      
+      if (profile.onboardingCompleted) {
+        return res.json({ success: true, message: "Onboarding already completed" });
+      }
+      
+      // Mark onboarding as complete
+      await db.update(profiles)
+        .set({ onboardingCompleted: true })
+        .where(eq(profiles.id, userId));
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Complete onboarding error:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -5739,6 +5742,7 @@ export async function registerRoutes(
       }
       
       // Create checkout session with subscription_data for trial
+      const origin = req.headers.origin || 'https://bird-flow.replit.app';
       const sessionParams: any = {
         customer: stripeCustomerId,
         mode: 'subscription',
@@ -5747,8 +5751,8 @@ export async function registerRoutes(
           price: plan.stripePriceId,
           quantity: 1,
         }],
-        success_url: `${req.headers.origin}/onboarding?subscription_success=true&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${req.headers.origin}/onboarding?subscription_cancel=true`,
+        success_url: successUrl || `${origin}/dashboard?subscription_success=true`,
+        cancel_url: cancelUrl || `${origin}/onboarding?step=payment`,
         metadata: {
           userId,
           planId,
@@ -5768,6 +5772,39 @@ export async function registerRoutes(
       res.json({ url: session.url });
     } catch (error: any) {
       console.error("Create onboarding checkout session error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Verify Stripe checkout session (used after successful payment redirect)
+  app.post("/api/subscriptions/verify-session", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const { sessionId } = req.body;
+      
+      if (!sessionId) {
+        return res.status(400).json({ message: "Session ID is required" });
+      }
+      
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      
+      // Verify the session belongs to this user and is complete
+      if (session.metadata?.userId !== userId) {
+        return res.status(403).json({ message: "Session does not belong to this user" });
+      }
+      
+      if (session.payment_status !== 'paid' && session.status !== 'complete') {
+        return res.status(400).json({ message: "Payment not completed" });
+      }
+      
+      res.json({ 
+        success: true, 
+        planId: session.metadata?.planId,
+        subscriptionId: session.subscription 
+      });
+    } catch (error: any) {
+      console.error("Verify session error:", error);
       res.status(500).json({ message: error.message });
     }
   });
