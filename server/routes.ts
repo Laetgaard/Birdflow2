@@ -241,11 +241,19 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
 
     // Ensure profile exists for authenticated user (auto-create if missing)
     try {
+      console.log(`[RequireAuth] Checking profile for user ${user.id}`);
       let profile = await storage.getProfile(user.id);
+      console.log(`[RequireAuth] Profile lookup result for ${user.id}:`, profile ? 'found' : 'not found');
+      
       if (!profile && user.email) {
         console.log(`[RequireAuth] Profile missing for user ${user.id}, creating automatically...`);
+        console.log(`[RequireAuth] User email: ${user.email}`);
+        console.log(`[RequireAuth] User metadata:`, JSON.stringify(user.user_metadata || {}));
+        
         const fullName = user.user_metadata?.full_name || user.email.split('@')[0] || '';
         const phoneNumber = user.user_metadata?.phone_number || '';
+        
+        console.log(`[RequireAuth] Creating profile with: id=${user.id}, email=${user.email}, fullName=${fullName}`);
         
         try {
           profile = await storage.createProfile({
@@ -256,6 +264,10 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
           });
           console.log(`[RequireAuth] Profile created successfully for user ${user.id}`);
         } catch (createError: any) {
+          console.error(`[RequireAuth] Profile creation error:`, createError.message);
+          console.error(`[RequireAuth] Error code:`, createError.code);
+          console.error(`[RequireAuth] Full error:`, JSON.stringify(createError, Object.getOwnPropertyNames(createError)));
+          
           if (createError.code === '23505') {
             // Profile already exists (race condition), fetch it
             profile = await storage.getProfile(user.id);
@@ -265,8 +277,11 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
           }
         }
       }
-    } catch (profileError) {
-      console.error(`[RequireAuth] Profile check error for user ${user.id}:`, profileError);
+      
+      console.log(`[RequireAuth] Final profile state for ${user.id}:`, profile ? 'exists' : 'missing');
+    } catch (profileError: any) {
+      console.error(`[RequireAuth] Profile check error for user ${user.id}:`, profileError.message);
+      console.error(`[RequireAuth] Full profile error:`, JSON.stringify(profileError, Object.getOwnPropertyNames(profileError)));
       // Continue even if profile creation fails - some endpoints don't need profiles
     }
 
