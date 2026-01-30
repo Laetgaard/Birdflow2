@@ -1,9 +1,31 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { BuilderComponentData, ComponentProps, ComponentStyles } from '@shared/componentRegistry';
+import type { BuilderComponentData, ComponentProps, ComponentStyles, StyledText } from '@shared/componentRegistry';
 import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
 import BookingWidget from './BookingWidget';
 import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
 import ImageResizer from './ImageResizer';
+
+function getStyledTextStyle(styledText: StyledText | undefined, defaultStyle?: React.CSSProperties): React.CSSProperties {
+  if (!styledText) return defaultStyle || {};
+  
+  return {
+    ...defaultStyle,
+    ...(styledText.fontFamily && { fontFamily: styledText.fontFamily }),
+    ...(styledText.fontSize && { fontSize: styledText.fontSize }),
+    ...(styledText.fontWeight && { fontWeight: styledText.fontWeight }),
+    ...(styledText.color && { color: styledText.color }),
+    ...(styledText.textAlign && { textAlign: styledText.textAlign }),
+    ...(styledText.letterSpacing && { letterSpacing: styledText.letterSpacing }),
+    ...(styledText.lineHeight && { lineHeight: styledText.lineHeight }),
+    ...(styledText.textTransform && { textTransform: styledText.textTransform }),
+  };
+}
+
+function getStyledTextValue(styledText: StyledText | string | undefined): string {
+  if (!styledText) return '';
+  if (typeof styledText === 'string') return styledText;
+  return styledText.text || '';
+}
 
 const animationKeyframes = `
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -285,13 +307,15 @@ type RenderProps = {
   isPreview?: boolean;
   websiteId?: string;
   pages?: BuilderPage[];
-  onTextChange?: (field: string, value: string) => void;
+  allComponents?: BuilderComponentData[];
+  onTextChange?: (field: string, value: string | StyledText) => void;
   editingField?: string | null;
   onEditField?: (field: string | null) => void;
   onImageResize?: (width: string, height: string) => void;
   onStyleChange?: (styles: Partial<ComponentStyles>) => void;
   onHover?: (componentId: string | null) => void;
   deviceMode?: DeviceMode;
+  onComponentClick?: (componentId: string) => void;
 };
 
 type EditableTextProps = {
@@ -471,7 +495,7 @@ type ComponentRenderProps = {
   isSelected: boolean;
   onClick?: (e: React.MouseEvent) => void;
   isPreview: boolean;
-  onTextChange?: (field: string, value: string) => void;
+  onTextChange?: (field: string, value: string | StyledText) => void;
   editingField?: string | null;
   onEditField?: (field: string | null) => void;
   onImageResize?: (width: string, height: string) => void;
@@ -492,6 +516,14 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
   const buttonHoverColor = styles.buttonHoverColor || '#4338ca';
   const buttonTextColor = getContrastColor(buttonColor);
   const backgroundOpacity = typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : 1;
+  
+  const titleText = getStyledTextValue(props.styledTitle) || props.title || '';
+  const subtitleText = getStyledTextValue(props.styledSubtitle) || props.subtitle || '';
+  const descriptionText = getStyledTextValue(props.styledDescription) || props.description || '';
+  
+  const titleStyle = getStyledTextStyle(props.styledTitle as StyledText, { fontSize: titleFontSize, fontWeight, marginBottom: '16px' });
+  const subtitleStyle = getStyledTextStyle(props.styledSubtitle as StyledText, { fontSize: '24px', opacity: 0.9, marginBottom: '16px' });
+  const descriptionStyle = getStyledTextStyle(props.styledDescription as StyledText, { fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px' });
   
   const bgColorWithOpacity = styles.backgroundColor 
     ? hexToRgba(styles.backgroundColor, backgroundOpacity)
@@ -521,50 +553,61 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
       {/* Color overlay - sits on top of the background image */}
       <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
       <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 2 }}>
-        {canEdit ? (
-          <EditableText
-            value={props.title || ''}
-            field="title"
-            isEditing={editingField === 'title'}
-            onEdit={onEditField}
-            onChange={onTextChange}
-            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', display: 'block' }}
-            as="h1"
-            isPreview={isPreview}
-          />
-        ) : (
-          <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px' }}>{props.title}</h1>
-        )}
-        {props.subtitle && (
+        {titleText && (
           canEdit ? (
             <EditableText
-              value={props.subtitle}
-              field="subtitle"
-              isEditing={editingField === 'subtitle'}
+              value={titleText}
+              field="styledTitle"
+              isEditing={editingField === 'styledTitle'}
               onEdit={onEditField}
-              onChange={onTextChange}
-              style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px', display: 'block' }}
-              as="p"
+              onChange={(field, text) => {
+                const current = props.styledTitle as StyledText || {};
+                onTextChange!(field, { ...current, text });
+              }}
+              style={{ ...titleStyle, display: 'block' }}
+              as="h1"
               isPreview={isPreview}
             />
           ) : (
-            <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{props.subtitle}</p>
+            <h1 style={titleStyle}>{titleText}</h1>
           )
         )}
-        {props.description && (
+        {subtitleText && (
           canEdit ? (
             <EditableText
-              value={props.description}
-              field="description"
-              isEditing={editingField === 'description'}
+              value={subtitleText}
+              field="styledSubtitle"
+              isEditing={editingField === 'styledSubtitle'}
               onEdit={onEditField}
-              onChange={onTextChange}
-              style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', display: 'block' }}
+              onChange={(field, text) => {
+                const current = props.styledSubtitle as StyledText || {};
+                onTextChange!(field, { ...current, text });
+              }}
+              style={{ ...subtitleStyle, display: 'block' }}
               as="p"
               isPreview={isPreview}
             />
           ) : (
-            <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>
+            <p style={subtitleStyle}>{subtitleText}</p>
+          )
+        )}
+        {descriptionText && (
+          canEdit ? (
+            <EditableText
+              value={descriptionText}
+              field="styledDescription"
+              isEditing={editingField === 'styledDescription'}
+              onEdit={onEditField}
+              onChange={(field, text) => {
+                const current = props.styledDescription as StyledText || {};
+                onTextChange!(field, { ...current, text });
+              }}
+              style={{ ...descriptionStyle, display: 'block' }}
+              as="p"
+              isPreview={isPreview}
+            />
+          ) : (
+            <p style={descriptionStyle}>{descriptionText}</p>
           )
         )}
         {props.buttonText && (
@@ -2970,7 +3013,85 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview }: Co
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode }: RenderProps) {
+type ContainerComponentProps = ComponentRenderProps & {
+  allComponents?: BuilderComponentData[];
+  onComponentClick?: (componentId: string) => void;
+  websiteId?: string;
+  pages?: BuilderPage[];
+};
+
+function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, deviceMode }: ContainerComponentProps) {
+  const children = props.children || [];
+  const layout = props.layout || 'vertical';
+  const gap = props.gap || '24px';
+  
+  const getLayoutStyle = (): React.CSSProperties => {
+    switch (layout) {
+      case 'horizontal':
+        return { display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap };
+      case 'grid-2':
+        return { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap };
+      case 'grid-3':
+        return { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap };
+      case 'grid-4':
+        return { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap };
+      case 'vertical':
+      default:
+        return { display: 'flex', flexDirection: 'column', gap };
+    }
+  };
+  
+  const containerStyle: React.CSSProperties = {
+    ...getLayoutStyle(),
+    backgroundColor: styles.backgroundColor || 'transparent',
+    color: styles.textColor || '#1a1a1a',
+    padding: styles.padding || '24px',
+    borderRadius: styles.borderRadius || '0',
+    maxWidth: styles.maxWidth || '1200px',
+    margin: styles.margin || '0 auto',
+    minHeight: '100px',
+    position: 'relative',
+  };
+  
+  const childComponents = children
+    .map(childId => allComponents.find(c => c.id === childId))
+    .filter(Boolean) as BuilderComponentData[];
+  
+  return (
+    <div style={containerStyle}>
+      {childComponents.length === 0 ? (
+        <div style={{ 
+          padding: '40px', 
+          textAlign: 'center', 
+          border: '2px dashed #e2e8f0',
+          borderRadius: '8px',
+          color: '#94a3b8',
+          fontSize: '14px'
+        }}>
+          Træk komponenter hertil
+        </div>
+      ) : (
+        childComponents.map(childComponent => (
+          <ComponentRenderer
+            key={childComponent.id}
+            component={childComponent}
+            isPreview={isPreview}
+            websiteId={websiteId}
+            pages={pages}
+            allComponents={allComponents}
+            deviceMode={deviceMode}
+            onClick={onComponentClick ? (e) => {
+              e.stopPropagation();
+              onComponentClick(childComponent.id);
+            } : undefined}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -3077,6 +3198,8 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
         return <TimelineComponent {...commonProps} />;
       case 'services':
         return <ServicesComponent {...commonProps} />;
+      case 'container':
+        return <ContainerComponent {...commonProps} allComponents={allComponents} onComponentClick={onComponentClick} />;
       default:
         return null;
     }

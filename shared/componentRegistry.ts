@@ -1,6 +1,18 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container';
 
-export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range';
+export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text';
+
+export type StyledText = {
+  text: string;
+  fontFamily?: string;
+  fontSize?: string;
+  fontWeight?: string;
+  color?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  letterSpacing?: string;
+  lineHeight?: string;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+};
 
 // Theme-based color presets
 export const themeColors = {
@@ -276,7 +288,7 @@ export const animationPresets = {
 
 // Editable text fields per component type
 export const editableTextFields: Record<ComponentType, string[]> = {
-  'hero': ['title', 'subtitle', 'description', 'buttonText'],
+  'hero': ['styledTitle', 'styledSubtitle', 'styledDescription', 'buttonText'],
   'image-slider': [],
   'text-image': ['title', 'description'],
   'cta': ['title', 'description', 'buttonText'],
@@ -305,6 +317,7 @@ export const editableTextFields: Record<ComponentType, string[]> = {
   'team': ['title', 'subtitle'],
   'timeline': ['title', 'subtitle'],
   'services': ['title', 'subtitle', 'description'],
+  'container': [],
 };
 
 export type FieldDefinition = {
@@ -381,7 +394,7 @@ export type ComponentProps = {
   imageHeight?: string;
   videoUrl?: string;
   videoProvider?: 'youtube' | 'vimeo' | 'custom';
-  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right';
+  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right' | 'vertical' | 'horizontal' | 'grid-2' | 'grid-3' | 'grid-4';
   formFields?: FormField[];
   stats?: StatItem[];
   height?: string;
@@ -418,6 +431,13 @@ export type ComponentProps = {
   services?: ComponentItem[];
   // Comparison table props
   tableColumns?: ComponentItem[];
+  // Container props
+  children?: string[];
+  gap?: string;
+  // Styled text support - allows per-field typography overrides
+  styledTitle?: StyledText;
+  styledSubtitle?: StyledText;
+  styledDescription?: StyledText;
 };
 
 export type ComponentStyles = {
@@ -491,9 +511,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Hero Section',
     icon: 'layout',
     defaultProps: {
-      title: 'Welcome to Our Platform',
-      subtitle: 'Build something amazing today',
-      description: 'Create stunning websites with our powerful builder tools.',
+      styledTitle: { text: 'Welcome to Our Platform' },
+      styledSubtitle: { text: 'Build something amazing today' },
+      styledDescription: { text: 'Create stunning websites with our powerful builder tools.' },
       buttonText: 'Get Started',
       buttonLink: '#',
       alignment: 'center',
@@ -507,9 +527,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       buttonHoverColor: '#4338ca',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
-      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
+      { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'buttonLink', label: 'Button Link', type: 'text', group: 'content' },
       { key: 'imageUrl', label: 'Background Image', type: 'image', group: 'content' },
@@ -1389,6 +1409,34 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
       { key: 'cardStyle', label: 'Card Style', type: 'select', group: 'style', options: ['flat', 'elevated', 'bordered', 'glass'] },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
+    ],
+  },
+
+  container: {
+    type: 'container',
+    name: 'Container',
+    icon: 'layout',
+    defaultProps: {
+      layout: 'vertical',
+      gap: '24px',
+      children: [],
+    },
+    defaultStyles: {
+      backgroundColor: 'transparent',
+      textColor: '#1a1a1a',
+      padding: '24px',
+      borderRadius: '0',
+      maxWidth: '1200px',
+      margin: '0 auto',
+    },
+    fields: [
+      { key: 'layout', label: 'Layout', type: 'select', group: 'content', options: ['vertical', 'horizontal', 'grid-2', 'grid-3', 'grid-4'] },
+      { key: 'gap', label: 'Gap', type: 'select', group: 'content', options: ['0', '8px', '16px', '24px', '32px', '48px', '64px'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '24px' },
+      { key: 'borderRadius', label: 'Border Radius', type: 'select', group: 'style', options: ['0', '8px', '16px', '24px', '32px'] },
+      { key: 'maxWidth', label: 'Max Width', type: 'select', group: 'style', options: ['100%', '800px', '1000px', '1200px', '1400px'] },
     ],
   },
 };

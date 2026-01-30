@@ -23,7 +23,8 @@ import {
   type ComponentProps, 
   type ComponentStyles,
   type FieldDefinition,
-  type ComponentItem 
+  type ComponentItem,
+  type StyledText
 } from "@shared/componentRegistry";
 import ImageCropper from "./ImageCropper";
 
@@ -558,6 +559,132 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             </Button>
           </div>
         );
+
+      case 'styled-text': {
+        const styledValue: StyledText = typeof value === 'object' && value !== null 
+          ? value as StyledText 
+          : { text: typeof value === 'string' ? value : '' };
+        
+        return (
+          <div key={field.key} className="space-y-3 border rounded-lg p-3 bg-muted/30">
+            <Label className="text-xs font-medium">{field.label}</Label>
+            
+            <Input
+              value={styledValue.text || ''}
+              onChange={(e) => setValue(field, { ...styledValue, text: e.target.value })}
+              placeholder={field.placeholder || 'Enter text...'}
+              data-testid={`styled-text-${field.key}`}
+            />
+            
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Font</Label>
+                <Select 
+                  value={styledValue.fontFamily || ''} 
+                  onValueChange={(v) => setValue(field, { ...styledValue, fontFamily: v })}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Inherit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Inherit</SelectItem>
+                    {fontFamilyPresets.map(font => (
+                      <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
+                        {font.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Size</Label>
+                <Select 
+                  value={styledValue.fontSize || ''} 
+                  onValueChange={(v) => setValue(field, { ...styledValue, fontSize: v })}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Inherit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Inherit</SelectItem>
+                    <SelectItem value="12px">12px</SelectItem>
+                    <SelectItem value="14px">14px</SelectItem>
+                    <SelectItem value="16px">16px</SelectItem>
+                    <SelectItem value="18px">18px</SelectItem>
+                    <SelectItem value="20px">20px</SelectItem>
+                    <SelectItem value="24px">24px</SelectItem>
+                    <SelectItem value="28px">28px</SelectItem>
+                    <SelectItem value="32px">32px</SelectItem>
+                    <SelectItem value="36px">36px</SelectItem>
+                    <SelectItem value="42px">42px</SelectItem>
+                    <SelectItem value="48px">48px</SelectItem>
+                    <SelectItem value="56px">56px</SelectItem>
+                    <SelectItem value="64px">64px</SelectItem>
+                    <SelectItem value="72px">72px</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Weight</Label>
+                <Select 
+                  value={styledValue.fontWeight || ''} 
+                  onValueChange={(v) => setValue(field, { ...styledValue, fontWeight: v })}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Inherit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Inherit</SelectItem>
+                    {fontWeightPresets.map(weight => (
+                      <SelectItem key={weight.value} value={weight.value}>
+                        {weight.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">Transform</Label>
+                <Select 
+                  value={styledValue.textTransform || ''} 
+                  onValueChange={(v) => setValue(field, { ...styledValue, textTransform: v as StyledText['textTransform'] })}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="uppercase">UPPERCASE</SelectItem>
+                    <SelectItem value="lowercase">lowercase</SelectItem>
+                    <SelectItem value="capitalize">Capitalize</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="space-y-1">
+              <Label className="text-[10px] text-muted-foreground">Color</Label>
+              <div className="flex gap-1">
+                <Input
+                  type="color"
+                  value={styledValue.color || '#000000'}
+                  onChange={(e) => setValue(field, { ...styledValue, color: e.target.value })}
+                  className="w-10 h-8 p-1 cursor-pointer"
+                />
+                <Input
+                  value={styledValue.color || ''}
+                  onChange={(e) => setValue(field, { ...styledValue, color: e.target.value })}
+                  placeholder="Inherit"
+                  className="flex-1 h-8 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+        );
+      }
 
       default:
         return null;

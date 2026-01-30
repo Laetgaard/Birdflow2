@@ -454,11 +454,11 @@ export default function BuilderPage() {
     };
   }, [builderState, debouncedHistoryPush]);
 
-  const handleTextChange = useCallback((componentId: string) => (field: string, value: string) => {
+  const handleTextChange = useCallback((componentId: string) => (field: string, value: string | { text?: string; [key: string]: any }) => {
     setBuilderState(prev => {
       if (!prev) return prev;
       
-      const updateNested = (props: any, path: string, val: string): any => {
+      const updateNested = (props: any, path: string, val: string | object): any => {
         const parts = path.split('.');
         if (parts.length === 1) {
           return { ...props, [path]: val };
