@@ -67,25 +67,21 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
     mutationFn: async (file: File) => {
       if (!accessToken) throw new Error('Not authenticated');
       
-      const signedUrlRes = await fetch(`/api/websites/${websiteId}/media/upload-url`, {
+      // Use optimized image upload for faster page loads
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      const optimizedRes = await fetch('/api/uploads/optimized-image', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ filename: file.name, contentType: file.type }),
+        body: formData,
       });
       
-      if (!signedUrlRes.ok) throw new Error('Failed to get upload URL');
-      const { uploadUrl, storagePath, filename } = await signedUrlRes.json();
-
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type },
-        body: file,
-      });
+      if (!optimizedRes.ok) {
+        throw new Error('Failed to upload and optimize image');
+      }
       
-      if (!uploadRes.ok) throw new Error('Upload failed');
+      const { objectPath, originalSize, optimizedSize, savings } = await optimizedRes.json();
+      console.log(`Image optimized: ${savings} smaller (${originalSize} → ${optimizedSize} bytes)`);
 
       let width: number | undefined;
       let height: number | undefined;
@@ -101,6 +97,9 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
         });
       }
 
+      // Generate filename from objectPath
+      const filename = objectPath.split('/').pop() || `${Date.now()}.webp`;
+
       const createRes = await fetch(`/api/websites/${websiteId}/media`, {
         method: 'POST',
         headers: {
@@ -110,9 +109,9 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
         body: JSON.stringify({
           filename,
           originalFilename: file.name,
-          storagePath,
-          mimeType: file.type,
-          size: file.size,
+          storagePath: objectPath,
+          mimeType: 'image/webp',
+          size: optimizedSize,
           width,
           height,
         }),

@@ -628,7 +628,7 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
               <CroppedImage image={imageValue} alt={`Slide ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
           ) : (
-            <img key={i} src={imageValue.url} alt={`Slide ${i + 1}`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
+            <img key={i} src={imageValue.url} alt={`Slide ${i + 1}`} loading="lazy" style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
           );
         })}
       </div>
@@ -706,7 +706,7 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onT
             ) : imageValue.crop ? (
               <CroppedImage image={imageValue} alt="" style={{ width: props.imageWidth || '100%', borderRadius: '12px' }} />
             ) : (
-              <img src={imageValue.url} alt="" style={{ width: props.imageWidth || '100%', borderRadius: '12px' }} />
+              <img src={imageValue.url} alt="" loading="lazy" style={{ width: props.imageWidth || '100%', borderRadius: '12px' }} />
             )}
           </div>
         )}
@@ -1250,6 +1250,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
               <img 
                 src={logoImage.url} 
                 alt="Logo" 
+                loading="lazy"
                 style={{ height: '40px', width: 'auto', objectFit: 'contain' }}
                 data-testid="header-logo"
               />
@@ -1568,7 +1569,7 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
                 <>
                   <div className="product-image-wrapper">
                     {product.imageUrl ? (
-                      <img src={product.imageUrl} alt={product.name} />
+                      <img src={product.imageUrl} alt={product.name} loading="lazy" />
                     ) : (
                       <div className="placeholder">📦</div>
                     )}
@@ -1650,7 +1651,7 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
         )}
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: styles.gap || '16px' }}>
           {images.map((image, index) => (
-            <img key={index} src={image} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: styles.borderRadius || '8px' }} />
+            <img key={index} src={image} alt="" loading="lazy" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: styles.borderRadius || '8px' }} />
           ))}
         </div>
       </div>
@@ -2467,7 +2468,7 @@ function LogoCloudComponent({ props, styles, isSelected, onClick, isPreview }: C
           {logos.map((logo, index) => (
             <div key={logo.id || index} style={{ opacity: 0.6, filter: 'grayscale(100%)', transition: 'all 0.3s' }} data-testid={`logo-item-${index}`}>
               {logo.imageUrl ? (
-                <img src={logo.imageUrl} alt={logo.name || 'Logo'} style={{ height: '40px', width: 'auto', objectFit: 'contain' }} />
+                <img src={logo.imageUrl} alt={logo.name || 'Logo'} loading="lazy" style={{ height: '40px', width: 'auto', objectFit: 'contain' }} />
               ) : (
                 <div style={{ padding: '10px 24px', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '8px', fontWeight: '600' }}>
                   {logo.name || 'Logo'}
@@ -2570,7 +2571,7 @@ function TabsComponent({ props, styles, isSelected, onClick, isPreview }: Compon
               <h3 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '16px' }}>{tabs[activeTab].title}</h3>
               <p style={{ fontSize: '16px', lineHeight: '1.7', opacity: 0.8 }}>{tabs[activeTab].content}</p>
               {tabs[activeTab].imageUrl && (
-                <img src={tabs[activeTab].imageUrl} alt="" style={{ width: '100%', borderRadius: '12px', marginTop: '24px' }} />
+                <img src={tabs[activeTab].imageUrl} alt="" loading="lazy" style={{ width: '100%', borderRadius: '12px', marginTop: '24px' }} />
               )}
             </div>
           )}
@@ -2716,7 +2717,7 @@ function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview }
         </div>
         <div style={{ order: layout === 'image-right' ? 2 : 1 }}>
           {props.imageUrl ? (
-            <img src={props.imageUrl as string} alt="" style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
+            <img src={props.imageUrl as string} alt="" loading="lazy" style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
           ) : (
             <div style={{ aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontSize: '48px', opacity: 0.3 }}>🖼️</span>
@@ -2812,7 +2813,7 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview }: Compon
               data-testid={`team-member-${index}`}
             >
               {member.imageUrl ? (
-                <img src={member.imageUrl} alt={member.name} style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', marginBottom: '20px' }} />
+                <img src={member.imageUrl} alt={member.name} loading="lazy" style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', marginBottom: '20px' }} />
               ) : (
                 <div style={{ width: '120px', height: '120px', borderRadius: '50%', backgroundColor: hexToRgba(accentColor, 0.1), margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
                   👤
