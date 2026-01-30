@@ -37,6 +37,9 @@ import {
   generateProductApiRoute,
   generateAnalyticsTracker,
   generateCookieBanner,
+  generateCheckoutSuccessPage,
+  generateCheckoutCancelPage,
+  generateVerifySessionApiRoute,
 } from './templates';
 
 export type GeneratorConfig = {
@@ -68,6 +71,9 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'shipping-methods'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'product', '[id]'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app', 'checkout'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'checkout', 'success'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'checkout', 'cancel'), { recursive: true });
+  await fs.promises.mkdir(path.join(outputDir, 'app', 'api', 'checkout', 'verify-session'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'components'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'lib'), { recursive: true });
   
@@ -119,6 +125,9 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/api/shipping-methods/route.ts', content: generateShippingMethodsApiRoute(websiteId) },
     { path: 'app/product/[id]/page.tsx', content: generateProductDetailPage() },
     { path: 'app/checkout/page.tsx', content: generateCheckoutPage() },
+    { path: 'app/checkout/success/page.tsx', content: generateCheckoutSuccessPage(websiteId) },
+    { path: 'app/checkout/cancel/page.tsx', content: generateCheckoutCancelPage() },
+    { path: 'app/api/checkout/verify-session/route.ts', content: generateVerifySessionApiRoute(websiteId) },
   ];
   
   for (const page of builderState.pages) {

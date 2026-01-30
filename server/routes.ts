@@ -2069,18 +2069,22 @@ export async function registerRoutes(
         const platformStripePublishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
         const platformWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
         
-        if (platformStripeSecretKey && platformStripePublishableKey && platformWebhookSecret) {
+        if (platformStripeSecretKey && platformStripePublishableKey) {
           stripeSecretKey = platformStripeSecretKey;
           stripePublishableKey = platformStripePublishableKey;
-          stripeWebhookSecret = platformWebhookSecret;
           stripeAccountId = paymentSettings.stripeAccountId;
+          // Webhook secret is optional - if present, use it for enhanced security
+          if (platformWebhookSecret) {
+            stripeWebhookSecret = platformWebhookSecret;
+          } else {
+            console.log('[Publish] STRIPE_WEBHOOK_SECRET not configured - using session verification instead');
+          }
           console.log(`[Publish] Using Stripe Connect with destination charges to account: ${stripeAccountId}`);
         } else {
           // Missing required platform configuration for Connect - fail the publish
           const missing = [];
           if (!platformStripeSecretKey) missing.push('STRIPE_SECRET_KEY');
           if (!platformStripePublishableKey) missing.push('STRIPE_PUBLISHABLE_KEY');
-          if (!platformWebhookSecret) missing.push('STRIPE_WEBHOOK_SECRET');
           console.error(`[Publish] Cannot use Stripe Connect - missing: ${missing.join(', ')}`);
           return res.status(500).json({ 
             message: 'Stripe Connect er ikke fuldt konfigureret. Kontakt support for at aktivere betalinger på dit website.' 
