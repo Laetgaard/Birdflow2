@@ -145,7 +145,7 @@ export default function BuilderPage() {
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const previewContainerRef = useRef<HTMLElement>(null);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
-  const [selectedComponentPosition, setSelectedComponentPosition] = useState<number | null>(null);
+  const [propertiesPaddingTop, setPropertiesPaddingTop] = useState(0);
 
   const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
     if (historyDebounceRef.current) {
@@ -619,29 +619,32 @@ export default function BuilderPage() {
   })();
 
   useEffect(() => {
-    if (!selectedComponentId || !previewContainerRef.current || !sidebarScrollRef.current) {
+    if (!selectedComponentId || !previewContainerRef.current) {
+      setPropertiesPaddingTop(0);
       return;
     }
 
     const selectedElement = previewContainerRef.current.querySelector(`[data-element-id="${selectedComponentId}"]`);
-    if (!selectedElement) return;
+    if (!selectedElement) {
+      setPropertiesPaddingTop(0);
+      return;
+    }
 
     const previewRect = previewContainerRef.current.getBoundingClientRect();
     const elementRect = selectedElement.getBoundingClientRect();
-    const sidebarElement = sidebarScrollRef.current;
+    
+    const relativeTop = elementRect.top - previewRect.top;
+    const tabsHeaderHeight = 56;
+    const paddingTop = Math.max(0, relativeTop - tabsHeaderHeight);
+    
+    setPropertiesPaddingTop(paddingTop);
 
-    const relativeTop = elementRect.top - previewRect.top + previewContainerRef.current.scrollTop;
-    const previewScrollHeight = previewContainerRef.current.scrollHeight;
-    const sidebarScrollHeight = sidebarElement.scrollHeight;
-    const sidebarClientHeight = sidebarElement.clientHeight;
-
-    const scrollRatio = previewScrollHeight > 0 ? relativeTop / previewScrollHeight : 0;
-    const targetScrollTop = Math.max(0, (sidebarScrollHeight * scrollRatio) - (sidebarClientHeight / 3));
-
-    sidebarElement.scrollTo({
-      top: targetScrollTop,
-      behavior: 'smooth'
-    });
+    if (sidebarScrollRef.current) {
+      sidebarScrollRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
   }, [selectedComponentId]);
 
   const switchPage = (pageId: string) => {
@@ -1069,7 +1072,10 @@ export default function BuilderPage() {
 
             <TabsContent value="properties" className="flex-1 overflow-auto" ref={sidebarScrollRef}>
               <ScrollArea className="h-full">
-                <div className="p-4 pt-2">
+                <div 
+                  className="p-4 pt-2 transition-all duration-300 ease-out"
+                  style={{ paddingTop: selectedComponent ? `${propertiesPaddingTop + 8}px` : '8px' }}
+                >
                   {selectedComponent ? (
                     <PropertiesPanel
                       component={selectedComponent}
