@@ -657,7 +657,7 @@ export async function registerRoutes(
         });
       }
 
-      // Get or create profile - this is critical for onboarding
+      // Get or create profile
       let profile = await storage.getProfile(data.user.id);
       console.log(`[Verify] Profile lookup for user ${data.user.id}: ${profile ? 'found' : 'not found'}`);
 
@@ -677,7 +677,7 @@ export async function registerRoutes(
         } catch (createError: any) {
           // If profile already exists (race condition), try to fetch it again
           if (createError.code === '23505') {
-            console.log(`[Verify] Profile already exists (race condition), fetching again...`);
+            console.log(`[Verify] Profile already exists, fetching again...`);
             profile = await storage.getProfile(data.user.id);
           } else {
             console.error("[Verify] Error creating profile:", createError);
@@ -688,15 +688,6 @@ export async function registerRoutes(
             });
           }
         }
-      }
-      
-      // If profile still doesn't exist, return error - profile is required
-      if (!profile) {
-        console.error(`[Verify] Failed to create or fetch profile for user ${data.user.id}`);
-        return res.status(500).json({ 
-          message: "Kunne ikke oprette brugerprofil. Prøv venligst igen.",
-          profileCreationFailed: true
-        });
       }
 
       res.json({ 
