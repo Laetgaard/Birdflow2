@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
-import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState } from "@shared/schema";
+import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
@@ -293,6 +293,51 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+// Helper function to get or create a profile for authenticated user
+async function getOrCreateProfile(userId: string, authUser: any): Promise<{ profile: Profile | null; error: string | null }> {
+  // Try to get existing profile
+  let profile = await storage.getProfile(userId);
+  if (profile) {
+    return { profile, error: null };
+  }
+  
+  // Validate required fields for new profile
+  const email = authUser?.email;
+  if (!email) {
+    console.error(`[getOrCreateProfile] Cannot create profile: no email for user ${userId}`);
+    return { profile: null, error: "Email mangler. Prøv at logge ud og ind igen." };
+  }
+  
+  console.log(`[getOrCreateProfile] Creating profile for user ${userId} with email ${email}`);
+  
+  const fullName = authUser?.user_metadata?.full_name || email.split('@')[0] || 'User';
+  const phoneNumber = authUser?.user_metadata?.phone_number || '';
+  
+  try {
+    profile = await storage.createProfile({
+      id: userId,
+      email,
+      fullName,
+      phoneNumber,
+    });
+    console.log(`[getOrCreateProfile] Profile created successfully for user ${userId}`);
+    return { profile, error: null };
+  } catch (createError: any) {
+    console.error(`[getOrCreateProfile] Profile creation error:`, createError.message, createError.code);
+    
+    // Handle race condition - profile already exists
+    if (createError.code === '23505') {
+      console.log(`[getOrCreateProfile] Profile already exists (race condition), fetching...`);
+      profile = await storage.getProfile(userId);
+      if (profile) {
+        return { profile, error: null };
+      }
+    }
+    
+    return { profile: null, error: "Kunne ikke oprette brugerprofil. Prøv at logge ud og ind igen." };
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -432,10 +477,12 @@ export async function registerRoutes(
   app.post("/api/onboarding/complete", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).user?.id;
+      const authUser = (req as any).user;
       
-      const profile = await storage.getProfile(userId);
+      // Get or create profile
+      const { profile, error } = await getOrCreateProfile(userId, authUser);
       if (!profile) {
-        return res.status(404).json({ message: "Profile not found" });
+        return res.status(500).json({ message: error || "Kunne ikke finde brugerprofil." });
       }
       
       if (profile.onboardingCompleted) {
@@ -5689,37 +5736,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cannot checkout for free plan" });
       }
       
-      let profile = await storage.getProfile(userId);
-      
-      // If profile doesn't exist, try to create it from auth user metadata
-      if (!profile && authUser) {
-        console.log(`[Onboarding] Profile not found for user ${userId}, attempting to create...`);
-        try {
-          const email = authUser.email;
-          const fullName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || '';
-          const phoneNumber = authUser.user_metadata?.phone_number || '';
-          
-          profile = await storage.createProfile({
-            id: userId,
-            email: email || '',
-            fullName,
-            phoneNumber,
-          });
-          console.log(`[Onboarding] Profile created successfully for user ${userId}`);
-        } catch (createError: any) {
-          // If profile already exists (race condition), try to fetch it again
-          if (createError.code === '23505') {
-            console.log(`[Onboarding] Profile already exists, fetching...`);
-            profile = await storage.getProfile(userId);
-          } else {
-            console.error("[Onboarding] Failed to create profile:", createError);
-          }
-        }
-      }
-      
+      // Get or create profile using shared helper
+      const { profile, error } = await getOrCreateProfile(userId, authUser);
       if (!profile) {
-        console.error(`[Onboarding] Profile still not found for user ${userId}`);
-        return res.status(404).json({ message: "Profile not found. Please try signing out and in again." });
+        return res.status(500).json({ 
+          message: error || "Kunne ikke finde eller oprette brugerprofil. Prøv at logge ud og ind igen." 
+        });
       }
       
       // Create or get Stripe customer
