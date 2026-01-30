@@ -58,7 +58,7 @@ const planBgGradients: Record<string, string> = {
 const faqs = [
   {
     question: "Hvordan fungerer den gratis prøveperiode?",
-    answer: "Med Starter og Professional får du 14 dages gratis prøveperiode med fuld adgang til alle funktioner. Du skal indtaste betalingsoplysninger, men bliver først opkrævet efter prøveperioden. Du kan opsige når som helst i prøveperioden.",
+    answer: "Med Starter og Professional får du 1 måneds gratis prøveperiode med fuld adgang til alle funktioner. Du skal indtaste betalingsoplysninger, men bliver først opkrævet efter prøveperioden. Du kan opsige når som helst i prøveperioden.",
   },
   {
     question: "Kan jeg skifte abonnement senere?",
@@ -181,7 +181,7 @@ export default function PricingPage() {
             >
               <div className="inline-flex items-center gap-2 bg-emerald-500/10 text-emerald-600 px-4 py-2 rounded-full text-sm font-medium mb-6">
                 <Sparkles className="w-4 h-4" />
-                14 dages gratis prøveperiode
+                1 måneds gratis prøveperiode
               </div>
               <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
                 Enkel og gennemsigtig prissætning

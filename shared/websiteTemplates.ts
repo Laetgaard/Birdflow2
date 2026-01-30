@@ -684,7 +684,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
             type: 'cta',
             props: {
               title: 'Ready to Launch?',
-              description: 'Start your 14-day free trial today. No credit card required.',
+              description: 'Start your free trial today. No credit card required.',
               buttonText: 'Get Started Free',
               buttonLink: '#signup',
             },

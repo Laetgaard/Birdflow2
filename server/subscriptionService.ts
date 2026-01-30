@@ -117,7 +117,7 @@ export const PLAN_DETAILS: Record<PlanId, PlanDetails> = {
     description: 'Perfect for growing businesses',
     priceMonthly: 14900, // 149 DKK in øre
     priceDisplay: '149 kr',
-    trialDays: 14,
+    trialDays: 30,
     stripePriceId: process.env.STRIPE_STARTER_PRICE_ID || null,
     popular: true,
     features: {
@@ -140,7 +140,7 @@ export const PLAN_DETAILS: Record<PlanId, PlanDetails> = {
       emailNotifications: true,
     },
     featureList: [
-      { text: '14 dages gratis prøveperiode', included: true, tooltip: 'Prøv alle funktioner gratis i 14 dage' },
+      { text: '1 måneds gratis prøveperiode', included: true, tooltip: 'Prøv alle funktioner gratis i 1 måned' },
       { text: '1 hjemmeside', included: true },
       { text: 'Op til 5 sider', included: true },
       { text: '4 GB lagerplads', included: true },
@@ -157,7 +157,7 @@ export const PLAN_DETAILS: Record<PlanId, PlanDetails> = {
     description: 'Full-featured for serious businesses',
     priceMonthly: 24900, // 249 DKK in øre
     priceDisplay: '249 kr',
-    trialDays: 14,
+    trialDays: 30,
     stripePriceId: process.env.STRIPE_PROFESSIONAL_PRICE_ID || null,
     popular: false,
     features: {
@@ -180,7 +180,7 @@ export const PLAN_DETAILS: Record<PlanId, PlanDetails> = {
       emailNotifications: true,
     },
     featureList: [
-      { text: '14 dages gratis prøveperiode', included: true, tooltip: 'Prøv alle funktioner gratis i 14 dage' },
+      { text: '1 måneds gratis prøveperiode', included: true, tooltip: 'Prøv alle funktioner gratis i 1 måned' },
       { text: '5 hjemmesider', included: true },
       { text: 'Op til 20 sider per site', included: true },
       { text: '15 GB lagerplads', included: true },

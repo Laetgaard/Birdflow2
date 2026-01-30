@@ -842,7 +842,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       subtitle: 'Got questions? We have answers.',
       items: [
         { id: '1', title: 'How do I get started?', description: 'Simply sign up for a free account and follow our quick start guide.' },
-        { id: '2', title: 'Is there a free trial?', description: 'Yes! We offer a 14-day free trial with full access to all features.' },
+        { id: '2', title: 'Is there a free trial?', description: 'Yes! We offer a 30-day free trial with full access to all features.' },
         { id: '3', title: 'Can I cancel anytime?', description: 'Absolutely. You can cancel your subscription at any time with no questions asked.' },
       ],
     },
