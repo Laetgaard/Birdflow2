@@ -143,6 +143,9 @@ export default function BuilderPage() {
   const [hasPendingEdit, setHasPendingEdit] = useState(false);
   const [showCoachMarks, setShowCoachMarks] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  const previewContainerRef = useRef<HTMLElement>(null);
+  const sidebarScrollRef = useRef<HTMLDivElement>(null);
+  const [selectedComponentPosition, setSelectedComponentPosition] = useState<number | null>(null);
 
   const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
     if (historyDebounceRef.current) {
@@ -615,6 +618,32 @@ export default function BuilderPage() {
     return activePage?.components.find(c => c.id === selectedComponentId) || null;
   })();
 
+  useEffect(() => {
+    if (!selectedComponentId || !previewContainerRef.current || !sidebarScrollRef.current) {
+      return;
+    }
+
+    const selectedElement = previewContainerRef.current.querySelector(`[data-element-id="${selectedComponentId}"]`);
+    if (!selectedElement) return;
+
+    const previewRect = previewContainerRef.current.getBoundingClientRect();
+    const elementRect = selectedElement.getBoundingClientRect();
+    const sidebarElement = sidebarScrollRef.current;
+
+    const relativeTop = elementRect.top - previewRect.top + previewContainerRef.current.scrollTop;
+    const previewScrollHeight = previewContainerRef.current.scrollHeight;
+    const sidebarScrollHeight = sidebarElement.scrollHeight;
+    const sidebarClientHeight = sidebarElement.clientHeight;
+
+    const scrollRatio = previewScrollHeight > 0 ? relativeTop / previewScrollHeight : 0;
+    const targetScrollTop = Math.max(0, (sidebarScrollHeight * scrollRatio) - (sidebarClientHeight / 3));
+
+    sidebarElement.scrollTo({
+      top: targetScrollTop,
+      behavior: 'smooth'
+    });
+  }, [selectedComponentId]);
+
   const switchPage = (pageId: string) => {
     if (!builderState) return;
     setBuilderState({ ...builderState, activePage: pageId });
@@ -932,6 +961,7 @@ export default function BuilderPage() {
         >
           {/* Canvas / Preview */}
           <main 
+            ref={previewContainerRef}
             className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center relative" 
             onClick={() => setSelectedComponentId(null)}
             data-preview-area
@@ -1037,7 +1067,7 @@ export default function BuilderPage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="properties" className="flex-1 overflow-auto">
+            <TabsContent value="properties" className="flex-1 overflow-auto" ref={sidebarScrollRef}>
               <ScrollArea className="h-full">
                 <div className="p-4 pt-2">
                   {selectedComponent ? (
