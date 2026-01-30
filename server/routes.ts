@@ -2360,6 +2360,14 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Media asset not found" });
       }
 
+      // Check if the file is stored in Replit Object Storage (path starts with /objects/)
+      if (asset.storagePath.startsWith('/objects/')) {
+        // Return the Replit Object Storage URL directly
+        res.json({ url: asset.storagePath, asset });
+        return;
+      }
+
+      // Fall back to Supabase storage for legacy files
       const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
       if (!supabaseServiceRoleKey || !supabaseUrl) {
         return res.status(500).json({ message: "Storage not configured" });
