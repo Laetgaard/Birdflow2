@@ -19,45 +19,22 @@ export default function AuthCallback() {
         const refreshToken = hashParams.get("refresh_token");
         const type = hashParams.get("type");
 
-        // Helper function to verify and ensure profile exists
-        const verifyAndEnsureProfile = async (
-          userId: string, 
-          accessToken: string, 
-          refreshToken: string
-        ): Promise<{ profile: any; onboardingCompleted: boolean }> => {
-          // Call verify endpoint which creates the profile
-          const verifyResponse = await fetch("/api/auth/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ accessToken, refreshToken }),
-          });
-          
-          if (verifyResponse.ok) {
-            const data = await verifyResponse.json();
-            if (data.profile) {
-              return { profile: data.profile, onboardingCompleted: data.profile.onboardingCompleted || false };
+        // Helper function to determine redirect path based on user profile
+        const getRedirectPath = async (userId: string, token: string): Promise<string> => {
+          try {
+            const response = await fetch(`/api/profile/${userId}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+              const profile = await response.json();
+              // If user hasn't completed onboarding, send to onboarding
+              return profile?.onboardingCompleted ? "/dashboard" : "/onboarding";
             }
+          } catch (e) {
+            console.error("Error fetching profile:", e);
           }
-          
-          // If verify didn't return profile, retry fetching profile with retries
-          for (let attempt = 0; attempt < 3; attempt++) {
-            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-            
-            try {
-              const profileResponse = await fetch(`/api/profile/${userId}`, {
-                headers: { 'Authorization': `Bearer ${accessToken}` }
-              });
-              if (profileResponse.ok) {
-                const profile = await profileResponse.json();
-                return { profile, onboardingCompleted: profile?.onboardingCompleted || false };
-              }
-            } catch (e) {
-              console.error(`Profile fetch attempt ${attempt + 1} failed:`, e);
-            }
-          }
-          
-          // Profile creation failed - throw error instead of proceeding without profile
-          throw new Error("Kunne ikke oprette din profil. Prøv at logge ind igen.");
+          // Default to onboarding for new users
+          return "/onboarding";
         };
 
         if (type === "signup" || type === "email") {
@@ -73,13 +50,15 @@ export default function AuthCallback() {
             }
 
             if (data.user) {
-              // Verify with backend and ensure profile exists
-              const { onboardingCompleted } = await verifyAndEnsureProfile(
-                data.user.id, 
-                accessToken, 
-                refreshToken
-              );
-              const redirectPath = onboardingCompleted ? "/dashboard" : "/onboarding";
+              // Verify with backend and create/update profile
+              await fetch("/api/auth/verify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ accessToken, refreshToken }),
+              });
+
+              // Determine where to redirect based on onboarding status
+              const redirectPath = await getRedirectPath(data.user.id, accessToken);
               
               setStatus("success");
               setMessage(redirectPath === "/onboarding" 
@@ -98,12 +77,7 @@ export default function AuthCallback() {
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user?.email_confirmed_at) {
-          const { onboardingCompleted } = await verifyAndEnsureProfile(
-            session.user.id,
-            session.access_token, 
-            session.refresh_token
-          );
-          const redirectPath = onboardingCompleted ? "/dashboard" : "/onboarding";
+          const redirectPath = await getRedirectPath(session.user.id, session.access_token);
           setStatus("success");
           setMessage("Allerede bekræftet! Sender dig videre...");
           setTimeout(() => {
