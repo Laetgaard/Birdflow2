@@ -58,6 +58,8 @@ import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import InspectorSidebar from "@/components/builder/InspectorSidebar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
 import CoachMarks from "@/components/builder/CoachMarks";
+import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
+import type { WebsiteTemplate } from "@shared/websiteTemplates";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
 import { 
   createHistory, 
@@ -140,6 +142,7 @@ export default function BuilderPage() {
   const pendingHistoryDescriptionRef = useRef<string>('');
   const [hasPendingEdit, setHasPendingEdit] = useState(false);
   const [showCoachMarks, setShowCoachMarks] = useState(false);
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
 
   const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
     if (historyDebounceRef.current) {
@@ -579,6 +582,29 @@ export default function BuilderPage() {
     setSelectedComponentId(duplicatedComponent.id);
   }, [builderState, updateStateWithHistory]);
 
+  const applyTemplate = useCallback((template: WebsiteTemplate) => {
+    const newState: BuilderStateData = {
+      pages: template.builderState.pages.map(page => ({
+        ...page,
+        components: page.components.map(comp => ({
+          ...comp,
+          id: `${comp.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        })),
+      })),
+      activePage: template.builderState.activePage || template.builderState.pages[0]?.id || 'home',
+      globalStyles: template.builderState.globalStyles,
+    };
+    
+    updateStateWithHistory(newState, `Apply template: ${template.name}`);
+    setSelectedComponentId(null);
+    saveState(newState);
+    
+    toast({
+      title: "Skabelon anvendt",
+      description: `"${template.name}" er nu indlæst i din editor.`,
+    });
+  }, [updateStateWithHistory, toast, saveState]);
+
   const handleSelectionUpdate = useCallback((componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
     updateComponent(componentId, updates);
   }, []);
@@ -976,7 +1002,17 @@ export default function BuilderPage() {
 
             <TabsContent value="components" className="flex-1 p-4 pt-2 overflow-auto">
               <div className="space-y-2">
-                <h3 className="font-semibold text-sm mb-3">Add Section</h3>
+                <Button
+                  variant="outline"
+                  className="w-full mb-4 justify-start gap-2 border-dashed border-2 hover:border-primary hover:bg-primary/5"
+                  onClick={() => setTemplateGalleryOpen(true)}
+                  data-testid="open-template-gallery"
+                >
+                  <Layout className="w-4 h-4" />
+                  <span>Vælg Skabelon</span>
+                </Button>
+                <Separator className="my-3" />
+                <h3 className="font-semibold text-sm mb-3">Tilføj Sektion</h3>
                 {getComponentTypes().map((type) => {
                   const def = componentRegistry[type];
                   const IconComponent = ICON_MAP[def.icon] || Layout;
@@ -1166,6 +1202,13 @@ export default function BuilderPage() {
           onComplete={() => setShowCoachMarks(false)} 
         />
       )}
+
+      {/* Template Gallery Modal */}
+      <TemplateGalleryModal
+        open={templateGalleryOpen}
+        onOpenChange={setTemplateGalleryOpen}
+        onSelectTemplate={applyTemplate}
+      />
     </div>
   );
 }
