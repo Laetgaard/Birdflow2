@@ -1016,8 +1016,8 @@ export default function BuilderPage() {
           <FloatingToolbar />
 
         {/* Right Sidebar */}
-        <aside className="w-80 border-l bg-card flex flex-col shrink-0">
-          <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col">
+        <aside className="w-80 border-l bg-card flex flex-col shrink-0 overflow-hidden">
+          <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col overflow-hidden">
             <TabsList className="grid w-full grid-cols-3 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
               <TabsTrigger value="components" data-testid="tab-components">
                 <Plus className="w-4 h-4 mr-1" />
@@ -1070,8 +1070,8 @@ export default function BuilderPage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="properties" className="flex-1 overflow-auto" ref={sidebarScrollRef}>
-              <ScrollArea className="h-full">
+            <TabsContent value="properties" className="flex-1 overflow-hidden flex flex-col" ref={sidebarScrollRef}>
+              <ScrollArea className="flex-1">
                 <div 
                   className="p-4 pt-2 transition-all duration-300 ease-out"
                   style={{ paddingTop: selectedComponent ? `${propertiesPaddingTop + 8}px` : '8px' }}
