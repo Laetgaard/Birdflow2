@@ -211,7 +211,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn("Warning: SUPABASE_URL and SUPABASE_ANON_KEY not set. Auth will not work.");
 }
 
-// Middleware to verify Supabase session
+// Middleware to verify Supabase session and ensure profile exists
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
@@ -239,50 +239,24 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ message: "Email not confirmed" });
     }
 
-    // Ensure profile exists for authenticated user (auto-create if missing)
-    try {
-      console.log(`[RequireAuth] Checking profile for user ${user.id}`);
-      let profile = await storage.getProfile(user.id);
-      console.log(`[RequireAuth] Profile lookup result for ${user.id}:`, profile ? 'found' : 'not found');
-      
-      if (!profile && user.email) {
-        console.log(`[RequireAuth] Profile missing for user ${user.id}, creating automatically...`);
-        console.log(`[RequireAuth] User email: ${user.email}`);
-        console.log(`[RequireAuth] User metadata:`, JSON.stringify(user.user_metadata || {}));
-        
-        const fullName = user.user_metadata?.full_name || user.email.split('@')[0] || '';
-        const phoneNumber = user.user_metadata?.phone_number || '';
-        
-        console.log(`[RequireAuth] Creating profile with: id=${user.id}, email=${user.email}, fullName=${fullName}`);
-        
-        try {
-          profile = await storage.createProfile({
-            id: user.id,
-            email: user.email,
-            fullName,
-            phoneNumber,
-          });
-          console.log(`[RequireAuth] Profile created successfully for user ${user.id}`);
-        } catch (createError: any) {
-          console.error(`[RequireAuth] Profile creation error:`, createError.message);
-          console.error(`[RequireAuth] Error code:`, createError.code);
-          console.error(`[RequireAuth] Full error:`, JSON.stringify(createError, Object.getOwnPropertyNames(createError)));
-          
-          if (createError.code === '23505') {
-            // Profile already exists (race condition), fetch it
-            profile = await storage.getProfile(user.id);
-            console.log(`[RequireAuth] Profile already existed for user ${user.id}`);
-          } else {
-            console.error(`[RequireAuth] Failed to create profile for user ${user.id}:`, createError);
-          }
+    // Auto-create profile if missing (user has confirmed email at this point)
+    let profile = await storage.getProfile(user.id);
+    if (!profile && user.email) {
+      console.log(`[RequireAuth] Creating profile for user ${user.id}`);
+      try {
+        profile = await storage.createProfile({
+          id: user.id,
+          email: user.email,
+          fullName: user.user_metadata?.full_name || user.email.split('@')[0] || '',
+          phoneNumber: user.user_metadata?.phone_number || '',
+        });
+        console.log(`[RequireAuth] Profile created for user ${user.id}`);
+      } catch (createError: any) {
+        if (createError.code === '23505') {
+          profile = await storage.getProfile(user.id);
         }
+        // Continue even if creation fails - getOrCreateProfile in endpoints will retry
       }
-      
-      console.log(`[RequireAuth] Final profile state for ${user.id}:`, profile ? 'exists' : 'missing');
-    } catch (profileError: any) {
-      console.error(`[RequireAuth] Profile check error for user ${user.id}:`, profileError.message);
-      console.error(`[RequireAuth] Full profile error:`, JSON.stringify(profileError, Object.getOwnPropertyNames(profileError)));
-      // Continue even if profile creation fails - some endpoints don't need profiles
     }
 
     // Attach user to request
