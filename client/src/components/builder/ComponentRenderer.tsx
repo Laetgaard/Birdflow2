@@ -3020,7 +3020,7 @@ type ContainerComponentProps = ComponentRenderProps & {
   pages?: BuilderPage[];
 };
 
-function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, deviceMode }: ContainerComponentProps) {
+function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, deviceMode, onClick }: ContainerComponentProps) {
   const children = props.children || [];
   const layout = props.layout || 'vertical';
   const gap = props.gap || '24px';
@@ -3051,6 +3051,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
     margin: styles.margin || '0 auto',
     minHeight: '100px',
     position: 'relative',
+    cursor: isPreview ? 'default' : 'pointer',
   };
   
   const childComponents = children
@@ -3058,7 +3059,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
     .filter(Boolean) as BuilderComponentData[];
   
   return (
-    <div style={containerStyle}>
+    <div style={containerStyle} onClick={onClick} data-testid="container-component">
       {childComponents.length === 0 ? (
         <div style={{ 
           padding: '40px', 
