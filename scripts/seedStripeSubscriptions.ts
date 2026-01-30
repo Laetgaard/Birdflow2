@@ -29,7 +29,7 @@ const PLANS: PlanConfig[] = [
     name: 'BirdFlow Starter',
     description: 'Perfect for growing businesses - 1 website, 5 pages, 4GB storage, booking system',
     priceMonthlyDKK: 14900,
-    trialDays: 14,
+    trialDays: 30,
     metadata: {
       planId: 'starter',
       maxWebsites: '1',
@@ -43,7 +43,7 @@ const PLANS: PlanConfig[] = [
     name: 'BirdFlow Professional',
     description: 'Full-featured for serious businesses - 5 websites, 20 pages each, 15GB storage, webshop',
     priceMonthlyDKK: 24900,
-    trialDays: 14,
+    trialDays: 30,
     metadata: {
       planId: 'professional',
       maxWebsites: '5',

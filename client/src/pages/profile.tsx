@@ -692,7 +692,7 @@ export default function ProfilePage() {
               </div>
 
               <p className="text-center text-sm text-muted-foreground">
-                Starter og Professionel inkluderer 14 dages gratis prøveperiode. Annuller når som helst.
+                Starter og Professionel inkluderer 1 måneds gratis prøveperiode. Annuller når som helst.
               </p>
             </div>
           </TabsContent>

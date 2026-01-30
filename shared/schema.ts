@@ -37,7 +37,7 @@ export const PLATFORM_PLANS = {
       booking: true,
       webshop: false,
     },
-    trialDays: 14,
+    trialDays: 30,
   },
   professional: {
     slug: 'professional' as const,
@@ -53,7 +53,7 @@ export const PLATFORM_PLANS = {
       booking: true,
       webshop: true,
     },
-    trialDays: 14,
+    trialDays: 30,
   },
 } as const;
 

@@ -290,7 +290,7 @@ export default function AuthPage() {
             </div>
             <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-lg px-4 py-2">
               <Crown className="w-5 h-5 text-yellow-300" />
-              <span className="text-sm font-medium">14 dages gratis prøve</span>
+              <span className="text-sm font-medium">1 måneds gratis prøve</span>
             </div>
           </div>
         </div>

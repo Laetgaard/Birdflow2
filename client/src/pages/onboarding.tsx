@@ -54,8 +54,8 @@ const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail:
     icon: Building2,
     color: "from-emerald-500 to-teal-500",
     popular: true,
-    features: ["1 hjemmeside", "Op til 5 sider", "4 GB lagerplads", "Booking system", "14 dages gratis"],
-    trialText: "14 dages gratis prøveperiode",
+    features: ["1 hjemmeside", "Op til 5 sider", "4 GB lagerplads", "Booking system", "1 måneds gratis"],
+    trialText: "1 måneds gratis prøveperiode",
     hasTrial: true,
   },
   {
@@ -67,22 +67,13 @@ const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail:
     icon: Crown,
     color: "from-purple-500 to-pink-500",
     popular: false,
-    features: ["5 hjemmesider", "Op til 20 sider", "Webshop", "15 GB lagerplads", "14 dages gratis"],
-    trialText: "14 dages gratis prøveperiode",
+    features: ["5 hjemmesider", "Op til 20 sider", "Webshop", "15 GB lagerplads", "1 måneds gratis"],
+    trialText: "1 måneds gratis prøveperiode",
     hasTrial: true,
   },
 ];
 
 const websiteTemplates = [
-  {
-    id: "modern-business",
-    name: "Moderne Virksomhed",
-    description: "Professionel hjemmeside til virksomheder",
-    category: "business",
-    icon: Briefcase,
-    color: "from-slate-600 to-slate-800",
-    thumbnail: "https://images.unsplash.com/photo-1497366216548-37526070297c?w=400&h=300&fit=crop",
-  },
   {
     id: "service-booking",
     name: "Booking & Services",
@@ -100,24 +91,6 @@ const websiteTemplates = [
     icon: Store,
     color: "from-green-500 to-emerald-500",
     thumbnail: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=400&h=300&fit=crop",
-  },
-  {
-    id: "creative-portfolio",
-    name: "Portfolio",
-    description: "Vis dine projekter og arbejde frem",
-    category: "portfolio",
-    icon: Palette,
-    color: "from-purple-500 to-pink-500",
-    thumbnail: "https://images.unsplash.com/photo-1545235617-9465d2a55698?w=400&h=300&fit=crop",
-  },
-  {
-    id: "minimal-landing",
-    name: "Landingsside",
-    description: "Simpel og effektiv landingsside",
-    category: "landing",
-    icon: Layout,
-    color: "from-orange-500 to-red-500",
-    thumbnail: "https://images.unsplash.com/photo-1467232004584-a241de8bcf5d?w=400&h=300&fit=crop",
   },
   {
     id: "blank",
@@ -360,34 +333,6 @@ export default function OnboardingPage() {
     }
   };
 
-  const handleSkipToEditor = async () => {
-    if (!token) return;
-    
-    try {
-      // Mark onboarding as complete
-      await fetch("/api/onboarding/complete", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      
-      if (createdWebsiteId) {
-        navigate(`/builder/${createdWebsiteId}?tour=true`);
-      } else {
-        navigate("/dashboard");
-      }
-    } catch (error) {
-      // Navigate anyway even if completing fails
-      if (createdWebsiteId) {
-        navigate(`/builder/${createdWebsiteId}?tour=true`);
-      } else {
-        navigate("/dashboard");
-      }
-    }
-  };
-
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -503,6 +448,10 @@ export default function OnboardingPage() {
                                   : ""
                               }`}
                               variant={plan.popular ? "default" : "outline"}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePlanSelection(plan.id);
+                              }}
                               data-testid={`button-plan-${plan.id}`}
                             >
                               Vælg {plan.name}
@@ -787,7 +736,7 @@ export default function OnboardingPage() {
                           {plan.hasTrial && (
                             <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
                               <Gift className="w-3 h-3 mr-1" />
-                              14 dages gratis
+                              1 måneds gratis
                             </Badge>
                           )}
                         </div>
@@ -813,7 +762,7 @@ export default function OnboardingPage() {
                           ) : (
                             <Gift className="w-5 h-5 mr-2" />
                           )}
-                          Start 14 dages gratis prøveperiode
+                          Start 1 måneds gratis prøveperiode
                         </Button>
                       );
                     }
@@ -835,17 +784,6 @@ export default function OnboardingPage() {
                     );
                   })()}
 
-                  <Button
-                    variant="ghost"
-                    size="lg"
-                    className="w-full h-12 text-muted-foreground"
-                    onClick={handleSkipToEditor}
-                    disabled={isRedirectingToStripe}
-                    data-testid="button-skip-payment"
-                  >
-                    Prøv editoren først
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
                 </div>
 
                 <p className="text-center text-sm text-muted-foreground mt-6">
