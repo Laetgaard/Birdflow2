@@ -13,6 +13,13 @@ interface UploadResponse {
   metadata: UploadMetadata;
 }
 
+interface OptimizedUploadResponse {
+  objectPath: string;
+  originalSize: number;
+  optimizedSize: number;
+  savings: string;
+}
+
 interface UseUploadOptions {
   onSuccess?: (response: UploadResponse) => void;
   onError?: (error: Error) => void;
@@ -188,8 +195,65 @@ export function useUpload(options: UseUploadOptions = {}) {
     []
   );
 
+  /**
+   * Upload an image with automatic optimization.
+   * 
+   * The image is automatically:
+   * - Compressed to 80% quality
+   * - Converted to WebP format (25-35% smaller)
+   * - Resized if larger than 2000px width
+   * 
+   * @param file - The image file to upload
+   * @returns The optimized upload response with savings info
+   */
+  const uploadOptimizedImage = useCallback(
+    async (file: File): Promise<OptimizedUploadResponse | null> => {
+      setIsUploading(true);
+      setError(null);
+      setProgress(0);
+
+      try {
+        // Check if it's an image
+        if (!file.type.startsWith('image/')) {
+          throw new Error('Only image files can be optimized');
+        }
+
+        setProgress(10);
+        
+        const formData = new FormData();
+        formData.append('image', file);
+
+        const response = await fetch('/api/uploads/optimized-image', {
+          method: 'POST',
+          body: formData,
+        });
+
+        setProgress(80);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to upload optimized image');
+        }
+
+        const result: OptimizedUploadResponse = await response.json();
+        setProgress(100);
+        
+        return result;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error('Upload failed');
+        setError(error);
+        options.onError?.(error);
+        return null;
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [options]
+  );
+
   return {
     uploadFile,
+    uploadOptimizedImage,
     getUploadParameters,
     isUploading,
     error,

@@ -1,5 +1,22 @@
 import type { Express } from "express";
-import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import multer from "multer";
+import sharp from "sharp";
+import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "./objectStorage";
+import { randomUUID } from "crypto";
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+});
 
 /**
  * Register object storage routes for file uploads.
@@ -59,6 +76,88 @@ export function registerObjectStorageRoutes(app: Express): void {
     } catch (error) {
       console.error("Error generating upload URL:", error);
       res.status(500).json({ error: "Failed to generate upload URL" });
+    }
+  });
+
+  /**
+   * Upload and optimize an image.
+   * 
+   * POST /api/uploads/optimized-image
+   * Content-Type: multipart/form-data
+   * 
+   * The image is automatically:
+   * - Compressed to 80% quality
+   * - Converted to WebP format (25-35% smaller than JPEG/PNG)
+   * - Resized if larger than 2000px width
+   * 
+   * Response:
+   * {
+   *   "objectPath": "/objects/uploads/uuid.webp",
+   *   "originalSize": 5242880,
+   *   "optimizedSize": 102400,
+   *   "savings": "98%"
+   * }
+   */
+  app.post("/api/uploads/optimized-image", upload.single('image'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No image file provided" });
+      }
+
+      const originalSize = req.file.size;
+      
+      // Process image with Sharp
+      let sharpInstance = sharp(req.file.buffer);
+      
+      // Get image metadata
+      const metadata = await sharpInstance.metadata();
+      
+      // Resize if too large (max 2000px width)
+      if (metadata.width && metadata.width > 2000) {
+        sharpInstance = sharpInstance.resize(2000, null, {
+          withoutEnlargement: true,
+          fit: 'inside',
+        });
+      }
+      
+      // Convert to WebP with 80% quality
+      const optimizedBuffer = await sharpInstance
+        .webp({ quality: 80 })
+        .toBuffer();
+      
+      const optimizedSize = optimizedBuffer.length;
+      const savings = Math.round((1 - optimizedSize / originalSize) * 100);
+      
+      // Upload to Object Storage
+      const privateObjectDir = objectStorageService.getPrivateObjectDir();
+      const objectId = `${randomUUID()}.webp`;
+      const fullPath = `${privateObjectDir}/uploads/${objectId}`;
+      
+      // Parse the path to get bucket and object name
+      const pathParts = fullPath.startsWith('/') ? fullPath.slice(1).split('/') : fullPath.split('/');
+      const bucketName = pathParts[0];
+      const objectName = pathParts.slice(1).join('/');
+      
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+      
+      // Upload the optimized buffer
+      await file.save(optimizedBuffer, {
+        contentType: 'image/webp',
+        resumable: false,
+      });
+      
+      const objectPath = `/objects/uploads/${objectId}`;
+      
+      res.json({
+        objectPath,
+        originalSize,
+        optimizedSize,
+        savings: `${savings}%`,
+      });
+    } catch (error) {
+      console.error("Error optimizing and uploading image:", error);
+      res.status(500).json({ error: "Failed to optimize and upload image" });
     }
   });
 
