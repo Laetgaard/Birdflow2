@@ -54,25 +54,20 @@ async function uploadImage(
   accessToken: string, 
   file: File
 ): Promise<{ url: string; mediaId: string }> {
-  const signedUrlRes = await fetch(`/api/websites/${websiteId}/media/upload-url`, {
+  // Use optimized image upload endpoint for compression and WebP conversion
+  const formData = new FormData();
+  formData.append('image', file);
+  
+  const optimizedRes = await fetch('/api/uploads/optimized-image', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ filename: file.name, contentType: file.type }),
+    body: formData,
   });
   
-  if (!signedUrlRes.ok) throw new Error('Failed to get upload URL');
-  const { uploadUrl, storagePath, filename } = await signedUrlRes.json();
-
-  const uploadRes = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': file.type },
-    body: file,
-  });
+  if (!optimizedRes.ok) {
+    throw new Error('Failed to upload and optimize image');
+  }
   
-  if (!uploadRes.ok) throw new Error('Upload failed');
+  const { objectPath, optimizedSize } = await optimizedRes.json();
 
   let width: number | undefined;
   let height: number | undefined;
@@ -88,6 +83,8 @@ async function uploadImage(
     });
   }
 
+  const filename = objectPath.split('/').pop() || `${Date.now()}.webp`;
+
   const createRes = await fetch(`/api/websites/${websiteId}/media`, {
     method: 'POST',
     headers: {
@@ -97,9 +94,9 @@ async function uploadImage(
     body: JSON.stringify({
       filename,
       originalFilename: file.name,
-      storagePath,
-      mimeType: file.type,
-      size: file.size,
+      storagePath: objectPath,
+      mimeType: 'image/webp',
+      size: optimizedSize,
       width,
       height,
     }),
