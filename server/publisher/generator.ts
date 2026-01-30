@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 import type { BuilderStateData } from '../../shared/schema';
 import type { ThemeConfig } from '../../shared/rendering/types';
+import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
   generatePackageJson,
   generateTsConfig,
@@ -47,6 +49,131 @@ export type GeneratorConfig = {
   supabaseAnonKey: string;
 };
 
+type ImageMapping = { originalUrl: string; newUrl: string };
+
+const CSS_URL_REGEX = /url\(['"]?([^'")\s]+)['"]?\)/g;
+
+function extractObjectStorageUrls(obj: any, urls: Set<string> = new Set()): Set<string> {
+  if (!obj) return urls;
+  
+  if (typeof obj === 'string') {
+    // Check for direct /objects/ URLs
+    if (obj.startsWith('/objects/')) {
+      urls.add(obj);
+    }
+    // Check for URLs embedded in CSS url() syntax
+    const matches = Array.from(obj.matchAll(CSS_URL_REGEX));
+    for (const match of matches) {
+      if (match[1] && match[1].startsWith('/objects/')) {
+        urls.add(match[1]);
+      }
+    }
+  } else if (Array.isArray(obj)) {
+    for (const item of obj) {
+      extractObjectStorageUrls(item, urls);
+    }
+  } else if (typeof obj === 'object') {
+    for (const key of Object.keys(obj)) {
+      extractObjectStorageUrls(obj[key], urls);
+    }
+  }
+  
+  return urls;
+}
+
+function replaceObjectStorageUrls(obj: any, mappings: Map<string, string>): any {
+  if (!obj) return obj;
+  
+  if (typeof obj === 'string') {
+    // Direct /objects/ URL replacement
+    if (obj.startsWith('/objects/')) {
+      return mappings.get(obj) || obj;
+    }
+    // Replace URLs embedded in CSS url() syntax
+    if (obj.includes('/objects/')) {
+      let result = obj;
+      for (const [originalUrl, newUrl] of Array.from(mappings.entries())) {
+        result = result.split(originalUrl).join(newUrl);
+      }
+      return result;
+    }
+    return obj;
+  } else if (Array.isArray(obj)) {
+    return obj.map(item => replaceObjectStorageUrls(item, mappings));
+  } else if (typeof obj === 'object') {
+    const result: any = {};
+    for (const key of Object.keys(obj)) {
+      result[key] = replaceObjectStorageUrls(obj[key], mappings);
+    }
+    return result;
+  }
+  
+  return obj;
+}
+
+async function downloadAndSaveImages(
+  urls: Set<string>,
+  outputDir: string
+): Promise<Map<string, string>> {
+  const mappings = new Map<string, string>();
+  const imagesDir = path.join(outputDir, 'public', 'images');
+  await fs.promises.mkdir(imagesDir, { recursive: true });
+  
+  const objectStorageService = new ObjectStorageService();
+  
+  for (const url of Array.from(urls)) {
+    try {
+      // Use ObjectStorageService for reliable path resolution
+      const file = await objectStorageService.getObjectEntityFile(url);
+      
+      const [buffer] = await file.download();
+      const [metadata] = await file.getMetadata();
+      
+      // Get file extension from original filename or content type
+      const parts = url.split('/');
+      const originalFilename = parts[parts.length - 1] || '';
+      let extension = path.extname(originalFilename);
+      
+      // Try to get extension from content type if not in filename
+      if (!extension && metadata.contentType) {
+        const mimeExtensions: Record<string, string> = {
+          'image/webp': '.webp',
+          'image/jpeg': '.jpg',
+          'image/png': '.png',
+          'image/gif': '.gif',
+          'image/svg+xml': '.svg',
+          'image/bmp': '.bmp',
+          'image/tiff': '.tiff',
+        };
+        extension = mimeExtensions[metadata.contentType] || '';
+      }
+      
+      // Default to .webp since our upload system converts to webp
+      if (!extension) {
+        extension = '.webp';
+      }
+      
+      // Generate unique filename to avoid collisions
+      const uniqueFilename = `${randomUUID()}${extension}`;
+      const localPath = path.join(imagesDir, uniqueFilename);
+      await fs.promises.writeFile(localPath, buffer);
+      
+      const newUrl = `/images/${uniqueFilename}`;
+      mappings.set(url, newUrl);
+      
+      console.log(`[Publisher] Downloaded image: ${url} -> ${newUrl}`);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        console.warn(`[Publisher] Image not found in Object Storage: ${url}`);
+      } else {
+        console.error(`[Publisher] Failed to download image ${url}:`, error);
+      }
+    }
+  }
+  
+  return mappings;
+}
+
 export async function generateNextJsProject(config: GeneratorConfig): Promise<string> {
   const { websiteId, siteName, builderState, supabaseUrl, supabaseAnonKey } = config;
   
@@ -71,7 +198,22 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   await fs.promises.mkdir(path.join(outputDir, 'components'), { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'lib'), { recursive: true });
   
-  const globalStyles = builderState.globalStyles || {};
+  // Extract and download Object Storage images
+  console.log('[Publisher] Extracting Object Storage URLs from builder state...');
+  const objectStorageUrls = extractObjectStorageUrls(builderState);
+  console.log(`[Publisher] Found ${objectStorageUrls.size} Object Storage URLs`);
+  
+  let processedBuilderState = builderState;
+  if (objectStorageUrls.size > 0) {
+    console.log('[Publisher] Downloading images from Object Storage...');
+    const urlMappings = await downloadAndSaveImages(objectStorageUrls, outputDir);
+    console.log(`[Publisher] Downloaded ${urlMappings.size} images`);
+    
+    // Replace URLs in builder state
+    processedBuilderState = replaceObjectStorageUrls(builderState, urlMappings) as BuilderStateData;
+  }
+  
+  const globalStyles = processedBuilderState.globalStyles || {};
   const theme: ThemeConfig = {
     primaryColor: globalStyles.primaryColor || '#4f46e5',
     secondaryColor: globalStyles.secondaryColor || '#22c55e',
@@ -121,7 +263,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/checkout/page.tsx', content: generateCheckoutPage() },
   ];
   
-  for (const page of builderState.pages) {
+  for (const page of processedBuilderState.pages) {
     const pagePath = page.path === '/' ? 'app/page.tsx' : `app${page.path}/page.tsx`;
     
     if (page.path !== '/') {
@@ -130,7 +272,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     
     // Cast to any to avoid type mismatches between schema types and rendering types
     // The page data is serialized to JSON, so runtime types don't matter
-    files.push({ path: pagePath, content: generatePageFile(page as any, websiteId, builderState.pages as any) });
+    files.push({ path: pagePath, content: generatePageFile(page as any, websiteId, processedBuilderState.pages as any) });
   }
   
   for (const file of files) {
