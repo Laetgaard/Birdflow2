@@ -2057,42 +2057,10 @@ export async function registerRoutes(
       let stripeSecretKey: string | undefined;
       let stripePublishableKey: string | undefined;
       let stripeWebhookSecret: string | undefined;
-      let stripeAccountId: string | undefined;
       let stripeWarning: string | undefined;
       
       const paymentSettings = await storage.getPaymentSettings(req.params.id);
-      
-      // Check for Stripe Connect (OAuth) first - uses platform keys + destination charges
-      if (paymentSettings?.stripeConnectStatus === 'connected' && paymentSettings.stripeAccountId) {
-        // Use platform's Stripe keys with destination charges to connected account
-        const platformStripeSecretKey = await getStripeSecretKey();
-        const platformStripePublishableKey = process.env.STRIPE_PUBLISHABLE_KEY;
-        const platformWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-        
-        if (platformStripeSecretKey && platformStripePublishableKey) {
-          stripeSecretKey = platformStripeSecretKey;
-          stripePublishableKey = platformStripePublishableKey;
-          stripeAccountId = paymentSettings.stripeAccountId;
-          // Webhook secret is optional - if present, use it for enhanced security
-          if (platformWebhookSecret) {
-            stripeWebhookSecret = platformWebhookSecret;
-          } else {
-            console.log('[Publish] STRIPE_WEBHOOK_SECRET not configured - using session verification instead');
-          }
-          console.log(`[Publish] Using Stripe Connect with destination charges to account: ${stripeAccountId}`);
-        } else {
-          // Missing required platform configuration for Connect - fail the publish
-          const missing = [];
-          if (!platformStripeSecretKey) missing.push('STRIPE_SECRET_KEY');
-          if (!platformStripePublishableKey) missing.push('STRIPE_PUBLISHABLE_KEY');
-          console.error(`[Publish] Cannot use Stripe Connect - missing: ${missing.join(', ')}`);
-          return res.status(500).json({ 
-            message: 'Stripe Connect er ikke fuldt konfigureret. Kontakt support for at aktivere betalinger på dit website.' 
-          });
-        }
-      }
-      // Check for manual key entry (direct Stripe integration)
-      else if (paymentSettings?.isConnected && paymentSettings.stripeSecretKey) {
+      if (paymentSettings?.isConnected && paymentSettings.stripeSecretKey) {
         stripeSecretKey = paymentSettings.stripeSecretKey;
         stripePublishableKey = paymentSettings.stripePublishableKey || undefined;
         stripeWebhookSecret = paymentSettings.stripeWebhookSecret || undefined;
@@ -2134,7 +2102,6 @@ export async function registerRoutes(
         stripeSecretKey,
         stripePublishableKey,
         stripeWebhookSecret,
-        stripeAccountId,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
         birdflowApiUrl,
