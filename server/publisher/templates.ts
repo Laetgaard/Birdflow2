@@ -6142,55 +6142,9 @@ export default function CheckoutPage() {
     );
   }
 
-  const [isMobile, setIsMobile] = useState(false);
-  
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  const containerStyle: React.CSSProperties = {
-    backgroundColor: '#f9fafb',
-    padding: isMobile ? '24px 16px' : '60px 24px',
-    minHeight: '100vh',
-  };
-
-  const innerStyle: React.CSSProperties = {
-    maxWidth: '1000px',
-    margin: '0 auto',
-  };
-
-  const gridStyle: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: isMobile ? '1fr' : '1fr 400px',
-    gap: isMobile ? '24px' : '40px',
-  };
-
-  const titleStyle: React.CSSProperties = {
-    fontSize: isMobile ? '24px' : '32px',
-    fontWeight: 700,
-    color: '#111827',
-    marginBottom: isMobile ? '24px' : '40px',
-  };
-
-  const cardStyle: React.CSSProperties = {
-    backgroundColor: '#fff',
-    borderRadius: '16px',
-    padding: isMobile ? '20px' : '32px',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-  };
-
-  const summaryStyle: React.CSSProperties = {
-    ...cardStyle,
-    position: isMobile ? 'static' : 'sticky',
-    top: isMobile ? undefined : '24px',
-  };
-
   return (
-    <div style={containerStyle}>
-      <div style={innerStyle}>
+    <div style={{ backgroundColor: '#f9fafb', padding: '60px 24px' }}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
         <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#6b7280', marginBottom: '32px', textDecoration: 'none', fontSize: '14px' }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M19 12H5M12 19l-7-7 7-7"/>
@@ -6198,12 +6152,12 @@ export default function CheckoutPage() {
           Back to shopping
         </Link>
 
-        <h1 style={titleStyle}>Checkout</h1>
+        <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '40px' }}>Checkout</h1>
 
-        <div style={gridStyle}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '40px' }}>
           <div>
-            <div style={cardStyle}>
-                <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Your Information</h2>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Your Information</h2>
               
               <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: '20px' }}>
@@ -6267,7 +6221,7 @@ export default function CheckoutPage() {
           </div>
 
           <div>
-            <div style={summaryStyle}>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', position: 'sticky', top: '24px' }}>
               <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Order Summary</h2>
               
               <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '20px' }}>
@@ -6354,8 +6308,9 @@ export default function CheckoutPage() {
               )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: 700, color: '#111827', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
-              <span>Total</span>
-              <span>{formatCurrency(grandTotal, currency)}</span>
+                <span>Total</span>
+                <span>{formatCurrency(grandTotal, currency)}</span>
+              </div>
             </div>
           </div>
         </div>
