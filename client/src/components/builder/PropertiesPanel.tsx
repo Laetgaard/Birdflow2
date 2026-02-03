@@ -580,14 +580,14 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Font</Label>
                 <Select 
-                  value={styledValue.fontFamily || ''} 
-                  onValueChange={(v) => setValue(field, { ...styledValue, fontFamily: v })}
+                  value={styledValue.fontFamily || 'inherit'} 
+                  onValueChange={(v) => setValue(field, { ...styledValue, fontFamily: v === 'inherit' ? '' : v })}
                 >
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue placeholder="Inherit" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Inherit</SelectItem>
+                    <SelectItem value="inherit">Inherit</SelectItem>
                     {fontFamilyPresets.map(font => (
                       <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
                         {font.name}
@@ -600,14 +600,14 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Size</Label>
                 <Select 
-                  value={styledValue.fontSize || ''} 
-                  onValueChange={(v) => setValue(field, { ...styledValue, fontSize: v })}
+                  value={styledValue.fontSize || 'inherit'} 
+                  onValueChange={(v) => setValue(field, { ...styledValue, fontSize: v === 'inherit' ? '' : v })}
                 >
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue placeholder="Inherit" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Inherit</SelectItem>
+                    <SelectItem value="inherit">Inherit</SelectItem>
                     <SelectItem value="12px">12px</SelectItem>
                     <SelectItem value="14px">14px</SelectItem>
                     <SelectItem value="16px">16px</SelectItem>
@@ -629,14 +629,14 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Weight</Label>
                 <Select 
-                  value={styledValue.fontWeight || ''} 
-                  onValueChange={(v) => setValue(field, { ...styledValue, fontWeight: v })}
+                  value={styledValue.fontWeight || 'inherit'} 
+                  onValueChange={(v) => setValue(field, { ...styledValue, fontWeight: v === 'inherit' ? '' : v })}
                 >
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue placeholder="Inherit" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Inherit</SelectItem>
+                    <SelectItem value="inherit">Inherit</SelectItem>
                     {fontWeightPresets.map(weight => (
                       <SelectItem key={weight.value} value={weight.value}>
                         {weight.name}
