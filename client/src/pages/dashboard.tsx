@@ -221,10 +221,8 @@ export default function Dashboard() {
       <header className="border-b bg-card">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-lg">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground">
-              <Globe className="w-5 h-5" />
-            </div>
-            SaaSify <span className="text-muted-foreground font-normal ml-2">Dashboard</span>
+            <img src="/logo.png" alt="BirdFlow" className="w-8 h-8" />
+            BirdFlow <span className="text-muted-foreground font-normal ml-2">Dashboard</span>
           </div>
 
           <div className="flex items-center gap-4">

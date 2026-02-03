@@ -16,7 +16,6 @@ import {
   ChevronDown,
   Users,
   Star,
-  Play,
 } from "lucide-react";
 import { motion, useInView } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -49,7 +48,7 @@ const staggerContainer = {
 };
 
 export default function LandingPage() {
-  const [totalCreators, setTotalCreators] = useState(1247);
+  const [totalCreators, setTotalCreators] = useState(0);
   
   useEffect(() => {
     getTotalCreators().then(setTotalCreators);
@@ -60,9 +59,7 @@ export default function LandingPage() {
       <header className="border-b sticky top-0 bg-background/80 backdrop-blur-md z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-xl tracking-tight">
-            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white">
-              <Globe className="w-5 h-5" />
-            </div>
+            <img src="/logo.png" alt="BirdFlow" className="w-8 h-8" />
             <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
               BirdFlow
             </span>
@@ -70,7 +67,6 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
             <a href="#features" className="hover:text-foreground transition-colors">Features</a>
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How it Works</a>
-            <a href="#templates" className="hover:text-foreground transition-colors">Templates</a>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
             <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
           </nav>
@@ -124,10 +120,6 @@ export default function LandingPage() {
                       <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
                     </Button>
                   </Link>
-                  <Button variant="outline" size="lg" className="h-12 px-8 text-base group" data-testid="button-watch-demo">
-                    <Play className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
-                    Watch Demo
-                  </Button>
                 </div>
                 
                 <div className="flex items-center justify-center lg:justify-start gap-2 text-sm text-muted-foreground">
@@ -205,49 +197,49 @@ export default function LandingPage() {
                 {
                   icon: Calendar,
                   title: "Booking System",
-                  desc: "Let customers book appointments. Manage your schedule with ease.",
+                  desc: "Let customers book appointments directly on your website. Set your availability, manage time slots, and receive instant notifications. Perfect for consultants, therapists, and service businesses.",
                   color: "bg-blue-500",
                 },
                 {
                   icon: ShoppingCart,
                   title: "E-Commerce",
-                  desc: "Sell products with inventory tracking, shipping, and secure checkout.",
+                  desc: "Build a complete online store with product catalogs, inventory tracking, variant support, and secure Stripe checkout. Manage orders, shipping, and customer data all in one place.",
                   color: "bg-green-500",
                 },
                 {
                   icon: Sparkles,
                   title: "AI Assistant",
-                  desc: "Build and modify your site using natural language commands.",
+                  desc: "Describe what you want in plain language and watch your website transform. Our AI understands design, layout, and content — making professional web design accessible to everyone.",
                   color: "bg-purple-500",
                 },
                 {
                   icon: Edit3,
                   title: "Inline Editing",
-                  desc: "Click and edit any text directly on your page. Webflow-style editing.",
+                  desc: "Click directly on any text, image, or element to edit it in real-time. No complicated menus or settings — just click, type, and see your changes instantly like Webflow.",
                   color: "bg-orange-500",
                 },
                 {
                   icon: BarChart3,
                   title: "Analytics",
-                  desc: "Privacy-first analytics. Track visitors, conversions, and sales.",
+                  desc: "Privacy-first analytics that respect your visitors. Track page views, conversion rates, and sales without cookies or personal data. GDPR compliant by design.",
                   color: "bg-pink-500",
                 },
                 {
                   icon: Mail,
                   title: "Email Notifications",
-                  desc: "Branded emails for bookings, orders, and updates. Fully customizable.",
+                  desc: "Automated transactional emails for every customer touchpoint. Booking confirmations, order receipts, and shipping updates — all branded with your logo and colors.",
                   color: "bg-cyan-500",
                 },
                 {
                   icon: CreditCard,
                   title: "Payment Processing",
-                  desc: "Connect your Stripe account. Accept payments worldwide.",
+                  desc: "Connect your own Stripe account in seconds. Accept credit cards, Apple Pay, and Google Pay from customers worldwide. Funds go directly to your bank account.",
                   color: "bg-indigo-500",
                 },
                 {
                   icon: Globe,
                   title: "Custom Domains",
-                  desc: "Use your own domain name. SSL included automatically.",
+                  desc: "Use your own domain name for a professional presence. SSL certificates are automatically configured and renewed. Your brand, your URL, completely seamless.",
                   color: "bg-red-500",
                 },
               ].map((feature, i) => (
@@ -263,139 +255,6 @@ export default function LandingPage() {
                   <p className="text-sm text-muted-foreground">{feature.desc}</p>
                 </motion.div>
               ))}
-            </motion.div>
-          </div>
-        </section>
-
-        <section id="templates" className="py-20 md:py-28 px-4 bg-gradient-to-b from-secondary/30 to-background">
-          <div className="container mx-auto max-w-6xl">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className="text-center mb-16"
-            >
-              <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-4">
-                Start with beautiful templates
-              </h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Professional designs for every type of business. Customize everything.
-              </p>
-            </motion.div>
-            
-            <motion.div
-              variants={staggerContainer}
-              initial="initial"
-              whileInView="animate"
-              viewport={{ once: true }}
-              className="grid md:grid-cols-3 gap-6"
-            >
-              {[
-                { 
-                  name: "Portfolio Pro", 
-                  category: "Creative", 
-                  color: "from-rose-500 to-pink-500",
-                  description: "Showcase your work with a stunning portfolio featuring projects, about, and contact sections.",
-                  features: ["Project Gallery", "About Section", "Contact Form"],
-                  thumbnail: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=400&h=300&fit=crop"
-                },
-                { 
-                  name: "Clinic & Services", 
-                  category: "Services", 
-                  color: "from-violet-600 to-purple-500",
-                  description: "Professional service business template with booking integration and team showcase.",
-                  features: ["Online Booking", "Team Profiles", "Service Menu"],
-                  thumbnail: "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=400&h=300&fit=crop"
-                },
-                { 
-                  name: "Webshop Starter", 
-                  category: "E-Commerce", 
-                  color: "from-emerald-600 to-teal-500",
-                  description: "Complete e-commerce template with product showcase, shopping cart, and checkout.",
-                  features: ["Product Catalog", "Cart & Checkout", "Order Management"],
-                  thumbnail: "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=400&h=300&fit=crop"
-                },
-              ].map((template, i) => (
-                <motion.div
-                  key={i}
-                  variants={fadeInUp}
-                  className="group cursor-pointer"
-                >
-                  <div className="bg-card rounded-2xl border shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group-hover:-translate-y-1">
-                    <div className={`relative aspect-[4/3] bg-gradient-to-br ${template.color} overflow-hidden`}>
-                      <div className="absolute inset-0 p-3">
-                        <div className="bg-white/95 backdrop-blur rounded-lg h-full w-full shadow-lg overflow-hidden">
-                          <div className="bg-gray-100 px-3 py-2 flex items-center gap-2 border-b">
-                            <div className="flex gap-1.5">
-                              <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-                              <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-                            </div>
-                            <div className="flex-1 bg-gray-200 rounded h-4 mx-2" />
-                          </div>
-                          <div className="p-3 space-y-2">
-                            <div className={`h-16 rounded bg-gradient-to-r ${template.color} opacity-80`} />
-                            <div className="flex gap-2">
-                              <div className="h-3 bg-gray-200 rounded flex-1" />
-                              <div className="h-3 bg-gray-200 rounded w-16" />
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 pt-1">
-                              <div className="h-10 bg-gray-100 rounded" />
-                              <div className="h-10 bg-gray-100 rounded" />
-                              <div className="h-10 bg-gray-100 rounded" />
-                            </div>
-                            <div className="space-y-1.5 pt-1">
-                              <div className="h-2 bg-gray-200 rounded w-full" />
-                              <div className="h-2 bg-gray-200 rounded w-4/5" />
-                              <div className="h-2 bg-gray-200 rounded w-3/5" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
-                        <Button size="sm" className="shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-                          <Sparkles className="w-4 h-4 mr-2" />
-                          Use Template
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-primary uppercase tracking-wider">{template.category}</span>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                          <span>4.9</span>
-                        </div>
-                      </div>
-                      <h3 className="text-lg font-bold mb-1">{template.name}</h3>
-                      <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{template.description}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {template.features.map((feature, j) => (
-                          <span key={j} className="text-xs px-2 py-0.5 bg-secondary rounded-full text-muted-foreground">
-                            {feature}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </motion.div>
-            
-            <motion.div
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.3 }}
-              className="text-center mt-12"
-            >
-              <Link href="/auth?mode=signup">
-                <Button variant="outline" size="lg" className="group" data-testid="button-browse-templates">
-                  Browse All Templates
-                  <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </Link>
             </motion.div>
           </div>
         </section>

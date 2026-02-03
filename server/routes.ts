@@ -335,7 +335,7 @@ export async function registerRoutes(
       res.json(stats);
     } catch (error) {
       console.error("Error fetching public stats:", error);
-      res.json({ totalCreators: 1247 }); // Fallback
+      res.json({ totalCreators: 0 }); // Fallback to 0 for real user count
     }
   });
 

@@ -1328,11 +1328,9 @@ export class DatabaseStorage implements IStorage {
 
   // Public stats methods
   async getPublicStats(): Promise<{ totalCreators: number }> {
-    const result = await db.select().from(publicStats).limit(1);
-    if (result.length === 0) {
-      return { totalCreators: 0 };
-    }
-    return { totalCreators: result[0].totalCreators };
+    // Count real users from profiles table
+    const result = await db.select({ count: sql<number>`count(*)::int` }).from(profiles);
+    return { totalCreators: result[0]?.count || 0 };
   }
 
   async incrementTotalCreators(): Promise<void> {
