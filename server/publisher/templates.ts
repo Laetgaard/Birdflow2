@@ -933,7 +933,7 @@ const WEBSITE_ID = '${websiteId}';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { items, customerEmail, customerName, customerPhone, shippingAddress } = body;
+    const { items, customerEmail, customerName, customerPhone, shippingAddress, shippingCity, shippingPostalCode } = body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, message: 'Cart is empty' }, { status: 400 });
@@ -945,6 +945,18 @@ export async function POST(request: NextRequest) {
 
     if (!customerName || customerName.trim().length < 2) {
       return NextResponse.json({ success: false, message: 'Name is required', field: 'customerName' }, { status: 400 });
+    }
+
+    if (!shippingAddress || shippingAddress.trim().length < 3) {
+      return NextResponse.json({ success: false, message: 'Shipping address is required', field: 'shippingAddress' }, { status: 400 });
+    }
+
+    if (!shippingCity || shippingCity.trim().length < 2) {
+      return NextResponse.json({ success: false, message: 'City is required', field: 'shippingCity' }, { status: 400 });
+    }
+
+    if (!shippingPostalCode || shippingPostalCode.trim().length < 2) {
+      return NextResponse.json({ success: false, message: 'Postal code is required', field: 'shippingPostalCode' }, { status: 400 });
     }
 
     const { createClient } = await import('@supabase/supabase-js');
@@ -1064,7 +1076,7 @@ const WEBSITE_ID = '${websiteId}';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { items, customerEmail, customerName, customerPhone, shippingAddress, shippingMethodId } = body;
+    const { items, customerEmail, customerName, customerPhone, shippingAddress, shippingCity, shippingPostalCode, shippingMethodId } = body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, message: 'Cart is empty' }, { status: 400 });
@@ -1210,6 +1222,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Create order with pending status - stock decrement happens in webhook after payment success
+    const fullAddress = [shippingAddress, shippingCity, shippingPostalCode].filter(Boolean).join(', ');
     await supabase.from('orders').insert({
       website_id: WEBSITE_ID,
       customer_name: customerName || customerEmail.split('@')[0] || 'Customer',
@@ -1230,7 +1243,7 @@ export async function POST(request: NextRequest) {
         priceCents: item.priceCents,
         quantity: item.quantity,
       })),
-      shipping_address: shippingAddress || null,
+      shipping_address: fullAddress || null,
       shipping_method_id: shippingMethodId || null,
       shipping_name: shippingMethod?.name || null,
       shipping_price: shippingMethod ? String(shippingCostCents) : null,
@@ -5973,6 +5986,9 @@ export default function CheckoutPage() {
   const { websiteId, isLoading: websiteLoading } = useWebsite();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [postalCode, setPostalCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -5981,6 +5997,20 @@ export default function CheckoutPage() {
   const [selectedShipping, setSelectedShipping] = useState<ShippingMethod | null>(null);
   const [isLoadingShipping, setIsLoadingShipping] = useState(true);
   const [outOfStock, setOutOfStock] = useState<Array<{ productId: string; name: string; requested: number; available: number }>>([]);
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.matchMedia('(max-width: 767px)').matches;
+    }
+    return false;
+  });
+  
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const handleChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    setIsMobile(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   // Fetch shipping methods
   useEffect(() => {
@@ -6007,8 +6037,8 @@ export default function CheckoutPage() {
     setError('');
     setOutOfStock([]);
     
-    if (!name.trim() || !email.trim()) {
-      setError('Please fill in all required fields');
+    if (!name.trim() || !email.trim() || !address.trim() || !city.trim() || !postalCode.trim()) {
+      setError('Udfyld venligst alle påkrævede felter');
       return;
     }
 
@@ -6037,6 +6067,9 @@ export default function CheckoutPage() {
           })),
           customerEmail: email,
           customerName: name,
+          shippingAddress: address,
+          shippingCity: city,
+          shippingPostalCode: postalCode,
         }),
       });
 
@@ -6060,6 +6093,9 @@ export default function CheckoutPage() {
           })),
           customerName: name,
           customerEmail: email,
+          shippingAddress: address,
+          shippingCity: city,
+          shippingPostalCode: postalCode,
           shippingMethodId: selectedShipping?.id,
         }),
       });
@@ -6154,34 +6190,73 @@ export default function CheckoutPage() {
 
         <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '40px' }}>Checkout</h1>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '40px' }}>
-          <div>
-            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Your Information</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 400px', gap: isMobile ? '24px' : '40px' }}>
+          <div style={{ order: isMobile ? 2 : 1 }}>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: isMobile ? '20px' : '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Dine oplysninger</h2>
               
               <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Full Name *</label>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Fulde navn *</label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="John Doe"
                     required
-                    style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none' }}
+                    style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
                   />
                 </div>
 
-                <div style={{ marginBottom: '24px' }}>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Email Address *</label>
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>E-mail adresse *</label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="john@example.com"
                     required
-                    style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none' }}
+                    style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
                   />
+                </div>
+
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '16px', marginTop: '32px' }}>Leveringsadresse</h3>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Adresse *</label>
+                  <input
+                    type="text"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Vejnavn 123"
+                    required
+                    style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>By *</label>
+                    <input
+                      type="text"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="København"
+                      required
+                      style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Postnummer *</label>
+                    <input
+                      type="text"
+                      value={postalCode}
+                      onChange={(e) => setPostalCode(e.target.value)}
+                      placeholder="2100"
+                      required
+                      style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
                 </div>
 
                 {error && (
@@ -6214,15 +6289,15 @@ export default function CheckoutPage() {
                     cursor: isSubmitting ? 'default' : 'pointer',
                   }}
                 >
-                  {isSubmitting ? 'Placing Order...' : 'Place Order'}
+                  {isSubmitting ? 'Behandler ordre...' : 'Bekræft ordre'}
                 </button>
               </form>
             </div>
           </div>
 
-          <div>
-            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', position: 'sticky', top: '24px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Order Summary</h2>
+          <div style={{ order: isMobile ? 1 : 2 }}>
+            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: isMobile ? '20px' : '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', position: isMobile ? 'relative' : 'sticky', top: isMobile ? 'auto' : '24px' }}>
+              <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Ordreoversigt</h2>
               
               <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '20px' }}>
                 {items.map((item) => (
