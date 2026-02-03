@@ -6142,59 +6142,61 @@ export default function CheckoutPage() {
     );
   }
 
+  const responsiveStyles = \`
+    .checkout-container {
+      background-color: #f9fafb;
+      padding: 60px 24px;
+      min-height: 100vh;
+    }
+    .checkout-inner {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .checkout-grid {
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      gap: 40px;
+    }
+    .checkout-title {
+      font-size: 32px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 40px;
+    }
+    .checkout-card {
+      background-color: #fff;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .order-summary {
+      position: sticky;
+      top: 24px;
+    }
+    @media (max-width: 768px) {
+      .checkout-container {
+        padding: 24px 16px;
+      }
+      .checkout-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+      .checkout-title {
+        font-size: 24px;
+        margin-bottom: 24px;
+      }
+      .checkout-card {
+        padding: 20px;
+      }
+      .order-summary {
+        position: static;
+      }
+    }
+  \`;
+
   return (
     <>
-      <style>{\`
-        .checkout-container {
-          background-color: #f9fafb;
-          padding: 60px 24px;
-          min-height: 100vh;
-        }
-        .checkout-inner {
-          max-width: 1000px;
-          margin: 0 auto;
-        }
-        .checkout-grid {
-          display: grid;
-          grid-template-columns: 1fr 400px;
-          gap: 40px;
-        }
-        .checkout-title {
-          font-size: 32px;
-          font-weight: 700;
-          color: #111827;
-          margin-bottom: 40px;
-        }
-        .checkout-card {
-          background-color: #fff;
-          border-radius: 16px;
-          padding: 32px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        }
-        .order-summary {
-          position: sticky;
-          top: 24px;
-        }
-        @media (max-width: 768px) {
-          .checkout-container {
-            padding: 24px 16px;
-          }
-          .checkout-grid {
-            grid-template-columns: 1fr;
-            gap: 24px;
-          }
-          .checkout-title {
-            font-size: 24px;
-            margin-bottom: 24px;
-          }
-          .checkout-card {
-            padding: 20px;
-          }
-          .order-summary {
-            position: static;
-          }
-        }
-      \`}</style>
+      <style dangerouslySetInnerHTML={{ __html: responsiveStyles }} />
       <div className="checkout-container">
         <div className="checkout-inner">
           <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#6b7280', marginBottom: '32px', textDecoration: 'none', fontSize: '14px' }}>
