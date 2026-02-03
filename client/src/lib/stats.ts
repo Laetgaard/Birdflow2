@@ -4,13 +4,13 @@ export async function getTotalCreators(): Promise<number> {
     
     if (!response.ok) {
       console.error("Error fetching stats: HTTP", response.status);
-      return 1247;
+      return 0;
     }
     
     const data = await response.json();
-    return data.totalCreators || 1247;
+    return data.totalCreators || 0;
   } catch (err) {
     console.error("Error fetching stats:", err);
-    return 1247;
+    return 0;
   }
 }
