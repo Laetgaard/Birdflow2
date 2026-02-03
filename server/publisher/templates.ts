@@ -6143,21 +6143,73 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div style={{ backgroundColor: '#f9fafb', padding: '60px 24px' }}>
-      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-        <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#6b7280', marginBottom: '32px', textDecoration: 'none', fontSize: '14px' }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-          Back to shopping
-        </Link>
+    <>
+      <style>{\`
+        .checkout-container {
+          background-color: #f9fafb;
+          padding: 60px 24px;
+          min-height: 100vh;
+        }
+        .checkout-inner {
+          max-width: 1000px;
+          margin: 0 auto;
+        }
+        .checkout-grid {
+          display: grid;
+          grid-template-columns: 1fr 400px;
+          gap: 40px;
+        }
+        .checkout-title {
+          font-size: 32px;
+          font-weight: 700;
+          color: #111827;
+          margin-bottom: 40px;
+        }
+        .checkout-card {
+          background-color: #fff;
+          border-radius: 16px;
+          padding: 32px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .order-summary {
+          position: sticky;
+          top: 24px;
+        }
+        @media (max-width: 768px) {
+          .checkout-container {
+            padding: 24px 16px;
+          }
+          .checkout-grid {
+            grid-template-columns: 1fr;
+            gap: 24px;
+          }
+          .checkout-title {
+            font-size: 24px;
+            margin-bottom: 24px;
+          }
+          .checkout-card {
+            padding: 20px;
+          }
+          .order-summary {
+            position: static;
+          }
+        }
+      \`}</style>
+      <div className="checkout-container">
+        <div className="checkout-inner">
+          <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#6b7280', marginBottom: '32px', textDecoration: 'none', fontSize: '14px' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back to shopping
+          </Link>
 
-        <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '40px' }}>Checkout</h1>
+          <h1 className="checkout-title">Checkout</h1>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '40px' }}>
-          <div>
-            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Your Information</h2>
+          <div className="checkout-grid">
+            <div>
+              <div className="checkout-card">
+                <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Your Information</h2>
               
               <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: '20px' }}>
@@ -6221,8 +6273,8 @@ export default function CheckoutPage() {
           </div>
 
           <div>
-            <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', position: 'sticky', top: '24px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Order Summary</h2>
+              <div className="checkout-card order-summary">
+                <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Order Summary</h2>
               
               <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '20px' }}>
                 {items.map((item) => (
@@ -6315,7 +6367,7 @@ export default function CheckoutPage() {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 `;
