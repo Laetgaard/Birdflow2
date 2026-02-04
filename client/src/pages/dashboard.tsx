@@ -42,14 +42,6 @@ export default function Dashboard() {
   const [feedbackType, setFeedbackType] = useState<string>("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
-  
-  // Check URL params at initialization time to prevent race conditions
-  // This ensures isProcessingSubscription is true BEFORE any useEffect runs
-  const [isProcessingSubscription, setIsProcessingSubscription] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("subscription_success") === "true" && !!params.get("session_id");
-  });
-  const [subscriptionProcessed, setSubscriptionProcessed] = useState(false);
 
   // Handle subscription success from onboarding
   useEffect(() => {
@@ -58,104 +50,64 @@ export default function Dashboard() {
     const sessionId = params.get("session_id");
     const websiteId = params.get("website_id");
     
-    // Skip if already processed or no subscription success params
-    if (subscriptionProcessed || subscriptionSuccess !== "true" || !sessionId) {
-      return;
-    }
-    
-    // Wait for session before processing
-    if (!session?.access_token) {
-      return;
-    }
-    
-    // Ensure processing flag is set (redundant with initializer but ensures safety)
-    setIsProcessingSubscription(true);
-    
-    // Verify the Stripe session and complete onboarding after successful payment
-    (async () => {
-      console.log("[Onboarding] Starting subscription verification flow");
-      try {
-        // Verify the Stripe session first
-        console.log("[Onboarding] Verifying Stripe session:", sessionId);
-        const verifyResponse = await fetch("/api/subscriptions/verify-session", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ sessionId }),
-        });
-        
-        console.log("[Onboarding] Verify response status:", verifyResponse.status);
-        
-        if (verifyResponse.ok) {
-          console.log("[Onboarding] Session verified, completing onboarding...");
-          // Only complete onboarding if session is verified
-          const completeResponse = await fetch("/api/onboarding/complete", {
+    if (subscriptionSuccess === "true" && sessionId && session?.access_token) {
+      // Verify the Stripe session and complete onboarding after successful payment
+      (async () => {
+        try {
+          // Verify the Stripe session first
+          const verifyResponse = await fetch("/api/subscriptions/verify-session", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${session.access_token}`,
             },
+            body: JSON.stringify({ sessionId }),
           });
           
-          console.log("[Onboarding] Complete response status:", completeResponse.status);
-          const completeData = await completeResponse.json();
-          console.log("[Onboarding] Complete response data:", completeData);
-          
-          if (!completeResponse.ok) {
-            console.error("[Onboarding] Failed to complete onboarding:", completeData);
-            toast.error("Kunne ikke fuldføre onboarding. Kontakt support.");
-          }
-          
-          await refreshProfile();
-          toast.success("Velkommen! Dit abonnement er nu aktiveret.");
-          
-          // Redirect to the builder - use websiteId from URL or fetch user's latest website
-          let targetWebsiteId = websiteId;
-          if (!targetWebsiteId) {
-            console.log("[Onboarding] No websiteId in URL, fetching user's websites...");
-            try {
-              const websitesResponse = await fetch("/api/websites", {
-                headers: { Authorization: `Bearer ${session.access_token}` },
-              });
-              if (websitesResponse.ok) {
-                const websitesData = await websitesResponse.json();
-                console.log("[Onboarding] Found websites:", websitesData.length);
-                if (websitesData.length > 0) {
-                  targetWebsiteId = websitesData[0].id;
+          if (verifyResponse.ok) {
+            // Only complete onboarding if session is verified
+            await fetch("/api/onboarding/complete", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+              },
+            });
+            await refreshProfile();
+            toast.success("Velkommen! Dit abonnement er nu aktiveret.");
+            
+            // Redirect to the builder - use websiteId from URL or fetch user's latest website
+            let targetWebsiteId = websiteId;
+            if (!targetWebsiteId) {
+              try {
+                const websitesResponse = await fetch("/api/websites", {
+                  headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                if (websitesResponse.ok) {
+                  const websitesData = await websitesResponse.json();
+                  if (websitesData.length > 0) {
+                    targetWebsiteId = websitesData[0].id;
+                  }
                 }
+              } catch (e) {
+                console.error("Failed to fetch websites:", e);
               }
-            } catch (e) {
-              console.error("[Onboarding] Failed to fetch websites:", e);
             }
+            
+            if (targetWebsiteId) {
+              setLocation(`/builder/${targetWebsiteId}`);
+              return;
+            }
+          } else {
+            toast.error("Kunne ikke bekræfte dit abonnement. Kontakt support.");
           }
-          
-          // Mark as processed before clearing URL or redirecting
-          setSubscriptionProcessed(true);
-          
-          // Clear URL params before redirecting
-          window.history.replaceState({}, "", "/dashboard");
-          
-          console.log("[Onboarding] Redirecting to builder:", targetWebsiteId);
-          if (targetWebsiteId) {
-            setLocation(`/builder/${targetWebsiteId}`);
-            return;
-          }
-        } else {
-          const errorData = await verifyResponse.json();
-          console.error("[Onboarding] Verify session failed:", errorData);
-          toast.error("Kunne ikke bekræfte dit abonnement. Kontakt support.");
+        } catch (error) {
+          console.error("Failed to complete onboarding:", error);
         }
-      } catch (error) {
-        console.error("[Onboarding] Failed to complete onboarding:", error);
-      }
-      
-      setSubscriptionProcessed(true);
-      setIsProcessingSubscription(false);
-      window.history.replaceState({}, "", "/dashboard");
-    })();
-  }, [session?.access_token, refreshProfile, setLocation, subscriptionProcessed]);
+        window.history.replaceState({}, "", "/dashboard");
+      })();
+    }
+  }, [session?.access_token, refreshProfile, setLocation]);
 
   const handleSubmitFeedback = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -219,15 +171,11 @@ export default function Dashboard() {
         return;
       }
 
-      // Don't redirect to onboarding if we're processing subscription or already processed it
-      if (isProcessingSubscription || subscriptionProcessed) {
-        return;
-      }
-      
-      // Check URL params as backup - don't redirect if subscription success is in URL
+      // Don't redirect to onboarding if we're in the middle of completing subscription
       const params = new URLSearchParams(window.location.search);
       const subscriptionSuccess = params.get("subscription_success");
       if (subscriptionSuccess === "true") {
+        // Let the subscription success handler complete first
         return;
       }
 
@@ -237,7 +185,7 @@ export default function Dashboard() {
         return;
       }
     }
-  }, [user, profile, isLoading, isEmailVerified, setLocation, isProcessingSubscription, subscriptionProcessed]);
+  }, [user, profile, isLoading, isEmailVerified, setLocation]);
 
   useEffect(() => {
     const fetchWebsites = async () => {
