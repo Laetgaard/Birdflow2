@@ -399,8 +399,10 @@ export async function registerRoutes(
           }
         });
 
-        // 3. Note: We no longer mark onboarding as complete here
-        // Onboarding is completed after payment or when user explicitly skips payment
+        // 3. Mark onboarding as complete (before Stripe checkout)
+        await tx.update(profiles)
+          .set({ onboardingCompleted: true })
+          .where(eq(profiles.id, user.id));
 
         // 4. Increment total creators (upsert)
         await tx.execute(sql`
