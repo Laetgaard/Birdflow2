@@ -5,11 +5,8 @@ import {
   ArrowRight,
   Sparkles,
   Zap,
-  Crown,
-  Building2,
   HelpCircle,
   Loader2,
-  X,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -18,51 +15,21 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
-import { subscriptionPlans } from "@shared/subscriptionPlans";
-
-const fadeInUp = {
-  initial: { opacity: 0, y: 30 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.6 },
-};
-
-const staggerContainer = {
-  animate: {
-    transition: {
-      staggerChildren: 0.1,
-    },
-  },
-};
-
-const planIcons: Record<string, any> = {
-  basic: Zap,
-  starter: Crown,
-  professional: Building2,
-};
-
-const planIconColors: Record<string, string> = {
-  basic: "text-blue-500",
-  starter: "text-emerald-500",
-  professional: "text-purple-500",
-};
-
-const planBgGradients: Record<string, string> = {
-  basic: "from-blue-500/10 to-cyan-500/10",
-  starter: "from-emerald-500/10 to-teal-500/10",
-  professional: "from-purple-500/10 to-pink-500/10",
-};
+import { subscriptionPlans, formatPrice, getYearlySavings } from "@shared/subscriptionPlans";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 const faqs = [
   {
     question: "Hvordan fungerer den gratis prøveperiode?",
-    answer: "Med Starter og Professional får du 1 måneds gratis prøveperiode med fuld adgang til alle funktioner. Du skal indtaste betalingsoplysninger, men bliver først opkrævet efter prøveperioden. Du kan opsige når som helst i prøveperioden.",
+    answer: "Du får 1 måneds gratis prøveperiode med fuld adgang til alle funktioner. Du skal indtaste betalingsoplysninger, men bliver først opkrævet efter prøveperioden. Du kan opsige når som helst i prøveperioden.",
   },
   {
-    question: "Kan jeg skifte abonnement senere?",
-    answer: "Ja! Du kan opgradere eller nedgradere dit abonnement når som helst. Ved opgradering får du straks adgang til nye funktioner. Ved nedgradering træder ændringen i kraft ved næste faktureringsperiode.",
+    question: "Kan jeg skifte mellem månedlig og årlig betaling?",
+    answer: "Ja! Du kan skifte mellem månedlig og årlig betaling når som helst fra din faktureringsoversigt. Ved skift til årlig betaling sparer du 2 måneder.",
   },
   {
     question: "Hvilke betalingsmetoder accepterer I?",
@@ -74,7 +41,7 @@ const faqs = [
   },
   {
     question: "Hvad sker der når min prøveperiode udløber?",
-    answer: "Du modtager email-påmindelser før din prøveperiode udløber. Hvis du ikke opsiger, bliver dit kort automatisk opkrævet. Hvis du opsiger, mister du adgang til premium-funktioner.",
+    answer: "Du modtager email-påmindelser før din prøveperiode udløber. Hvis du ikke opsiger, bliver dit kort automatisk opkrævet. Hvis du opsiger, mister du adgang til funktionerne.",
   },
   {
     question: "Er mine data sikre?",
@@ -86,17 +53,19 @@ export default function PricingPage() {
   const { user, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [isYearly, setIsYearly] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   
   const isAuthenticated = !!user;
+  const plan = subscriptionPlans[0];
 
   const checkoutMutation = useMutation({
-    mutationFn: async ({ planId }: { planId: string }) => {
+    mutationFn: async ({ planId, billingPeriod }: { planId: string; billingPeriod: "monthly" | "yearly" }) => {
       const res = await fetch("/api/subscriptions/user-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ planId, billingPeriod }),
       });
       if (!res.ok) {
         const error = await res.json();
@@ -115,29 +84,33 @@ export default function PricingPage() {
         description: error.message || "Kunne ikke starte betaling. Prøv venligst igen.",
         variant: "destructive",
       });
-      setSelectedPlan(null);
+      setIsLoading(false);
     },
   });
 
-  const handlePlanSelect = (planId: string) => {
+  const handleStartTrial = () => {
     if (!isAuthenticated) {
-      navigate(`/auth?mode=signup&plan=${planId}`);
+      navigate(`/auth?mode=signup&plan=basic`);
       return;
     }
     
-    setSelectedPlan(planId);
-    checkoutMutation.mutate({ planId });
+    setIsLoading(true);
+    checkoutMutation.mutate({ 
+      planId: "basic", 
+      billingPeriod: isYearly ? "yearly" : "monthly" 
+    });
   };
+
+  const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
+  const yearlySavings = getYearlySavings(plan);
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-x-hidden">
       <header className="border-b sticky top-0 bg-background/80 backdrop-blur-md z-50">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="w-full px-6 lg:px-12 h-16 flex items-center justify-between">
           <Link href="/">
             <div className="flex items-center gap-2 font-bold text-xl tracking-tight cursor-pointer">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+              <img src="/logo.png" alt="BirdFlow" className="w-8 h-8" />
               <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                 BirdFlow
               </span>
@@ -145,8 +118,8 @@ export default function PricingPage() {
           </Link>
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
             <Link href="/#features" className="hover:text-foreground transition-colors">Features</Link>
-            <Link href="/#templates" className="hover:text-foreground transition-colors">Templates</Link>
-            <Link href="/pricing" className="text-foreground">Pricing</Link>
+            <Link href="/#how-it-works" className="hover:text-foreground transition-colors">Sådan Virker Det</Link>
+            <Link href="/pricing" className="text-foreground">Priser</Link>
             <Link href="/#faq" className="hover:text-foreground transition-colors">FAQ</Link>
           </nav>
           <div className="flex items-center gap-3">
@@ -157,11 +130,11 @@ export default function PricingPage() {
             ) : (
               <>
                 <Link href="/auth?mode=signin">
-                  <Button variant="ghost" size="sm" data-testid="button-signin-nav">Sign In</Button>
+                  <Button variant="ghost" size="sm" data-testid="button-signin-nav">Log ind</Button>
                 </Link>
                 <Link href="/auth?mode=signup">
                   <Button size="sm" className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700" data-testid="button-get-started-nav">
-                    Get Started Free
+                    Kom i gang gratis
                   </Button>
                 </Link>
               </>
@@ -171,13 +144,13 @@ export default function PricingPage() {
       </header>
 
       <main className="flex-1">
-        <section className="py-20 md:py-28 px-4">
-          <div className="container mx-auto max-w-6xl">
+        <section className="py-20 md:py-28 px-6 lg:px-12">
+          <div className="max-w-4xl mx-auto">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6 }}
-              className="text-center mb-16"
+              className="text-center mb-12"
             >
               <div className="inline-flex items-center gap-2 bg-emerald-500/10 text-emerald-600 px-4 py-2 rounded-full text-sm font-medium mb-6">
                 <Sparkles className="w-4 h-4" />
@@ -187,103 +160,118 @@ export default function PricingPage() {
                 Enkel og gennemsigtig prissætning
               </h1>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Vælg det abonnement der passer til din virksomhed. Start med en gratis prøveperiode og opgrader efterhånden som du vokser.
+                Én plan med alt inkluderet. Start med 1 måneds gratis prøveperiode.
               </p>
             </motion.div>
 
+            {/* Billing Toggle */}
             <motion.div
-              variants={staggerContainer}
-              initial="initial"
-              animate="animate"
-              className="grid md:grid-cols-3 gap-8 mb-20"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+              className="flex items-center justify-center gap-4 mb-12"
             >
-              {subscriptionPlans.map((plan) => {
-                const PlanIcon = planIcons[plan.id] || Zap;
-                const iconColor = planIconColors[plan.id] || "text-gray-500";
-                const bgGradient = planBgGradients[plan.id] || "from-gray-500/10 to-gray-400/10";
-                
-                return (
-                  <motion.div
-                    key={plan.id}
-                    variants={fadeInUp}
-                    className={`relative rounded-2xl border bg-card p-8 ${
-                      plan.popular 
-                        ? "border-emerald-500/50 shadow-lg shadow-emerald-500/10 scale-105 z-10" 
-                        : "hover:border-primary/50"
-                    } transition-all`}
-                  >
-                    {plan.popular && (
-                      <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                        <span className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
-                          Mest populære
-                        </span>
-                      </div>
-                    )}
-                    
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${bgGradient} flex items-center justify-center`}>
-                        <PlanIcon className={`w-5 h-5 ${iconColor}`} />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-lg">{plan.name}</h3>
-                        <p className="text-sm text-muted-foreground">{plan.description}</p>
-                      </div>
-                    </div>
-
-                    <div className="mb-2">
-                      <span className="text-4xl font-bold">{plan.price}</span>
-                      <span className="text-muted-foreground ml-1">{plan.priceDetail}</span>
-                    </div>
-                    
-                    <p className="text-sm text-emerald-600 font-medium mb-6">{plan.trialText}</p>
-
-                    <Button 
-                      className={`w-full mb-6 ${plan.popular ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600" : ""}`}
-                      variant={plan.ctaVariant}
-                      data-testid={`button-plan-${plan.id}`}
-                      onClick={() => handlePlanSelect(plan.id)}
-                      disabled={checkoutMutation.isPending && selectedPlan === plan.id}
-                    >
-                      {checkoutMutation.isPending && selectedPlan === plan.id ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Behandler...
-                        </>
-                      ) : (
-                        <>
-                          {plan.cta}
-                          <ArrowRight className="w-4 h-4 ml-2" />
-                        </>
-                      )}
-                    </Button>
-
-                    <ul className="space-y-3">
-                      {plan.features.map((feature, j) => (
-                        <li key={j} className="flex items-start gap-3">
-                          {feature.included ? (
-                            <Check className={`w-5 h-5 shrink-0 mt-0.5 ${feature.highlight ? "text-emerald-500" : "text-emerald-500"}`} />
-                          ) : (
-                            <X className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground/30" />
-                          )}
-                          <span className={`${feature.included ? "" : "text-muted-foreground/50"} ${feature.highlight ? "font-medium text-emerald-600" : ""}`}>
-                            {feature.text}
-                            {feature.tooltip && (
-                              <Tooltip>
-                                <TooltipTrigger>
-                                  <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
-                                </TooltipTrigger>
-                                <TooltipContent>{feature.tooltip}</TooltipContent>
-                              </Tooltip>
-                            )}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </motion.div>
-                );
-              })}
+              <Label htmlFor="billing-toggle" className={`text-base ${!isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
+                Månedlig
+              </Label>
+              <Switch
+                id="billing-toggle"
+                checked={isYearly}
+                onCheckedChange={setIsYearly}
+                data-testid="switch-billing-toggle"
+              />
+              <div className="flex items-center gap-2">
+                <Label htmlFor="billing-toggle" className={`text-base ${isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
+                  Årlig
+                </Label>
+                <span className="bg-emerald-500/10 text-emerald-600 text-xs font-semibold px-2 py-1 rounded-full">
+                  Spar {formatPrice(yearlySavings)}
+                </span>
+              </div>
             </motion.div>
 
+            {/* Single Plan Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              className="max-w-lg mx-auto mb-20"
+            >
+              <div className="relative rounded-2xl border-2 border-primary bg-card p-8 shadow-xl shadow-primary/10">
+                <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                  <span className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
+                    Alt inkluderet
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center">
+                    <Zap className="w-6 h-6 text-indigo-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-2xl">{plan.name}</h3>
+                    <p className="text-muted-foreground">{plan.description}</p>
+                  </div>
+                </div>
+
+                <div className="mb-2">
+                  <span className="text-5xl font-bold">{formatPrice(currentPrice)}</span>
+                  <span className="text-muted-foreground ml-2">
+                    {isYearly ? "/år" : "/md"}
+                  </span>
+                </div>
+                
+                {isYearly && (
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Svarer til {formatPrice(Math.round(plan.yearlyPrice / 12))}/md
+                  </p>
+                )}
+                
+                <p className="text-emerald-600 font-medium mb-6">
+                  1 måneds gratis prøveperiode
+                </p>
+
+                <Button 
+                  className="w-full h-14 text-lg mb-8 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
+                  data-testid="button-start-trial"
+                  onClick={handleStartTrial}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Behandler...
+                    </>
+                  ) : (
+                    <>
+                      Start gratis prøveperiode
+                      <ArrowRight className="w-5 h-5 ml-2" />
+                    </>
+                  )}
+                </Button>
+
+                <ul className="space-y-3">
+                  {plan.features.map((feature, j) => (
+                    <li key={j} className="flex items-start gap-3">
+                      <Check className={`w-5 h-5 shrink-0 mt-0.5 ${feature.highlight ? "text-emerald-500" : "text-emerald-500"}`} />
+                      <span className={feature.highlight ? "font-medium text-emerald-600" : ""}>
+                        {feature.text}
+                        {feature.tooltip && (
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>{feature.tooltip}</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </motion.div>
+
+            {/* FAQ Section */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -311,8 +299,8 @@ export default function PricingPage() {
           </div>
         </section>
 
-        <section className="py-16 px-4 bg-gradient-to-r from-indigo-500 to-purple-600">
-          <div className="container mx-auto max-w-4xl text-center">
+        <section className="py-16 px-6 lg:px-12 bg-gradient-to-r from-indigo-500 to-purple-600">
+          <div className="max-w-4xl mx-auto text-center">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -322,10 +310,10 @@ export default function PricingPage() {
                 Klar til at bygge din hjemmeside?
               </h2>
               <p className="text-white/80 text-lg mb-8 max-w-2xl mx-auto">
-                Slut dig til tusindvis af iværksættere der har lanceret deres drømmehjemmeside med BirdFlow. Start din gratis prøveperiode i dag.
+                Start din gratis prøveperiode i dag og se hvor nemt det er at bygge en professionel hjemmeside.
               </p>
-              <Link href="/auth?mode=signup&plan=starter">
-                <Button size="lg" variant="secondary" className="font-semibold" data-testid="button-cta-bottom">
+              <Link href="/auth?mode=signup&plan=basic">
+                <Button size="lg" variant="secondary" className="font-semibold shadow-xl" data-testid="button-cta-bottom">
                   Start Gratis Prøveperiode
                   <ArrowRight className="w-5 h-5 ml-2" />
                 </Button>
@@ -335,20 +323,16 @@ export default function PricingPage() {
         </section>
       </main>
 
-      <footer className="border-t py-12 px-4 bg-muted/30">
-        <div className="container mx-auto max-w-6xl">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-2 font-bold text-lg">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-white" />
-              </div>
-              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                BirdFlow
-              </span>
-            </div>
+      <footer className="py-8 border-t bg-background">
+        <div className="w-full px-6 lg:px-12">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-sm text-muted-foreground">
               © {new Date().getFullYear()} BirdFlow. All rights reserved.
             </p>
+            <div className="flex items-center gap-6 text-sm text-muted-foreground">
+              <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
+              <Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+            </div>
           </div>
         </div>
       </footer>
