@@ -5843,6 +5843,51 @@ export async function registerRoutes(
     }
   });
 
+  // Cancel user subscription
+  app.post("/api/subscriptions/cancel", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      
+      const profile = await storage.getProfile(userId);
+      if (!profile) {
+        return res.status(404).json({ message: "Profil ikke fundet" });
+      }
+      
+      if (!profile.subscriptionId) {
+        return res.status(400).json({ 
+          message: "Intet aktivt abonnement fundet.",
+          code: "NO_SUBSCRIPTION"
+        });
+      }
+      
+      const stripe = await getUncachableStripeClient();
+      
+      // Cancel at period end so user keeps access until the end of their billing period
+      const subscription = await stripe.subscriptions.update(profile.subscriptionId, {
+        cancel_at_period_end: true,
+      });
+      
+      // Don't change subscriptionStatus - Stripe webhooks will handle that when it actually cancels
+      // Just update a flag or leave it as-is since user still has access
+      console.log(`[Subscription] User ${userId} set subscription ${profile.subscriptionId} to cancel at period end`);
+      
+      const periodEnd = subscription.current_period_end 
+        ? new Date(subscription.current_period_end * 1000) 
+        : null;
+      
+      res.json({ 
+        success: true,
+        message: "Dit abonnement er opsagt og vil udløbe ved slutningen af din nuværende periode.",
+        cancelAt: subscription.cancel_at ? new Date(subscription.cancel_at * 1000) : null,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      });
+    } catch (error: any) {
+      console.error("Cancel subscription error:", error);
+      res.status(500).json({ message: error.message || "Kunne ikke opsige abonnement" });
+    }
+  });
+
   // Get user invoices from Stripe
   app.get("/api/subscriptions/invoices", requireAuth, async (req, res) => {
     try {

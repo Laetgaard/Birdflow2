@@ -22,6 +22,7 @@ import {
   Settings,
   Check,
   HelpCircle,
+  Ban,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -33,7 +34,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { subscriptionPlans, formatPrice, getYearlySavings } from "@shared/subscriptionPlans";
+import { queryClient } from "@/lib/queryClient";
 
 interface UserSubscription {
   planSlug: string | null;
@@ -172,6 +185,35 @@ export default function BillingPage() {
       billingPeriod: isYearly ? "yearly" : "monthly" 
     });
   };
+
+  const cancelSubscriptionMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/subscriptions/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Kunne ikke opsige abonnement");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Abonnement opsagt",
+        description: data.message || "Dit abonnement er nu opsagt.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Fejl",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const isLoading = authLoading || subscriptionLoading;
   const plan = subscriptionPlans[0];
@@ -449,6 +491,54 @@ export default function BillingPage() {
                       <p className="text-sm text-muted-foreground">Se og download fakturaer</p>
                     </button>
                   </div>
+
+                  {/* Cancel Subscription Section */}
+                  {(isActive || isTrialing) && !isCanceled && (
+                    <div className="mt-8 pt-6 border-t">
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            data-testid="button-cancel-subscription"
+                          >
+                            <Ban className="w-4 h-4 mr-2" />
+                            Opsig abonnement
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Er du sikker på at du vil opsige?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Dit abonnement vil blive opsagt, og du vil have adgang til alle funktioner indtil slutningen af din nuværende faktureringsperiode.
+                              {periodEnd && (
+                                <span className="block mt-2 font-medium text-foreground">
+                                  Adgang indtil: {format(periodEnd, "d. MMMM yyyy", { locale: da })}
+                                </span>
+                              )}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annuller</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => cancelSubscriptionMutation.mutate()}
+                              className="bg-destructive hover:bg-destructive/90"
+                              disabled={cancelSubscriptionMutation.isPending}
+                            >
+                              {cancelSubscriptionMutation.isPending ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Opsiger...
+                                </>
+                              ) : (
+                                "Ja, opsig abonnement"
+                              )}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  )}
                 </Card>
               </motion.div>
             ) : (
