@@ -25,7 +25,7 @@ import { Label } from "@/components/ui/label";
 const faqs = [
   {
     question: "Hvordan fungerer den gratis prøveperiode?",
-    answer: "Du får 1 måneds gratis prøveperiode med fuld adgang til alle funktioner. Du skal indtaste betalingsoplysninger, men bliver først opkrævet efter prøveperioden. Du kan opsige når som helst i prøveperioden.",
+    answer: "Du får 31 dages gratis prøveperiode med fuld adgang til alle funktioner. Du skal indtaste betalingsoplysninger, men bliver først opkrævet efter prøveperioden. Du kan opsige når som helst i prøveperioden.",
   },
   {
     question: "Kan jeg skifte mellem månedlig og årlig betaling?",
@@ -154,13 +154,13 @@ export default function PricingPage() {
             >
               <div className="inline-flex items-center gap-2 bg-emerald-500/10 text-emerald-600 px-4 py-2 rounded-full text-sm font-medium mb-6">
                 <Sparkles className="w-4 h-4" />
-                1 måneds gratis prøveperiode
+                31 dages gratis prøveperiode
               </div>
               <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
                 Enkel og gennemsigtig prissætning
               </h1>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Én plan med alt inkluderet. Start med 1 måneds gratis prøveperiode.
+                Én plan med alt inkluderet. Start med 31 dages gratis prøveperiode.
               </p>
             </motion.div>
 
@@ -228,7 +228,7 @@ export default function PricingPage() {
                 )}
                 
                 <p className="text-emerald-600 font-medium mb-6">
-                  1 måneds gratis prøveperiode
+                  31 dages gratis prøveperiode
                 </p>
 
                 <Button 
