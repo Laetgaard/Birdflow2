@@ -399,10 +399,8 @@ export async function registerRoutes(
           }
         });
 
-        // 3. Mark onboarding as complete (before Stripe checkout)
-        await tx.update(profiles)
-          .set({ onboardingCompleted: true })
-          .where(eq(profiles.id, user.id));
+        // 3. Onboarding completion is now handled in the checkout endpoint
+        // when user clicks subscribe and goes to Stripe
 
         // 4. Increment total creators (upsert)
         await tx.execute(sql`
@@ -5774,6 +5772,11 @@ export async function registerRoutes(
       }
       
       const session = await stripe.checkout.sessions.create(sessionParams);
+      
+      // Mark onboarding as complete when user clicks subscribe and goes to Stripe checkout
+      await db.update(profiles)
+        .set({ onboardingCompleted: true })
+        .where(eq(profiles.id, userId));
       
       res.json({ url: session.url });
     } catch (error: any) {
