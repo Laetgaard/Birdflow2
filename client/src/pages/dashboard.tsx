@@ -42,10 +42,16 @@ export default function Dashboard() {
   const [feedbackType, setFeedbackType] = useState<string>("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
-  const [isProcessingSubscription, setIsProcessingSubscription] = useState(false);
+  
+  // Check URL params at initialization time to prevent race conditions
+  // This ensures isProcessingSubscription is true BEFORE any useEffect runs
+  const [isProcessingSubscription, setIsProcessingSubscription] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("subscription_success") === "true" && !!params.get("session_id");
+  });
   const [subscriptionProcessed, setSubscriptionProcessed] = useState(false);
 
-  // Handle subscription success from onboarding - this runs FIRST
+  // Handle subscription success from onboarding
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const subscriptionSuccess = params.get("subscription_success");
@@ -62,7 +68,7 @@ export default function Dashboard() {
       return;
     }
     
-    // Mark as processing to prevent onboarding redirect
+    // Ensure processing flag is set (redundant with initializer but ensures safety)
     setIsProcessingSubscription(true);
     
     // Verify the Stripe session and complete onboarding after successful payment
@@ -107,6 +113,9 @@ export default function Dashboard() {
               console.error("Failed to fetch websites:", e);
             }
           }
+          
+          // Mark as processed before clearing URL or redirecting
+          setSubscriptionProcessed(true);
           
           // Clear URL params before redirecting
           window.history.replaceState({}, "", "/dashboard");
@@ -190,8 +199,8 @@ export default function Dashboard() {
         return;
       }
 
-      // Don't redirect to onboarding if we're processing subscription
-      if (isProcessingSubscription) {
+      // Don't redirect to onboarding if we're processing subscription or already processed it
+      if (isProcessingSubscription || subscriptionProcessed) {
         return;
       }
       
@@ -208,7 +217,7 @@ export default function Dashboard() {
         return;
       }
     }
-  }, [user, profile, isLoading, isEmailVerified, setLocation, isProcessingSubscription]);
+  }, [user, profile, isLoading, isEmailVerified, setLocation, isProcessingSubscription, subscriptionProcessed]);
 
   useEffect(() => {
     const fetchWebsites = async () => {
