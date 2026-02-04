@@ -31,10 +31,10 @@ export const subscriptionPlans: SubscriptionPlan[] = [
     description: "Alt hvad du behøver til din online forretning",
     monthlyPrice: 6900,
     yearlyPrice: 69000,
-    trialDays: 30,
+    trialDays: 31,
     popular: true,
     features: [
-      { text: "1 måneds gratis prøveperiode", included: true, highlight: true, tooltip: "Prøv alle funktioner gratis i 1 måned" },
+      { text: "31 dages gratis prøveperiode", included: true, highlight: true, tooltip: "Prøv alle funktioner gratis i 31 dage" },
       { text: "Op til 5 hjemmesider", included: true },
       { text: "Op til 50 sider per site", included: true },
       { text: "5 GB lagerplads", included: true },

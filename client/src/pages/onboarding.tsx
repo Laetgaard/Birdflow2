@@ -527,7 +527,7 @@ export default function OnboardingPage() {
                     Aktiver dit abonnement
                   </h1>
                   <p className="text-lg text-muted-foreground">
-                    Start din 1 måneds gratis prøveperiode
+                    Start din 31 dages gratis prøveperiode
                   </p>
                 </div>
 
@@ -578,7 +578,7 @@ export default function OnboardingPage() {
 
                   <div className="flex items-center gap-2 text-emerald-600 font-medium mb-6">
                     <Gift className="w-5 h-5" />
-                    1 måneds gratis prøveperiode
+                    31 dages gratis prøveperiode
                   </div>
 
                   <ul className="space-y-3 mb-8">
