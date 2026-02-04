@@ -212,6 +212,7 @@ export default function OnboardingPage() {
       const data = await response.json();
       setCreatedWebsiteId(data.websiteId);
 
+      // Onboarding is marked complete server-side in the create-website transaction
       await refreshProfile();
 
       clearInterval(progressInterval);
