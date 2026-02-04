@@ -73,8 +73,10 @@ export default function Dashboard() {
     
     // Verify the Stripe session and complete onboarding after successful payment
     (async () => {
+      console.log("[Onboarding] Starting subscription verification flow");
       try {
         // Verify the Stripe session first
+        console.log("[Onboarding] Verifying Stripe session:", sessionId);
         const verifyResponse = await fetch("/api/subscriptions/verify-session", {
           method: "POST",
           headers: {
@@ -84,33 +86,48 @@ export default function Dashboard() {
           body: JSON.stringify({ sessionId }),
         });
         
+        console.log("[Onboarding] Verify response status:", verifyResponse.status);
+        
         if (verifyResponse.ok) {
+          console.log("[Onboarding] Session verified, completing onboarding...");
           // Only complete onboarding if session is verified
-          await fetch("/api/onboarding/complete", {
+          const completeResponse = await fetch("/api/onboarding/complete", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${session.access_token}`,
             },
           });
+          
+          console.log("[Onboarding] Complete response status:", completeResponse.status);
+          const completeData = await completeResponse.json();
+          console.log("[Onboarding] Complete response data:", completeData);
+          
+          if (!completeResponse.ok) {
+            console.error("[Onboarding] Failed to complete onboarding:", completeData);
+            toast.error("Kunne ikke fuldføre onboarding. Kontakt support.");
+          }
+          
           await refreshProfile();
           toast.success("Velkommen! Dit abonnement er nu aktiveret.");
           
           // Redirect to the builder - use websiteId from URL or fetch user's latest website
           let targetWebsiteId = websiteId;
           if (!targetWebsiteId) {
+            console.log("[Onboarding] No websiteId in URL, fetching user's websites...");
             try {
               const websitesResponse = await fetch("/api/websites", {
                 headers: { Authorization: `Bearer ${session.access_token}` },
               });
               if (websitesResponse.ok) {
                 const websitesData = await websitesResponse.json();
+                console.log("[Onboarding] Found websites:", websitesData.length);
                 if (websitesData.length > 0) {
                   targetWebsiteId = websitesData[0].id;
                 }
               }
             } catch (e) {
-              console.error("Failed to fetch websites:", e);
+              console.error("[Onboarding] Failed to fetch websites:", e);
             }
           }
           
@@ -120,15 +137,18 @@ export default function Dashboard() {
           // Clear URL params before redirecting
           window.history.replaceState({}, "", "/dashboard");
           
+          console.log("[Onboarding] Redirecting to builder:", targetWebsiteId);
           if (targetWebsiteId) {
             setLocation(`/builder/${targetWebsiteId}`);
             return;
           }
         } else {
+          const errorData = await verifyResponse.json();
+          console.error("[Onboarding] Verify session failed:", errorData);
           toast.error("Kunne ikke bekræfte dit abonnement. Kontakt support.");
         }
       } catch (error) {
-        console.error("Failed to complete onboarding:", error);
+        console.error("[Onboarding] Failed to complete onboarding:", error);
       }
       
       setSubscriptionProcessed(true);
