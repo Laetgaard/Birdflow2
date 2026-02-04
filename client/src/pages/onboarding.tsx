@@ -248,7 +248,7 @@ export default function OnboardingPage() {
         body: JSON.stringify({
           planId: "basic",
           billingPeriod: isYearly ? "yearly" : "monthly",
-          successUrl: `${window.location.origin}/dashboard?subscription_success=true&session_id={CHECKOUT_SESSION_ID}`,
+          successUrl: `${window.location.origin}/dashboard?subscription_success=true&session_id={CHECKOUT_SESSION_ID}${createdWebsiteId ? `&website_id=${createdWebsiteId}` : ''}`,
           cancelUrl: `${window.location.origin}/onboarding?step=payment`,
         }),
       });

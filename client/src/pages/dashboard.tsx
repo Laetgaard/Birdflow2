@@ -48,6 +48,7 @@ export default function Dashboard() {
     const params = new URLSearchParams(window.location.search);
     const subscriptionSuccess = params.get("subscription_success");
     const sessionId = params.get("session_id");
+    const websiteId = params.get("website_id");
     
     if (subscriptionSuccess === "true" && sessionId && session?.access_token) {
       // Verify the Stripe session and complete onboarding after successful payment
@@ -74,6 +75,29 @@ export default function Dashboard() {
             });
             await refreshProfile();
             toast.success("Velkommen! Dit abonnement er nu aktiveret.");
+            
+            // Redirect to the builder - use websiteId from URL or fetch user's latest website
+            let targetWebsiteId = websiteId;
+            if (!targetWebsiteId) {
+              try {
+                const websitesResponse = await fetch("/api/websites", {
+                  headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                if (websitesResponse.ok) {
+                  const websitesData = await websitesResponse.json();
+                  if (websitesData.length > 0) {
+                    targetWebsiteId = websitesData[0].id;
+                  }
+                }
+              } catch (e) {
+                console.error("Failed to fetch websites:", e);
+              }
+            }
+            
+            if (targetWebsiteId) {
+              setLocation(`/builder/${targetWebsiteId}`);
+              return;
+            }
           } else {
             toast.error("Kunne ikke bekræfte dit abonnement. Kontakt support.");
           }
@@ -83,7 +107,7 @@ export default function Dashboard() {
         window.history.replaceState({}, "", "/dashboard");
       })();
     }
-  }, [session?.access_token, refreshProfile]);
+  }, [session?.access_token, refreshProfile, setLocation]);
 
   const handleSubmitFeedback = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -144,6 +168,14 @@ export default function Dashboard() {
       
       if (!isEmailVerified) {
         setLocation("/check-email");
+        return;
+      }
+
+      // Don't redirect to onboarding if we're in the middle of completing subscription
+      const params = new URLSearchParams(window.location.search);
+      const subscriptionSuccess = params.get("subscription_success");
+      if (subscriptionSuccess === "true") {
+        // Let the subscription success handler complete first
         return;
       }
 
