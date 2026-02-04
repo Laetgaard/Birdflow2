@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import {
@@ -15,63 +15,22 @@ import {
   Loader2,
   Sparkles,
   Rocket,
-  ExternalLink,
-  Crown,
-  Zap,
-  Building2,
   Store,
   Calendar,
   FileText,
-  Palette,
-  Layout,
-  Briefcase,
   CreditCard,
   Gift,
+  Zap,
+  HelpCircle,
 } from "lucide-react";
+import { subscriptionPlans, formatPrice, getYearlySavings } from "@shared/subscriptionPlans";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
-type PlanId = "basic" | "starter" | "professional";
-type Step = "choose-plan" | "choose-template" | "website-name" | "setup" | "success" | "payment";
-
-const subscriptionPlans: { id: PlanId; name: string; price: string; priceDetail: string; description: string; icon: React.ElementType; color: string; popular: boolean; features: string[]; trialText?: string; hasTrial: boolean }[] = [
-  {
-    id: "basic",
-    name: "Basis",
-    price: "69 kr",
-    priceDetail: "/md",
-    description: "Få din virksomhed online",
-    icon: Zap,
-    color: "from-blue-500 to-cyan-500",
-    popular: false,
-    features: ["1 hjemmeside", "Op til 4 sider", "2 GB lagerplads", "Eget domæne", "AI-assistent"],
-    hasTrial: false,
-  },
-  {
-    id: "starter",
-    name: "Starter",
-    price: "149 kr",
-    priceDetail: "/md",
-    description: "Perfekt til voksende virksomheder",
-    icon: Building2,
-    color: "from-emerald-500 to-teal-500",
-    popular: true,
-    features: ["1 hjemmeside", "Op til 5 sider", "4 GB lagerplads", "Booking system", "1 måneds gratis"],
-    trialText: "1 måneds gratis prøveperiode",
-    hasTrial: true,
-  },
-  {
-    id: "professional",
-    name: "Professionel",
-    price: "249 kr",
-    priceDetail: "/md",
-    description: "Alt hvad du behøver",
-    icon: Crown,
-    color: "from-purple-500 to-pink-500",
-    popular: false,
-    features: ["5 hjemmesider", "Op til 20 sider", "Webshop", "15 GB lagerplads", "1 måneds gratis"],
-    trialText: "1 måneds gratis prøveperiode",
-    hasTrial: true,
-  },
-];
+type Step = "choose-template" | "website-name" | "setup" | "payment";
 
 const websiteTemplates = [
   {
@@ -111,11 +70,10 @@ const setupSteps = [
 ];
 
 const STEPS: { id: Step; label: string; number: number }[] = [
-  { id: "choose-plan", label: "Abonnement", number: 1 },
-  { id: "choose-template", label: "Skabelon", number: 2 },
-  { id: "website-name", label: "Navn", number: 3 },
-  { id: "setup", label: "Opsætning", number: 4 },
-  { id: "payment", label: "Betaling", number: 5 },
+  { id: "choose-template", label: "Skabelon", number: 1 },
+  { id: "website-name", label: "Navn", number: 2 },
+  { id: "setup", label: "Opsætning", number: 3 },
+  { id: "payment", label: "Betaling", number: 4 },
 ];
 
 function ProgressBar({ currentStep, steps }: { currentStep: Step; steps: typeof STEPS }) {
@@ -124,7 +82,6 @@ function ProgressBar({ currentStep, steps }: { currentStep: Step; steps: typeof 
   return (
     <div className="w-full max-w-2xl mx-auto mb-12">
       <div className="relative">
-        {/* Progress Line */}
         <div className="absolute top-5 left-0 right-0 h-0.5 bg-muted">
           <motion.div
             className="h-full bg-gradient-to-r from-indigo-500 to-purple-600"
@@ -134,12 +91,10 @@ function ProgressBar({ currentStep, steps }: { currentStep: Step; steps: typeof 
           />
         </div>
         
-        {/* Step Indicators */}
         <div className="relative flex justify-between">
           {steps.map((step, index) => {
             const isCompleted = index < currentIndex;
             const isCurrent = index === currentIndex;
-            const isPending = index > currentIndex;
             
             return (
               <div key={step.id} className="flex flex-col items-center">
@@ -180,14 +135,18 @@ export default function OnboardingPage() {
   const { user, token, profile, loading: authLoading, refreshProfile } = useAuth();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<Step>("choose-plan");
-  const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
+  const [step, setStep] = useState<Step>("choose-template");
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [websiteName, setWebsiteName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isRedirectingToStripe, setIsRedirectingToStripe] = useState(false);
   const [setupProgress, setSetupProgress] = useState(0);
   const [createdWebsiteId, setCreatedWebsiteId] = useState<string | null>(null);
+  const [isYearly, setIsYearly] = useState(false);
+
+  const plan = subscriptionPlans[0];
+  const yearlySavings = getYearlySavings(plan);
+  const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -201,7 +160,6 @@ export default function OnboardingPage() {
     }
   }, [authLoading, profile, navigate]);
 
-  // Handle URL parameters (e.g., returning from cancelled payment)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const stepParam = params.get("step") as Step | null;
@@ -275,30 +233,8 @@ export default function OnboardingPage() {
     }
   };
 
-  const handlePlanSelection = async (planId: PlanId) => {
-    setSelectedPlan(planId);
-    
-    // Save plan selection to backend
-    if (token) {
-      try {
-        await fetch("/api/onboarding/select-plan", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ planId }),
-        });
-      } catch (error) {
-        console.error("Failed to save plan selection:", error);
-      }
-    }
-    
-    setStep("choose-template");
-  };
-
   const handleStartPayment = async () => {
-    if (!token || !selectedPlan) return;
+    if (!token) return;
     
     setIsRedirectingToStripe(true);
     
@@ -310,7 +246,8 @@ export default function OnboardingPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          planId: selectedPlan,
+          planId: "basic",
+          billingPeriod: isYearly ? "yearly" : "monthly",
           successUrl: `${window.location.origin}/dashboard?subscription_success=true&session_id={CHECKOUT_SESSION_ID}`,
           cancelUrl: `${window.location.origin}/onboarding?step=payment`,
         }),
@@ -343,14 +280,12 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/20">
-      {/* Background Effects */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-indigo-200/30 dark:bg-indigo-900/20 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-200/30 dark:bg-purple-900/20 rounded-full blur-3xl" />
       </div>
 
       <div className="relative z-10 container mx-auto px-4 py-8 min-h-screen">
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 font-bold text-xl mb-4">
             <div className="w-8 h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white">
@@ -360,117 +295,13 @@ export default function OnboardingPage() {
           </div>
         </div>
 
-        {/* Progress Bar - Only show during main steps */}
-        {step !== "success" && step !== "payment" && (
+        {step !== "payment" && (
           <ProgressBar currentStep={step} steps={STEPS.filter(s => s.id !== "payment")} />
         )}
 
         <div className="max-w-4xl mx-auto">
           <AnimatePresence mode="wait">
-            {/* Step 1: Choose Plan */}
-            {step === "choose-plan" && (
-              <motion.div
-                key="choose-plan"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="text-center mb-8">
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Vælg dit abonnement
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    Start med en gratis prøveperiode. Annuller når som helst.
-                  </p>
-                </div>
-
-                <div className="grid md:grid-cols-3 gap-6 mb-8">
-                  {subscriptionPlans.map((plan) => {
-                    const Icon = plan.icon;
-                    const isSelected = selectedPlan === plan.id;
-                    
-                    return (
-                      <motion.div
-                        key={plan.id}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        <Card
-                          className={`relative cursor-pointer p-6 h-full transition-all ${
-                            isSelected
-                              ? "border-2 border-primary shadow-lg ring-2 ring-primary/20"
-                              : "border hover:border-primary/50 hover:shadow-md"
-                          }`}
-                          onClick={() => handlePlanSelection(plan.id)}
-                          data-testid={`card-plan-${plan.id}`}
-                        >
-                          {plan.popular && (
-                            <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0">
-                              Mest Populær
-                            </Badge>
-                          )}
-                          
-                          <div className="flex flex-col h-full">
-                            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-white mb-4`}>
-                              <Icon className="w-6 h-6" />
-                            </div>
-                            
-                            <h3 className="text-xl font-bold mb-1">{plan.name}</h3>
-                            <div className="flex items-baseline gap-1 mb-2">
-                              <span className="text-3xl font-bold">{plan.price}</span>
-                              <span className="text-muted-foreground">{plan.priceDetail}</span>
-                            </div>
-                            
-                            {plan.trialText && (
-                              <p className="text-sm text-emerald-600 font-medium mb-3">
-                                {plan.trialText}
-                              </p>
-                            )}
-                            
-                            <p className="text-sm text-muted-foreground mb-4">
-                              {plan.description}
-                            </p>
-                            
-                            <ul className="space-y-2 mt-auto">
-                              {plan.features.map((feature, i) => (
-                                <li key={i} className="flex items-center gap-2 text-sm">
-                                  <Check className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                                  <span>{feature}</span>
-                                </li>
-                              ))}
-                            </ul>
-                            
-                            <Button
-                              className={`w-full mt-6 ${
-                                plan.popular
-                                  ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
-                                  : ""
-                              }`}
-                              variant={plan.popular ? "default" : "outline"}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePlanSelection(plan.id);
-                              }}
-                              data-testid={`button-plan-${plan.id}`}
-                            >
-                              Vælg {plan.name}
-                              <ArrowRight className="w-4 h-4 ml-2" />
-                            </Button>
-                          </div>
-                        </Card>
-                      </motion.div>
-                    );
-                  })}
-                </div>
-
-                <p className="text-center text-sm text-muted-foreground">
-                  Vælg den plan der passer til dig. Du betaler først i sidste trin.
-                </p>
-              </motion.div>
-            )}
-
-            {/* Step 2: Choose Template */}
+            {/* Step 1: Choose Template */}
             {step === "choose-template" && (
               <motion.div
                 key="choose-template"
@@ -540,15 +371,7 @@ export default function OnboardingPage() {
                   })}
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setStep("choose-plan")}
-                    data-testid="button-back"
-                  >
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Tilbage
-                  </Button>
+                <div className="flex items-center justify-center">
                   <Button
                     size="lg"
                     disabled={!selectedTemplate}
@@ -563,7 +386,7 @@ export default function OnboardingPage() {
               </motion.div>
             )}
 
-            {/* Step 3: Website Name */}
+            {/* Step 2: Website Name */}
             {step === "website-name" && (
               <motion.div
                 key="website-name"
@@ -594,23 +417,9 @@ export default function OnboardingPage() {
                         className="h-14 text-lg mt-2"
                         value={websiteName}
                         onChange={(e) => setWebsiteName(e.target.value)}
-                        autoFocus
                         data-testid="input-website-name"
                       />
                     </div>
-
-                    {websiteName && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg"
-                      >
-                        <span>Din URL bliver:</span>
-                        <code className="bg-background px-2 py-1 rounded font-mono">
-                          {generateSlug(websiteName)}.birdflow.app
-                        </code>
-                      </motion.div>
-                    )}
                   </div>
                 </Card>
 
@@ -628,16 +437,16 @@ export default function OnboardingPage() {
                     disabled={!websiteName.trim()}
                     onClick={handleCreateWebsite}
                     className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    data-testid="button-create"
+                    data-testid="button-create-website"
                   >
                     Opret hjemmeside
-                    <Rocket className="w-4 h-4 ml-2" />
+                    <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
                 </div>
               </motion.div>
             )}
 
-            {/* Step 4: Setup */}
+            {/* Step 3: Setup Progress */}
             {step === "setup" && (
               <motion.div
                 key="setup"
@@ -645,42 +454,54 @@ export default function OnboardingPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.3 }}
-                className="max-w-md mx-auto text-center"
+                className="max-w-xl mx-auto text-center"
               >
-                <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white mb-8 shadow-xl">
-                  <Loader2 className="w-10 h-10 animate-spin" />
+                <div className="mb-12">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                    className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center"
+                  >
+                    <Rocket className="w-10 h-10 text-white" />
+                  </motion.div>
+                  
+                  <h1 className="text-3xl font-bold mb-4">
+                    Opsætter din hjemmeside
+                  </h1>
+                  <p className="text-muted-foreground text-lg">
+                    {setupSteps[setupProgress]}
+                  </p>
                 </div>
 
-                <h2 className="text-3xl font-bold tracking-tight mb-4">
-                  Opsætter din hjemmeside
-                </h2>
-
-                <div className="space-y-3 mb-8">
-                  {setupSteps.map((text, i) => (
+                <div className="space-y-3">
+                  {setupSteps.map((stepText, index) => (
                     <motion.div
-                      key={i}
+                      key={index}
                       initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.1 }}
-                      className={`flex items-center gap-3 text-left p-4 rounded-xl transition-all ${
-                        i < setupProgress
-                          ? "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900"
-                          : i === setupProgress
-                          ? "bg-primary/10 border border-primary/20"
-                          : "opacity-40"
-                      }`}
+                      animate={{ 
+                        opacity: index <= setupProgress ? 1 : 0.3,
+                        x: 0 
+                      }}
+                      transition={{ delay: index * 0.2 }}
+                      className="flex items-center gap-3"
                     >
-                      {i < setupProgress ? (
-                        <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                        index < setupProgress
+                          ? "bg-emerald-500"
+                          : index === setupProgress
+                          ? "bg-indigo-500"
+                          : "bg-muted"
+                      }`}>
+                        {index < setupProgress ? (
                           <Check className="w-4 h-4 text-white" />
-                        </div>
-                      ) : i === setupProgress ? (
-                        <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                      ) : (
-                        <div className="w-6 h-6 rounded-full border-2 border-muted" />
-                      )}
-                      <span className={i <= setupProgress ? "font-medium" : "text-muted-foreground"}>
-                        {text}
+                        ) : index === setupProgress ? (
+                          <Loader2 className="w-4 h-4 text-white animate-spin" />
+                        ) : (
+                          <span className="w-2 h-2 rounded-full bg-muted-foreground" />
+                        )}
+                      </div>
+                      <span className={index <= setupProgress ? "text-foreground" : "text-muted-foreground"}>
+                        {stepText}
                       </span>
                     </motion.div>
                   ))}
@@ -688,7 +509,7 @@ export default function OnboardingPage() {
               </motion.div>
             )}
 
-            {/* Step 5: Payment */}
+            {/* Step 4: Payment */}
             {step === "payment" && (
               <motion.div
                 key="payment"
@@ -699,161 +520,110 @@ export default function OnboardingPage() {
                 className="max-w-xl mx-auto"
               >
                 <div className="text-center mb-8">
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ delay: 0.1, type: "spring", stiffness: 200 }}
-                    className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 text-white mb-6 shadow-xl"
-                  >
-                    <Check className="w-10 h-10" />
-                  </motion.div>
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <CreditCard className="w-8 h-8 text-white" />
+                  </div>
                   <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Din hjemmeside er klar!
+                    Aktiver dit abonnement
                   </h1>
                   <p className="text-lg text-muted-foreground">
-                    Aktiver dit abonnement for at komme i gang
+                    Start din 1 måneds gratis prøveperiode
                   </p>
                 </div>
 
-                {selectedPlan && (
-                  <Card className="p-6 mb-6 border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
-                    {(() => {
-                      const plan = subscriptionPlans.find(p => p.id === selectedPlan);
-                      if (!plan) return null;
-                      const Icon = plan.icon;
-                      return (
-                        <div className="flex items-center gap-4">
-                          <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center text-white`}>
-                            <Icon className="w-7 h-7" />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="text-xl font-bold">{plan.name}</h3>
-                            <div className="flex items-baseline gap-1">
-                              <span className="text-2xl font-bold">{plan.price}</span>
-                              <span className="text-muted-foreground">{plan.priceDetail}</span>
-                            </div>
-                          </div>
-                          {plan.hasTrial && (
-                            <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                              <Gift className="w-3 h-3 mr-1" />
-                              1 måneds gratis
-                            </Badge>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </Card>
-                )}
-
-                <div className="space-y-4">
-                  {(() => {
-                    const plan = subscriptionPlans.find(p => p.id === selectedPlan);
-                    if (plan?.hasTrial) {
-                      return (
-                        <Button
-                          size="lg"
-                          className="w-full h-14 text-lg bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 shadow-lg"
-                          onClick={handleStartPayment}
-                          disabled={isRedirectingToStripe}
-                          data-testid="button-start-trial"
-                        >
-                          {isRedirectingToStripe ? (
-                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                          ) : (
-                            <Gift className="w-5 h-5 mr-2" />
-                          )}
-                          Start 1 måneds gratis prøveperiode
-                        </Button>
-                      );
-                    }
-                    return (
-                      <Button
-                        size="lg"
-                        className="w-full h-14 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
-                        onClick={handleStartPayment}
-                        disabled={isRedirectingToStripe}
-                        data-testid="button-pay-now"
-                      >
-                        {isRedirectingToStripe ? (
-                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        ) : (
-                          <CreditCard className="w-5 h-5 mr-2" />
-                        )}
-                        Betal og aktiver
-                      </Button>
-                    );
-                  })()}
-
+                {/* Billing Toggle */}
+                <div className="flex items-center justify-center gap-4 mb-8">
+                  <Label htmlFor="billing-toggle" className={`text-base ${!isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
+                    Månedlig
+                  </Label>
+                  <Switch
+                    id="billing-toggle"
+                    checked={isYearly}
+                    onCheckedChange={setIsYearly}
+                    data-testid="switch-billing-toggle"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="billing-toggle" className={`text-base ${isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
+                      Årlig
+                    </Label>
+                    <span className="bg-emerald-500/10 text-emerald-600 text-xs font-semibold px-2 py-1 rounded-full">
+                      Spar {formatPrice(yearlySavings)}
+                    </span>
+                  </div>
                 </div>
 
-                <p className="text-center text-sm text-muted-foreground mt-6">
-                  Sikker betaling via Stripe. Du kan annullere når som helst.
+                <Card className="p-8 border-2 border-primary shadow-lg mb-8">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center">
+                      <Zap className="w-7 h-7 text-indigo-500" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold">{plan.name}</h2>
+                      <p className="text-muted-foreground">{plan.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="mb-2">
+                    <span className="text-5xl font-bold">{formatPrice(currentPrice)}</span>
+                    <span className="text-muted-foreground ml-2">
+                      {isYearly ? "/år" : "/md"}
+                    </span>
+                  </div>
+                  
+                  {isYearly && (
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Svarer til {formatPrice(Math.round(plan.yearlyPrice / 12))}/md
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-2 text-emerald-600 font-medium mb-6">
+                    <Gift className="w-5 h-5" />
+                    1 måneds gratis prøveperiode
+                  </div>
+
+                  <ul className="space-y-3 mb-8">
+                    {plan.features.map((feature, i) => (
+                      <li key={i} className="flex items-start gap-3">
+                        <Check className={`w-5 h-5 shrink-0 mt-0.5 ${feature.highlight ? "text-emerald-500" : "text-emerald-500"}`} />
+                        <span className={feature.highlight ? "font-medium text-emerald-600" : ""}>
+                          {feature.text}
+                          {feature.tooltip && (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent>{feature.tooltip}</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Button
+                    size="lg"
+                    className="w-full h-14 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
+                    onClick={handleStartPayment}
+                    disabled={isRedirectingToStripe}
+                    data-testid="button-start-payment"
+                  >
+                    {isRedirectingToStripe ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Omdirigerer til betaling...
+                      </>
+                    ) : (
+                      <>
+                        Start gratis prøveperiode
+                        <ArrowRight className="w-5 h-5 ml-2" />
+                      </>
+                    )}
+                  </Button>
+                </Card>
+
+                <p className="text-center text-sm text-muted-foreground">
+                  Du bliver først opkrævet efter din prøveperiode udløber. Annuller når som helst.
                 </p>
-              </motion.div>
-            )}
-
-            {/* Step 6: Success */}
-            {step === "success" && (
-              <motion.div
-                key="success"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.4 }}
-                className="max-w-md mx-auto text-center"
-              >
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-                  className="inline-flex items-center justify-center w-24 h-24 rounded-3xl bg-gradient-to-br from-green-500 to-emerald-600 text-white mb-8 shadow-xl"
-                >
-                  <Rocket className="w-12 h-12" />
-                </motion.div>
-
-                <motion.h2
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="text-4xl font-bold tracking-tight mb-4"
-                >
-                  Din hjemmeside er klar!
-                </motion.h2>
-
-                <motion.p
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="text-xl text-muted-foreground mb-8"
-                >
-                  Begynd at redigere og gør den til din egen.
-                </motion.p>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                  className="flex flex-col sm:flex-row items-center justify-center gap-4"
-                >
-                  <Button
-                    size="lg"
-                    className="h-14 px-8 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
-                    onClick={() => navigate(`/builder/${createdWebsiteId}?tour=true`)}
-                    data-testid="button-open-editor"
-                  >
-                    Åbn editor
-                    <ArrowRight className="ml-2 w-5 h-5" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    className="h-14 px-8 text-lg"
-                    onClick={() => window.open(`/preview/${createdWebsiteId}`, "_blank")}
-                    data-testid="button-preview-site"
-                  >
-                    <ExternalLink className="mr-2 w-5 h-5" />
-                    Vis hjemmeside
-                  </Button>
-                </motion.div>
               </motion.div>
             )}
           </AnimatePresence>

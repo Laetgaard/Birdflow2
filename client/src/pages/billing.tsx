@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -5,24 +6,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { 
   CreditCard, 
   Calendar, 
   AlertTriangle, 
   CheckCircle2, 
   Zap,
-  Crown,
-  Building2,
   ArrowRight,
   Clock,
   XCircle,
   Loader2,
   Sparkles,
-  Receipt,
   Settings,
-  Mail,
   Check,
-  X,
   HelpCircle,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -35,22 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { subscriptionPlans, isUpgrade } from "@shared/subscriptionPlans";
-import { useState } from "react";
-
-const fadeInUp = {
-  initial: { opacity: 0, y: 30 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.6 },
-};
-
-const staggerContainer = {
-  animate: {
-    transition: {
-      staggerChildren: 0.1,
-    },
-  },
-};
+import { subscriptionPlans, formatPrice, getYearlySavings } from "@shared/subscriptionPlans";
 
 interface UserSubscription {
   planSlug: string | null;
@@ -60,6 +43,7 @@ interface UserSubscription {
   subscriptionId: string | null;
   trialEndsAt: string | null;
   currentPeriodEnd: string | null;
+  billingPeriod?: "monthly" | "yearly";
   features: {
     websites: number;
     pagesPerWebsite: number;
@@ -70,27 +54,6 @@ interface UserSubscription {
   };
   featureList: string[];
 }
-
-const planIcons: Record<string, any> = {
-  basic: Zap,
-  starter: Crown,
-  professional: Building2,
-  free: Zap,
-};
-
-const planIconColors: Record<string, string> = {
-  basic: "text-blue-500",
-  starter: "text-emerald-500",
-  professional: "text-purple-500",
-  free: "text-gray-500",
-};
-
-const planBgGradients: Record<string, string> = {
-  basic: "from-blue-500/10 to-cyan-500/10",
-  starter: "from-emerald-500/10 to-teal-500/10",
-  professional: "from-purple-500/10 to-pink-500/10",
-  free: "from-gray-500/10 to-gray-400/10",
-};
 
 const statusBadgeVariants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   active: "default",
@@ -116,9 +79,10 @@ export default function BillingPage() {
   const { user, isLoading: authLoading, signOut } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [isYearly, setIsYearly] = useState(false);
+  const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
 
-  const { data: subscription, isLoading: subscriptionLoading, refetch: refetchSubscription } = useQuery<UserSubscription>({
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery<UserSubscription>({
     queryKey: ["/api/subscriptions/current"],
     queryFn: async () => {
       const res = await fetch("/api/subscriptions/current", {
@@ -129,6 +93,12 @@ export default function BillingPage() {
     },
     enabled: !!user,
   });
+
+  useEffect(() => {
+    if (subscription?.billingPeriod) {
+      setIsYearly(subscription.billingPeriod === "yearly");
+    }
+  }, [subscription?.billingPeriod]);
 
   const billingPortalMutation = useMutation({
     mutationFn: async () => {
@@ -167,12 +137,12 @@ export default function BillingPage() {
   });
 
   const checkoutMutation = useMutation({
-    mutationFn: async ({ planId }: { planId: string }) => {
+    mutationFn: async ({ planId, billingPeriod }: { planId: string; billingPeriod: "monthly" | "yearly" }) => {
       const res = await fetch("/api/subscriptions/user-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ planId, billingPeriod }),
       });
       if (!res.ok) {
         const error = await res.json();
@@ -191,20 +161,21 @@ export default function BillingPage() {
         description: error.message || "Kunne ikke starte betaling. Prøv venligst igen.",
         variant: "destructive",
       });
-      setSelectedPlan(null);
+      setIsCheckoutLoading(false);
     },
   });
 
-  const handlePlanSelect = (planId: string) => {
-    if (planId === subscription?.planSlug) {
-      billingPortalMutation.mutate();
-      return;
-    }
-    setSelectedPlan(planId);
-    checkoutMutation.mutate({ planId });
+  const handleSubscribe = () => {
+    setIsCheckoutLoading(true);
+    checkoutMutation.mutate({ 
+      planId: "basic", 
+      billingPeriod: isYearly ? "yearly" : "monthly" 
+    });
   };
 
   const isLoading = authLoading || subscriptionLoading;
+  const plan = subscriptionPlans[0];
+  const yearlySavings = getYearlySavings(plan);
 
   if (!user && !authLoading) {
     return (
@@ -226,7 +197,6 @@ export default function BillingPage() {
     );
   }
 
-  const currentPlanSlug = subscription?.planSlug || null;
   const trialEnd = subscription?.trialEndsAt ? new Date(subscription.trialEndsAt) : null;
   const periodEnd = subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
   const isTrialing = subscription?.subscriptionStatus === "trialing";
@@ -239,36 +209,18 @@ export default function BillingPage() {
   const trialEndingSoon = trialEnd && isBefore(trialEnd, addDays(new Date(), 7));
   const trialExpired = trialEnd && isPast(trialEnd);
 
-  const getButtonText = (planId: string): string => {
-    if (planId === currentPlanSlug) {
-      return "Administrer";
-    }
-    if (isUpgrade(currentPlanSlug, planId)) {
-      return "Opgrader";
-    }
-    return "Skift plan";
-  };
-
-  const getButtonVariant = (planId: string, isPopular: boolean): "default" | "outline" => {
-    if (planId === currentPlanSlug) {
-      return "outline";
-    }
-    if (isPopular) {
-      return "default";
-    }
-    return "outline";
-  };
+  const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-x-hidden">
       <header className="border-b sticky top-0 bg-background/80 backdrop-blur-md z-50">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="w-full px-6 lg:px-12 h-16 flex items-center justify-between">
           <Link href="/">
             <div className="flex items-center gap-2 font-bold text-xl tracking-tight cursor-pointer">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
-              <span>BirdFlow</span>
+              <img src="/logo.png" alt="BirdFlow" className="w-8 h-8" />
+              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                BirdFlow
+              </span>
             </div>
           </Link>
           <nav className="hidden md:flex items-center gap-6">
@@ -288,8 +240,8 @@ export default function BillingPage() {
       </header>
 
       <main className="flex-1">
-        <section className="py-16 md:py-24">
-          <div className="container mx-auto px-4 max-w-6xl">
+        <section className="py-16 md:py-24 px-6 lg:px-12">
+          <div className="max-w-4xl mx-auto">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -300,7 +252,7 @@ export default function BillingPage() {
                 Fakturering & Abonnement
               </h1>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Administrer dit abonnement, se dine planer og opdater betalingsmetoder.
+                Administrer dit abonnement og betalingsmetoder.
               </p>
             </motion.div>
 
@@ -314,7 +266,7 @@ export default function BillingPage() {
                   <AlertTriangle className="h-4 w-4" />
                   <AlertTitle>Betaling mislykkedes</AlertTitle>
                   <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <span>Din sidste betaling mislykkedes. Opdater venligst din betalingsmetode for at undgå serviceafbrydelse.</span>
+                    <span>Din sidste betaling mislykkedes. Opdater venligst din betalingsmetode.</span>
                     <Button 
                       variant="destructive" 
                       size="sm"
@@ -340,7 +292,7 @@ export default function BillingPage() {
                   <Clock className="h-4 w-4 text-amber-500" />
                   <AlertTitle className="text-amber-600">Prøveperiode slutter snart</AlertTitle>
                   <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <span>Din gratis prøveperiode slutter {trialEndsIn}. Tilføj en betalingsmetode for at fortsætte med at bruge alle funktioner.</span>
+                    <span>Din gratis prøveperiode slutter {trialEndsIn}.</span>
                     <Button 
                       variant="outline" 
                       size="sm"
@@ -367,251 +319,248 @@ export default function BillingPage() {
                   <AlertTitle>Abonnement annulleret</AlertTitle>
                   <AlertDescription className="flex flex-col sm:flex-row sm:items-center gap-4">
                     <span>Dit abonnement er annulleret. Du har adgang indtil {periodEnd ? format(periodEnd, "d. MMMM yyyy", { locale: da }) : "slutningen af din faktureringsperiode"}.</span>
-                    <Button variant="outline" size="sm" onClick={() => navigate("/pricing")}>
-                      Gentilmeld dig
-                    </Button>
                   </AlertDescription>
                 </Alert>
               </motion.div>
             )}
 
             {isLoading ? (
-              <div className="grid md:grid-cols-3 gap-8">
-                {[1, 2, 3].map((i) => (
-                  <Card key={i} className="p-8">
-                    <Skeleton className="h-10 w-10 rounded-lg mb-4" />
-                    <Skeleton className="h-6 w-24 mb-2" />
-                    <Skeleton className="h-4 w-32 mb-4" />
-                    <Skeleton className="h-10 w-32 mb-6" />
-                    <Skeleton className="h-10 w-full mb-6" />
-                    <div className="space-y-3">
-                      {[1, 2, 3, 4, 5].map((j) => (
-                        <Skeleton key={j} className="h-5 w-full" />
-                      ))}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            ) : (
+              <Card className="p-8">
+                <Skeleton className="h-10 w-10 rounded-lg mb-4" />
+                <Skeleton className="h-6 w-24 mb-2" />
+                <Skeleton className="h-4 w-32 mb-4" />
+                <Skeleton className="h-10 w-32 mb-6" />
+                <Skeleton className="h-10 w-full mb-6" />
+                <div className="space-y-3">
+                  {[1, 2, 3, 4, 5].map((j) => (
+                    <Skeleton key={j} className="h-5 w-full" />
+                  ))}
+                </div>
+              </Card>
+            ) : hasPaidPlan ? (
               <motion.div
-                variants={staggerContainer}
-                initial="initial"
-                animate="animate"
-                className="grid md:grid-cols-3 gap-8 mb-12"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
               >
-                {subscriptionPlans.map((plan) => {
-                  const isCurrentPlan = plan.id === currentPlanSlug;
-                  const PlanIcon = planIcons[plan.id] || Zap;
-                  const iconColor = planIconColors[plan.id] || "text-gray-500";
-                  const bgGradient = planBgGradients[plan.id] || "from-gray-500/10 to-gray-400/10";
-                  
-                  return (
-                    <motion.div
-                      key={plan.id}
-                      variants={fadeInUp}
-                      className={`relative rounded-2xl border bg-card p-8 ${
-                        isCurrentPlan
-                          ? "border-primary shadow-lg shadow-primary/10 ring-2 ring-primary/20"
-                          : plan.popular 
-                            ? "border-emerald-500/50 shadow-lg shadow-emerald-500/10" 
-                            : "hover:border-primary/50"
-                      } transition-all`}
-                      data-testid={`card-plan-${plan.id}`}
+                <Card className="p-8 border-2 border-primary shadow-lg" data-testid="card-current-plan">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center">
+                        <Zap className="w-7 h-7 text-indigo-500" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-3 mb-1">
+                          <h2 className="text-2xl font-bold">{subscription?.planName || "Basis"}</h2>
+                          {subscription?.subscriptionStatus && (
+                            <Badge 
+                              variant={statusBadgeVariants[subscription.subscriptionStatus] || "secondary"}
+                              data-testid="badge-subscription-status"
+                            >
+                              {statusLabels[subscription.subscriptionStatus] || subscription.subscriptionStatus}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-muted-foreground">{subscription?.planPrice || "69 kr/md"}</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => billingPortalMutation.mutate()}
+                      disabled={billingPortalMutation.isPending}
+                      data-testid="button-manage-subscription"
                     >
-                      {isCurrentPlan && (
-                        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                          <span className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-semibold px-4 py-1.5 rounded-full flex items-center gap-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Din nuværende plan
-                          </span>
-                        </div>
+                      {billingPortalMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Settings className="w-4 h-4 mr-2" />
                       )}
-                      
-                      {!isCurrentPlan && plan.popular && (
-                        <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                          <span className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
-                            Mest populære
-                          </span>
-                        </div>
-                      )}
-                      
-                      <div className="flex items-center gap-3 mb-4">
-                        <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${bgGradient} flex items-center justify-center`}>
-                          <PlanIcon className={`w-5 h-5 ${iconColor}`} />
-                        </div>
-                        <div>
-                          <h3 className="font-bold text-lg">{plan.name}</h3>
-                          <p className="text-sm text-muted-foreground">{plan.description}</p>
-                        </div>
-                      </div>
+                      Administrer
+                    </Button>
+                  </div>
 
-                      <div className="mb-2">
-                        <span className="text-4xl font-bold">{plan.price}</span>
-                        <span className="text-muted-foreground ml-1">{plan.priceDetail}</span>
-                      </div>
-                      
-                      <p className="text-sm text-emerald-600 font-medium mb-4">{plan.trialText}</p>
+                  {isTrialing && trialEnd && (
+                    <div className="bg-emerald-500/10 text-emerald-600 rounded-lg p-4 mb-6">
+                      <p className="font-medium">Prøveperiode aktiv</p>
+                      <p className="text-sm">Udløber {format(trialEnd, "d. MMMM yyyy", { locale: da })}</p>
+                    </div>
+                  )}
+                  
+                  {periodEnd && !isTrialing && isActive && (
+                    <div className="bg-muted rounded-lg p-4 mb-6">
+                      <p className="text-sm text-muted-foreground">
+                        Næste fakturering: {format(periodEnd, "d. MMMM yyyy", { locale: da })}
+                      </p>
+                    </div>
+                  )}
 
-                      {isCurrentPlan && subscription?.subscriptionStatus && (
-                        <div className="mb-4 flex items-center gap-2">
-                          <Badge 
-                            variant={statusBadgeVariants[subscription.subscriptionStatus] || "secondary"}
-                            data-testid="badge-subscription-status"
-                          >
-                            {statusLabels[subscription.subscriptionStatus] || subscription.subscriptionStatus}
-                          </Badge>
-                          {isTrialing && trialEnd && (
-                            <span className="text-xs text-muted-foreground">
-                              Udløber {format(trialEnd, "d. MMM", { locale: da })}
-                            </span>
-                          )}
-                          {periodEnd && !isTrialing && isActive && (
-                            <span className="text-xs text-muted-foreground">
-                              Fornyes {format(periodEnd, "d. MMM", { locale: da })}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      <Button 
-                        className={`w-full mb-6 ${
-                          isCurrentPlan 
-                            ? "" 
-                            : plan.popular 
-                              ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600" 
-                              : ""
-                        }`}
-                        variant={getButtonVariant(plan.id, plan.popular)}
-                        data-testid={`button-plan-${plan.id}`}
-                        onClick={() => handlePlanSelect(plan.id)}
-                        disabled={(checkoutMutation.isPending && selectedPlan === plan.id) || billingPortalMutation.isPending}
-                      >
-                        {(checkoutMutation.isPending && selectedPlan === plan.id) || (isCurrentPlan && billingPortalMutation.isPending) ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Behandler...
-                          </>
-                        ) : (
-                          <>
-                            {isCurrentPlan ? (
-                              <>
-                                <Settings className="w-4 h-4 mr-2" />
-                                {getButtonText(plan.id)}
-                              </>
-                            ) : (
-                              <>
-                                {getButtonText(plan.id)}
-                                <ArrowRight className="w-4 h-4 ml-2" />
-                              </>
+                  <div className="border-t pt-6">
+                    <h3 className="font-semibold mb-4">Dit abonnement inkluderer:</h3>
+                    <ul className="grid sm:grid-cols-2 gap-3">
+                      {plan.features.map((feature, i) => (
+                        <li key={i} className="flex items-start gap-3">
+                          <Check className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                          <span className={feature.highlight ? "font-medium text-emerald-600" : ""}>
+                            {feature.text}
+                            {feature.tooltip && (
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
+                                </TooltipTrigger>
+                                <TooltipContent>{feature.tooltip}</TooltipContent>
+                              </Tooltip>
                             )}
-                          </>
-                        )}
-                      </Button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </Card>
 
-                      <ul className="space-y-3">
-                        {plan.features.map((feature, j) => (
-                          <li key={j} className="flex items-start gap-3">
-                            {feature.included ? (
-                              <Check className={`w-5 h-5 shrink-0 mt-0.5 ${feature.highlight ? "text-emerald-500" : "text-emerald-500"}`} />
-                            ) : (
-                              <X className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground/30" />
-                            )}
-                            <span className={`${feature.included ? "" : "text-muted-foreground/50"} ${feature.highlight ? "font-medium text-emerald-600" : ""}`}>
-                              {feature.text}
-                              {feature.tooltip && (
-                                <Tooltip>
-                                  <TooltipTrigger>
-                                    <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
-                                  </TooltipTrigger>
-                                  <TooltipContent>{feature.tooltip}</TooltipContent>
-                                </Tooltip>
-                              )}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </motion.div>
-                  );
-                })}
-              </motion.div>
-            )}
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-            >
-              <Card data-testid="card-billing-help">
-                <CardHeader>
-                  <div className="flex items-center gap-3">
+                <Card className="mt-8 p-6" data-testid="card-billing-help">
+                  <div className="flex items-center gap-4 mb-6">
                     <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-500 to-gray-600 flex items-center justify-center">
                       <Settings className="h-6 w-6 text-white" />
                     </div>
                     <div>
-                      <CardTitle className="text-2xl">Faktureringsindstillinger</CardTitle>
-                      <CardDescription>Administrer dine betalings- og abonnementsindstillinger</CardDescription>
+                      <h3 className="text-xl font-semibold">Faktureringsindstillinger</h3>
+                      <p className="text-muted-foreground text-sm">Administrer betalings- og abonnementsindstillinger</p>
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <button
-                      onClick={() => hasPaidPlan && billingPortalMutation.mutate()}
-                      disabled={!hasPaidPlan || billingPortalMutation.isPending}
-                      className="p-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => billingPortalMutation.mutate()}
+                      disabled={billingPortalMutation.isPending}
+                      className="p-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors text-left"
                       data-testid="button-change-payment"
                     >
                       <CreditCard className="h-6 w-6 text-indigo-500 mb-3" />
                       <h4 className="font-semibold mb-1">Betalingsmetode</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Opdater dit betalingskort
-                      </p>
+                      <p className="text-sm text-muted-foreground">Opdater dit betalingskort</p>
                     </button>
                     <button
-                      onClick={() => hasPaidPlan && billingPortalMutation.mutate()}
-                      disabled={!hasPaidPlan || billingPortalMutation.isPending}
-                      className="p-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => billingPortalMutation.mutate()}
+                      disabled={billingPortalMutation.isPending}
+                      className="p-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors text-left"
                       data-testid="button-view-invoices"
                     >
-                      <Receipt className="h-6 w-6 text-emerald-500 mb-3" />
+                      <Calendar className="h-6 w-6 text-emerald-500 mb-3" />
                       <h4 className="font-semibold mb-1">Fakturaer</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Download tidligere fakturaer
-                      </p>
+                      <p className="text-sm text-muted-foreground">Se og download fakturaer</p>
                     </button>
-                    <button
-                      onClick={() => hasPaidPlan && billingPortalMutation.mutate()}
-                      disabled={!hasPaidPlan || billingPortalMutation.isPending}
-                      className="p-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
-                      data-testid="button-cancel-subscription"
-                    >
-                      <XCircle className="h-6 w-6 text-red-500 mb-3" />
-                      <h4 className="font-semibold mb-1">Annuller plan</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Annuller dit abonnement
-                      </p>
-                    </button>
-                    <a
-                      href="mailto:support@birdflow.io"
-                      className="p-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors text-left"
-                    >
-                      <Mail className="h-6 w-6 text-amber-500 mb-3" />
-                      <h4 className="font-semibold mb-1">Kontakt support</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Få hjælp til fakturering
-                      </p>
-                    </a>
                   </div>
-                </CardContent>
-              </Card>
-            </motion.div>
+                </Card>
+              </motion.div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                {/* Billing Toggle */}
+                <div className="flex items-center justify-center gap-4 mb-8">
+                  <Label htmlFor="billing-toggle" className={`text-base ${!isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
+                    Månedlig
+                  </Label>
+                  <Switch
+                    id="billing-toggle"
+                    checked={isYearly}
+                    onCheckedChange={setIsYearly}
+                    data-testid="switch-billing-toggle"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="billing-toggle" className={`text-base ${isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
+                      Årlig
+                    </Label>
+                    <span className="bg-emerald-500/10 text-emerald-600 text-xs font-semibold px-2 py-1 rounded-full">
+                      Spar {formatPrice(yearlySavings)}
+                    </span>
+                  </div>
+                </div>
+
+                <Card className="p-8 border-2 border-primary shadow-lg max-w-lg mx-auto" data-testid="card-subscribe">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center">
+                      <Zap className="w-7 h-7 text-indigo-500" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold">{plan.name}</h2>
+                      <p className="text-muted-foreground">{plan.description}</p>
+                    </div>
+                  </div>
+
+                  <div className="mb-2">
+                    <span className="text-5xl font-bold">{formatPrice(currentPrice)}</span>
+                    <span className="text-muted-foreground ml-2">
+                      {isYearly ? "/år" : "/md"}
+                    </span>
+                  </div>
+                  
+                  {isYearly && (
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Svarer til {formatPrice(Math.round(plan.yearlyPrice / 12))}/md
+                    </p>
+                  )}
+                  
+                  <p className="text-emerald-600 font-medium mb-6">
+                    1 måneds gratis prøveperiode
+                  </p>
+
+                  <Button 
+                    className="w-full h-14 text-lg mb-8 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
+                    data-testid="button-subscribe"
+                    onClick={handleSubscribe}
+                    disabled={isCheckoutLoading}
+                  >
+                    {isCheckoutLoading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Behandler...
+                      </>
+                    ) : (
+                      <>
+                        Start gratis prøveperiode
+                        <ArrowRight className="w-5 h-5 ml-2" />
+                      </>
+                    )}
+                  </Button>
+
+                  <ul className="space-y-3">
+                    {plan.features.map((feature, i) => (
+                      <li key={i} className="flex items-start gap-3">
+                        <Check className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+                        <span className={feature.highlight ? "font-medium text-emerald-600" : ""}>
+                          {feature.text}
+                          {feature.tooltip && (
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent>{feature.tooltip}</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              </motion.div>
+            )}
           </div>
         </section>
       </main>
 
-      <footer className="border-t py-8">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} BirdFlow. Alle rettigheder forbeholdes.</p>
+      <footer className="py-8 border-t bg-background">
+        <div className="w-full px-6 lg:px-12">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              © {new Date().getFullYear()} BirdFlow. All rights reserved.
+            </p>
+            <div className="flex items-center gap-6 text-sm text-muted-foreground">
+              <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
+              <Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+            </div>
+          </div>
         </div>
       </footer>
     </div>
