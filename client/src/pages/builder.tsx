@@ -1004,7 +1004,7 @@ export default function BuilderPage() {
           {/* Canvas / Preview */}
           <main 
             ref={previewContainerRef}
-            className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center relative" 
+            className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center relative isolate" 
             onClick={() => setSelectedComponentId(null)}
             data-preview-area
           >
@@ -1056,7 +1056,7 @@ export default function BuilderPage() {
 
         {/* Right Sidebar */}
         {sidebarOpen && (
-          <aside className="w-full md:w-80 border-l bg-card flex flex-col shrink-0 overflow-hidden absolute md:relative right-0 top-0 h-full z-20 shadow-lg md:shadow-none">
+          <aside className="w-full md:w-80 border-l bg-card flex flex-col shrink-0 overflow-hidden absolute md:relative right-0 top-0 h-full z-50 shadow-lg md:shadow-none">
             {/* Mobile close button */}
             <div className="md:hidden flex items-center justify-between p-3 border-b">
               <span className="font-medium text-sm">Panel</span>
