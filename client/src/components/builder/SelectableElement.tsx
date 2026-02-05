@@ -25,6 +25,8 @@ export interface ElementStyles {
   hoverScale?: number;
   hoverOpacity?: number;
   rotation?: number;
+  textContent?: string;
+  imageUrl?: string;
 }
 
 interface SelectableElementProps {
