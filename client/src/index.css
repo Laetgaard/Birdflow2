@@ -324,3 +324,40 @@
   from { opacity: 0; transform: perspective(400px) rotateX(90deg); } 
   to { opacity: 1; transform: perspective(400px) rotateX(0); } 
 }
+
+/* Canva-style selectable elements */
+.selectable-element {
+  transition: all 0.2s ease;
+}
+
+.selectable-element:hover {
+  background-color: var(--hover-bg, inherit);
+  color: var(--hover-color, inherit);
+  transform: scale(var(--hover-scale, 1));
+  opacity: var(--hover-opacity, 1);
+  box-shadow: var(--hover-shadow, none);
+}
+
+/* Selection handles animation */
+[data-testid^="handle-"] {
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+[data-testid^="handle-"]:hover {
+  transform: scale(1.2);
+  background-color: #dbeafe;
+}
+
+[data-testid="handle-rotate"]:hover {
+  background-color: #dbeafe;
+}
+
+/* Selection border pulse animation */
+@keyframes selection-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px #2563eb; }
+  50% { box-shadow: 0 0 0 3px #3b82f6; }
+}
+
+[data-testid="selection-border"] {
+  animation: selection-pulse 2s ease-in-out infinite;
+}
