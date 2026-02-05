@@ -22,11 +22,32 @@ interface ElementOverlayProps {
 const ELEMENT_SELECTORS = {
   image: 'img:not([data-no-select])',
   button: 'button:not([data-no-select]), a.btn:not([data-no-select]), [role="button"]:not([data-no-select])',
-  card: '[data-element-type="card"], .card:not([data-no-select])',
+  card: '[data-element-type="card"], .card:not([data-no-select]), [class*="rounded"]:not([data-no-select]):not(button):not(img)',
   text: 'h1:not([data-no-select]), h2:not([data-no-select]), h3:not([data-no-select]), p:not([data-no-select]):not(:empty)',
   container: '[data-element-type="container"]',
   icon: 'svg.lucide:not([data-no-select]), [data-element-type="icon"]',
 };
+
+// Check if element looks like a card (has background, shadow, or border-radius styling)
+function looksLikeCard(element: HTMLElement): boolean {
+  const style = window.getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+  
+  // Must have minimum size to be considered a card (avoid tiny elements)
+  if (rect.width < 100 || rect.height < 50) return false;
+  
+  const hasBgColor = style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent';
+  const hasGradient = style.backgroundImage !== 'none';
+  const hasShadow = style.boxShadow !== 'none';
+  const hasRadius = parseFloat(style.borderRadius) >= 8; // Significant radius
+  const hasBorder = style.borderWidth !== '0px' && style.borderStyle !== 'none';
+  
+  // Count visual card characteristics
+  const visualFeatures = [hasBgColor || hasGradient, hasShadow, hasRadius, hasBorder].filter(Boolean).length;
+  
+  // Must have at least 2 card-like features to be considered a card
+  return visualFeatures >= 2;
+}
 
 function getElementType(element: HTMLElement): ElementType {
   const tagName = element.tagName.toLowerCase();
@@ -35,6 +56,8 @@ function getElementType(element: HTMLElement): ElementType {
   if (tagName === 'button' || element.getAttribute('role') === 'button') return 'button';
   if (tagName === 'a' && element.classList.contains('btn')) return 'button';
   if (element.classList.contains('card') || element.dataset.elementType === 'card') return 'card';
+  // Check if element looks like a card based on styling
+  if (looksLikeCard(element) && tagName === 'div') return 'card';
   if (element.dataset.elementType === 'container') return 'container';
   if (tagName === 'svg' || element.dataset.elementType === 'icon') return 'icon';
   if (['h1', 'h2', 'h3', 'p'].includes(tagName)) return 'text';
