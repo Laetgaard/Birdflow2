@@ -106,6 +106,15 @@ export default function ElementOverlay({
   containerRef,
   isPreview = false,
 }: ElementOverlayProps) {
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const {
     selectedElement,
     selectElement,
@@ -299,8 +308,8 @@ export default function ElementOverlay({
         );
       })}
       
-      {/* Edit Panel for selected element */}
-      {selectedElement && (() => {
+      {/* Edit Panel for selected element - desktop only */}
+      {selectedElement && !isMobile && (() => {
         const selectedRect = detectedElements.find(d => d.id === selectedElement.id)?.rect;
         return (
           <div
