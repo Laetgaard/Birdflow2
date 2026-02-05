@@ -1132,6 +1132,8 @@ export default function BuilderPage() {
                 ))
               )}
             </div>
+            {/* Element selection overlay - must be inside container for correct positioning */}
+            <ElementOverlay containerRef={previewContainerRef} isPreview={false} />
           </main>
           <SelectionOverlay />
           <FloatingToolbar />
@@ -1139,7 +1141,6 @@ export default function BuilderPage() {
           <DragDropLayer />
           <SpacingIndicators />
           <MobileBottomSheet />
-          <ElementOverlay containerRef={previewContainerRef} isPreview={false} />
 
         {/* Right Sidebar */}
         {sidebarOpen && (
