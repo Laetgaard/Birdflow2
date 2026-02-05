@@ -1,0 +1,203 @@
+Upgrade the builder so EVERY visible element in the preview is editable and feels like Canva/Figma on desktop and mobile.
+
+Goal:
+No “dead” elements. If the user can see it, they can click and edit it.
+
+---
+
+1) Universal Editability
+
+Make ALL components and sub-elements editable, including:
+
+- Text blocks
+- Headings
+- Paragraphs
+- Images
+- Buttons
+- Icons
+- Cards
+- Feature boxes
+- Pricing cards
+- Nav items
+- Footer links
+- Forms
+- Product cards
+- Booking widgets
+- Sections
+- Containers
+
+Nothing should be static.
+
+---
+
+2) Component Audit
+
+Go through every component in ComponentRenderer and:
+
+- Verify it has:
+  - selectable wrapper
+  - edit handlers
+  - style bindings
+- Add missing edit support where needed
+
+Create a checklist and ensure 100% coverage.
+
+---
+
+3) Smart Selection System
+
+When an element is clicked:
+
+- Show bounding box
+- Show resize handles
+- Show type label (Text / Image / Button / Section / etc.)
+- Highlight parent/child relationships
+
+Like Figma layers.
+
+---
+
+4) Context-Aware Floating Toolbar
+
+Improve FloatingToolbar so it adapts per element:
+
+Text:
+- Font
+- Size
+- Weight
+- Color
+- Align
+- Line height
+
+Image:
+- Crop
+- Fit
+- Size
+- Border radius
+- Shadow
+
+Button:
+- Text
+- Background
+- Border
+- Hover color
+- Radius
+
+Section/Container:
+- Background
+- Padding
+- Margin
+- Max width
+- Layout
+
+Cards:
+- Shadow
+- Radius
+- Gap
+- Background
+
+No generic toolbar.
+
+---
+
+5) Direct Manipulation
+
+Enable:
+
+- Drag to move sections/components
+- Resize with handles
+- Double-click to edit text
+- Click image to replace
+- Drag spacing guides
+
+Avoid sidebar-only editing.
+
+---
+
+6) Mobile Editing Mode
+
+On mobile:
+
+- Tap = select
+- Long press = move
+- Bottom sheet toolbar
+- Large controls
+- No hover dependency
+
+Make mobile editing first-class.
+
+---
+
+7) Style System Upgrade
+
+Extend builder_state so every component supports:
+
+- layout (width, align, gap)
+- style (color, radius, shadow, border)
+- motion (hover, scroll reveal, fade, slide)
+- responsive overrides
+
+Keep it JSON serializable.
+
+---
+
+8) Inline Feedback
+
+Add visual helpers:
+
+- Spacing indicators
+- Snap lines
+- Alignment guides
+- Hover preview of styles
+
+Like Figma.
+
+---
+
+9) History System
+
+Implement:
+
+- Undo / Redo
+- Action history (min 50 steps)
+- Ctrl+Z / Ctrl+Shift+Z
+
+Critical for experimentation.
+
+---
+
+10) Consistency
+
+Ensure:
+
+- Preview = Published site
+- No hidden styles
+- No editor-only hacks
+
+What users see is what gets published.
+
+---
+
+11) UX Polish
+
+Add:
+
+- Micro-animations
+- Smooth transitions
+- Hover feedback
+- Subtle scale/shadow on select
+
+Make editing feel “premium”.
+
+---
+
+Result:
+
+The builder should feel comparable to:
+- Canva
+- Webflow Editor
+- Framer
+
+Users should be able to design visually without needing side panels for basic edits.
+
+Everything visible should be editable.
