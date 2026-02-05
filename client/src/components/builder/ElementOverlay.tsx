@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useElementSelection } from './ElementSelectionContext';
 import CanvaSelectionBox from './CanvaSelectionBox';
 import ElementEditPanel from './ElementEditPanel';
+import { GripVertical } from 'lucide-react';
 import type { ElementType, ElementStyles } from './SelectableElement';
 
 interface DetectedElement {
@@ -215,6 +216,58 @@ export default function ElementOverlay({
     updateElementStyles(selectedElement.id, styles);
   }, [selectedElement, updateElementStyles]);
 
+  // Draggable edit panel state
+  const [panelPosition, setPanelPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number; panelX: number; panelY: number } | null>(null);
+
+  // Reset panel position when selection changes
+  useEffect(() => {
+    setPanelPosition(null);
+  }, [selectedElement?.id]);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const panelEl = e.currentTarget.parentElement;
+    if (!panelEl) return;
+    
+    const rect = panelEl.getBoundingClientRect();
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panelX: rect.left,
+      panelY: rect.top,
+    };
+    setIsDragging(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      setPanelPosition({
+        x: dragStartRef.current.panelX + dx,
+        y: dragStartRef.current.panelY + dy,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragStartRef.current = null;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
   // Get container offset for positioning
   const getContainerOffset = () => {
     if (!containerRef.current) return { x: 0, y: 0 };
@@ -225,101 +278,168 @@ export default function ElementOverlay({
   if (isPreview || detectedElements.length === 0) return null;
 
   const offset = getContainerOffset();
+  
+  // Find the selected element's detected info
+  const selectedDetected = selectedElement 
+    ? detectedElements.find(d => d.id === selectedElement.id) 
+    : null;
+
+  // Calculate initial panel position (fixed to viewport)
+  const getInitialPanelPosition = () => {
+    if (!selectedDetected || !containerRef.current) return { x: 100, y: 100 };
+    const containerRect = containerRef.current.getBoundingClientRect();
+    return {
+      x: containerRect.left + selectedDetected.rect.left + selectedDetected.rect.width + 20,
+      y: containerRect.top + selectedDetected.rect.top,
+    };
+  };
+
+  const currentPanelPosition = panelPosition || getInitialPanelPosition();
 
   return (
-    <div
-      ref={overlayRef}
-      className="absolute inset-0 pointer-events-none"
-      style={{ zIndex: 100 }}
-      data-testid="element-overlay"
-    >
-      {/* Clickable regions for each detected element */}
-      {detectedElements.map((detected) => {
-        const isSelected = isElementSelected(detected.id);
-        const isHovered = hoveredId === detected.id;
-        const styles = elementStyles.get(detected.id) || {};
-        
-        return (
-          <div
-            key={detected.id}
-            className="absolute pointer-events-auto"
-            style={{
-              left: detected.rect.left,
-              top: detected.rect.top,
-              width: detected.rect.width,
-              height: detected.rect.height,
-            }}
-            onClick={(e) => handleElementClick(detected, e)}
-            onMouseEnter={() => setHoveredId(detected.id)}
-            onMouseLeave={() => setHoveredId(null)}
-            data-testid={`element-region-${detected.id}`}
-          >
-            {/* Hover indicator */}
-            {isHovered && !isSelected && (
-              <>
-                <div
-                  className="absolute inset-0 border-2 border-blue-400 pointer-events-none"
-                  style={{ borderRadius: styles.borderRadius || '0' }}
-                />
-                <div
-                  className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded whitespace-nowrap pointer-events-none"
+    <>
+      {/* Overlay for clickable regions */}
+      <div
+        ref={overlayRef}
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: 100 }}
+        data-testid="element-overlay"
+      >
+        {/* Clickable regions for each detected element - only show hover on non-selected elements */}
+        {detectedElements.map((detected) => {
+          const isSelected = isElementSelected(detected.id);
+          const isHovered = hoveredId === detected.id;
+          const styles = elementStyles.get(detected.id) || {};
+          
+          // Only render overlay regions for:
+          // - The currently selected element (for selection UI)
+          // - The currently hovered element (for hover indicator)
+          // Skip all others to reduce visual clutter
+          if (!isSelected && !isHovered) {
+            return (
+              <div
+                key={detected.id}
+                className="absolute pointer-events-auto"
+                style={{
+                  left: detected.rect.left,
+                  top: detected.rect.top,
+                  width: detected.rect.width,
+                  height: detected.rect.height,
+                }}
+                onClick={(e) => handleElementClick(detected, e)}
+                onMouseEnter={() => setHoveredId(detected.id)}
+                onMouseLeave={() => setHoveredId(null)}
+                data-testid={`element-region-${detected.id}`}
+              />
+            );
+          }
+          
+          return (
+            <div
+              key={detected.id}
+              className="absolute pointer-events-auto"
+              style={{
+                left: detected.rect.left,
+                top: detected.rect.top,
+                width: detected.rect.width,
+                height: detected.rect.height,
+              }}
+              onClick={(e) => handleElementClick(detected, e)}
+              onMouseEnter={() => setHoveredId(detected.id)}
+              onMouseLeave={() => setHoveredId(null)}
+              data-testid={`element-region-${detected.id}`}
+            >
+              {/* Hover indicator - only for hovered, non-selected elements */}
+              {isHovered && !isSelected && (
+                <>
+                  <div
+                    className="absolute inset-0 border-2 border-blue-400 pointer-events-none"
+                    style={{ borderRadius: styles.borderRadius || '0' }}
+                  />
+                  <div
+                    className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded whitespace-nowrap pointer-events-none"
+                  >
+                    {detected.type === 'image' && 'Billede'}
+                    {detected.type === 'button' && 'Knap'}
+                    {detected.type === 'card' && 'Kort'}
+                    {detected.type === 'text' && 'Tekst'}
+                    {detected.type === 'container' && 'Container'}
+                    {detected.type === 'icon' && 'Ikon'}
+                  </div>
+                </>
+              )}
+              
+              {/* Selection UI - only for selected element */}
+              {isSelected && (
+                <CanvaSelectionBox
+                  isSelected={true}
+                  elementType={detected.type}
+                  initialRotation={styles.rotation}
+                  onResize={(width, height) => {
+                    handleStyleChange({ width: `${width}px`, height: `${height}px` });
+                    detected.element.style.width = `${width}px`;
+                    detected.element.style.height = `${height}px`;
+                  }}
+                  onRotate={(rotation) => {
+                    handleStyleChange({ rotation });
+                    detected.element.style.transform = `rotate(${rotation}deg)`;
+                  }}
+                  className="w-full h-full"
                 >
-                  {detected.type === 'image' && 'Billede'}
-                  {detected.type === 'button' && 'Knap'}
-                  {detected.type === 'card' && 'Kort'}
-                  {detected.type === 'text' && 'Tekst'}
-                  {detected.type === 'container' && 'Container'}
-                  {detected.type === 'icon' && 'Ikon'}
-                </div>
-              </>
-            )}
-            
-            {/* Selection UI */}
-            {isSelected && (
-              <CanvaSelectionBox
-                isSelected={true}
-                elementType={detected.type}
-                initialRotation={styles.rotation}
-                onResize={(width, height) => {
-                  handleStyleChange({ width: `${width}px`, height: `${height}px` });
-                  // Also update the actual element
-                  detected.element.style.width = `${width}px`;
-                  detected.element.style.height = `${height}px`;
-                }}
-                onRotate={(rotation) => {
-                  handleStyleChange({ rotation });
-                  detected.element.style.transform = `rotate(${rotation}deg)`;
-                }}
-                className="w-full h-full"
-              >
-                <div className="w-full h-full" />
-              </CanvaSelectionBox>
-            )}
-          </div>
-        );
-      })}
+                  <div className="w-full h-full" />
+                </CanvaSelectionBox>
+              )}
+            </div>
+          );
+        })}
+      </div>
       
-      {/* Edit Panel for selected element */}
-      {selectedElement && (() => {
-        const selectedRect = detectedElements.find(d => d.id === selectedElement.id)?.rect;
-        return (
+      {/* Draggable Edit Panel - fixed position on top of everything */}
+      {selectedElement && selectedDetected && (
+        <div
+          className="fixed pointer-events-auto bg-white rounded-lg shadow-2xl border"
+          style={{
+            left: currentPanelPosition.x,
+            top: currentPanelPosition.y,
+            zIndex: 9999,
+            maxHeight: 'calc(100vh - 100px)',
+            overflow: 'auto',
+          }}
+        >
+          {/* Draggable header */}
           <div
-            className="absolute pointer-events-auto"
-            style={{
-              left: selectedRect ? (selectedRect.left + selectedRect.width + 10) : 0,
-              top: selectedRect?.top || 0,
-              zIndex: 200,
-            }}
+            className="flex items-center justify-between px-3 py-2 border-b bg-gray-50 rounded-t-lg cursor-move select-none"
+            onMouseDown={handleDragStart}
           >
-            <ElementEditPanel
-              elementType={selectedElement.elementType}
-              styles={elementStyles.get(selectedElement.id) || {}}
-              onStyleChange={handleStyleChange}
-              onClose={deselectElement}
-            />
+            <div className="flex items-center gap-2">
+              <GripVertical className="w-4 h-4 text-gray-400" />
+              <span className="font-medium text-sm">
+                {selectedElement.elementType === 'image' && 'Billede'}
+                {selectedElement.elementType === 'button' && 'Knap'}
+                {selectedElement.elementType === 'card' && 'Kort'}
+                {selectedElement.elementType === 'text' && 'Tekst'}
+                {selectedElement.elementType === 'container' && 'Container'}
+                {selectedElement.elementType === 'icon' && 'Ikon'}
+              </span>
+            </div>
+            <button
+              onClick={deselectElement}
+              className="text-gray-400 hover:text-gray-600 p-1"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-        );
-      })()}
-    </div>
+          <ElementEditPanel
+            elementType={selectedElement.elementType}
+            styles={elementStyles.get(selectedElement.id) || {}}
+            onStyleChange={handleStyleChange}
+            onClose={deselectElement}
+            hideHeader={true}
+          />
+        </div>
+      )}
+    </>
   );
 }
