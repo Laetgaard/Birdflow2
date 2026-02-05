@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useElementSelection } from './ElementSelectionContext';
-import CanvaSelectionBox from './CanvaSelectionBox';
 import ElementEditPanel from './ElementEditPanel';
 import { GripVertical } from 'lucide-react';
 import type { ElementType, ElementStyles } from './SelectableElement';
@@ -305,35 +304,8 @@ export default function ElementOverlay({
         style={{ zIndex: 100 }}
         data-testid="element-overlay"
       >
-        {/* Clickable regions for each detected element - only show hover on non-selected elements */}
+        {/* Clickable regions for each detected element - no visual overlays, just invisible hit areas */}
         {detectedElements.map((detected) => {
-          const isSelected = isElementSelected(detected.id);
-          const isHovered = hoveredId === detected.id;
-          const styles = elementStyles.get(detected.id) || {};
-          
-          // Only render overlay regions for:
-          // - The currently selected element (for selection UI)
-          // - The currently hovered element (for hover indicator)
-          // Skip all others to reduce visual clutter
-          if (!isSelected && !isHovered) {
-            return (
-              <div
-                key={detected.id}
-                className="absolute pointer-events-auto"
-                style={{
-                  left: detected.rect.left,
-                  top: detected.rect.top,
-                  width: detected.rect.width,
-                  height: detected.rect.height,
-                }}
-                onClick={(e) => handleElementClick(detected, e)}
-                onMouseEnter={() => setHoveredId(detected.id)}
-                onMouseLeave={() => setHoveredId(null)}
-                data-testid={`element-region-${detected.id}`}
-              />
-            );
-          }
-          
           return (
             <div
               key={detected.id}
@@ -348,48 +320,7 @@ export default function ElementOverlay({
               onMouseEnter={() => setHoveredId(detected.id)}
               onMouseLeave={() => setHoveredId(null)}
               data-testid={`element-region-${detected.id}`}
-            >
-              {/* Hover indicator - only for hovered, non-selected elements */}
-              {isHovered && !isSelected && (
-                <>
-                  <div
-                    className="absolute inset-0 border-2 border-blue-400 pointer-events-none"
-                    style={{ borderRadius: styles.borderRadius || '0' }}
-                  />
-                  <div
-                    className="absolute -top-6 left-0 bg-blue-500 text-white text-xs px-2 py-0.5 rounded whitespace-nowrap pointer-events-none"
-                  >
-                    {detected.type === 'image' && 'Billede'}
-                    {detected.type === 'button' && 'Knap'}
-                    {detected.type === 'card' && 'Kort'}
-                    {detected.type === 'text' && 'Tekst'}
-                    {detected.type === 'container' && 'Container'}
-                    {detected.type === 'icon' && 'Ikon'}
-                  </div>
-                </>
-              )}
-              
-              {/* Selection UI - only for selected element */}
-              {isSelected && (
-                <CanvaSelectionBox
-                  isSelected={true}
-                  elementType={detected.type}
-                  initialRotation={styles.rotation}
-                  onResize={(width, height) => {
-                    handleStyleChange({ width: `${width}px`, height: `${height}px` });
-                    detected.element.style.width = `${width}px`;
-                    detected.element.style.height = `${height}px`;
-                  }}
-                  onRotate={(rotation) => {
-                    handleStyleChange({ rotation });
-                    detected.element.style.transform = `rotate(${rotation}deg)`;
-                  }}
-                  className="w-full h-full"
-                >
-                  <div className="w-full h-full" />
-                </CanvaSelectionBox>
-              )}
-            </div>
+            />
           );
         })}
       </div>
