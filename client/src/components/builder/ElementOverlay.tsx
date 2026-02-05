@@ -397,7 +397,7 @@ export default function ElementOverlay({
       {/* Draggable Edit Panel - fixed position on top of everything */}
       {selectedElement && selectedDetected && (
         <div
-          className="fixed pointer-events-auto bg-white rounded-lg shadow-2xl border"
+          className="fixed pointer-events-auto bg-white rounded-lg shadow-2xl outline-none"
           style={{
             left: currentPanelPosition.x,
             top: currentPanelPosition.y,
