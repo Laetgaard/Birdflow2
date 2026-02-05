@@ -19,13 +19,14 @@ interface ElementOverlayProps {
 }
 
 // Selectors for different element types
+// NOTE: Exclude [data-inline-editable] elements to allow inline text editing to work
 const ELEMENT_SELECTORS = {
-  image: 'img:not([data-no-select])',
-  button: 'button:not([data-no-select]), a.btn:not([data-no-select]), [role="button"]:not([data-no-select])',
-  card: '[data-element-type="card"], .card:not([data-no-select]), [class*="rounded"]:not([data-no-select]):not(button):not(img)',
-  text: 'h1:not([data-no-select]), h2:not([data-no-select]), h3:not([data-no-select]), p:not([data-no-select]):not(:empty)',
-  container: '[data-element-type="container"]',
-  icon: 'svg.lucide:not([data-no-select]), [data-element-type="icon"]',
+  image: 'img:not([data-no-select]):not([data-inline-editable])',
+  button: 'button:not([data-no-select]):not([data-inline-editable]), a.btn:not([data-no-select]):not([data-inline-editable]), [role="button"]:not([data-no-select]):not([data-inline-editable])',
+  card: '[data-element-type="card"]:not([data-inline-editable]), .card:not([data-no-select]):not([data-inline-editable]), [class*="rounded"]:not([data-no-select]):not(button):not(img):not([data-inline-editable])',
+  text: 'h1:not([data-no-select]):not([data-inline-editable]), h2:not([data-no-select]):not([data-inline-editable]), h3:not([data-no-select]):not([data-inline-editable]), p:not([data-no-select]):not(:empty):not([data-inline-editable])',
+  container: '[data-element-type="container"]:not([data-inline-editable])',
+  icon: 'svg.lucide:not([data-no-select]):not([data-inline-editable]), [data-element-type="icon"]:not([data-inline-editable])',
 };
 
 // Check if element looks like a card (has background, shadow, or border-radius styling)
@@ -140,6 +141,9 @@ export default function ElementOverlay({
       
       // Skip elements inside the overlay itself
       if (overlayRef.current?.contains(element)) return;
+      
+      // Skip inline-editable elements to allow text editing
+      if (element.hasAttribute('data-inline-editable') || element.closest('[data-inline-editable]')) return;
       
       const componentEl = element.closest('[data-component-id]');
       const componentId = componentEl?.getAttribute('data-component-id') || '';
