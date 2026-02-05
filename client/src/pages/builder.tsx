@@ -60,6 +60,9 @@ import SelectionOverlay from "@/components/builder/SelectionOverlay";
 import ContextMenu from "@/components/builder/ContextMenu";
 import CoachMarks from "@/components/builder/CoachMarks";
 import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
+import DragDropLayer from "@/components/builder/DragDropLayer";
+import MobileBottomSheet from "@/components/builder/MobileBottomSheet";
+import SpacingIndicators from "@/components/builder/SpacingIndicators";
 import type { WebsiteTemplate } from "@shared/websiteTemplates";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
 import { 
@@ -247,6 +250,42 @@ export default function BuilderPage() {
       return prev;
     });
   }, [flushPendingHistory, saveState, toast]);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+      
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      }
+      
+      // Delete key to remove selected component
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedComponentId && !target.isContentEditable) {
+          e.preventDefault();
+          deleteComponent(selectedComponentId);
+        }
+      }
+      
+      // Escape to deselect
+      if (e.key === 'Escape') {
+        setSelectedComponentId(null);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, selectedComponentId]);
 
   useEffect(() => {
     return () => {
@@ -1055,6 +1094,9 @@ export default function BuilderPage() {
           <SelectionOverlay />
           <FloatingToolbar />
           <ContextMenu />
+          <DragDropLayer />
+          <SpacingIndicators />
+          <MobileBottomSheet />
 
         {/* Right Sidebar */}
         {sidebarOpen && (
