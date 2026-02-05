@@ -1,0 +1,189 @@
+Upgrade the builder preview to support Canva/Figma-style element-level selection and editing.
+
+Goal:
+Users must be able to click and edit individual elements (images, buttons, cards, text, containers) instead of only whole sections.
+
+Make the builder feel like a real design tool.
+
+---
+
+1) Element-Level Selection
+
+Enable direct selection of individual elements:
+
+- Images
+- Buttons
+- Cards
+- Feature boxes
+- Product cards
+- Text blocks
+- Icons
+- Containers
+
+Clicking should select ONLY that element, not the whole section.
+
+---
+
+2) Canva-Style Selection UI
+
+When an element is selected:
+
+- Show blue outline border
+- Show 8 resize handles (corners + sides)
+- Show rotation handle at top
+- Show visual hover feedback on handles
+- Show cursor change when hovering handles
+
+Selection UI should feel like Canva/Figma.
+
+---
+
+3) Resize + Rotate Interactions
+
+Implement:
+
+- Drag-to-resize with real-time preview
+- Maintain aspect ratio when holding Shift
+- Drag-to-rotate with rotation handle
+- Snap angles (0°, 45°, 90°)
+
+All interactions must feel smooth and responsive.
+
+---
+
+4) Element-Specific Editing Controls
+
+Show context-aware controls based on element type:
+
+Images:
+- Resize
+- Crop
+- Replace
+- Opacity
+- Border radius
+- Shadow
+
+Buttons:
+- Text
+- Background color
+- Text color
+- Hover color
+- Border radius
+- Shadow
+
+Cards / Containers:
+- Background
+- Border
+- Shadow
+- Padding
+- Border radius
+- Gap
+
+Text:
+- Font
+- Size
+- Weight
+- Color
+- Align
+- Line height
+
+No generic toolbar.
+
+---
+
+5) Hover Effects Editor
+
+Add hover-state editing:
+
+Allow users to define:
+
+- Hover background
+- Hover text color
+- Hover shadow
+- Hover scale
+- Hover opacity
+
+Store hover styles in builder_state.
+
+Preview hover live in editor.
+
+---
+
+6) Smooth Interaction System
+
+Implement:
+
+- Real-time drag preview
+- Cursor changes (resize, move, rotate)
+- No lag or jumpiness
+- RequestAnimationFrame-based updates
+- Debounced state saving
+
+Editing must feel “buttery smooth”.
+
+---
+
+7) Mobile Editing Support
+
+On mobile:
+
+- Tap = select
+- Long-press = drag
+- Bottom-sheet toolbar
+- Large resize handles
+- No hover dependency
+
+Mobile editing must be first-class.
+
+---
+
+8) Component Audit
+
+Go through every component in ComponentRenderer and:
+
+- Ensure it supports:
+  - selection
+  - resize
+  - style editing
+  - hover editing
+- Add missing bindings
+
+Create an internal checklist and reach 100% coverage.
+
+---
+
+9) Builder State Upgrade
+
+Extend builder_state schema to support:
+
+- layout: width, height, rotation, position
+- style: colors, shadows, radius, opacity
+- hover: hover styles
+- responsive overrides
+
+All must be serializable.
+
+---
+
+10) Consistency
+
+Ensure:
+
+- Preview === Published site
+- No editor-only styles
+- No hidden overrides
+
+WYSIWYG must be true.
+
+---
+
+Result:
+
+The builder should feel comparable to:
+
+- Canva
+- Figma
+- Webflow Editor
+- Framer
+
+Users must be able to visually design without using side panels for basic layout and styling.
