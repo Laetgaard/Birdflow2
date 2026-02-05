@@ -323,6 +323,62 @@ export default function ElementOverlay({
     updateElementStyles(selectedElement.id, styles);
   }, [selectedElement, updateElementStyles]);
 
+  // Apply style changes to actual DOM elements in real time
+  useEffect(() => {
+    detectedElements.forEach((detected) => {
+      const styles = elementStyles.get(detected.id);
+      if (!styles) return;
+      
+      const el = detected.element;
+      
+      // Apply visual styles directly to the DOM element
+      if (styles.backgroundColor) el.style.backgroundColor = styles.backgroundColor;
+      if (styles.color) el.style.color = styles.color;
+      if (styles.borderRadius) el.style.borderRadius = styles.borderRadius;
+      if (styles.boxShadow) el.style.boxShadow = styles.boxShadow;
+      if (styles.opacity !== undefined) el.style.opacity = String(styles.opacity / 100);
+      if (styles.padding) el.style.padding = styles.padding;
+      if (styles.width) el.style.width = styles.width;
+      if (styles.height) el.style.height = styles.height;
+      if (styles.borderWidth) el.style.borderWidth = styles.borderWidth;
+      if (styles.borderColor) el.style.borderColor = styles.borderColor;
+      if (styles.fontSize) el.style.fontSize = styles.fontSize;
+      if (styles.fontWeight) el.style.fontWeight = styles.fontWeight;
+      if (styles.textAlign) el.style.textAlign = styles.textAlign;
+      if (styles.gap) el.style.gap = styles.gap;
+      if (styles.rotation !== undefined) el.style.transform = `rotate(${styles.rotation}deg)`;
+      
+      // Apply image URL change
+      if (styles.imageUrl && el.tagName.toLowerCase() === 'img') {
+        (el as HTMLImageElement).src = styles.imageUrl;
+      }
+      
+      // Apply hover effects via CSS custom properties and a dynamic style
+      const elementId = detected.id.replace(/[^a-zA-Z0-9]/g, '_');
+      let hoverStyleEl = document.getElementById(`hover-style-${elementId}`);
+      
+      if (styles.hoverBackgroundColor || styles.hoverColor || styles.hoverShadow || 
+          styles.hoverScale || styles.hoverOpacity) {
+        if (!hoverStyleEl) {
+          hoverStyleEl = document.createElement('style');
+          hoverStyleEl.id = `hover-style-${elementId}`;
+          document.head.appendChild(hoverStyleEl);
+        }
+        
+        el.dataset.hoverId = elementId;
+        
+        const hoverRules: string[] = [];
+        if (styles.hoverBackgroundColor) hoverRules.push(`background-color: ${styles.hoverBackgroundColor} !important`);
+        if (styles.hoverColor) hoverRules.push(`color: ${styles.hoverColor} !important`);
+        if (styles.hoverShadow) hoverRules.push(`box-shadow: ${styles.hoverShadow} !important`);
+        if (styles.hoverScale) hoverRules.push(`transform: scale(${styles.hoverScale / 100}) !important`);
+        if (styles.hoverOpacity !== undefined) hoverRules.push(`opacity: ${styles.hoverOpacity / 100} !important`);
+        
+        hoverStyleEl.textContent = `[data-hover-id="${elementId}"] { transition: all 0.2s ease !important; } [data-hover-id="${elementId}"]:hover { ${hoverRules.join('; ')} }`;
+      }
+    });
+  }, [detectedElements, elementStyles]);
+
   // Get container offset for positioning
   const getContainerOffset = () => {
     if (!containerRef.current) return { x: 0, y: 0 };

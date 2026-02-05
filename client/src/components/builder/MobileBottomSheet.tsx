@@ -165,10 +165,13 @@ export default function MobileBottomSheet() {
           display: 'flex',
           flexDirection: 'column',
         }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         data-testid="mobile-element-sheet"
+        data-element-editing="true"
       >
         {/* Handle bar */}
         <div style={{ padding: '12px', display: 'flex', justifyContent: 'center', cursor: 'grab' }}>

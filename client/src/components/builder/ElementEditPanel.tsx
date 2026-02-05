@@ -200,6 +200,9 @@ export default function ElementEditPanel({
         willChange: isDragging ? 'transform' : 'auto',
       }}
       data-testid="element-edit-panel"
+      data-element-editing="true"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
     >
       {/* Draggable header */}
       <div 

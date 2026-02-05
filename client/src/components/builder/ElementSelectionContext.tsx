@@ -48,11 +48,16 @@ export function ElementSelectionProvider({
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       
-      // Don't deselect if clicking on the edit panel or selection handles
+      // Don't deselect if clicking on edit panels, selection handles, or toolbars
       if (
         target.closest('[data-testid="element-edit-panel"]') ||
         target.closest('[data-testid^="handle-"]') ||
-        target.closest('[data-testid="canva-selection-box"]')
+        target.closest('[data-testid="canva-selection-box"]') ||
+        target.closest('[data-testid="mobile-element-sheet"]') ||
+        target.closest('[data-testid="element-overlay"]') ||
+        target.closest('[data-testid^="element-region-"]') ||
+        target.closest('[data-element-editing="true"]') ||
+        target.closest('[role="dialog"]')
       ) {
         return;
       }
