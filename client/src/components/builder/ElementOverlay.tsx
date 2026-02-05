@@ -206,7 +206,7 @@ export default function ElementOverlay({
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 pointer-events-none"
+      className="absolute inset-0 pointer-events-none"
       style={{ zIndex: 100 }}
       data-testid="element-overlay"
     >
@@ -281,7 +281,7 @@ export default function ElementOverlay({
         const selectedRect = detectedElements.find(d => d.id === selectedElement.id)?.rect;
         return (
           <div
-            className="fixed"
+            className="absolute pointer-events-auto"
             style={{
               left: selectedRect ? (selectedRect.left + selectedRect.width + 10) : 0,
               top: selectedRect?.top || 0,
