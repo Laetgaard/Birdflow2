@@ -20,7 +20,7 @@ import {
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
   Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2, ShoppingBag,
-  Undo2, Redo2, Menu, PanelRightClose, PanelRight
+  Undo2, Redo2, Menu, PanelRightClose, PanelRight, ExternalLink, Link2
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -63,6 +63,8 @@ import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
 import DragDropLayer from "@/components/builder/DragDropLayer";
 import MobileBottomSheet from "@/components/builder/MobileBottomSheet";
 import SpacingIndicators from "@/components/builder/SpacingIndicators";
+import { ElementSelectionProvider } from "@/components/builder/ElementSelectionContext";
+import ElementOverlay from "@/components/builder/ElementOverlay";
 import type { WebsiteTemplate } from "@shared/websiteTemplates";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
 import { 
@@ -823,17 +825,30 @@ export default function BuilderPage() {
           <span className={`text-xs px-2 py-0.5 rounded hidden sm:inline ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`} data-testid="text-website-status">
             {website.status}
           </span>
-          {website.status === 'published' && website.deploymentUrl && (
-            <a 
-              href={website.deploymentUrl} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-xs text-primary hover:underline truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px]"
-              title={website.deploymentUrl}
-              data-testid="link-deployment-url"
-            >
-              {website.deploymentUrl.replace('https://', '').replace('http://', '')}
-            </a>
+          {website.status === 'published' && (
+            customDomain ? (
+              <a 
+                href={`https://${customDomain}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-primary hover:underline truncate max-w-[120px] sm:max-w-[180px] md:max-w-[220px]"
+                title={`https://${customDomain}`}
+                data-testid="link-custom-domain"
+              >
+                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                {customDomain}
+              </a>
+            ) : (
+              <button
+                onClick={() => setLocation(`/website/${id}/settings`)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                data-testid="button-connect-domain"
+              >
+                <Link2 className="w-3 h-3" />
+                <span className="hidden sm:inline">Tilslut domæne</span>
+                <span className="sm:hidden">Domæne</span>
+              </button>
+            )
           )}
         </div>
 
@@ -1053,6 +1068,21 @@ export default function BuilderPage() {
           pages={builderState?.pages}
           activePage={builderState?.activePage}
         >
+          <ElementSelectionProvider
+            onElementStyleChange={(componentId, path, styles) => {
+              // Update element styles within the component's builder state
+              const currentComponent = activePage?.components.find(c => c.id === componentId);
+              const currentStyles = currentComponent?.styles || {};
+              const currentElementStyles = (currentStyles as any).elementStyles || {};
+              
+              updateComponent(componentId, { 
+                styles: { 
+                  ...currentStyles,
+                  ...({ elementStyles: { ...currentElementStyles, [path]: styles } } as any)
+                } 
+              });
+            }}
+          >
           {/* Canvas / Preview */}
           <main 
             ref={previewContainerRef}
@@ -1109,6 +1139,7 @@ export default function BuilderPage() {
           <DragDropLayer />
           <SpacingIndicators />
           <MobileBottomSheet />
+          <ElementOverlay containerRef={previewContainerRef} isPreview={false} />
 
         {/* Right Sidebar */}
         {sidebarOpen && (
@@ -1241,6 +1272,7 @@ export default function BuilderPage() {
           </Tabs>
         </aside>
         )}
+        </ElementSelectionProvider>
         </BuilderSelectionProvider>
       </div>
 
