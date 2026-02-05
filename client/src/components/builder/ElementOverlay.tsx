@@ -290,31 +290,13 @@ export default function ElementOverlay({
     };
   }, [containerRef, detectElements, handleMouseMove, handleContainerClick]);
 
-  // Recompute hover when detected elements change
+  // Recompute hover when detected elements change - using ref to avoid dependency cycle
   useEffect(() => {
     if (detectedElements.length === 0) {
       setHoveredElement(null);
-      return;
     }
-    if (lastMousePos.current) {
-      const element = findElementAtPoint(lastMousePos.current.x, lastMousePos.current.y);
-      setHoveredElement(element);
-    }
-  }, [detectedElements, findElementAtPoint]);
-
-  // Clear selection if selected element no longer exists
-  useEffect(() => {
-    if (selectedElement) {
-      if (detectedElements.length === 0) {
-        deselectElement();
-        return;
-      }
-      const stillExists = detectedElements.some(d => d.id === selectedElement.id);
-      if (!stillExists) {
-        deselectElement();
-      }
-    }
-  }, [detectedElements, selectedElement, deselectElement]);
+    // Don't recompute hover on detection change - wait for next mouse move
+  }, [detectedElements]);
 
   const handleStyleChange = useCallback((styles: Partial<ElementStyles>) => {
     if (!selectedElement) return;
