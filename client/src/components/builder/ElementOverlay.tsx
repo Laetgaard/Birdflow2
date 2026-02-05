@@ -133,7 +133,13 @@ export default function ElementOverlay({
   const [hoveredElement, setHoveredElement] = useState<DetectedElement | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
-  const lastMousePos = useRef<{ x: number; y: number } | null>(null);
+  
+  // Use refs for stable function references to avoid effect dependency cycles
+  const detectedElementsRef = useRef<DetectedElement[]>([]);
+  detectedElementsRef.current = detectedElements;
+  
+  const elementStylesRef = useRef(elementStyles);
+  elementStylesRef.current = elementStyles;
 
   // Detect selectable elements in the container
   const detectElements = useCallback(() => {
@@ -197,20 +203,19 @@ export default function ElementOverlay({
     setDetectedElements(detected);
   }, [containerRef, isPreview]);
 
-  // Find which detected element is at a given point using document.elementFromPoint for accurate stacking
+  // Find which detected element is at a given point using document.elementFromPoint
+  // Uses ref to avoid dependency cycle
   const findElementAtPoint = useCallback((x: number, y: number): DetectedElement | null => {
     if (!containerRef.current) return null;
     
-    // Use document.elementFromPoint to find the actual topmost element
     const elementAtPoint = document.elementFromPoint(x, y);
     if (!elementAtPoint || !containerRef.current.contains(elementAtPoint)) {
       return null;
     }
     
-    // Find the detected element that matches or contains elementAtPoint
     let current: Element | null = elementAtPoint;
     while (current && containerRef.current.contains(current)) {
-      const detected = detectedElements.find(d => d.element === current);
+      const detected = detectedElementsRef.current.find(d => d.element === current);
       if (detected) {
         return detected;
       }
@@ -218,18 +223,16 @@ export default function ElementOverlay({
     }
     
     return null;
-  }, [detectedElements, containerRef]);
+  }, [containerRef]); // Only depends on containerRef, not detectedElements
 
-  // Handle mouse move over container
+  // Handle mouse move - stable reference using refs
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    lastMousePos.current = { x: e.clientX, y: e.clientY };
     const element = findElementAtPoint(e.clientX, e.clientY);
     setHoveredElement(element);
   }, [findElementAtPoint]);
 
-  // Handle click on container
+  // Handle click on container - stable reference using refs
   const handleContainerClick = useCallback((e: MouseEvent) => {
-    // Don't intercept clicks on form elements
     const target = e.target as HTMLElement;
     if (target.closest('input, textarea, select, [contenteditable]')) {
       return;
@@ -238,10 +241,9 @@ export default function ElementOverlay({
     const element = findElementAtPoint(e.clientX, e.clientY);
     
     if (element) {
-      // Only prevent default for actual element selection
       e.stopPropagation();
       
-      const currentStyles = elementStyles.get(element.id) || {};
+      const currentStyles = elementStylesRef.current.get(element.id) || {};
       selectElement({
         id: element.id,
         componentId: element.componentId,
@@ -250,10 +252,9 @@ export default function ElementOverlay({
         styles: currentStyles,
       });
     } else {
-      // Clicked outside any element - deselect
       deselectElement();
     }
-  }, [findElementAtPoint, elementStyles, selectElement, deselectElement]);
+  }, [findElementAtPoint, selectElement, deselectElement]);
 
   // Re-detect on resize or scroll
   useEffect(() => {
@@ -290,13 +291,12 @@ export default function ElementOverlay({
     };
   }, [containerRef, detectElements, handleMouseMove, handleContainerClick]);
 
-  // Recompute hover when detected elements change - using ref to avoid dependency cycle
+  // Clear hover when no elements detected
   useEffect(() => {
     if (detectedElements.length === 0) {
       setHoveredElement(null);
     }
-    // Don't recompute hover on detection change - wait for next mouse move
-  }, [detectedElements]);
+  }, [detectedElements.length]); // Only trigger on length change, not content
 
   const handleStyleChange = useCallback((styles: Partial<ElementStyles>) => {
     if (!selectedElement) return;
