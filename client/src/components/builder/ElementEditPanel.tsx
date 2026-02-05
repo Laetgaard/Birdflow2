@@ -44,7 +44,6 @@ interface ElementEditPanelProps {
   text?: string;
   imageUrl?: string;
   onClose: () => void;
-  hideHeader?: boolean;
 }
 
 const COLOR_PRESETS = [
@@ -150,24 +149,21 @@ export default function ElementEditPanel({
   text,
   imageUrl,
   onClose,
-  hideHeader = false,
 }: ElementEditPanelProps) {
   const [activeTab, setActiveTab] = useState('style');
   const [urlInput, setUrlInput] = useState('');
 
   return (
     <div 
-      className={hideHeader ? "w-64" : "absolute left-full top-0 ml-3 w-64 bg-white rounded-lg shadow-xl border z-50"}
+      className="absolute left-full top-0 ml-3 w-64 bg-white rounded-lg shadow-xl border z-50"
       data-testid="element-edit-panel"
     >
-      {!hideHeader && (
-        <div className="flex items-center justify-between px-3 py-2 border-b">
-          <span className="text-sm font-medium capitalize">{elementType}</span>
-          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
+      <div className="flex items-center justify-between px-3 py-2 border-b">
+        <span className="text-sm font-medium capitalize">{elementType}</span>
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full grid grid-cols-3 h-9 m-1 mr-2">
