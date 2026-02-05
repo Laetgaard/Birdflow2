@@ -2822,34 +2822,34 @@ export default function ManagePage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b bg-card h-14 flex items-center px-4 gap-4">
+      <header className="border-b bg-card h-14 flex items-center px-2 md:px-4 gap-2 md:gap-4">
         <Button variant="ghost" size="icon" onClick={() => setLocation("/dashboard")} data-testid="button-back">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <Separator orientation="vertical" className="h-6" />
+        <Separator orientation="vertical" className="h-6 hidden md:block" />
         
-        <div className="flex items-center gap-3">
-          <div className="w-6 h-6 bg-primary rounded flex items-center justify-center text-primary-foreground">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1 md:flex-none">
+          <div className="w-6 h-6 bg-primary rounded flex items-center justify-center text-primary-foreground shrink-0">
             <Globe className="w-4 h-4" />
           </div>
-          <span className="font-medium" data-testid="text-website-name">{website.name}</span>
-          <span className={`text-xs px-2 py-0.5 rounded ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+          <span className="font-medium truncate text-sm md:text-base" data-testid="text-website-name">{website.name}</span>
+          <span className={`text-xs px-2 py-0.5 rounded hidden sm:inline shrink-0 ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
             {website.status}
           </span>
         </div>
 
-        <div className="flex-1" />
+        <div className="flex-1 hidden md:block" />
 
-        <Button variant="default" size="sm" onClick={() => setLocation(`/builder/${id}`)} data-testid="button-builder">
-          <Palette className="w-4 h-4 mr-2" />
-          Open Builder
+        <Button variant="default" size="sm" onClick={() => setLocation(`/builder/${id}`)} data-testid="button-builder" className="shrink-0 px-2 md:px-3">
+          <Palette className="w-4 h-4 md:mr-2" />
+          <span className="hidden md:inline">Open Builder</span>
         </Button>
 
-        <Separator orientation="vertical" className="h-6" />
+        <Separator orientation="vertical" className="h-6 hidden md:block" />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-8 w-8 rounded-full" data-testid="button-profile-menu">
+            <Button variant="ghost" className="relative h-8 w-8 rounded-full shrink-0" data-testid="button-profile-menu">
               <Avatar className="h-8 w-8">
                 <AvatarImage src={`https://avatar.vercel.sh/${displayEmail}`} alt={displayName} />
                 <AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback>
@@ -2933,48 +2933,60 @@ export default function ManagePage() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4">
-            <TabsTrigger value="orders" data-testid="tab-orders">
-              <ShoppingCart className="w-4 h-4 mr-2" />
-              Orders
-            </TabsTrigger>
-            <TabsTrigger value="bookings" data-testid="tab-bookings">
-              <Calendar className="w-4 h-4 mr-2" />
-              Bookings
-            </TabsTrigger>
-            <TabsTrigger value="submissions" data-testid="tab-submissions">
-              <Mail className="w-4 h-4 mr-2" />
-              Forms
-            </TabsTrigger>
-            <TabsTrigger value="customers" data-testid="tab-customers">
-              <Users className="w-4 h-4 mr-2" />
-              Customers
-            </TabsTrigger>
-            <TabsTrigger value="products" data-testid="tab-products">
-              <Package className="w-4 h-4 mr-2" />
-              Products
-            </TabsTrigger>
-            <TabsTrigger value="services" data-testid="tab-services">
-              <Clock className="w-4 h-4 mr-2" />
-              Services
-            </TabsTrigger>
-            <TabsTrigger value="shipping" data-testid="tab-shipping">
-              <Truck className="w-4 h-4 mr-2" />
-              Shipping
-            </TabsTrigger>
-            <TabsTrigger value="emails" data-testid="tab-emails">
-              <Mail className="w-4 h-4 mr-2" />
-              Emails
-            </TabsTrigger>
-            <TabsTrigger value="analytics" data-testid="tab-analytics">
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Analytics
-            </TabsTrigger>
-            <TabsTrigger value="settings" data-testid="tab-settings">
-              <Settings className="w-4 h-4 mr-2" />
-              Settings
-            </TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 mb-4">
+            <TabsList className="inline-flex w-max md:w-auto">
+              <TabsTrigger value="orders" data-testid="tab-orders" className="shrink-0">
+                <ShoppingCart className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Orders</span>
+                <span className="sm:hidden">Ordrer</span>
+              </TabsTrigger>
+              <TabsTrigger value="bookings" data-testid="tab-bookings" className="shrink-0">
+                <Calendar className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Bookings</span>
+                <span className="sm:hidden">Book</span>
+              </TabsTrigger>
+              <TabsTrigger value="submissions" data-testid="tab-submissions" className="shrink-0">
+                <Mail className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Forms</span>
+                <span className="sm:hidden">Form</span>
+              </TabsTrigger>
+              <TabsTrigger value="customers" data-testid="tab-customers" className="shrink-0">
+                <Users className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Customers</span>
+                <span className="sm:hidden">Kunder</span>
+              </TabsTrigger>
+              <TabsTrigger value="products" data-testid="tab-products" className="shrink-0">
+                <Package className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Products</span>
+                <span className="sm:hidden">Prod</span>
+              </TabsTrigger>
+              <TabsTrigger value="services" data-testid="tab-services" className="shrink-0">
+                <Clock className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Services</span>
+                <span className="sm:hidden">Serv</span>
+              </TabsTrigger>
+              <TabsTrigger value="shipping" data-testid="tab-shipping" className="shrink-0">
+                <Truck className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Shipping</span>
+                <span className="sm:hidden">Fragt</span>
+              </TabsTrigger>
+              <TabsTrigger value="emails" data-testid="tab-emails" className="shrink-0">
+                <Mail className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Emails</span>
+                <span className="sm:hidden">Mail</span>
+              </TabsTrigger>
+              <TabsTrigger value="analytics" data-testid="tab-analytics" className="shrink-0">
+                <BarChart3 className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Analytics</span>
+                <span className="sm:hidden">Stats</span>
+              </TabsTrigger>
+              <TabsTrigger value="settings" data-testid="tab-settings" className="shrink-0">
+                <Settings className="w-4 h-4 mr-1 md:mr-2" />
+                <span className="hidden sm:inline">Settings</span>
+                <span className="sm:hidden">Indst</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="orders">
             <Card>
