@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Image, Type, Square, Circle, Palette, Layers, Move, 
   RotateCcw, Maximize2, Upload, Link, AlignLeft, AlignCenter, AlignRight,
-  Bold, Italic, Underline, X
+  Bold, Italic, Underline, X, GripHorizontal
 } from 'lucide-react';
 
 type ElementType = 'image' | 'button' | 'card' | 'text' | 'container' | 'icon';
@@ -152,14 +152,64 @@ export default function ElementEditPanel({
 }: ElementEditPanelProps) {
   const [activeTab, setActiveTab] = useState('style');
   const [urlInput, setUrlInput] = useState('');
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const positionStartRef = useRef({ x: 0, y: 0 });
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    positionStartRef.current = { ...position };
+  }, [position]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      setPosition({
+        x: positionStartRef.current.x + dx,
+        y: positionStartRef.current.y + dy,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
 
   return (
     <div 
-      className="absolute left-full top-0 ml-3 w-64 bg-white rounded-lg shadow-xl border z-50"
+      ref={panelRef}
+      className="w-64 bg-white rounded-lg shadow-xl border z-50"
+      style={{
+        transform: `translate(${position.x}px, ${position.y}px)`,
+        cursor: isDragging ? 'grabbing' : 'default',
+        willChange: isDragging ? 'transform' : 'auto',
+      }}
       data-testid="element-edit-panel"
     >
-      <div className="flex items-center justify-between px-3 py-2 border-b">
-        <span className="text-sm font-medium capitalize">{elementType}</span>
+      {/* Draggable header */}
+      <div 
+        className="flex items-center justify-between px-3 py-2 border-b cursor-grab active:cursor-grabbing select-none"
+        onMouseDown={handleMouseDown}
+      >
+        <div className="flex items-center gap-2">
+          <GripHorizontal className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium capitalize">{elementType}</span>
+        </div>
         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
           <X className="h-4 w-4" />
         </Button>
