@@ -46,6 +46,15 @@ const BORDER_RADIUS_OPTIONS = [
 const COMPONENT_HAS_TEXT = ['hero', 'cta', 'features', 'testimonials', 'faq', 'stats-counter', 'pricing-table', 'text-image', 'header', 'footer', 'contact-form', 'booking', 'product-grid'];
 const COMPONENT_HAS_IMAGES = ['hero', 'image-slider', 'gallery', 'text-image', 'product-grid', 'testimonials', 'features'];
 const COMPONENT_HAS_LAYOUT = ['hero', 'cta', 'features', 'testimonials', 'faq', 'stats-counter', 'pricing-table', 'text-image', 'header', 'footer', 'contact-form', 'booking', 'product-grid', 'gallery', 'image-slider', 'video-embed', 'divider', 'spacer'];
+const COMPONENT_HAS_CARDS = ['features', 'testimonials', 'pricing-table', 'product-grid'];
+const COMPONENT_HAS_BUTTONS = ['hero', 'cta', 'header', 'pricing-table'];
+
+const SHADOW_OPTIONS = [
+  { name: 'Ingen', value: 'none' },
+  { name: 'Lille', value: '0 1px 3px rgba(0,0,0,0.1)' },
+  { name: 'Medium', value: '0 4px 12px rgba(0,0,0,0.15)' },
+  { name: 'Stor', value: '0 8px 24px rgba(0,0,0,0.2)' },
+];
 
 export default function FloatingToolbar() {
   const { 
@@ -164,6 +173,8 @@ export default function FloatingToolbar() {
   const hasTextControls = COMPONENT_HAS_TEXT.includes(componentType);
   const hasImageControls = COMPONENT_HAS_IMAGES.includes(componentType);
   const hasLayoutControls = COMPONENT_HAS_LAYOUT.includes(componentType);
+  const hasCardControls = COMPONENT_HAS_CARDS.includes(componentType);
+  const hasButtonControls = COMPONENT_HAS_BUTTONS.includes(componentType);
   
   const currentAlignment = component.props.alignment || 'center';
   const currentTitleSize = component.styles.titleFontSize || '48px';
@@ -172,6 +183,8 @@ export default function FloatingToolbar() {
   const currentPadding = component.styles.padding || '60px 24px';
   const currentFontFamily = component.styles.fontFamily || FONT_OPTIONS[0].value;
   const currentBorderRadius = component.styles.borderRadius || '0';
+  const currentShadow = component.styles.boxShadow || 'none';
+  const currentButtonColor = component.styles.buttonColor || '#4f46e5';
 
   const handleAlignmentChange = (alignment: 'left' | 'center' | 'right') => {
     onUpdateComponent(selectedId, { props: { alignment } });
@@ -201,6 +214,14 @@ export default function FloatingToolbar() {
 
   const handleBorderRadiusChange = (borderRadius: string) => {
     onUpdateComponent(selectedId, { styles: { borderRadius } });
+  };
+
+  const handleShadowChange = (boxShadow: string) => {
+    onUpdateComponent(selectedId, { styles: { boxShadow } });
+  };
+
+  const handleButtonColorChange = (buttonColor: string) => {
+    onUpdateComponent(selectedId, { styles: { buttonColor } });
   };
 
   const buttonSize = isMobile ? 'h-10 w-10' : 'h-8 w-8';
@@ -467,6 +488,85 @@ export default function FloatingToolbar() {
                   />
                   {option.name}
                 </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {/* Shadow - For Cards */}
+      {hasCardControls && !isMobile && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`${buttonSize} p-0`}
+              data-testid="toolbar-shadow"
+              title="Skygge"
+            >
+              <Maximize2 className={iconSize} />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-40 p-2" align="center">
+            <p className="text-xs text-muted-foreground mb-2">Skygge</p>
+            <div className="space-y-1">
+              {SHADOW_OPTIONS.map(option => (
+                <button
+                  key={option.value}
+                  onClick={() => handleShadowChange(option.value)}
+                  className={`w-full text-left px-2 py-1 text-sm rounded ${
+                    currentShadow === option.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  }`}
+                  data-testid={`shadow-${option.name.toLowerCase()}`}
+                >
+                  {option.name}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {/* Button Color - For Components with Buttons */}
+      {hasButtonControls && !isMobile && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`${buttonSize} p-0`}
+              data-testid="toolbar-button-color"
+              title="Knapfarve"
+            >
+              <div 
+                style={{ 
+                  width: '16px', 
+                  height: '16px', 
+                  borderRadius: '4px', 
+                  backgroundColor: currentButtonColor,
+                  border: '2px solid #e2e8f0'
+                }} 
+              />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-48 p-2" align="center">
+            <p className="text-xs text-muted-foreground mb-2">Knapfarve</p>
+            <div className="grid grid-cols-6 gap-1">
+              {['#4f46e5', '#7c3aed', '#2563eb', '#0891b2', '#059669', '#16a34a', '#ca8a04', '#ea580c', '#dc2626', '#db2777', '#1a1a1a', '#ffffff'].map(color => (
+                <button
+                  key={color}
+                  onClick={() => handleButtonColorChange(color)}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '4px',
+                    backgroundColor: color,
+                    border: currentButtonColor === color ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                    cursor: 'pointer',
+                  }}
+                  data-testid={`button-color-${color.replace('#', '')}`}
+                />
               ))}
             </div>
           </PopoverContent>

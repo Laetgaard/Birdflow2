@@ -823,6 +823,18 @@ export default function BuilderPage() {
           <span className={`text-xs px-2 py-0.5 rounded hidden sm:inline ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`} data-testid="text-website-status">
             {website.status}
           </span>
+          {website.status === 'published' && website.deploymentUrl && (
+            <a 
+              href={website.deploymentUrl} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px]"
+              title={website.deploymentUrl}
+              data-testid="link-deployment-url"
+            >
+              {website.deploymentUrl.replace('https://', '').replace('http://', '')}
+            </a>
+          )}
         </div>
 
         <div className="flex-1 hidden md:block" />
