@@ -20,7 +20,7 @@ import {
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
   Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2, ShoppingBag,
-  Undo2, Redo2
+  Undo2, Redo2, Menu, PanelRightClose, PanelRight
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -143,6 +143,8 @@ export default function BuilderPage() {
   const [hasPendingEdit, setHasPendingEdit] = useState(false);
   const [showCoachMarks, setShowCoachMarks] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const previewContainerRef = useRef<HTMLElement>(null);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const [propertiesPaddingTop, setPropertiesPaddingTop] = useState(0);
@@ -762,38 +764,31 @@ export default function BuilderPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="border-b bg-card h-14 flex items-center px-4 gap-4 shrink-0">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/dashboard")} data-testid="button-back">
+      <header className="border-b bg-card h-14 flex items-center px-2 md:px-4 gap-2 md:gap-4 shrink-0">
+        {/* Mobile menu button */}
+        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} data-testid="button-mobile-menu">
+          <Menu className="h-5 w-5" />
+        </Button>
+        
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/dashboard")} data-testid="button-back" className="hidden md:flex">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <Separator orientation="vertical" className="h-6" />
+        <Separator orientation="vertical" className="h-6 hidden md:block" />
         
-        <div className="flex items-center gap-3">
-          <div className="w-6 h-6 bg-primary rounded flex items-center justify-center text-primary-foreground">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1 md:flex-none">
+          <div className="w-6 h-6 bg-primary rounded flex items-center justify-center text-primary-foreground shrink-0">
             <Globe className="w-4 h-4" />
           </div>
-          <span className="font-medium" data-testid="text-website-name">{website.name}</span>
-          <span className={`text-xs px-2 py-0.5 rounded ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`} data-testid="text-website-status">
+          <span className="font-medium truncate text-sm md:text-base" data-testid="text-website-name">{website.name}</span>
+          <span className={`text-xs px-2 py-0.5 rounded hidden sm:inline ${website.status === 'published' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`} data-testid="text-website-status">
             {website.status}
           </span>
-          {website.deploymentUrl && (
-            <a 
-              href={customDomain ? `https://${customDomain}` : website.deploymentUrl} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-              data-testid="link-live-site"
-            >
-              View Live
-              {customDomain && <span className="text-green-600">({customDomain})</span>}
-            </a>
-          )}
         </div>
 
-        <div className="flex-1" />
+        <div className="flex-1 hidden md:block" />
 
-        {/* Undo/Redo */}
-        <div className="flex items-center gap-1">
+        {/* Undo/Redo - hidden on mobile */}
+        <div className="hidden md:flex items-center gap-1">
           <Button
             variant="ghost"
             size="sm"
@@ -816,10 +811,10 @@ export default function BuilderPage() {
           </Button>
         </div>
 
-        <Separator orientation="vertical" className="h-6" />
+        <Separator orientation="vertical" className="h-6 hidden md:block" />
 
-        {/* Device Switcher */}
-        <div className="flex items-center bg-muted rounded-lg p-1">
+        {/* Device Switcher - hidden on mobile */}
+        <div className="hidden lg:flex items-center bg-muted rounded-lg p-1">
           <Button variant={device === 'desktop' ? 'secondary' : 'ghost'} size="sm" onClick={() => setDevice('desktop')} data-testid="button-desktop">
             <Monitor className="h-4 w-4" />
           </Button>
@@ -831,30 +826,32 @@ export default function BuilderPage() {
           </Button>
         </div>
 
-        <Separator orientation="vertical" className="h-6" />
+        <Separator orientation="vertical" className="h-6 hidden lg:block" />
 
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2" data-testid="button-preview">
-            <Eye className="w-4 h-4" />
-            Preview
-          </Button>
-          <Button size="sm" className="gap-2" onClick={() => saveState(builderState)} disabled={isSaving} data-testid="button-save">
+        {/* Action buttons - save always visible, others hidden on small screens */}
+        <div className="flex items-center gap-1 md:gap-2">
+          <Button size="sm" className="gap-1 md:gap-2 px-2 md:px-3" onClick={() => saveState(builderState)} disabled={isSaving} data-testid="button-save">
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save
+            <span className="hidden sm:inline">Save</span>
           </Button>
-          <Button size="sm" variant="secondary" className="gap-2" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
+          <Button size="sm" variant="secondary" className="gap-1 md:gap-2 px-2 md:px-3" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
             {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {isPublishing ? 'Publishing...' : 'Publish'}
+            <span className="hidden sm:inline">{isPublishing ? 'Publishing...' : 'Publish'}</span>
           </Button>
         </div>
 
-        <Separator orientation="vertical" className="h-6" />
-
-        <Button variant="outline" size="sm" onClick={() => setLocation(`/manage/${id}`)} data-testid="button-manage">
-          <Settings className="w-4 h-4 mr-2" />
-          Manage
+        {/* Toggle sidebar button */}
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={() => setSidebarOpen(!sidebarOpen)} 
+          data-testid="button-toggle-sidebar"
+          title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+        >
+          {sidebarOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
         </Button>
 
+        {/* Profile dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-8 w-8 rounded-full" data-testid="button-profile-menu">
@@ -876,6 +873,11 @@ export default function BuilderPage() {
               <Globe className="mr-2 h-4 w-4" />
               Dashboard
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setLocation(`/manage/${id}`)}>
+              <Settings className="mr-2 h-4 w-4" />
+              Manage
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => signOut()} className="text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
               Log out
@@ -883,6 +885,43 @@ export default function BuilderPage() {
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
+      
+      {/* Mobile menu overlay */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-b bg-card p-4 space-y-3">
+          <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => { setLocation("/dashboard"); setMobileMenuOpen(false); }}>
+            <ArrowLeft className="h-4 w-4" />
+            Tilbage til Dashboard
+          </Button>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Enhed:</span>
+            <div className="flex items-center bg-muted rounded-lg p-1">
+              <Button variant={device === 'desktop' ? 'secondary' : 'ghost'} size="sm" onClick={() => setDevice('desktop')}>
+                <Monitor className="h-4 w-4" />
+              </Button>
+              <Button variant={device === 'tablet' ? 'secondary' : 'ghost'} size="sm" onClick={() => setDevice('tablet')}>
+                <Tablet className="h-4 w-4" />
+              </Button>
+              <Button variant={device === 'mobile' ? 'secondary' : 'ghost'} size="sm" onClick={() => setDevice('mobile')}>
+                <Smartphone className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Fortryd:</span>
+            <Button variant="ghost" size="sm" onClick={handleUndo} disabled={!history || !canUndo(history)}>
+              <Undo2 className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleRedo} disabled={!history || !canRedo(history)}>
+              <Redo2 className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button variant="outline" className="w-full justify-start gap-2" onClick={() => { setLocation(`/manage/${id}`); setMobileMenuOpen(false); }}>
+            <Settings className="h-4 w-4" />
+            Administrer hjemmeside
+          </Button>
+        </div>
+      )}
 
       {/* Page Tabs */}
       <div className="border-b bg-card px-4 py-2 flex items-center gap-2 shrink-0">
@@ -944,7 +983,7 @@ export default function BuilderPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         <BuilderSelectionProvider
           isBuilderMode={true}
           selectedId={selectedComponentId}
@@ -1016,7 +1055,15 @@ export default function BuilderPage() {
           <FloatingToolbar />
 
         {/* Right Sidebar */}
-        <aside className="w-80 border-l bg-card flex flex-col shrink-0 overflow-hidden">
+        {sidebarOpen && (
+          <aside className="w-full md:w-80 border-l bg-card flex flex-col shrink-0 overflow-hidden absolute md:relative right-0 top-0 h-full z-20 shadow-lg md:shadow-none">
+            {/* Mobile close button */}
+            <div className="md:hidden flex items-center justify-between p-3 border-b">
+              <span className="font-medium text-sm">Panel</span>
+              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col overflow-hidden">
             <TabsList className="grid w-full grid-cols-3 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
               <TabsTrigger value="components" data-testid="tab-components">
@@ -1137,6 +1184,7 @@ export default function BuilderPage() {
             </TabsContent>
           </Tabs>
         </aside>
+        )}
         </BuilderSelectionProvider>
       </div>
 
