@@ -57,6 +57,7 @@ import PhasedArchitectPanel from "@/components/PhasedArchitectPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import InspectorSidebar from "@/components/builder/InspectorSidebar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
+import ContextMenu from "@/components/builder/ContextMenu";
 import CoachMarks from "@/components/builder/CoachMarks";
 import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
 import type { WebsiteTemplate } from "@shared/websiteTemplates";
@@ -1053,6 +1054,7 @@ export default function BuilderPage() {
           </main>
           <SelectionOverlay />
           <FloatingToolbar />
+          <ContextMenu />
 
         {/* Right Sidebar */}
         {sidebarOpen && (
