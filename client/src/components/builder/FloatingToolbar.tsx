@@ -6,15 +6,14 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   AlignLeft, AlignCenter, AlignRight, 
   Copy, Trash2, ChevronUp, ChevronDown,
-  Minus, Plus, Image, Columns, Type, MoreHorizontal
+  Minus, Plus, Columns, Type, MoreHorizontal,
+  Square, Circle, RectangleHorizontal, Maximize2
 } from 'lucide-react';
 import { 
   themeColors, 
   alignmentPresets,
   spacingPresets,
 } from '@shared/componentRegistry';
-
-type ToolbarMode = 'text' | 'image' | 'layout' | 'general';
 
 const FONT_OPTIONS = [
   { name: 'System', value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
@@ -35,16 +34,18 @@ const FONT_OPTIONS = [
   { name: 'Monaco', value: 'Monaco, monospace' },
 ];
 
-function getToolbarMode(componentType: string): ToolbarMode {
-  const textComponents = ['hero', 'cta', 'features', 'testimonials', 'faq', 'stats-counter', 'pricing-table'];
-  const imageComponents = ['image-slider', 'gallery', 'text-image'];
-  const layoutComponents = ['header', 'footer', 'divider', 'spacer'];
-  
-  if (textComponents.includes(componentType)) return 'text';
-  if (imageComponents.includes(componentType)) return 'image';
-  if (layoutComponents.includes(componentType)) return 'layout';
-  return 'general';
-}
+const BORDER_RADIUS_OPTIONS = [
+  { name: 'Ingen', value: '0' },
+  { name: 'Lille', value: '4px' },
+  { name: 'Medium', value: '8px' },
+  { name: 'Stor', value: '16px' },
+  { name: 'Ekstra stor', value: '24px' },
+  { name: 'Rund', value: '9999px' },
+];
+
+const COMPONENT_HAS_TEXT = ['hero', 'cta', 'features', 'testimonials', 'faq', 'stats-counter', 'pricing-table', 'text-image', 'header', 'footer', 'contact-form', 'booking', 'product-grid'];
+const COMPONENT_HAS_IMAGES = ['hero', 'image-slider', 'gallery', 'text-image', 'product-grid', 'testimonials', 'features'];
+const COMPONENT_HAS_LAYOUT = ['hero', 'cta', 'features', 'testimonials', 'faq', 'stats-counter', 'pricing-table', 'text-image', 'header', 'footer', 'contact-form', 'booking', 'product-grid', 'gallery', 'image-slider', 'video-embed', 'divider', 'spacer'];
 
 export default function FloatingToolbar() {
   const { 
@@ -158,13 +159,19 @@ export default function FloatingToolbar() {
   if (!selectedId || !selectedInfo || !isBuilderMode || !isVisible) return null;
 
   const component = selectedInfo.component;
-  const toolbarMode = getToolbarMode(component.type);
+  const componentType = component.type;
+  
+  const hasTextControls = COMPONENT_HAS_TEXT.includes(componentType);
+  const hasImageControls = COMPONENT_HAS_IMAGES.includes(componentType);
+  const hasLayoutControls = COMPONENT_HAS_LAYOUT.includes(componentType);
+  
   const currentAlignment = component.props.alignment || 'center';
   const currentTitleSize = component.styles.titleFontSize || '48px';
   const currentTextColor = component.styles.textColor || '#1a1a1a';
   const currentBgColor = component.styles.backgroundColor || '#ffffff';
   const currentPadding = component.styles.padding || '60px 24px';
   const currentFontFamily = component.styles.fontFamily || FONT_OPTIONS[0].value;
+  const currentBorderRadius = component.styles.borderRadius || '0';
 
   const handleAlignmentChange = (alignment: 'left' | 'center' | 'right') => {
     onUpdateComponent(selectedId, { props: { alignment } });
@@ -192,9 +199,8 @@ export default function FloatingToolbar() {
     onUpdateComponent(selectedId, { styles: { fontFamily } });
   };
 
-  const getCurrentFontName = () => {
-    const font = FONT_OPTIONS.find(f => f.value === currentFontFamily);
-    return font?.name || 'System';
+  const handleBorderRadiusChange = (borderRadius: string) => {
+    onUpdateComponent(selectedId, { styles: { borderRadius } });
   };
 
   const buttonSize = isMobile ? 'h-10 w-10' : 'h-8 w-8';
@@ -218,10 +224,12 @@ export default function FloatingToolbar() {
         transition: 'opacity 0.15s ease, transform 0.15s ease',
         opacity: isVisible ? 1 : 0,
         maxWidth: isMobile ? 'calc(100vw - 24px)' : 'auto',
+        overflowX: isMobile ? 'auto' : 'visible',
       }}
       data-testid="floating-toolbar"
     >
-      {toolbarMode === 'text' && !isMobile && (
+      {/* Text Controls - Desktop */}
+      {hasTextControls && !isMobile && (
         <>
           <div style={{ display: 'flex', gap: '2px', borderRight: '1px solid #e2e8f0', paddingRight: '8px' }}>
             {alignmentPresets.map(preset => (
@@ -271,13 +279,13 @@ export default function FloatingToolbar() {
                 size="sm"
                 className={`${buttonSize} p-0`}
                 data-testid="toolbar-font-picker"
-                title="Font Family"
+                title="Skrifttype"
               >
                 <Type className={iconSize} />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-52 p-2" align="center">
-              <p className="text-xs text-muted-foreground mb-2">Font Family</p>
+              <p className="text-xs text-muted-foreground mb-2">Skrifttype</p>
               <ScrollArea className="h-48">
                 <div className="space-y-1">
                   {FONT_OPTIONS.map(font => (
@@ -305,7 +313,7 @@ export default function FloatingToolbar() {
                 size="sm"
                 className={`${buttonSize} p-0`}
                 data-testid="toolbar-color-picker"
-                title="Text Color"
+                title="Tekstfarve"
               >
                 <div 
                   style={{ 
@@ -319,7 +327,7 @@ export default function FloatingToolbar() {
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-48 p-2" align="center">
-              <p className="text-xs text-muted-foreground mb-2">Text Color</p>
+              <p className="text-xs text-muted-foreground mb-2">Tekstfarve</p>
               <div className="grid grid-cols-6 gap-1">
                 {themeColors.text.map(color => (
                   <button
@@ -342,14 +350,8 @@ export default function FloatingToolbar() {
           </Popover>
         </>
       )}
-      
-      {toolbarMode === 'image' && !isMobile && (
-        <div style={{ display: 'flex', gap: '2px', borderRight: '1px solid #e2e8f0', paddingRight: '8px', alignItems: 'center' }}>
-          <Image className={`${iconSize} text-muted-foreground mr-1`} />
-          <span className="text-xs text-muted-foreground">Image Controls</span>
-        </div>
-      )}
 
+      {/* Background Color - All Components */}
       <Popover>
         <PopoverTrigger asChild>
           <Button
@@ -357,7 +359,7 @@ export default function FloatingToolbar() {
             size="sm"
             className={`${buttonSize} p-0`}
             data-testid="toolbar-bg-picker"
-            title="Background Color"
+            title="Baggrundsfarve"
           >
             <div 
               style={{ 
@@ -373,7 +375,7 @@ export default function FloatingToolbar() {
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-48 p-2" align="center">
-          <p className="text-xs text-muted-foreground mb-2">Background Color</p>
+          <p className="text-xs text-muted-foreground mb-2">Baggrundsfarve</p>
           <div className="grid grid-cols-5 gap-1">
             {themeColors.backgrounds.map(color => (
               <button
@@ -395,7 +397,8 @@ export default function FloatingToolbar() {
         </PopoverContent>
       </Popover>
 
-      {!isMobile && (
+      {/* Spacing - All Components */}
+      {hasLayoutControls && !isMobile && (
         <Popover>
           <PopoverTrigger asChild>
             <Button
@@ -403,7 +406,7 @@ export default function FloatingToolbar() {
               size="sm"
               className={`${buttonSize} p-0`}
               data-testid="toolbar-spacing"
-              title="Spacing"
+              title="Afstand"
             >
               <Columns className={iconSize} />
             </Button>
@@ -428,165 +431,251 @@ export default function FloatingToolbar() {
         </Popover>
       )}
 
-      {isMobile && toolbarMode === 'text' && (
+      {/* Border Radius - All Components */}
+      {!isMobile && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`${buttonSize} p-0`}
+              data-testid="toolbar-border-radius"
+              title="Hjørneafrunding"
+            >
+              <Square className={iconSize} />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-40 p-2" align="center">
+            <p className="text-xs text-muted-foreground mb-2">Hjørneafrunding</p>
+            <div className="space-y-1">
+              {BORDER_RADIUS_OPTIONS.map(option => (
+                <button
+                  key={option.value}
+                  onClick={() => handleBorderRadiusChange(option.value)}
+                  className={`w-full text-left px-2 py-1 text-sm rounded flex items-center gap-2 ${
+                    currentBorderRadius === option.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  }`}
+                  data-testid={`border-radius-${option.name.toLowerCase()}`}
+                >
+                  <div 
+                    style={{ 
+                      width: 16, 
+                      height: 16, 
+                      border: '2px solid currentColor',
+                      borderRadius: option.value === '9999px' ? '50%' : option.value,
+                    }} 
+                  />
+                  {option.name}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {/* Mobile Controls */}
+      {isMobile && (
         <>
-          <Popover>
+          {hasTextControls && (
+            <>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`${buttonSize} p-0`}
+                    data-testid="toolbar-font-picker-mobile"
+                    title="Skrifttype"
+                  >
+                    <Type className={iconSize} />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-52 p-2" align="center">
+                  <p className="text-xs text-muted-foreground mb-2">Skrifttype</p>
+                  <ScrollArea className="h-48">
+                    <div className="space-y-1">
+                      {FONT_OPTIONS.map(font => (
+                        <button
+                          key={font.name}
+                          onClick={() => handleFontChange(font.value)}
+                          className={`w-full text-left px-2 py-2 text-sm rounded transition-colors ${
+                            currentFontFamily === font.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                          }`}
+                          style={{ fontFamily: font.value }}
+                          data-testid={`font-mobile-${font.name.toLowerCase().replace(/\s+/g, '-')}`}
+                        >
+                          {font.name}
+                        </button>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`${buttonSize} p-0`}
+                    data-testid="toolbar-color-picker-mobile"
+                    title="Tekstfarve"
+                  >
+                    <div 
+                      style={{ 
+                        width: '20px', 
+                        height: '20px', 
+                        borderRadius: '4px', 
+                        backgroundColor: currentTextColor,
+                        border: '2px solid #e2e8f0'
+                      }} 
+                    />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-2" align="center">
+                  <p className="text-xs text-muted-foreground mb-2">Tekstfarve</p>
+                  <div className="grid grid-cols-6 gap-1">
+                    {themeColors.text.map(color => (
+                      <button
+                        key={color.value}
+                        onClick={() => handleColorChange(color.value, 'text')}
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '4px',
+                          backgroundColor: color.value,
+                          border: currentTextColor === color.value ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                          cursor: 'pointer',
+                        }}
+                        title={color.name}
+                        data-testid={`color-text-mobile-${color.name.toLowerCase()}`}
+                      />
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </>
+          )}
+
+          <Popover open={showMoreMenu} onOpenChange={setShowMoreMenu}>
             <PopoverTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
                 className={`${buttonSize} p-0`}
-                data-testid="toolbar-font-picker-mobile"
-                title="Font Family"
+                data-testid="toolbar-more"
+                title="Flere muligheder"
               >
-                <Type className={iconSize} />
+                <MoreHorizontal className={iconSize} />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-52 p-2" align="center">
-              <p className="text-xs text-muted-foreground mb-2">Skrifttype</p>
-              <ScrollArea className="h-48">
-                <div className="space-y-1">
-                  {FONT_OPTIONS.map(font => (
+            <PopoverContent className="w-56 p-2" align="center">
+              <div className="space-y-1">
+                {hasTextControls && (
+                  <>
+                    <div className="flex items-center justify-between px-2 py-1">
+                      <span className="text-xs text-muted-foreground">Størrelse</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleFontSizeChange(-4)}
+                          className="p-1.5 rounded hover:bg-muted"
+                        >
+                          <Minus className="h-4 w-4" />
+                        </button>
+                        <span className="text-sm font-medium w-8 text-center">{parseInt(currentTitleSize)}</span>
+                        <button
+                          onClick={() => handleFontSizeChange(4)}
+                          className="p-1.5 rounded hover:bg-muted"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-center gap-1 py-1">
+                      {alignmentPresets.map(preset => (
+                        <button
+                          key={preset.value}
+                          onClick={() => handleAlignmentChange(preset.value as 'left' | 'center' | 'right')}
+                          className={`p-2 rounded ${currentAlignment === preset.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                        >
+                          {preset.value === 'left' && <AlignLeft className="h-4 w-4" />}
+                          {preset.value === 'center' && <AlignCenter className="h-4 w-4" />}
+                          {preset.value === 'right' && <AlignRight className="h-4 w-4" />}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
+                  </>
+                )}
+                
+                {hasLayoutControls && (
+                  <>
+                    <p className="text-xs text-muted-foreground px-2 pt-1">Afstand</p>
+                    <div className="grid grid-cols-3 gap-1 px-2 py-1">
+                      {spacingPresets.padding.slice(0, 6).map(preset => (
+                        <button
+                          key={preset.value}
+                          onClick={() => handlePaddingChange(preset.value)}
+                          className={`px-2 py-1 text-xs rounded ${
+                            currentPadding === preset.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                          }`}
+                        >
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
+                  </>
+                )}
+
+                <p className="text-xs text-muted-foreground px-2 pt-1">Hjørner</p>
+                <div className="grid grid-cols-3 gap-1 px-2 py-1">
+                  {BORDER_RADIUS_OPTIONS.map(option => (
                     <button
-                      key={font.name}
-                      onClick={() => handleFontChange(font.value)}
-                      className={`w-full text-left px-2 py-2 text-sm rounded transition-colors ${
-                        currentFontFamily === font.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                      key={option.value}
+                      onClick={() => handleBorderRadiusChange(option.value)}
+                      className={`px-2 py-1 text-xs rounded ${
+                        currentBorderRadius === option.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                       }`}
-                      style={{ fontFamily: font.value }}
-                      data-testid={`font-mobile-${font.name.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      {font.name}
+                      {option.name}
                     </button>
                   ))}
                 </div>
-              </ScrollArea>
-            </PopoverContent>
-          </Popover>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`${buttonSize} p-0`}
-                data-testid="toolbar-color-picker-mobile"
-                title="Text Color"
-              >
-                <div 
-                  style={{ 
-                    width: '20px', 
-                    height: '20px', 
-                    borderRadius: '4px', 
-                    backgroundColor: currentTextColor,
-                    border: '2px solid #e2e8f0'
-                  }} 
-                />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-48 p-2" align="center">
-              <p className="text-xs text-muted-foreground mb-2">Tekstfarve</p>
-              <div className="grid grid-cols-6 gap-1">
-                {themeColors.text.map(color => (
-                  <button
-                    key={color.value}
-                    onClick={() => handleColorChange(color.value, 'text')}
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '4px',
-                      backgroundColor: color.value,
-                      border: currentTextColor === color.value ? '2px solid #3b82f6' : '1px solid #e2e8f0',
-                      cursor: 'pointer',
-                    }}
-                    title={color.name}
-                    data-testid={`color-text-mobile-${color.name.toLowerCase()}`}
-                  />
-                ))}
+                
+                <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
+                
+                <button
+                  onClick={() => { onMoveComponent(selectedId, 'up'); setShowMoreMenu(false); }}
+                  className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
+                >
+                  <ChevronUp className="h-4 w-4" /> Flyt op
+                </button>
+                <button
+                  onClick={() => { onMoveComponent(selectedId, 'down'); setShowMoreMenu(false); }}
+                  className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
+                >
+                  <ChevronDown className="h-4 w-4" /> Flyt ned
+                </button>
+                <button
+                  onClick={() => { onDuplicateComponent(selectedId); setShowMoreMenu(false); }}
+                  className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
+                >
+                  <Copy className="h-4 w-4" /> Dupliker
+                </button>
+                <button
+                  onClick={() => { onDeleteComponent(selectedId); setShowMoreMenu(false); }}
+                  className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded text-red-500 hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4" /> Slet
+                </button>
               </div>
             </PopoverContent>
           </Popover>
         </>
       )}
 
-      {isMobile ? (
-        <Popover open={showMoreMenu} onOpenChange={setShowMoreMenu}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`${buttonSize} p-0`}
-              data-testid="toolbar-more"
-              title="More options"
-            >
-              <MoreHorizontal className={iconSize} />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-48 p-2" align="center">
-            <div className="space-y-1">
-              {toolbarMode === 'text' && (
-                <>
-                  <div className="flex items-center justify-between px-2 py-1">
-                    <span className="text-xs text-muted-foreground">Størrelse</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleFontSizeChange(-4)}
-                        className="p-1.5 rounded hover:bg-muted"
-                      >
-                        <Minus className="h-4 w-4" />
-                      </button>
-                      <span className="text-sm font-medium w-8 text-center">{parseInt(currentTitleSize)}</span>
-                      <button
-                        onClick={() => handleFontSizeChange(4)}
-                        className="p-1.5 rounded hover:bg-muted"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-center gap-1 py-1">
-                    {alignmentPresets.map(preset => (
-                      <button
-                        key={preset.value}
-                        onClick={() => handleAlignmentChange(preset.value as 'left' | 'center' | 'right')}
-                        className={`p-2 rounded ${currentAlignment === preset.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-                      >
-                        {preset.value === 'left' && <AlignLeft className="h-4 w-4" />}
-                        {preset.value === 'center' && <AlignCenter className="h-4 w-4" />}
-                        {preset.value === 'right' && <AlignRight className="h-4 w-4" />}
-                      </button>
-                    ))}
-                  </div>
-                  <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
-                </>
-              )}
-              <button
-                onClick={() => { onMoveComponent(selectedId, 'up'); setShowMoreMenu(false); }}
-                className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
-              >
-                <ChevronUp className="h-4 w-4" /> Flyt op
-              </button>
-              <button
-                onClick={() => { onMoveComponent(selectedId, 'down'); setShowMoreMenu(false); }}
-                className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
-              >
-                <ChevronDown className="h-4 w-4" /> Flyt ned
-              </button>
-              <button
-                onClick={() => { onDuplicateComponent(selectedId); setShowMoreMenu(false); }}
-                className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
-              >
-                <Copy className="h-4 w-4" /> Dupliker
-              </button>
-              <button
-                onClick={() => { onDeleteComponent(selectedId); setShowMoreMenu(false); }}
-                className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded text-red-500 hover:bg-red-50"
-              >
-                <Trash2 className="h-4 w-4" /> Slet
-              </button>
-            </div>
-          </PopoverContent>
-        </Popover>
-      ) : (
+      {/* Desktop Actions */}
+      {!isMobile && (
         <div style={{ display: 'flex', gap: '2px', borderLeft: '1px solid #e2e8f0', paddingLeft: '8px' }}>
           <Button
             variant="ghost"
@@ -594,7 +683,7 @@ export default function FloatingToolbar() {
             className={`${buttonSize} p-0`}
             onClick={() => onMoveComponent(selectedId, 'up')}
             data-testid="toolbar-move-up"
-            title="Move Up"
+            title="Flyt op"
           >
             <ChevronUp className={iconSize} />
           </Button>
@@ -604,7 +693,7 @@ export default function FloatingToolbar() {
             className={`${buttonSize} p-0`}
             onClick={() => onMoveComponent(selectedId, 'down')}
             data-testid="toolbar-move-down"
-            title="Move Down"
+            title="Flyt ned"
           >
             <ChevronDown className={iconSize} />
           </Button>
@@ -614,7 +703,7 @@ export default function FloatingToolbar() {
             className={`${buttonSize} p-0`}
             onClick={() => onDuplicateComponent(selectedId)}
             data-testid="toolbar-duplicate"
-            title="Duplicate"
+            title="Dupliker"
           >
             <Copy className={iconSize} />
           </Button>
@@ -624,7 +713,7 @@ export default function FloatingToolbar() {
             className={`${buttonSize} p-0 text-red-500 hover:text-red-600 hover:bg-red-50`}
             onClick={() => onDeleteComponent(selectedId)}
             data-testid="toolbar-delete"
-            title="Delete"
+            title="Slet"
           >
             <Trash2 className={iconSize} />
           </Button>
