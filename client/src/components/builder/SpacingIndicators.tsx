@@ -96,20 +96,8 @@ export default function SpacingIndicators() {
       });
     }
 
-    // Center alignment guides
-    const previewCenterX = previewRect.width / 2;
-    const selectedCenterX = relLeft + selectedRect.width / 2;
-    
-    // Check if element is centered horizontally
-    if (Math.abs(selectedCenterX - previewCenterX) < 5) {
-      guides.push({
-        type: 'center-v',
-        position: previewCenterX,
-      });
-    }
-
     setSpacingLines(lines);
-    setAlignmentGuides(guides);
+    setAlignmentGuides([]);
   }, [selectedId, isBuilderMode, getComponent]);
 
   useEffect(() => {
