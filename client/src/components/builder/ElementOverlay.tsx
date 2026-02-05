@@ -11,6 +11,7 @@ interface DetectedElement {
   type: ElementType;
   rect: { left: number; top: number; width: number; height: number };
   element: HTMLElement;
+  originalText?: string;
 }
 
 interface ElementOverlayProps {
@@ -126,8 +127,76 @@ export default function ElementOverlay({
   
   const [detectedElements, setDetectedElements] = useState<DetectedElement[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
+  const elementListenersRef = useRef<Map<HTMLElement, () => void>>(new Map());
+
+  // Handle element click on actual DOM element
+  const handleDirectElementClick = useCallback((detected: DetectedElement, e: MouseEvent) => {
+    // Don't select if clicking inside already editing content
+    if (isEditing) return;
+    
+    e.stopPropagation();
+    
+    const currentStyles = elementStyles.get(detected.id) || {};
+    
+    selectElement({
+      id: detected.id,
+      componentId: detected.componentId,
+      elementType: detected.type,
+      path: detected.path,
+      styles: currentStyles,
+    });
+    
+    // For text elements, enable contentEditable after selection
+    if (detected.type === 'text') {
+      setTimeout(() => {
+        detected.element.contentEditable = 'true';
+        detected.element.focus();
+        setIsEditing(true);
+        
+        // Store original text
+        detected.element.dataset.originalText = detected.element.textContent || '';
+      }, 10);
+    }
+  }, [selectElement, elementStyles, isEditing]);
+
+  // Handle text blur (save changes)
+  const handleTextBlur = useCallback((element: HTMLElement, detected: DetectedElement) => {
+    element.contentEditable = 'false';
+    setIsEditing(false);
+    
+    const newText = element.textContent || '';
+    const originalText = element.dataset.originalText || '';
+    
+    if (newText !== originalText) {
+      // Update the element styles with the new text content
+      updateElementStyles(detected.id, { textContent: newText });
+    }
+    
+    delete element.dataset.originalText;
+  }, [updateElementStyles]);
+
+  // Handle blur when clicking outside the selected text element
+  useEffect(() => {
+    if (!isEditing || !selectedElement) return;
+    
+    const selectedDetected = detectedElements.find(d => d.id === selectedElement.id);
+    if (!selectedDetected || selectedDetected.type !== 'text') return;
+    
+    const element = selectedDetected.element;
+    
+    const blurHandler = () => {
+      handleTextBlur(element, selectedDetected);
+    };
+    
+    element.addEventListener('blur', blurHandler);
+    
+    return () => {
+      element.removeEventListener('blur', blurHandler);
+    };
+  }, [isEditing, selectedElement, detectedElements, handleTextBlur]);
 
   // Detect selectable elements in the container
   const detectElements = useCallback(() => {
@@ -169,6 +238,7 @@ export default function ElementOverlay({
         type: getElementType(element),
         rect: relativeRect,
         element,
+        originalText: element.textContent || undefined,
       });
       
       index++;
@@ -204,20 +274,49 @@ export default function ElementOverlay({
     };
   }, [containerRef, detectElements]);
 
-  const handleElementClick = useCallback((detected: DetectedElement, e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  // Attach click listeners to actual DOM elements
+  useEffect(() => {
+    // Clean up old listeners
+    elementListenersRef.current.forEach((cleanup, el) => cleanup());
+    elementListenersRef.current.clear();
     
-    const currentStyles = elementStyles.get(detected.id) || {};
-    
-    selectElement({
-      id: detected.id,
-      componentId: detected.componentId,
-      elementType: detected.type,
-      path: detected.path,
-      styles: currentStyles,
+    // Attach new listeners
+    detectedElements.forEach((detected) => {
+      const element = detected.element;
+      
+      const clickHandler = (e: MouseEvent) => handleDirectElementClick(detected, e);
+      const mouseEnterHandler = () => setHoveredId(detected.id);
+      const mouseLeaveHandler = () => setHoveredId(null);
+      
+      element.addEventListener('click', clickHandler);
+      element.addEventListener('mouseenter', mouseEnterHandler);
+      element.addEventListener('mouseleave', mouseLeaveHandler);
+      
+      // For text elements, add blur handler
+      if (detected.type === 'text') {
+        const blurHandler = () => handleTextBlur(element, detected);
+        element.addEventListener('blur', blurHandler);
+        
+        elementListenersRef.current.set(element, () => {
+          element.removeEventListener('click', clickHandler);
+          element.removeEventListener('mouseenter', mouseEnterHandler);
+          element.removeEventListener('mouseleave', mouseLeaveHandler);
+          element.removeEventListener('blur', blurHandler);
+        });
+      } else {
+        elementListenersRef.current.set(element, () => {
+          element.removeEventListener('click', clickHandler);
+          element.removeEventListener('mouseenter', mouseEnterHandler);
+          element.removeEventListener('mouseleave', mouseLeaveHandler);
+        });
+      }
     });
-  }, [selectElement, elementStyles]);
+    
+    return () => {
+      elementListenersRef.current.forEach((cleanup) => cleanup());
+      elementListenersRef.current.clear();
+    };
+  }, [detectedElements, handleDirectElementClick, handleTextBlur]);
 
   const handleStyleChange = useCallback((styles: Partial<ElementStyles>) => {
     if (!selectedElement) return;
@@ -251,15 +350,39 @@ export default function ElementOverlay({
         return (
           <div
             key={detected.id}
-            className="absolute pointer-events-auto"
+            className="absolute"
             style={{
               left: detected.rect.left,
               top: detected.rect.top,
               width: detected.rect.width,
               height: detected.rect.height,
+              pointerEvents: isSelected && isEditing ? 'none' : 'auto',
             }}
-            onClick={(e) => handleElementClick(detected, e)}
-            onMouseEnter={() => setHoveredId(detected.id)}
+            onClick={(e) => {
+              // Only handle click if not already editing
+              if (!isEditing) {
+                e.stopPropagation();
+                const currentStyles = elementStyles.get(detected.id) || {};
+                selectElement({
+                  id: detected.id,
+                  componentId: detected.componentId,
+                  elementType: detected.type,
+                  path: detected.path,
+                  styles: currentStyles,
+                });
+                
+                // For text elements, enable inline editing
+                if (detected.type === 'text') {
+                  setTimeout(() => {
+                    detected.element.contentEditable = 'true';
+                    detected.element.focus();
+                    setIsEditing(true);
+                    detected.element.dataset.originalText = detected.element.textContent || '';
+                  }, 10);
+                }
+              }
+            }}
+            onMouseEnter={() => !isEditing && setHoveredId(detected.id)}
             onMouseLeave={() => setHoveredId(null)}
             data-testid={`element-region-${detected.id}`}
           >
