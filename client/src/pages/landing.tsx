@@ -97,11 +97,6 @@ export default function LandingPage() {
                 transition={{ duration: 0.7 }}
                 className="text-center lg:text-left"
               >
-                <div className="inline-flex items-center rounded-full border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 px-4 py-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-8 shadow-sm">
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  AI-drevet Website Builder
-                </div>
-                
                 <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight mb-8 leading-[1.1]">
                   Byg flotte websites
                   <span className="block bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 bg-clip-text text-transparent mt-2">
@@ -131,7 +126,7 @@ export default function LandingPage() {
                   </div>
                   <span>Slut dig til</span>
                   <span className="font-bold text-foreground">
-                    <CountUp end={totalCreators} suffix="+" />
+                    <CountUp end={totalCreators} />
                   </span>
                   <span>der allerede bygger med BirdFlow</span>
                 </div>
