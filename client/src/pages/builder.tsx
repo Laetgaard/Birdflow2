@@ -253,6 +253,78 @@ export default function BuilderPage() {
     });
   }, [flushPendingHistory, saveState, toast]);
 
+  const deleteComponent = useCallback((componentId: string) => {
+    if (!builderState) return;
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map(page =>
+        page.id === builderState.activePage
+          ? { ...page, components: page.components.filter(comp => comp.id !== componentId) }
+          : page
+      ),
+    };
+
+    updateStateWithHistory(newState, 'Delete component');
+    setSelectedComponentId(null);
+  }, [builderState, updateStateWithHistory]);
+
+  const moveComponent = useCallback((componentId: string, direction: 'up' | 'down') => {
+    if (!builderState) return;
+
+    const activePage = builderState.pages.find(p => p.id === builderState.activePage);
+    if (!activePage) return;
+
+    const index = activePage.components.findIndex(c => c.id === componentId);
+    if (index === -1) return;
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === activePage.components.length - 1) return;
+
+    const newComponents = [...activePage.components];
+    const swapIndex = direction === 'up' ? index - 1 : index + 1;
+    [newComponents[index], newComponents[swapIndex]] = [newComponents[swapIndex], newComponents[index]];
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map(page =>
+        page.id === builderState.activePage ? { ...page, components: newComponents } : page
+      ),
+    };
+
+    updateStateWithHistory(newState, `Move component ${direction}`);
+  }, [builderState, updateStateWithHistory]);
+
+  const duplicateComponent = useCallback((componentId: string) => {
+    if (!builderState) return;
+
+    const activePage = builderState.pages.find(p => p.id === builderState.activePage);
+    if (!activePage) return;
+
+    const componentIndex = activePage.components.findIndex(c => c.id === componentId);
+    if (componentIndex === -1) return;
+
+    const originalComponent = activePage.components[componentIndex];
+    const duplicatedComponent: BuilderComponentData = {
+      ...originalComponent,
+      id: `${originalComponent.type}-${Date.now()}`,
+      props: { ...originalComponent.props },
+      styles: { ...originalComponent.styles },
+    };
+
+    const newComponents = [...activePage.components];
+    newComponents.splice(componentIndex + 1, 0, duplicatedComponent);
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map(page =>
+        page.id === builderState.activePage ? { ...page, components: newComponents } : page
+      ),
+    };
+
+    updateStateWithHistory(newState, `Duplicate component`);
+    setSelectedComponentId(duplicatedComponent.id);
+  }, [builderState, updateStateWithHistory]);
+
   // Keyboard shortcuts for undo/redo and Canva-like editing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -312,7 +384,7 @@ export default function BuilderPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, selectedComponentId, builderState, duplicateComponent]);
+  }, [handleUndo, handleRedo, selectedComponentId, builderState, duplicateComponent, deleteComponent, moveComponent, saveState]);
 
   useEffect(() => {
     return () => {
@@ -581,78 +653,6 @@ export default function BuilderPage() {
       return newState;
     });
   }, []);
-
-  const deleteComponent = (componentId: string) => {
-    if (!builderState) return;
-
-    const newState: BuilderStateData = {
-      ...builderState,
-      pages: builderState.pages.map(page =>
-        page.id === builderState.activePage
-          ? { ...page, components: page.components.filter(comp => comp.id !== componentId) }
-          : page
-      ),
-    };
-
-    updateStateWithHistory(newState, 'Delete component');
-    setSelectedComponentId(null);
-  };
-
-  const moveComponent = (componentId: string, direction: 'up' | 'down') => {
-    if (!builderState) return;
-
-    const activePage = builderState.pages.find(p => p.id === builderState.activePage);
-    if (!activePage) return;
-
-    const index = activePage.components.findIndex(c => c.id === componentId);
-    if (index === -1) return;
-    if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === activePage.components.length - 1) return;
-
-    const newComponents = [...activePage.components];
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
-    [newComponents[index], newComponents[swapIndex]] = [newComponents[swapIndex], newComponents[index]];
-
-    const newState: BuilderStateData = {
-      ...builderState,
-      pages: builderState.pages.map(page =>
-        page.id === builderState.activePage ? { ...page, components: newComponents } : page
-      ),
-    };
-
-    updateStateWithHistory(newState, `Move component ${direction}`);
-  };
-
-  const duplicateComponent = useCallback((componentId: string) => {
-    if (!builderState) return;
-
-    const activePage = builderState.pages.find(p => p.id === builderState.activePage);
-    if (!activePage) return;
-
-    const componentIndex = activePage.components.findIndex(c => c.id === componentId);
-    if (componentIndex === -1) return;
-
-    const originalComponent = activePage.components[componentIndex];
-    const duplicatedComponent: BuilderComponentData = {
-      ...originalComponent,
-      id: `${originalComponent.type}-${Date.now()}`,
-      props: { ...originalComponent.props },
-      styles: { ...originalComponent.styles },
-    };
-
-    const newComponents = [...activePage.components];
-    newComponents.splice(componentIndex + 1, 0, duplicatedComponent);
-
-    const newState: BuilderStateData = {
-      ...builderState,
-      pages: builderState.pages.map(page =>
-        page.id === builderState.activePage ? { ...page, components: newComponents } : page
-      ),
-    };
-
-    updateStateWithHistory(newState, `Duplicate component`);
-    setSelectedComponentId(duplicatedComponent.id);
-  }, [builderState, updateStateWithHistory]);
 
   const applyTemplate = useCallback((template: WebsiteTemplate) => {
     const newState: BuilderStateData = {
