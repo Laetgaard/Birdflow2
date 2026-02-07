@@ -12,28 +12,35 @@ type OverlayRect = {
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'w' | 'e' | 'sw' | 's' | 'se';
 
 const COMPONENT_LABELS: Record<string, string> = {
-  'hero': 'Hero Section',
+  'hero': 'Hero',
   'header': 'Header',
   'footer': 'Footer',
-  'cta': 'Call to Action',
+  'cta': 'CTA',
   'features': 'Features',
-  'testimonials': 'Testimonials',
-  'text-image': 'Text & Image',
-  'image-slider': 'Image Slider',
-  'product-grid': 'Products',
+  'testimonials': 'Anmeldelser',
+  'text-image': 'Tekst & Billede',
+  'image-slider': 'Billedkarrusel',
+  'product-grid': 'Produkter',
   'booking': 'Booking',
-  'gallery': 'Gallery',
-  'pricing-table': 'Pricing',
+  'gallery': 'Galleri',
+  'pricing-table': 'Priser',
   'faq': 'FAQ',
-  'stats-counter': 'Stats',
-  'contact-form': 'Contact Form',
+  'stats-counter': 'Statistik',
+  'contact-form': 'Kontaktformular',
   'video-embed': 'Video',
   'divider': 'Divider',
-  'spacer': 'Spacer',
+  'spacer': 'Mellemrum',
+  'services': 'Services',
+  'timeline': 'Tidslinje',
+  'team': 'Team',
+  'split-section': 'Split',
+  'tabs': 'Faner',
+  'comparison-table': 'Sammenligning',
+  'marquee': 'Marquee',
 };
 
-const HANDLE_SIZE = 10;
-const HANDLE_SIZE_TOUCH = 20;
+const HANDLE_SIZE = 8;
+const HANDLE_SIZE_TOUCH = 18;
 
 export default function SelectionOverlay() {
   const { selectedId, hoveredId, isBuilderMode, getComponent, onUpdateComponent } = useBuilderSelection();
@@ -54,10 +61,10 @@ export default function SelectionOverlay() {
   const getElementRect = useCallback((elementId: string): OverlayRect | null => {
     const element = document.querySelector(`[data-element-id="${elementId}"]`);
     if (!element) return null;
-    
+
     const rect = element.getBoundingClientRect();
     const previewArea = document.querySelector('[data-preview-area]');
-    
+
     if (previewArea) {
       const previewRect = previewArea.getBoundingClientRect();
       return {
@@ -67,7 +74,7 @@ export default function SelectionOverlay() {
         height: rect.height,
       };
     }
-    
+
     return {
       top: rect.top,
       left: rect.left,
@@ -82,7 +89,7 @@ export default function SelectionOverlay() {
     } else {
       setSelectedRect(null);
     }
-    
+
     if (hoveredId && hoveredId !== selectedId) {
       setHoveredRect(getElementRect(hoveredId));
     } else {
@@ -93,35 +100,35 @@ export default function SelectionOverlay() {
   const handleResizeStart = useCallback((e: React.MouseEvent | React.TouchEvent, handle: ResizeHandle) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!selectedRect || !selectedId) return;
-    
+
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    
+
     startPosRef.current = {
       x: clientX,
       y: clientY,
       width: selectedRect.width,
       height: selectedRect.height,
     };
-    
+
     setIsResizing(true);
     setResizeHandle(handle);
   }, [selectedRect, selectedId]);
 
   const handleResizeMove = useCallback((e: MouseEvent | TouchEvent) => {
     if (!isResizing || !resizeHandle || !selectedId || !selectedRect) return;
-    
+
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    
+
     const deltaX = clientX - startPosRef.current.x;
     const deltaY = clientY - startPosRef.current.y;
-    
+
     let newPaddingVertical = 60;
     let newPaddingHorizontal = 24;
-    
+
     const component = getComponent(selectedId);
     if (component?.styles?.padding) {
       const paddingMatch = component.styles.padding.match(/(\d+)px\s*(\d+)?px?/);
@@ -130,7 +137,7 @@ export default function SelectionOverlay() {
         newPaddingHorizontal = parseInt(paddingMatch[2]) || 24;
       }
     }
-    
+
     if (resizeHandle.includes('s')) {
       newPaddingVertical = Math.max(20, newPaddingVertical + Math.round(deltaY / 2));
     }
@@ -143,11 +150,11 @@ export default function SelectionOverlay() {
     if (resizeHandle.includes('w')) {
       newPaddingHorizontal = Math.max(12, newPaddingHorizontal - Math.round(deltaX / 2));
     }
-    
+
     onUpdateComponent(selectedId, {
       styles: { padding: `${newPaddingVertical}px ${newPaddingHorizontal}px` }
     });
-    
+
     startPosRef.current.x = clientX;
     startPosRef.current.y = clientY;
   }, [isResizing, resizeHandle, selectedId, selectedRect, getComponent, onUpdateComponent]);
@@ -163,7 +170,7 @@ export default function SelectionOverlay() {
       window.addEventListener('mouseup', handleResizeEnd);
       window.addEventListener('touchmove', handleResizeMove);
       window.addEventListener('touchend', handleResizeEnd);
-      
+
       return () => {
         window.removeEventListener('mousemove', handleResizeMove);
         window.removeEventListener('mouseup', handleResizeEnd);
@@ -218,17 +225,17 @@ export default function SelectionOverlay() {
 
     window.addEventListener('resize', handleResize);
     scrollContainerRef.current?.addEventListener('scroll', handleScroll);
-    
+
     const mutationObserver = new MutationObserver(() => {
       requestAnimationFrame(updateRects);
     });
-    
+
     const previewAreaElement = document.querySelector('[data-preview-area]');
     if (previewAreaElement) {
-      mutationObserver.observe(previewAreaElement, { 
-        childList: true, 
-        subtree: true, 
-        attributes: true 
+      mutationObserver.observe(previewAreaElement, {
+        childList: true,
+        subtree: true,
+        attributes: true
       });
     }
 
@@ -260,19 +267,28 @@ export default function SelectionOverlay() {
       'se': 'se-resize',
     };
 
+    // Corner handles are squares, edge handles are pills
+    const isCorner = ['nw', 'ne', 'sw', 'se'].includes(handle);
+    const isVertical = ['n', 's'].includes(handle);
+    const isHorizontal = ['w', 'e'].includes(handle);
+
+    const width = isHorizontal ? handleSize : (isVertical ? handleSize * 2.5 : handleSize);
+    const height = isVertical ? handleSize : (isHorizontal ? handleSize * 2.5 : handleSize);
+
     return (
       <div
         style={{
           position: 'absolute',
-          width: handleSize,
-          height: handleSize,
-          backgroundColor: '#3b82f6',
-          borderRadius: '3px',
-          border: '2px solid white',
+          width,
+          height,
+          backgroundColor: 'white',
+          borderRadius: isCorner ? '2px' : '4px',
+          border: '2px solid #3b82f6',
           cursor: cursorMap[handle],
           pointerEvents: 'auto',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
           touchAction: 'none',
+          transition: isResizing ? 'none' : 'opacity 0.15s ease',
           ...style,
         }}
         onMouseDown={(e) => handleResizeStart(e, handle)}
@@ -282,40 +298,85 @@ export default function SelectionOverlay() {
     );
   };
 
+  const hoveredComponentType = hoveredId ? getComponent(hoveredId)?.type : null;
+  const hoveredLabel = hoveredComponentType ? (COMPONENT_LABELS[hoveredComponentType] || hoveredComponentType) : '';
+
   return createPortal(
-    <div 
-      style={{ 
-        position: 'absolute', 
-        top: 0, 
-        left: 0, 
-        right: 0, 
-        bottom: 0, 
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         pointerEvents: 'none',
         zIndex: 100,
         overflow: 'hidden',
       }}
       data-testid="selection-overlay-container"
     >
+      {/* Hover overlay - subtle dashed border with label */}
       {hoveredRect && (
-        <div
-          style={{
-            position: 'absolute',
-            top: hoveredRect.top,
-            left: hoveredRect.left,
-            width: hoveredRect.width,
-            height: hoveredRect.height,
-            border: '2px dashed #60a5fa',
-            borderRadius: '4px',
-            pointerEvents: 'none',
-            transition: 'all 0.15s ease-out',
-            opacity: 0.8,
-          }}
-          data-testid="hover-overlay"
-        />
+        <>
+          <div
+            style={{
+              position: 'absolute',
+              top: hoveredRect.top,
+              left: hoveredRect.left,
+              width: hoveredRect.width,
+              height: hoveredRect.height,
+              border: '1.5px dashed #93c5fd',
+              borderRadius: '2px',
+              pointerEvents: 'none',
+              transition: 'all 0.12s ease-out',
+              opacity: 0.9,
+              backgroundColor: 'rgba(59, 130, 246, 0.02)',
+            }}
+            data-testid="hover-overlay"
+          />
+          {/* Hover label - Canva-style pill at top */}
+          {hoveredLabel && (
+            <div
+              style={{
+                position: 'absolute',
+                top: hoveredRect.top - 26,
+                left: hoveredRect.left,
+                backgroundColor: 'rgba(59, 130, 246, 0.9)',
+                color: 'white',
+                fontSize: '10px',
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: '6px',
+                pointerEvents: 'none',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.12s ease-out',
+                letterSpacing: '0.02em',
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              {hoveredLabel}
+            </div>
+          )}
+        </>
       )}
-      
+
+      {/* Selected overlay - solid border with glow */}
       {selectedRect && (
         <>
+          {/* Background tint overlay */}
+          <div
+            style={{
+              position: 'absolute',
+              top: selectedRect.top,
+              left: selectedRect.left,
+              width: selectedRect.width,
+              height: selectedRect.height,
+              backgroundColor: 'rgba(59, 130, 246, 0.03)',
+              pointerEvents: 'none',
+              transition: isResizing ? 'none' : 'all 0.15s ease-out',
+            }}
+          />
+          {/* Selection border */}
           <div
             style={{
               position: 'absolute',
@@ -324,61 +385,69 @@ export default function SelectionOverlay() {
               width: selectedRect.width,
               height: selectedRect.height,
               border: '2px solid #3b82f6',
-              borderRadius: '4px',
+              borderRadius: '2px',
               pointerEvents: 'none',
-              boxShadow: '0 0 0 4px rgba(59, 130, 246, 0.1)',
+              boxShadow: '0 0 0 1px rgba(59, 130, 246, 0.1), 0 0 12px rgba(59, 130, 246, 0.08)',
               transition: isResizing ? 'none' : 'all 0.15s ease-out',
             }}
             data-testid="selection-overlay"
           />
-          
+
+          {/* Resize handles - corners */}
           {renderResizeHandle('nw', {
             top: selectedRect.top - handleOffset,
             left: selectedRect.left - handleOffset,
           })}
-          {renderResizeHandle('n', {
-            top: selectedRect.top - handleOffset,
-            left: selectedRect.left + selectedRect.width / 2 - handleOffset,
-          })}
           {renderResizeHandle('ne', {
             top: selectedRect.top - handleOffset,
-            left: selectedRect.left + selectedRect.width - handleOffset,
-          })}
-          {renderResizeHandle('w', {
-            top: selectedRect.top + selectedRect.height / 2 - handleOffset,
-            left: selectedRect.left - handleOffset,
-          })}
-          {renderResizeHandle('e', {
-            top: selectedRect.top + selectedRect.height / 2 - handleOffset,
             left: selectedRect.left + selectedRect.width - handleOffset,
           })}
           {renderResizeHandle('sw', {
             top: selectedRect.top + selectedRect.height - handleOffset,
             left: selectedRect.left - handleOffset,
           })}
-          {renderResizeHandle('s', {
-            top: selectedRect.top + selectedRect.height - handleOffset,
-            left: selectedRect.left + selectedRect.width / 2 - handleOffset,
-          })}
           {renderResizeHandle('se', {
             top: selectedRect.top + selectedRect.height - handleOffset,
             left: selectedRect.left + selectedRect.width - handleOffset,
           })}
-          
+          {/* Resize handles - edges (pill-shaped) */}
+          {renderResizeHandle('n', {
+            top: selectedRect.top - handleOffset,
+            left: selectedRect.left + selectedRect.width / 2 - handleSize * 1.25,
+          })}
+          {renderResizeHandle('s', {
+            top: selectedRect.top + selectedRect.height - handleOffset,
+            left: selectedRect.left + selectedRect.width / 2 - handleSize * 1.25,
+          })}
+          {renderResizeHandle('w', {
+            top: selectedRect.top + selectedRect.height / 2 - handleSize * 1.25,
+            left: selectedRect.left - handleOffset,
+          })}
+          {renderResizeHandle('e', {
+            top: selectedRect.top + selectedRect.height / 2 - handleSize * 1.25,
+            left: selectedRect.left + selectedRect.width - handleOffset,
+          })}
+
+          {/* Component type label - modern pill design */}
           <div
             style={{
               position: 'absolute',
-              top: selectedRect.top - 24,
+              top: selectedRect.top - 28,
               left: selectedRect.left,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
               backgroundColor: '#3b82f6',
               color: 'white',
               fontSize: '11px',
-              fontWeight: 500,
-              padding: '2px 8px',
-              borderRadius: '4px 4px 0 0',
+              fontWeight: 600,
+              padding: '3px 10px',
+              borderRadius: '6px',
               pointerEvents: 'none',
               whiteSpace: 'nowrap',
               transition: 'all 0.15s ease-out',
+              letterSpacing: '0.01em',
+              boxShadow: '0 2px 6px rgba(59, 130, 246, 0.3)',
             }}
             data-testid="component-type-label"
           >

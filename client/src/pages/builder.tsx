@@ -253,7 +253,7 @@ export default function BuilderPage() {
     });
   }, [flushPendingHistory, saveState, toast]);
 
-  // Keyboard shortcuts for undo/redo
+  // Keyboard shortcuts for undo/redo and Canva-like editing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if typing in input/textarea
@@ -261,7 +261,8 @@ export default function BuilderPage() {
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return;
       }
-      
+
+      // Ctrl/Cmd+Z = Undo, Ctrl/Cmd+Shift+Z = Redo
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
         if (e.shiftKey) {
@@ -270,7 +271,31 @@ export default function BuilderPage() {
           handleUndo();
         }
       }
-      
+
+      // Ctrl/Cmd+D = Duplicate selected component
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        if (selectedComponentId) {
+          e.preventDefault();
+          duplicateComponent(selectedComponentId);
+        }
+      }
+
+      // Ctrl/Cmd+S = Save
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (builderState) {
+          saveState(builderState);
+        }
+      }
+
+      // Alt+Arrow Up/Down = Move component up/down
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        if (selectedComponentId) {
+          e.preventDefault();
+          moveComponent(selectedComponentId, e.key === 'ArrowUp' ? 'up' : 'down');
+        }
+      }
+
       // Delete key to remove selected component
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedComponentId && !target.isContentEditable) {
@@ -278,16 +303,16 @@ export default function BuilderPage() {
           deleteComponent(selectedComponentId);
         }
       }
-      
+
       // Escape to deselect
       if (e.key === 'Escape') {
         setSelectedComponentId(null);
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, selectedComponentId]);
+  }, [handleUndo, handleRedo, selectedComponentId, builderState, duplicateComponent]);
 
   useEffect(() => {
     return () => {
@@ -1111,7 +1136,7 @@ export default function BuilderPage() {
                 </div>
               ) : (
                 activePage?.components.map(comp => (
-                  <ComponentRenderer 
+                  <ComponentRenderer
                     key={comp.id}
                     component={comp}
                     isSelected={selectedComponentId === comp.id}
@@ -1128,6 +1153,7 @@ export default function BuilderPage() {
                     onStyleChange={(styles) => updateComponent(comp.id, { styles })}
                     onHover={setHoveredComponentId}
                     deviceMode={device}
+                    globalStyles={builderState?.globalStyles}
                   />
                 ))
               )}
