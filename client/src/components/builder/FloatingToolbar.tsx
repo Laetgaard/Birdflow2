@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useBuilderSelection } from '@/contexts/BuilderSelectionContext';
-import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  AlignLeft, AlignCenter, AlignRight, 
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  AlignLeft, AlignCenter, AlignRight,
   Copy, Trash2, ChevronUp, ChevronDown,
-  Minus, Plus, Columns, Type, MoreHorizontal,
-  Square, Circle, RectangleHorizontal, Maximize2
+  Minus, Plus, Type, Paintbrush,
+  Square, Maximize2, Columns, MoreHorizontal
 } from 'lucide-react';
-import { 
-  themeColors, 
+import {
+  themeColors,
   alignmentPresets,
   spacingPresets,
 } from '@shared/componentRegistry';
@@ -35,16 +35,43 @@ const FONT_OPTIONS = [
 ];
 
 const BORDER_RADIUS_OPTIONS = [
-  { name: 'Ingen', value: '0' },
-  { name: 'Lille', value: '4px' },
-  { name: 'Medium', value: '8px' },
-  { name: 'Stor', value: '16px' },
-  { name: 'Ekstra stor', value: '24px' },
-  { name: 'Rund', value: '9999px' },
+  { name: 'Ingen', value: '0', icon: '▢' },
+  { name: 'Lille', value: '4px', icon: '▢' },
+  { name: 'Medium', value: '8px', icon: '◻' },
+  { name: 'Stor', value: '16px', icon: '◻' },
+  { name: 'Ekstra stor', value: '24px', icon: '○' },
+  { name: 'Rund', value: '9999px', icon: '●' },
 ];
 
+const COMPONENT_LABELS: Record<string, string> = {
+  'hero': 'Hero',
+  'header': 'Header',
+  'footer': 'Footer',
+  'cta': 'CTA',
+  'features': 'Features',
+  'testimonials': 'Anmeldelser',
+  'text-image': 'Tekst & Billede',
+  'image-slider': 'Billedkarrusel',
+  'product-grid': 'Produkter',
+  'booking': 'Booking',
+  'gallery': 'Galleri',
+  'pricing-table': 'Priser',
+  'faq': 'FAQ',
+  'stats-counter': 'Statistik',
+  'contact-form': 'Kontaktformular',
+  'video-embed': 'Video',
+  'divider': 'Divider',
+  'spacer': 'Mellemrum',
+  'services': 'Services',
+  'timeline': 'Tidslinje',
+  'team': 'Team',
+  'split-section': 'Split',
+  'tabs': 'Faner',
+  'comparison-table': 'Sammenligning',
+  'marquee': 'Marquee',
+};
+
 const COMPONENT_HAS_TEXT = ['hero', 'cta', 'features', 'testimonials', 'faq', 'stats-counter', 'pricing-table', 'text-image', 'header', 'footer', 'contact-form', 'booking', 'product-grid'];
-const COMPONENT_HAS_IMAGES = ['hero', 'image-slider', 'gallery', 'text-image', 'product-grid', 'testimonials', 'features'];
 const COMPONENT_HAS_LAYOUT = ['hero', 'cta', 'features', 'testimonials', 'faq', 'stats-counter', 'pricing-table', 'text-image', 'header', 'footer', 'contact-form', 'booking', 'product-grid', 'gallery', 'image-slider', 'video-embed', 'divider', 'spacer'];
 const COMPONENT_HAS_CARDS = ['features', 'testimonials', 'pricing-table', 'product-grid'];
 const COMPONENT_HAS_BUTTONS = ['hero', 'cta', 'header', 'pricing-table'];
@@ -56,24 +83,116 @@ const SHADOW_OPTIONS = [
   { name: 'Stor', value: '0 8px 24px rgba(0,0,0,0.2)' },
 ];
 
+// Quick color presets for inline toolbar swatches
+const QUICK_COLORS = [
+  '#ffffff', '#f8fafc', '#1e293b', '#0f172a',
+  '#ef4444', '#f97316', '#eab308', '#22c55e',
+  '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4',
+];
+
+function ToolbarDivider() {
+  return <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0', margin: '0 2px' }} />;
+}
+
+function ToolbarButton({
+  active, onClick, title, children, danger, className = ''
+}: {
+  active?: boolean;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+  danger?: boolean;
+  className?: string;
+}) {
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onClick}
+            className={className}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: active ? '#eff6ff' : 'transparent',
+              color: danger ? '#ef4444' : active ? '#2563eb' : '#475569',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => {
+              if (!active) {
+                e.currentTarget.style.backgroundColor = danger ? '#fef2f2' : '#f8fafc';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!active) {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }
+            }}
+            data-testid={`toolbar-${title.toLowerCase().replace(/\s+/g, '-')}`}
+          >
+            {children}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="text-xs">
+          {title}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function InlineColorSwatch({
+  color,
+  isActive,
+  onClick
+}: {
+  color: string;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: '20px',
+        height: '20px',
+        borderRadius: '4px',
+        backgroundColor: color,
+        border: isActive ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+        cursor: 'pointer',
+        transition: 'transform 0.1s ease',
+        flexShrink: 0,
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.15)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+    />
+  );
+}
+
 export default function FloatingToolbar() {
-  const { 
-    selectedId, 
-    selectedInfo, 
+  const {
+    selectedId,
+    selectedInfo,
     isBuilderMode,
     onUpdateComponent,
     onDeleteComponent,
     onDuplicateComponent,
     onMoveComponent,
   } = useBuilderSelection();
-  
+
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [isVisible, setIsVisible] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const lastRectRef = useRef<DOMRect | null>(null);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -86,16 +205,15 @@ export default function FloatingToolbar() {
 
   const updatePosition = useCallback(() => {
     if (!selectedId || !isBuilderMode) return;
-    
+
     const element = document.querySelector(`[data-element-id="${selectedId}"]`);
     if (!element) return;
-    
+
     const rect = element.getBoundingClientRect();
-    lastRectRef.current = rect;
-    
-    const toolbarHeight = 44;
+
+    const toolbarHeight = 48;
     const padding = 12;
-    
+
     let top = rect.top - toolbarHeight - padding;
     let left = rect.left + (rect.width / 2);
 
@@ -106,10 +224,10 @@ export default function FloatingToolbar() {
     const previewArea = document.querySelector('[data-preview-area]');
     if (previewArea) {
       const previewRect = previewArea.getBoundingClientRect();
-      const minLeft = previewRect.left + (isMobile ? 80 : 120);
-      const maxLeft = previewRect.right - (isMobile ? 80 : 120);
+      const minLeft = previewRect.left + (isMobile ? 80 : 150);
+      const maxLeft = previewRect.right - (isMobile ? 80 : 150);
       left = Math.max(minLeft, Math.min(left, maxLeft));
-      
+
       if (rect.bottom < previewRect.top || rect.top > previewRect.bottom) {
         setIsVisible(false);
         return;
@@ -149,7 +267,7 @@ export default function FloatingToolbar() {
 
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleResize);
-    
+
     const previewArea = document.querySelector('[data-preview-area]');
     if (previewArea) {
       previewArea.addEventListener('scroll', handleScroll);
@@ -169,13 +287,12 @@ export default function FloatingToolbar() {
 
   const component = selectedInfo.component;
   const componentType = component.type;
-  
+
   const hasTextControls = COMPONENT_HAS_TEXT.includes(componentType);
-  const hasImageControls = COMPONENT_HAS_IMAGES.includes(componentType);
   const hasLayoutControls = COMPONENT_HAS_LAYOUT.includes(componentType);
   const hasCardControls = COMPONENT_HAS_CARDS.includes(componentType);
   const hasButtonControls = COMPONENT_HAS_BUTTONS.includes(componentType);
-  
+
   const currentAlignment = component.props.alignment || 'center';
   const currentTitleSize = component.styles.titleFontSize || '48px';
   const currentTextColor = component.styles.textColor || '#1a1a1a';
@@ -224,9 +341,181 @@ export default function FloatingToolbar() {
     onUpdateComponent(selectedId, { styles: { buttonColor } });
   };
 
-  const buttonSize = isMobile ? 'h-10 w-10' : 'h-8 w-8';
-  const iconSize = isMobile ? 'h-5 w-5' : 'h-4 w-4';
+  const componentLabel = COMPONENT_LABELS[componentType] || componentType;
 
+  // Mobile toolbar - compact, essential controls only
+  if (isMobile) {
+    return (
+      <div
+        ref={toolbarRef}
+        style={{
+          position: 'fixed',
+          top: `${position.top}px`,
+          left: `${position.left}px`,
+          transform: 'translateX(-50%)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '2px',
+          padding: '4px 8px',
+          backgroundColor: 'white',
+          borderRadius: '12px',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)',
+          transition: 'opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+          opacity: isVisible ? 1 : 0,
+          maxWidth: 'calc(100vw - 24px)',
+          overflowX: 'auto',
+        }}
+        data-testid="floating-toolbar"
+      >
+        {/* Component label */}
+        <span style={{
+          fontSize: '11px',
+          fontWeight: 600,
+          color: '#64748b',
+          padding: '0 6px',
+          whiteSpace: 'nowrap',
+        }}>
+          {componentLabel}
+        </span>
+        <ToolbarDivider />
+
+        {/* Background color */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              style={{
+                width: '28px', height: '28px',
+                borderRadius: '6px', border: '2px solid #e2e8f0',
+                backgroundColor: currentBgColor === 'transparent' ? '#fff' : currentBgColor,
+                cursor: 'pointer', flexShrink: 0,
+              }}
+              data-testid="toolbar-bg-picker"
+            />
+          </PopoverTrigger>
+          <PopoverContent className="w-48 p-2" align="center">
+            <p className="text-xs text-muted-foreground mb-2">Baggrundsfarve</p>
+            <div className="grid grid-cols-6 gap-1">
+              {themeColors.backgrounds.map(color => (
+                <InlineColorSwatch
+                  key={color.value}
+                  color={color.value}
+                  isActive={currentBgColor === color.value}
+                  onClick={() => handleColorChange(color.value, 'background')}
+                />
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        {hasTextControls && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                style={{
+                  width: '28px', height: '28px',
+                  borderRadius: '6px', border: '2px solid #e2e8f0',
+                  backgroundColor: currentTextColor,
+                  cursor: 'pointer', flexShrink: 0,
+                }}
+                data-testid="toolbar-color-picker-mobile"
+              />
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-2" align="center">
+              <p className="text-xs text-muted-foreground mb-2">Tekstfarve</p>
+              <div className="grid grid-cols-6 gap-1">
+                {themeColors.text.map(color => (
+                  <InlineColorSwatch
+                    key={color.value}
+                    color={color.value}
+                    isActive={currentTextColor === color.value}
+                    onClick={() => handleColorChange(color.value, 'text')}
+                  />
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
+
+        <ToolbarDivider />
+
+        {/* More actions */}
+        <Popover open={showMoreMenu} onOpenChange={setShowMoreMenu}>
+          <PopoverTrigger asChild>
+            <button style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '32px', height: '32px', borderRadius: '8px',
+              border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
+              color: '#475569',
+            }}>
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-52 p-2" align="center">
+            <div className="space-y-1">
+              {hasTextControls && (
+                <>
+                  <div className="flex items-center justify-between px-2 py-1">
+                    <span className="text-xs text-muted-foreground">Størrelse</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => handleFontSizeChange(-4)} className="p-1.5 rounded hover:bg-muted">
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <span className="text-sm font-medium w-8 text-center">{parseInt(currentTitleSize)}</span>
+                      <button onClick={() => handleFontSizeChange(4)} className="p-1.5 rounded hover:bg-muted">
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center gap-1 py-1">
+                    {alignmentPresets.map(preset => (
+                      <button
+                        key={preset.value}
+                        onClick={() => handleAlignmentChange(preset.value as 'left' | 'center' | 'right')}
+                        className={`p-2 rounded ${currentAlignment === preset.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                      >
+                        {preset.value === 'left' && <AlignLeft className="h-4 w-4" />}
+                        {preset.value === 'center' && <AlignCenter className="h-4 w-4" />}
+                        {preset.value === 'right' && <AlignRight className="h-4 w-4" />}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
+                </>
+              )}
+              <button
+                onClick={() => { onMoveComponent(selectedId, 'up'); setShowMoreMenu(false); }}
+                className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
+              >
+                <ChevronUp className="h-4 w-4" /> Flyt op
+              </button>
+              <button
+                onClick={() => { onMoveComponent(selectedId, 'down'); setShowMoreMenu(false); }}
+                className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
+              >
+                <ChevronDown className="h-4 w-4" /> Flyt ned
+              </button>
+              <button
+                onClick={() => { onDuplicateComponent(selectedId); setShowMoreMenu(false); }}
+                className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
+              >
+                <Copy className="h-4 w-4" /> Dupliker
+              </button>
+              <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
+              <button
+                onClick={() => { onDeleteComponent(selectedId); setShowMoreMenu(false); }}
+                className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded text-red-500 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" /> Slet
+              </button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
+  }
+
+  // Desktop toolbar - full Canva-style pill design
   return (
     <div
       ref={toolbarRef}
@@ -237,84 +526,133 @@ export default function FloatingToolbar() {
         transform: 'translateX(-50%)',
         zIndex: 1000,
         display: 'flex',
-        gap: isMobile ? '2px' : '4px',
-        padding: isMobile ? '4px 6px' : '6px 8px',
+        alignItems: 'center',
+        gap: '3px',
+        padding: '6px 10px',
         backgroundColor: 'white',
-        borderRadius: '10px',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05)',
-        transition: 'opacity 0.15s ease, transform 0.15s ease',
+        borderRadius: '14px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)',
+        transition: 'opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
         opacity: isVisible ? 1 : 0,
-        maxWidth: isMobile ? 'calc(100vw - 24px)' : 'auto',
-        overflowX: isMobile ? 'auto' : 'visible',
+        backdropFilter: 'blur(8px)',
       }}
       data-testid="floating-toolbar"
     >
-      {/* Text Controls - Desktop */}
-      {hasTextControls && !isMobile && (
+      {/* Component Type Label - Canva shows this prominently */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '4px 10px',
+        backgroundColor: '#f1f5f9',
+        borderRadius: '8px',
+        marginRight: '2px',
+      }}>
+        <span style={{
+          fontSize: '12px',
+          fontWeight: 600,
+          color: '#475569',
+          whiteSpace: 'nowrap',
+          letterSpacing: '-0.01em',
+        }}>
+          {componentLabel}
+        </span>
+      </div>
+
+      <ToolbarDivider />
+
+      {/* Text Controls */}
+      {hasTextControls && (
         <>
-          <div style={{ display: 'flex', gap: '2px', borderRight: '1px solid #e2e8f0', paddingRight: '8px' }}>
+          {/* Alignment Group */}
+          <div style={{ display: 'flex', gap: '1px' }}>
             {alignmentPresets.map(preset => (
-              <Button
+              <ToolbarButton
                 key={preset.value}
-                variant={currentAlignment === preset.value ? 'default' : 'ghost'}
-                size="sm"
-                className={`${buttonSize} p-0`}
+                active={currentAlignment === preset.value}
                 onClick={() => handleAlignmentChange(preset.value as 'left' | 'center' | 'right')}
-                data-testid={`toolbar-align-${preset.value}`}
+                title={preset.value === 'left' ? 'Venstrejuster' : preset.value === 'center' ? 'Centrer' : 'Højrejuster'}
               >
-                {preset.value === 'left' && <AlignLeft className={iconSize} />}
-                {preset.value === 'center' && <AlignCenter className={iconSize} />}
-                {preset.value === 'right' && <AlignRight className={iconSize} />}
-              </Button>
+                {preset.value === 'left' && <AlignLeft className="h-4 w-4" />}
+                {preset.value === 'center' && <AlignCenter className="h-4 w-4" />}
+                {preset.value === 'right' && <AlignRight className="h-4 w-4" />}
+              </ToolbarButton>
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: '2px', alignItems: 'center', borderRight: '1px solid #e2e8f0', paddingRight: '8px' }}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`${buttonSize} p-0`}
-              onClick={() => handleFontSizeChange(-4)}
-              data-testid="toolbar-font-decrease"
-            >
-              <Minus className={iconSize} />
-            </Button>
-            <span style={{ fontSize: '12px', minWidth: '32px', textAlign: 'center', fontWeight: 500 }}>
+          <ToolbarDivider />
+
+          {/* Font Size - inline with stepper */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '2px',
+            backgroundColor: '#f8fafc',
+            borderRadius: '8px',
+            padding: '2px',
+          }}>
+            <ToolbarButton onClick={() => handleFontSizeChange(-4)} title="Formindsk tekst">
+              <Minus className="h-3.5 w-3.5" />
+            </ToolbarButton>
+            <span style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              minWidth: '28px',
+              textAlign: 'center',
+              color: '#334155',
+              userSelect: 'none',
+            }}>
               {parseInt(currentTitleSize)}
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`${buttonSize} p-0`}
-              onClick={() => handleFontSizeChange(4)}
-              data-testid="toolbar-font-increase"
-            >
-              <Plus className={iconSize} />
-            </Button>
+            <ToolbarButton onClick={() => handleFontSizeChange(4)} title="Forstør tekst">
+              <Plus className="h-3.5 w-3.5" />
+            </ToolbarButton>
           </div>
 
+          <ToolbarDivider />
+
+          {/* Font Family Picker */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`${buttonSize} p-0`}
+              <button
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 8px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  cursor: 'pointer',
+                  color: '#475569',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  transition: 'background-color 0.15s',
+                  whiteSpace: 'nowrap',
+                  maxWidth: '100px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                 data-testid="toolbar-font-picker"
-                title="Skrifttype"
               >
-                <Type className={iconSize} />
-              </Button>
+                <Type className="h-3.5 w-3.5 shrink-0" />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {FONT_OPTIONS.find(f => f.value === currentFontFamily)?.name || 'Font'}
+                </span>
+              </button>
             </PopoverTrigger>
             <PopoverContent className="w-52 p-2" align="center">
-              <p className="text-xs text-muted-foreground mb-2">Skrifttype</p>
+              <p className="text-xs text-muted-foreground mb-2 px-1">Skrifttype</p>
               <ScrollArea className="h-48">
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {FONT_OPTIONS.map(font => (
                     <button
                       key={font.name}
                       onClick={() => handleFontChange(font.value)}
-                      className={`w-full text-left px-2 py-1.5 text-sm rounded transition-colors ${
-                        currentFontFamily === font.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                      className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors ${
+                        currentFontFamily === font.value ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'
                       }`}
                       style={{ fontFamily: font.value }}
                       data-testid={`font-${font.name.toLowerCase().replace(/\s+/g, '-')}`}
@@ -327,43 +665,51 @@ export default function FloatingToolbar() {
             </PopoverContent>
           </Popover>
 
+          <ToolbarDivider />
+
+          {/* Text Color */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`${buttonSize} p-0`}
+              <button
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 6px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
                 data-testid="toolbar-color-picker"
                 title="Tekstfarve"
               >
-                <div 
-                  style={{ 
-                    width: '16px', 
-                    height: '16px', 
-                    borderRadius: '4px', 
+                <div style={{ position: 'relative', width: '18px', height: '18px' }}>
+                  <Type className="h-4 w-4" style={{ color: '#475569' }} />
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '-2px',
+                    left: '0',
+                    right: '0',
+                    height: '3px',
+                    borderRadius: '2px',
                     backgroundColor: currentTextColor,
-                    border: '2px solid #e2e8f0'
-                  }} 
-                />
-              </Button>
+                  }} />
+                </div>
+              </button>
             </PopoverTrigger>
-            <PopoverContent className="w-48 p-2" align="center">
+            <PopoverContent className="w-52 p-3" align="center">
               <p className="text-xs text-muted-foreground mb-2">Tekstfarve</p>
-              <div className="grid grid-cols-6 gap-1">
+              <div className="grid grid-cols-6 gap-1.5">
                 {themeColors.text.map(color => (
-                  <button
+                  <InlineColorSwatch
                     key={color.value}
+                    color={color.value}
+                    isActive={currentTextColor === color.value}
                     onClick={() => handleColorChange(color.value, 'text')}
-                    style={{
-                      width: '28px',
-                      height: '28px',
-                      borderRadius: '4px',
-                      backgroundColor: color.value,
-                      border: currentTextColor === color.value ? '2px solid #3b82f6' : '1px solid #e2e8f0',
-                      cursor: 'pointer',
-                    }}
-                    title={color.name}
-                    data-testid={`color-text-${color.name.toLowerCase()}`}
                   />
                 ))}
               </div>
@@ -375,72 +721,150 @@ export default function FloatingToolbar() {
       {/* Background Color - All Components */}
       <Popover>
         <PopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`${buttonSize} p-0`}
+          <button
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 6px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: 'transparent',
+              cursor: 'pointer',
+              transition: 'background-color 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
             data-testid="toolbar-bg-picker"
             title="Baggrundsfarve"
           >
-            <div 
-              style={{ 
-                width: isMobile ? '20px' : '16px', 
-                height: isMobile ? '20px' : '16px', 
-                borderRadius: '4px', 
-                background: currentBgColor === 'transparent' 
-                  ? 'repeating-conic-gradient(#ddd 0% 25%, #fff 0% 50%) 50% / 8px 8px'
-                  : currentBgColor,
-                border: '2px solid #e2e8f0'
-              }} 
-            />
-          </Button>
+            <div style={{ position: 'relative', width: '18px', height: '18px' }}>
+              <Paintbrush className="h-4 w-4" style={{ color: '#475569' }} />
+              <div style={{
+                position: 'absolute',
+                bottom: '-2px',
+                left: '0',
+                right: '0',
+                height: '3px',
+                borderRadius: '2px',
+                backgroundColor: currentBgColor === 'transparent' ? '#e2e8f0' : currentBgColor,
+                border: currentBgColor === '#ffffff' ? '0.5px solid #e2e8f0' : 'none',
+              }} />
+            </div>
+          </button>
         </PopoverTrigger>
-        <PopoverContent className="w-48 p-2" align="center">
+        <PopoverContent className="w-52 p-3" align="center">
           <p className="text-xs text-muted-foreground mb-2">Baggrundsfarve</p>
-          <div className="grid grid-cols-5 gap-1">
+          <div className="grid grid-cols-6 gap-1.5">
             {themeColors.backgrounds.map(color => (
-              <button
+              <InlineColorSwatch
                 key={color.value}
+                color={color.value}
+                isActive={currentBgColor === color.value}
                 onClick={() => handleColorChange(color.value, 'background')}
-                style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '4px',
-                  backgroundColor: color.value,
-                  border: currentBgColor === color.value ? '2px solid #3b82f6' : '1px solid #e2e8f0',
-                  cursor: 'pointer',
-                }}
-                title={color.name}
-                data-testid={`color-bg-${color.name.toLowerCase()}`}
               />
             ))}
+          </div>
+          {/* Quick color input */}
+          <div className="mt-2 flex gap-2">
+            <input
+              type="color"
+              value={currentBgColor === 'transparent' ? '#ffffff' : currentBgColor}
+              onChange={(e) => handleColorChange(e.target.value, 'background')}
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                cursor: 'pointer',
+                padding: '0',
+              }}
+            />
+            <input
+              type="text"
+              value={currentBgColor}
+              onChange={(e) => handleColorChange(e.target.value, 'background')}
+              placeholder="#ffffff"
+              style={{
+                flex: 1,
+                fontSize: '12px',
+                padding: '4px 8px',
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                outline: 'none',
+              }}
+            />
           </div>
         </PopoverContent>
       </Popover>
 
-      {/* Spacing - All Components */}
-      {hasLayoutControls && !isMobile && (
+      {/* Button Color */}
+      {hasButtonControls && (
         <Popover>
           <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`${buttonSize} p-0`}
-              data-testid="toolbar-spacing"
-              title="Afstand"
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '4px 6px',
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                cursor: 'pointer',
+                transition: 'background-color 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              data-testid="toolbar-button-color"
+              title="Knapfarve"
             >
-              <Columns className={iconSize} />
-            </Button>
+              <div style={{
+                width: '18px',
+                height: '18px',
+                borderRadius: '4px',
+                backgroundColor: currentButtonColor,
+                border: '1.5px solid rgba(0,0,0,0.1)',
+              }} />
+            </button>
           </PopoverTrigger>
-          <PopoverContent className="w-40 p-2" align="center">
-            <p className="text-xs text-muted-foreground mb-2">Padding</p>
-            <div className="space-y-1">
+          <PopoverContent className="w-52 p-3" align="center">
+            <p className="text-xs text-muted-foreground mb-2">Knapfarve</p>
+            <div className="grid grid-cols-6 gap-1.5">
+              {QUICK_COLORS.map(color => (
+                <InlineColorSwatch
+                  key={color}
+                  color={color}
+                  isActive={currentButtonColor === color}
+                  onClick={() => handleButtonColorChange(color)}
+                />
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      <ToolbarDivider />
+
+      {/* Spacing */}
+      {hasLayoutControls && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <div>
+              <ToolbarButton onClick={() => {}} title="Afstand">
+                <Columns className="h-4 w-4" />
+              </ToolbarButton>
+            </div>
+          </PopoverTrigger>
+          <PopoverContent className="w-44 p-2" align="center">
+            <p className="text-xs text-muted-foreground mb-2 px-1">Padding</p>
+            <div className="space-y-0.5">
               {spacingPresets.padding.map(preset => (
                 <button
                   key={preset.value}
                   onClick={() => handlePaddingChange(preset.value)}
-                  className={`w-full text-left px-2 py-1 text-sm rounded ${
-                    currentPadding === preset.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    currentPadding === preset.value ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'
                   }`}
                   data-testid={`padding-${preset.name.toLowerCase()}`}
                 >
@@ -452,71 +876,58 @@ export default function FloatingToolbar() {
         </Popover>
       )}
 
-      {/* Border Radius - All Components */}
-      {!isMobile && (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`${buttonSize} p-0`}
-              data-testid="toolbar-border-radius"
-              title="Hjørneafrunding"
-            >
-              <Square className={iconSize} />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-40 p-2" align="center">
-            <p className="text-xs text-muted-foreground mb-2">Hjørneafrunding</p>
-            <div className="space-y-1">
-              {BORDER_RADIUS_OPTIONS.map(option => (
-                <button
-                  key={option.value}
-                  onClick={() => handleBorderRadiusChange(option.value)}
-                  className={`w-full text-left px-2 py-1 text-sm rounded flex items-center gap-2 ${
-                    currentBorderRadius === option.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                  }`}
-                  data-testid={`border-radius-${option.name.toLowerCase()}`}
-                >
-                  <div 
-                    style={{ 
-                      width: 16, 
-                      height: 16, 
-                      border: '2px solid currentColor',
-                      borderRadius: option.value === '9999px' ? '50%' : option.value,
-                    }} 
-                  />
-                  {option.name}
-                </button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-      )}
+      {/* Border Radius */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <div>
+            <ToolbarButton onClick={() => {}} title="Hjørneafrunding">
+              <Square className="h-4 w-4" />
+            </ToolbarButton>
+          </div>
+        </PopoverTrigger>
+        <PopoverContent className="w-44 p-2" align="center">
+          <p className="text-xs text-muted-foreground mb-2 px-1">Hjørneafrunding</p>
+          <div className="space-y-0.5">
+            {BORDER_RADIUS_OPTIONS.map(option => (
+              <button
+                key={option.value}
+                onClick={() => handleBorderRadiusChange(option.value)}
+                className={`w-full text-left px-3 py-1.5 text-sm rounded-md flex items-center gap-2 transition-colors ${
+                  currentBorderRadius === option.value ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'
+                }`}
+                data-testid={`border-radius-${option.name.toLowerCase()}`}
+              >
+                <div style={{
+                  width: 14, height: 14,
+                  border: '2px solid currentColor',
+                  borderRadius: option.value === '9999px' ? '50%' : option.value,
+                }} />
+                {option.name}
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
 
-      {/* Shadow - For Cards */}
-      {hasCardControls && !isMobile && (
+      {/* Shadow */}
+      {hasCardControls && (
         <Popover>
           <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`${buttonSize} p-0`}
-              data-testid="toolbar-shadow"
-              title="Skygge"
-            >
-              <Maximize2 className={iconSize} />
-            </Button>
+            <div>
+              <ToolbarButton onClick={() => {}} title="Skygge">
+                <Maximize2 className="h-4 w-4" />
+              </ToolbarButton>
+            </div>
           </PopoverTrigger>
-          <PopoverContent className="w-40 p-2" align="center">
-            <p className="text-xs text-muted-foreground mb-2">Skygge</p>
-            <div className="space-y-1">
+          <PopoverContent className="w-44 p-2" align="center">
+            <p className="text-xs text-muted-foreground mb-2 px-1">Skygge</p>
+            <div className="space-y-0.5">
               {SHADOW_OPTIONS.map(option => (
                 <button
                   key={option.value}
                   onClick={() => handleShadowChange(option.value)}
-                  className={`w-full text-left px-2 py-1 text-sm rounded ${
-                    currentShadow === option.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                  className={`w-full text-left px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    currentShadow === option.value ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'
                   }`}
                   data-testid={`shadow-${option.name.toLowerCase()}`}
                 >
@@ -528,297 +939,25 @@ export default function FloatingToolbar() {
         </Popover>
       )}
 
-      {/* Button Color - For Components with Buttons */}
-      {hasButtonControls && !isMobile && (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`${buttonSize} p-0`}
-              data-testid="toolbar-button-color"
-              title="Knapfarve"
-            >
-              <div 
-                style={{ 
-                  width: '16px', 
-                  height: '16px', 
-                  borderRadius: '4px', 
-                  backgroundColor: currentButtonColor,
-                  border: '2px solid #e2e8f0'
-                }} 
-              />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-48 p-2" align="center">
-            <p className="text-xs text-muted-foreground mb-2">Knapfarve</p>
-            <div className="grid grid-cols-6 gap-1">
-              {['#4f46e5', '#7c3aed', '#2563eb', '#0891b2', '#059669', '#16a34a', '#ca8a04', '#ea580c', '#dc2626', '#db2777', '#1a1a1a', '#ffffff'].map(color => (
-                <button
-                  key={color}
-                  onClick={() => handleButtonColorChange(color)}
-                  style={{
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '4px',
-                    backgroundColor: color,
-                    border: currentButtonColor === color ? '2px solid #3b82f6' : '1px solid #e2e8f0',
-                    cursor: 'pointer',
-                  }}
-                  data-testid={`button-color-${color.replace('#', '')}`}
-                />
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-      )}
+      <ToolbarDivider />
 
-      {/* Mobile Controls */}
-      {isMobile && (
-        <>
-          {hasTextControls && (
-            <>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`${buttonSize} p-0`}
-                    data-testid="toolbar-font-picker-mobile"
-                    title="Skrifttype"
-                  >
-                    <Type className={iconSize} />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-52 p-2" align="center">
-                  <p className="text-xs text-muted-foreground mb-2">Skrifttype</p>
-                  <ScrollArea className="h-48">
-                    <div className="space-y-1">
-                      {FONT_OPTIONS.map(font => (
-                        <button
-                          key={font.name}
-                          onClick={() => handleFontChange(font.value)}
-                          className={`w-full text-left px-2 py-2 text-sm rounded transition-colors ${
-                            currentFontFamily === font.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                          }`}
-                          style={{ fontFamily: font.value }}
-                          data-testid={`font-mobile-${font.name.toLowerCase().replace(/\s+/g, '-')}`}
-                        >
-                          {font.name}
-                        </button>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </PopoverContent>
-              </Popover>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`${buttonSize} p-0`}
-                    data-testid="toolbar-color-picker-mobile"
-                    title="Tekstfarve"
-                  >
-                    <div 
-                      style={{ 
-                        width: '20px', 
-                        height: '20px', 
-                        borderRadius: '4px', 
-                        backgroundColor: currentTextColor,
-                        border: '2px solid #e2e8f0'
-                      }} 
-                    />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-48 p-2" align="center">
-                  <p className="text-xs text-muted-foreground mb-2">Tekstfarve</p>
-                  <div className="grid grid-cols-6 gap-1">
-                    {themeColors.text.map(color => (
-                      <button
-                        key={color.value}
-                        onClick={() => handleColorChange(color.value, 'text')}
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '4px',
-                          backgroundColor: color.value,
-                          border: currentTextColor === color.value ? '2px solid #3b82f6' : '1px solid #e2e8f0',
-                          cursor: 'pointer',
-                        }}
-                        title={color.name}
-                        data-testid={`color-text-mobile-${color.name.toLowerCase()}`}
-                      />
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </>
-          )}
+      {/* Action Buttons - Move, Duplicate, Delete */}
+      <div style={{ display: 'flex', gap: '1px' }}>
+        <ToolbarButton onClick={() => onMoveComponent(selectedId, 'up')} title="Flyt op (Alt+↑)">
+          <ChevronUp className="h-4 w-4" />
+        </ToolbarButton>
+        <ToolbarButton onClick={() => onMoveComponent(selectedId, 'down')} title="Flyt ned (Alt+↓)">
+          <ChevronDown className="h-4 w-4" />
+        </ToolbarButton>
+      </div>
 
-          <Popover open={showMoreMenu} onOpenChange={setShowMoreMenu}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`${buttonSize} p-0`}
-                data-testid="toolbar-more"
-                title="Flere muligheder"
-              >
-                <MoreHorizontal className={iconSize} />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 p-2" align="center">
-              <div className="space-y-1">
-                {hasTextControls && (
-                  <>
-                    <div className="flex items-center justify-between px-2 py-1">
-                      <span className="text-xs text-muted-foreground">Størrelse</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleFontSizeChange(-4)}
-                          className="p-1.5 rounded hover:bg-muted"
-                        >
-                          <Minus className="h-4 w-4" />
-                        </button>
-                        <span className="text-sm font-medium w-8 text-center">{parseInt(currentTitleSize)}</span>
-                        <button
-                          onClick={() => handleFontSizeChange(4)}
-                          className="p-1.5 rounded hover:bg-muted"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-center gap-1 py-1">
-                      {alignmentPresets.map(preset => (
-                        <button
-                          key={preset.value}
-                          onClick={() => handleAlignmentChange(preset.value as 'left' | 'center' | 'right')}
-                          className={`p-2 rounded ${currentAlignment === preset.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-                        >
-                          {preset.value === 'left' && <AlignLeft className="h-4 w-4" />}
-                          {preset.value === 'center' && <AlignCenter className="h-4 w-4" />}
-                          {preset.value === 'right' && <AlignRight className="h-4 w-4" />}
-                        </button>
-                      ))}
-                    </div>
-                    <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
-                  </>
-                )}
-                
-                {hasLayoutControls && (
-                  <>
-                    <p className="text-xs text-muted-foreground px-2 pt-1">Afstand</p>
-                    <div className="grid grid-cols-3 gap-1 px-2 py-1">
-                      {spacingPresets.padding.slice(0, 6).map(preset => (
-                        <button
-                          key={preset.value}
-                          onClick={() => handlePaddingChange(preset.value)}
-                          className={`px-2 py-1 text-xs rounded ${
-                            currentPadding === preset.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                          }`}
-                        >
-                          {preset.name}
-                        </button>
-                      ))}
-                    </div>
-                    <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
-                  </>
-                )}
+      <ToolbarButton onClick={() => onDuplicateComponent(selectedId)} title="Dupliker (Ctrl+D)">
+        <Copy className="h-4 w-4" />
+      </ToolbarButton>
 
-                <p className="text-xs text-muted-foreground px-2 pt-1">Hjørner</p>
-                <div className="grid grid-cols-3 gap-1 px-2 py-1">
-                  {BORDER_RADIUS_OPTIONS.map(option => (
-                    <button
-                      key={option.value}
-                      onClick={() => handleBorderRadiusChange(option.value)}
-                      className={`px-2 py-1 text-xs rounded ${
-                        currentBorderRadius === option.value ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
-                      }`}
-                    >
-                      {option.name}
-                    </button>
-                  ))}
-                </div>
-                
-                <div style={{ height: '1px', backgroundColor: '#e5e7eb', margin: '4px 0' }} />
-                
-                <button
-                  onClick={() => { onMoveComponent(selectedId, 'up'); setShowMoreMenu(false); }}
-                  className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
-                >
-                  <ChevronUp className="h-4 w-4" /> Flyt op
-                </button>
-                <button
-                  onClick={() => { onMoveComponent(selectedId, 'down'); setShowMoreMenu(false); }}
-                  className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
-                >
-                  <ChevronDown className="h-4 w-4" /> Flyt ned
-                </button>
-                <button
-                  onClick={() => { onDuplicateComponent(selectedId); setShowMoreMenu(false); }}
-                  className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded hover:bg-muted"
-                >
-                  <Copy className="h-4 w-4" /> Dupliker
-                </button>
-                <button
-                  onClick={() => { onDeleteComponent(selectedId); setShowMoreMenu(false); }}
-                  className="w-full flex items-center gap-2 px-2 py-2 text-sm rounded text-red-500 hover:bg-red-50"
-                >
-                  <Trash2 className="h-4 w-4" /> Slet
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
-        </>
-      )}
-
-      {/* Desktop Actions */}
-      {!isMobile && (
-        <div style={{ display: 'flex', gap: '2px', borderLeft: '1px solid #e2e8f0', paddingLeft: '8px' }}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`${buttonSize} p-0`}
-            onClick={() => onMoveComponent(selectedId, 'up')}
-            data-testid="toolbar-move-up"
-            title="Flyt op"
-          >
-            <ChevronUp className={iconSize} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`${buttonSize} p-0`}
-            onClick={() => onMoveComponent(selectedId, 'down')}
-            data-testid="toolbar-move-down"
-            title="Flyt ned"
-          >
-            <ChevronDown className={iconSize} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`${buttonSize} p-0`}
-            onClick={() => onDuplicateComponent(selectedId)}
-            data-testid="toolbar-duplicate"
-            title="Dupliker"
-          >
-            <Copy className={iconSize} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`${buttonSize} p-0 text-red-500 hover:text-red-600 hover:bg-red-50`}
-            onClick={() => onDeleteComponent(selectedId)}
-            data-testid="toolbar-delete"
-            title="Slet"
-          >
-            <Trash2 className={iconSize} />
-          </Button>
-        </div>
-      )}
+      <ToolbarButton onClick={() => onDeleteComponent(selectedId)} title="Slet (Delete)" danger>
+        <Trash2 className="h-4 w-4" />
+      </ToolbarButton>
     </div>
   );
 }
