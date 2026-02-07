@@ -450,8 +450,14 @@ export type ComponentStyles = {
   titleFontSize?: string;
   bodyFontSize?: string;
   fontWeight?: string;
+  letterSpacing?: string;
+  lineHeight?: string;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
   borderRadius?: string;
   border?: string;
+  borderWidth?: string;
+  borderColor?: string;
+  borderStyle?: 'solid' | 'dashed' | 'dotted' | 'none';
   boxShadow?: string;
   backgroundGradient?: string;
   backgroundImage?: string;

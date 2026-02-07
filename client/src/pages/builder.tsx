@@ -1158,7 +1158,25 @@ export default function BuilderPage() {
                 ))
               )}
             </div>
-            <ElementOverlay containerRef={previewContainerRef} isPreview={false} />
+            <ElementOverlay
+              containerRef={previewContainerRef}
+              isPreview={false}
+              onTextPropChange={(componentId, propKey, newText) => {
+                // Persist inline text edits to component props
+                if (propKey.startsWith('styled')) {
+                  // For styled text fields, update the text within the styled object
+                  const comp = activePage?.components.find(c => c.id === componentId);
+                  const currentValue = comp?.props[propKey as keyof typeof comp.props];
+                  if (currentValue && typeof currentValue === 'object' && 'text' in (currentValue as any)) {
+                    updateComponent(componentId, { props: { [propKey]: { ...(currentValue as any), text: newText } } });
+                  } else {
+                    updateComponent(componentId, { props: { [propKey]: { text: newText } } });
+                  }
+                } else {
+                  updateComponent(componentId, { props: { [propKey]: newText } });
+                }
+              }}
+            />
           </main>
           <SelectionOverlay />
           <FloatingToolbar />

@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useElementSelection } from './ElementSelectionContext';
 import CanvaSelectionBox from './CanvaSelectionBox';
 import ElementEditPanel from './ElementEditPanel';
+import InlineTextToolbar from './InlineTextToolbar';
 import type { ElementType, ElementStyles } from './SelectableElement';
+import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
 
 interface DetectedElement {
   id: string;
@@ -17,6 +19,7 @@ interface DetectedElement {
 interface ElementOverlayProps {
   containerRef: React.RefObject<HTMLElement | null>;
   isPreview?: boolean;
+  onTextPropChange?: (componentId: string, propKey: string, newText: string) => void;
 }
 
 const ELEMENT_SELECTORS = {
@@ -120,6 +123,7 @@ function resolveElementAtPoint(
 export default function ElementOverlay({
   containerRef,
   isPreview = false,
+  onTextPropChange,
 }: ElementOverlayProps) {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -145,9 +149,50 @@ export default function ElementOverlay({
   const overlayRef = useRef<HTMLDivElement>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
 
+  const inferTextPropKey = useCallback((element: HTMLElement, componentId: string): string | null => {
+    const componentEl = element.closest('[data-component-id]') ||
+                        document.querySelector(`[data-element-id="${componentId}"]`);
+    if (!componentEl) return null;
+
+    const componentType = componentEl.getAttribute('data-component-type') as ComponentType | null;
+    if (!componentType) return null;
+
+    const fields = editableTextFields[componentType];
+    if (!fields || fields.length === 0) return null;
+
+    const tag = element.tagName.toLowerCase();
+
+    // Map element tag + position to prop key
+    if (tag === 'h1' || tag === 'h2') {
+      if (fields.includes('title') || fields.includes('styledTitle')) {
+        return fields.includes('styledTitle') ? 'styledTitle' : 'title';
+      }
+    }
+
+    if (tag === 'h3') {
+      // Could be subtitle or title depending on context
+      if (fields.includes('subtitle') || fields.includes('styledSubtitle')) {
+        return fields.includes('styledSubtitle') ? 'styledSubtitle' : 'subtitle';
+      }
+      if (fields.includes('title')) return 'title';
+    }
+
+    if (tag === 'p') {
+      // Count p elements within component to determine which one
+      const allP = componentEl.querySelectorAll('p');
+      const pIndex = Array.from(allP).indexOf(element);
+
+      if (fields.includes('styledDescription')) return 'styledDescription';
+      if (fields.includes('description')) return 'description';
+      if (fields.includes('styledSubtitle') && pIndex === 0) return 'styledSubtitle';
+      if (fields.includes('subtitle') && pIndex === 0) return 'subtitle';
+    }
+
+    return null;
+  }, []);
+
   const handleTextBlur = useCallback((element: HTMLElement, detected: DetectedElement) => {
     element.contentEditable = 'false';
-    // Remove editing visual indicator
     element.style.outline = '';
     element.style.outlineOffset = '';
     setIsEditing(false);
@@ -155,9 +200,22 @@ export default function ElementOverlay({
     const originalText = element.dataset.originalText || '';
     if (newText !== originalText) {
       updateElementStyles(detected.id, { textContent: newText });
+
+      // Persist to component props
+      if (onTextPropChange) {
+        const propKey = inferTextPropKey(element, detected.componentId);
+        if (propKey) {
+          // For styled text fields, update the text property within the object
+          if (propKey.startsWith('styled')) {
+            onTextPropChange(detected.componentId, propKey, newText);
+          } else {
+            onTextPropChange(detected.componentId, propKey, newText);
+          }
+        }
+      }
     }
     delete element.dataset.originalText;
-  }, [updateElementStyles]);
+  }, [updateElementStyles, onTextPropChange, inferTextPropKey]);
 
   const detectElements = useCallback(() => {
     if (!containerRef.current || isPreview) return;
@@ -466,6 +524,15 @@ export default function ElementOverlay({
             <div className="w-full h-full" />
           </CanvaSelectionBox>
         </div>
+      )}
+
+      {/* Inline Text Toolbar - shows when editing text */}
+      {isEditing && selectedDetected && selectedDetected.type === 'text' && (
+        <InlineTextToolbar
+          targetElement={selectedDetected.element}
+          containerRef={containerRef}
+          onFormatChange={(styles) => handleStyleChange(styles as Partial<ElementStyles>)}
+        />
       )}
 
       {selectedElement && !isMobile && selectedDetected && (

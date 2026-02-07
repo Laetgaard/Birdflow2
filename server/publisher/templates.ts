@@ -2321,8 +2321,25 @@ type ComponentStyles = {
   accentColor?: string;
   buttonStyle?: string;
   buttonRadius?: string;
+  buttonColor?: string;
+  buttonHoverColor?: string;
   cardStyle?: string;
-  [key: string]: any; // Allow additional properties
+  fontFamily?: string;
+  titleFontSize?: string;
+  bodyFontSize?: string;
+  fontWeight?: string;
+  letterSpacing?: string;
+  lineHeight?: string;
+  textTransform?: string;
+  borderWidth?: string;
+  borderColor?: string;
+  borderStyle?: string;
+  isTransparent?: boolean | string;
+  overlayMode?: boolean | string;
+  scrollBehavior?: string;
+  scrolledBackgroundColor?: string;
+  hoverColor?: string;
+  [key: string]: any;
 };
 
 type ComponentData = {
@@ -2338,6 +2355,16 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
     color: styles.textColor,
     padding: styles.padding || '0',
     position: 'relative',
+    ...(styles.letterSpacing && { letterSpacing: styles.letterSpacing }),
+    ...(styles.lineHeight && { lineHeight: styles.lineHeight }),
+    ...(styles.textTransform && styles.textTransform !== 'none' && { textTransform: styles.textTransform }),
+    ...(styles.borderStyle && styles.borderStyle !== 'none' && {
+      borderStyle: styles.borderStyle,
+      borderWidth: styles.borderWidth || '1px',
+      borderColor: styles.borderColor || '#e5e7eb',
+    }),
+    ...(styles.borderRadius && { borderRadius: styles.borderRadius }),
+    ...(styles.boxShadow && styles.boxShadow !== 'none' && { boxShadow: styles.boxShadow }),
   };
 }
 
