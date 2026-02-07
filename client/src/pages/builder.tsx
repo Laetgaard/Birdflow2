@@ -1111,7 +1111,7 @@ export default function BuilderPage() {
                 </div>
               ) : (
                 activePage?.components.map(comp => (
-                  <ComponentRenderer 
+                  <ComponentRenderer
                     key={comp.id}
                     component={comp}
                     isSelected={selectedComponentId === comp.id}
@@ -1128,6 +1128,7 @@ export default function BuilderPage() {
                     onStyleChange={(styles) => updateComponent(comp.id, { styles })}
                     onHover={setHoveredComponentId}
                     deviceMode={device}
+                    globalStyles={builderState?.globalStyles}
                   />
                 ))
               )}

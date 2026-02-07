@@ -35,14 +35,60 @@ const animationKeyframes = `
 @keyframes slideRight { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes zoomIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
 @keyframes zoomOut { from { opacity: 0; transform: scale(1.1); } to { opacity: 1; transform: scale(1); } }
-@keyframes bounce { 
+@keyframes bounce {
   0% { opacity: 0; transform: translateY(30px); }
   60% { opacity: 1; transform: translateY(-10px); }
   80% { transform: translateY(5px); }
   100% { transform: translateY(0); }
 }
 @keyframes flip { from { opacity: 0; transform: perspective(400px) rotateX(90deg); } to { opacity: 1; transform: perspective(400px) rotateX(0); } }
+@keyframes staggerFadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 `;
+
+// Stagger animation hook for list items (features, testimonials, services, etc.)
+function useStaggerAnimation(itemCount: number, isPreview?: boolean) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const getItemStyle = (index: number): React.CSSProperties => ({
+    opacity: isVisible ? 1 : 0,
+    transform: isVisible ? 'translateY(0)' : 'translateY(24px)',
+    transition: `opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${index * 0.08}s, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${index * 0.08}s`,
+  });
+
+  return { containerRef, getItemStyle };
+}
+
+// Helper to resolve a style value with globalStyles cascade
+function resolveAccentColor(styles: ComponentStyles, globalStyles?: GlobalStyles): string {
+  return styles.accentColor || globalStyles?.primaryColor || '#4f46e5';
+}
+
+function resolveButtonColor(styles: ComponentStyles, globalStyles?: GlobalStyles): string {
+  return styles.buttonColor || globalStyles?.primaryColor || '#4f46e5';
+}
+
+function resolveFontFamily(styles: ComponentStyles, globalStyles?: GlobalStyles): string {
+  return styles.fontFamily || globalStyles?.fontFamily || 'Inter, system-ui, sans-serif';
+}
 
 const animationMap: Record<string, string> = {
   'fade-in': 'fadeIn',
@@ -147,18 +193,20 @@ function HoverButton({
   const [isHovered, setIsHovered] = useState(false);
   
   const buttonStyle: React.CSSProperties = {
-    padding: '12px 24px',
+    padding: '14px 28px',
     backgroundColor: isHovered ? hoverBackgroundColor : backgroundColor,
     color: textColor || '#ffffff',
     border: 'none',
-    borderRadius: '8px',
-    fontSize: '16px',
+    borderRadius: '10px',
+    fontSize: '15px',
     fontWeight: 600,
     cursor: 'pointer',
-    transition: 'background-color 0.2s ease, transform 0.2s ease',
+    transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
     transform: isHovered ? 'translateY(-2px)' : 'translateY(0)',
+    boxShadow: isHovered ? `0 8px 24px rgba(0,0,0,0.15)` : '0 2px 8px rgba(0,0,0,0.08)',
     textDecoration: 'none',
     display: 'inline-block',
+    letterSpacing: '0.01em',
     ...style,
   };
   
@@ -300,6 +348,13 @@ type BuilderPage = {
 
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
 
+type GlobalStyles = {
+  primaryColor: string;
+  secondaryColor: string;
+  fontFamily: string;
+  backgroundColor: string;
+};
+
 type RenderProps = {
   component: BuilderComponentData;
   isSelected?: boolean;
@@ -316,6 +371,7 @@ type RenderProps = {
   onHover?: (componentId: string | null) => void;
   deviceMode?: DeviceMode;
   onComponentClick?: (componentId: string) => void;
+  globalStyles?: GlobalStyles;
 };
 
 type EditableTextProps = {
@@ -501,29 +557,30 @@ type ComponentRenderProps = {
   onImageResize?: (width: string, height: string) => void;
   onStyleChange?: (styles: Partial<ComponentStyles>) => void;
   deviceMode?: DeviceMode;
+  globalStyles?: GlobalStyles;
 };
 
-function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   const backgroundImage = imageValue?.url ? { backgroundImage: `url(${imageValue.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
-  
+
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '48px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
-  const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonColor = resolveButtonColor(styles, globalStyles);
   const buttonHoverColor = styles.buttonHoverColor || '#4338ca';
   const buttonTextColor = getContrastColor(buttonColor);
   const backgroundOpacity = typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : 1;
-  
+
   const titleText = getStyledTextValue(props.styledTitle) || props.title || '';
   const subtitleText = getStyledTextValue(props.styledSubtitle) || props.subtitle || '';
   const descriptionText = getStyledTextValue(props.styledDescription) || props.description || '';
-  
-  const titleStyle = getStyledTextStyle(props.styledTitle as StyledText, { fontSize: titleFontSize, fontWeight, marginBottom: '16px' });
-  const subtitleStyle = getStyledTextStyle(props.styledSubtitle as StyledText, { fontSize: '24px', opacity: 0.9, marginBottom: '16px' });
-  const descriptionStyle = getStyledTextStyle(props.styledDescription as StyledText, { fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px' });
+
+  const titleStyle = getStyledTextStyle(props.styledTitle as StyledText, { fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.1, letterSpacing: '-0.02em' });
+  const subtitleStyle = getStyledTextStyle(props.styledSubtitle as StyledText, { fontSize: '24px', opacity: 0.9, marginBottom: '16px', lineHeight: 1.3, letterSpacing: '-0.01em' });
+  const descriptionStyle = getStyledTextStyle(props.styledDescription as StyledText, { fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', lineHeight: 1.6, maxWidth: '600px', margin: '0 auto 32px' });
   
   const bgColorWithOpacity = styles.backgroundColor 
     ? hexToRgba(styles.backgroundColor, backgroundOpacity)
@@ -679,25 +736,28 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   );
 }
 
-function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, onImageResize }: ComponentRenderProps) {
+function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, onImageResize, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const isImageLeft = props.imageSide === 'left';
   const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
   const canEdit = !isPreview && onTextChange && onEditField;
+  const fontFamily = resolveFontFamily(styles, globalStyles);
 
   const titleStyle: React.CSSProperties = {
     fontSize: styles.titleFontSize || '36px',
     fontWeight: parseInt(styles.fontWeight || '700'),
-    fontFamily: styles.fontFamily,
+    fontFamily,
     marginBottom: '16px',
     display: 'block',
+    lineHeight: 1.2,
+    letterSpacing: '-0.02em',
   };
 
   const bodyStyle: React.CSSProperties = {
     fontSize: styles.bodyFontSize || '18px',
-    fontFamily: styles.fontFamily,
+    fontFamily,
     lineHeight: 1.7,
-    opacity: 0.8,
+    opacity: 0.75,
     display: 'block',
   };
   
@@ -758,20 +818,20 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onT
   );
 }
 
-function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '36px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
-  const buttonColor = styles.buttonColor || '#ffffff';
+  const buttonColor = resolveButtonColor(styles, globalStyles);
   const buttonHoverColor = styles.buttonHoverColor || '#e5e7eb';
   const buttonTextColor = getContrastColor(buttonColor);
   
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
-      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+      <div style={{ maxWidth: '640px', margin: '0 auto', textAlign: 'center' }}>
         {canEdit ? (
           <EditableText
             value={props.title || ''}
@@ -779,12 +839,12 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
             isEditing={editingField === 'title'}
             onEdit={onEditField}
             onChange={onTextChange}
-            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', display: 'block' }}
+            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', display: 'block', lineHeight: 1.2, letterSpacing: '-0.02em' }}
             as="h2"
             isPreview={isPreview}
           />
         ) : (
-          <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px' }}>{props.title}</h2>
+          <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
         )}
         {canEdit ? (
           <EditableText
@@ -793,12 +853,12 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
             isEditing={editingField === 'description'}
             onEdit={onEditField}
             onChange={onTextChange}
-            style={{ fontSize: bodyFontSize, opacity: 0.9, marginBottom: '32px', display: 'block' }}
+            style={{ fontSize: bodyFontSize, opacity: 0.85, marginBottom: '32px', display: 'block', lineHeight: 1.6 }}
             as="p"
             isPreview={isPreview}
           />
         ) : (
-          <p style={{ fontSize: bodyFontSize, opacity: 0.9, marginBottom: '32px' }}>{props.description}</p>
+          <p style={{ fontSize: bodyFontSize, opacity: 0.85, marginBottom: '32px', lineHeight: 1.6 }}>{props.description}</p>
         )}
         {props.buttonText && (
           <HoverButton
@@ -848,14 +908,16 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
   );
 }
 
-function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '36px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
-  
+  const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0, isPreview);
+
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
       <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
@@ -866,12 +928,12 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
             isEditing={editingField === 'title'}
             onEdit={onEditField}
             onChange={onTextChange}
-            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', display: 'block' }}
+            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', display: 'block', lineHeight: 1.2, letterSpacing: '-0.02em' }}
             as="h2"
             isPreview={isPreview}
           />
         ) : (
-          <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px' }}>{props.title}</h2>
+          <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
         )}
         {props.subtitle && (
           canEdit ? (
@@ -881,18 +943,29 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
               isEditing={editingField === 'subtitle'}
               onEdit={onEditField}
               onChange={onTextChange}
-              style={{ fontSize: bodyFontSize, opacity: 0.7, marginBottom: '48px', display: 'block' }}
+              style={{ fontSize: bodyFontSize, opacity: 0.6, marginBottom: '56px', display: 'block', lineHeight: 1.6 }}
               as="p"
               isPreview={isPreview}
             />
           ) : (
-            <p style={{ fontSize: bodyFontSize, opacity: 0.7, marginBottom: '48px' }}>{props.subtitle}</p>
+            <p style={{ fontSize: bodyFontSize, opacity: 0.6, marginBottom: '56px', lineHeight: 1.6 }}>{props.subtitle}</p>
           )
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '32px' }}>
+        <div ref={containerRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
           {props.items?.map((item, index) => (
-            <div key={item.id} style={{ padding: '24px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px' }}>
-              {item.icon && <div style={{ fontSize: '32px', marginBottom: '16px' }}>{item.icon}</div>}
+            <div key={item.id} style={{
+              padding: '32px 28px',
+              backgroundColor: hexToRgba(accentColor, 0.04),
+              borderRadius: '16px',
+              border: `1px solid ${hexToRgba(accentColor, 0.08)}`,
+              textAlign: 'left',
+              transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease',
+              ...getItemStyle(index),
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = `0 12px 32px ${hexToRgba(accentColor, 0.12)}`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
+            >
+              {item.icon && <div style={{ fontSize: '32px', marginBottom: '16px', width: '56px', height: '56px', borderRadius: '12px', backgroundColor: hexToRgba(accentColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{item.icon}</div>}
               {canEdit ? (
                 <EditableText
                   value={item.title || ''}
@@ -900,12 +973,12 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
                   isEditing={editingField === `items.${index}.title`}
                   onEdit={onEditField}
                   onChange={onTextChange}
-                  style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px', display: 'block' }}
+                  style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px', display: 'block', lineHeight: 1.3 }}
                   as="h3"
                   isPreview={isPreview}
                 />
               ) : (
-                <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px' }}>{item.title}</h3>
+                <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px', lineHeight: 1.3 }}>{item.title}</h3>
               )}
               {canEdit ? (
                 <EditableText
@@ -914,12 +987,12 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
                   isEditing={editingField === `items.${index}.description`}
                   onEdit={onEditField}
                   onChange={onTextChange}
-                  style={{ fontSize: '14px', opacity: 0.8, display: 'block' }}
+                  style={{ fontSize: '14px', opacity: 0.7, display: 'block', lineHeight: 1.6 }}
                   as="p"
                   isPreview={isPreview}
                 />
               ) : (
-                <p style={{ fontSize: '14px', opacity: 0.8 }}>{item.description}</p>
+                <p style={{ fontSize: '14px', opacity: 0.7, lineHeight: 1.6 }}>{item.description}</p>
               )}
             </div>
           ))}
@@ -929,16 +1002,28 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
   );
 }
 
-function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '36px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
-  
+  const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0, isPreview);
+
+  // Determine if section has a dark background for card contrast
+  const bgLuminance = (() => {
+    const bg = styles.backgroundColor || '#ffffff';
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(bg);
+    if (result) return (0.299 * parseInt(result[1], 16) + 0.587 * parseInt(result[2], 16) + 0.114 * parseInt(result[3], 16)) / 255;
+    return 1;
+  })();
+  const cardBg = bgLuminance > 0.5 ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.08)';
+  const cardBorder = bgLuminance > 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.1)';
+
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
         {canEdit ? (
           <EditableText
             value={props.title || ''}
@@ -946,16 +1031,25 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
             isEditing={editingField === 'title'}
             onEdit={onEditField}
             onChange={onTextChange}
-            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '48px', display: 'block' }}
+            style={{ fontSize: titleFontSize, fontWeight, marginBottom: '56px', display: 'block', lineHeight: 1.2, letterSpacing: '-0.02em' }}
             as="h2"
             isPreview={isPreview}
           />
         ) : (
-          <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '48px' }}>{props.title}</h2>
+          <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '56px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+        <div ref={containerRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
           {props.items?.map((item, index) => (
-            <div key={item.id} style={{ padding: '32px', backgroundColor: '#f8f9fa', borderRadius: '12px', textAlign: 'left' }}>
+            <div key={item.id} style={{
+              padding: '32px',
+              backgroundColor: cardBg,
+              borderRadius: '16px',
+              border: `1px solid ${cardBorder}`,
+              textAlign: 'left',
+              position: 'relative',
+              ...getItemStyle(index),
+            }}>
+              <div style={{ fontSize: '48px', lineHeight: 1, color: accentColor, opacity: 0.2, marginBottom: '8px', fontFamily: 'Georgia, serif' }}>"</div>
               {canEdit ? (
                 <EditableText
                   value={item.description || ''}
@@ -963,12 +1057,12 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
                   isEditing={editingField === `items.${index}.description`}
                   onEdit={onEditField}
                   onChange={onTextChange}
-                  style={{ fontSize: '16px', fontStyle: 'italic', marginBottom: '16px', color: styles.textColor, display: 'block' }}
+                  style={{ fontSize: '15px', lineHeight: 1.7, marginBottom: '20px', color: styles.textColor, display: 'block' }}
                   as="p"
                   isPreview={isPreview}
                 />
               ) : (
-                <p style={{ fontSize: '16px', fontStyle: 'italic', marginBottom: '16px', color: styles.textColor }}>"{item.description}"</p>
+                <p style={{ fontSize: '15px', lineHeight: 1.7, marginBottom: '20px', color: styles.textColor }}>{item.description}</p>
               )}
               {canEdit ? (
                 <EditableText
@@ -977,12 +1071,12 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
                   isEditing={editingField === `items.${index}.title`}
                   onEdit={onEditField}
                   onChange={onTextChange}
-                  style={{ fontWeight: 600, color: styles.textColor, display: 'block' }}
+                  style={{ fontWeight: 600, fontSize: '14px', color: accentColor, display: 'block' }}
                   as="p"
                   isPreview={isPreview}
                 />
               ) : (
-                <p style={{ fontWeight: 600, color: styles.textColor }}>{item.title}</p>
+                <p style={{ fontWeight: 600, fontSize: '14px', color: accentColor }}>{item.title}</p>
               )}
             </div>
           ))}
@@ -1099,7 +1193,7 @@ function BurgerButton({ isOpen, textColor, hoverColor, onClick }: {
   );
 }
 
-function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, onTextChange, editingField, onEditField, deviceMode }: ComponentRenderProps & { pages?: BuilderPage[] }) {
+function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, onTextChange, editingField, onEditField, deviceMode, globalStyles }: ComponentRenderProps & { pages?: BuilderPage[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [windowIsMobile, setWindowIsMobile] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1108,14 +1202,14 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const headerRef = useRef<HTMLElement>(null);
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const logoImage = props.imageUrl ? parseImageValue(props.imageUrl) : null;
-  
+
   const isTransparent = styles.isTransparent === true || styles.isTransparent === 'true';
   const overlayMode = styles.overlayMode === true || styles.overlayMode === 'true';
   const scrollBehavior = ((styles.scrollBehavior as string) || 'static') as 'static' | 'sticky' | 'show-on-scroll-up';
   const scrolledBackgroundColor = (styles.scrolledBackgroundColor as string) || styles.backgroundColor || '#ffffff';
-  const hoverColor = (styles.hoverColor as string) || '#6366f1';
+  const hoverColor = (styles.hoverColor as string) || globalStyles?.primaryColor || '#6366f1';
 
   useEffect(() => {
     const checkMobile = () => setWindowIsMobile(window.innerWidth < 768);
@@ -1377,10 +1471,10 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   );
 }
 
-function FooterComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function FooterComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle({ ...styles, padding: '32px 24px' }, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   
   return (
     <footer style={{ ...baseStyle, fontFamily }} onClick={onClick}>
@@ -1418,7 +1512,7 @@ function FooterComponent({ props, styles, isSelected, onClick, isPreview, onText
   );
 }
 
-function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, websiteId, onTextChange, editingField, onEditField }: ComponentRenderProps & { websiteId?: string }) {
+function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, websiteId, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps & { websiteId?: string }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
@@ -1647,7 +1741,7 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   );
 }
 
-function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const images = props.images || [];
   const columns = props.columns || 2;
@@ -1702,20 +1796,21 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
   );
 }
 
-function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const items = props.items || [];
   const cardStyle = styles.cardStyle || 'elevated';
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '36px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
-  
+
   const getCardStyles = (): React.CSSProperties => {
     switch (cardStyle) {
-      case 'elevated': return { boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)' };
-      case 'bordered': return { border: '1px solid rgba(0,0,0,0.1)' };
+      case 'elevated': return { boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08)' };
+      case 'bordered': return { border: `1px solid ${hexToRgba(accentColor, 0.12)}` };
       case 'glass': return { background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' };
       default: return {};
     }
@@ -1796,18 +1891,19 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
   );
 }
 
-function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const items = props.items || [];
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '32px';
   const bodyFontSize = styles.bodyFontSize || '16px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
-  
+
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
-      <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+      <div style={{ maxWidth: '720px', margin: '0 auto' }}>
         {props.title && (
           canEdit ? (
             <EditableText
@@ -1816,12 +1912,12 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
               isEditing={editingField === 'title'}
               onEdit={onEditField}
               onChange={onTextChange}
-              style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center', display: 'block' }}
+              style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center', display: 'block', lineHeight: 1.2, letterSpacing: '-0.02em' }}
               as="h2"
               isPreview={isPreview}
             />
           ) : (
-            <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center' }}>{props.title}</h2>
+            <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
           )
         )}
         {props.subtitle && (
@@ -1832,17 +1928,17 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
               isEditing={editingField === 'subtitle'}
               onEdit={onEditField}
               onChange={onTextChange}
-              style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '40px', textAlign: props.alignment || 'center', display: 'block' }}
+              style={{ fontSize: bodyFontSize, opacity: 0.7, marginBottom: '48px', textAlign: props.alignment || 'center', display: 'block', lineHeight: 1.6 }}
               as="p"
               isPreview={isPreview}
             />
           ) : (
-            <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '40px', textAlign: props.alignment || 'center' }}>{props.subtitle}</p>
+            <p style={{ fontSize: bodyFontSize, opacity: 0.7, marginBottom: '48px', textAlign: props.alignment || 'center', lineHeight: 1.6 }}>{props.subtitle}</p>
           )
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {items.map((item, index) => (
-            <div key={item.id || index} style={{ padding: '20px', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.03)' }}>
+            <div key={item.id || index} style={{ padding: '24px', borderRadius: '12px', backgroundColor: hexToRgba(accentColor, 0.03), border: `1px solid ${hexToRgba(accentColor, 0.06)}`, transition: 'background-color 0.2s ease' }}>
               {canEdit ? (
                 <EditableText
                   value={item.title || ''}
@@ -1850,14 +1946,14 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
                   isEditing={editingField === `items.${index}.title`}
                   onEdit={onEditField}
                   onChange={onTextChange}
-                  style={{ fontWeight: 600, fontSize: '18px', display: 'block', marginBottom: '12px' }}
+                  style={{ fontWeight: 600, fontSize: '16px', display: 'block', marginBottom: '12px', lineHeight: 1.4 }}
                   as="p"
                   isPreview={isPreview}
                 />
               ) : (
                 <details style={{ cursor: 'pointer' }}>
-                  <summary style={{ fontWeight: 600, fontSize: '18px' }}>{item.title}</summary>
-                  <p style={{ marginTop: '12px', opacity: 0.8 }}>{item.description}</p>
+                  <summary style={{ fontWeight: 600, fontSize: '16px', lineHeight: 1.4 }}>{item.title}</summary>
+                  <p style={{ marginTop: '12px', opacity: 0.75, lineHeight: 1.7, fontSize: '15px' }}>{item.description}</p>
                 </details>
               )}
               {canEdit && (
@@ -1867,7 +1963,7 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
                   isEditing={editingField === `items.${index}.description`}
                   onEdit={onEditField}
                   onChange={onTextChange}
-                  style={{ opacity: 0.8, display: 'block' }}
+                  style={{ opacity: 0.75, display: 'block', lineHeight: 1.7, fontSize: '15px' }}
                   as="p"
                   isPreview={isPreview}
                 />
@@ -1880,11 +1976,12 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
   );
 }
 
-function StatsCounterComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function StatsCounterComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const stats = (props as any).stats || [];
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '32px';
   const bodyFontSize = styles.bodyFontSize || '16px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
@@ -1965,16 +2062,16 @@ function StatsCounterComponent({ props, styles, isSelected, onClick, isPreview, 
   );
 }
 
-function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const formFields = (props as any).formFields || [
     { id: '1', label: 'Name', type: 'text', required: true },
     { id: '2', label: 'Email', type: 'email', required: true },
     { id: '3', label: 'Message', type: 'textarea', required: true },
   ];
-  const accentColor = styles.accentColor || '#4f46e5';
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '32px';
   const bodyFontSize = styles.bodyFontSize || '16px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
@@ -2059,7 +2156,7 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
   );
 }
 
-function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const videoUrl = (props as any).videoUrl || '';
   const canEdit = !isPreview && onTextChange && onEditField;
@@ -2563,10 +2660,10 @@ function MarqueeComponent({ props, styles, isSelected, onClick, isPreview }: Com
   );
 }
 
-function TabsComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+function TabsComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
   const [activeTab, setActiveTab] = useState(0);
   const textColor = styles.textColor || '#1a1a1a';
-  const accentColor = styles.accentColor || '#4f46e5';
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const tabs = (props.tabs as TabItem[]) || [];
   
   return (
@@ -2624,9 +2721,9 @@ function TabsComponent({ props, styles, isSelected, onClick, isPreview }: Compon
   );
 }
 
-function ComparisonTableComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+function ComparisonTableComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
-  const accentColor = styles.accentColor || '#4f46e5';
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const tableColumns = (props.tableColumns as TableColumn[]) || [];
   const features = (props.features as FeatureRow[]) || [];
   
@@ -2701,9 +2798,9 @@ function ComparisonTableComponent({ props, styles, isSelected, onClick, isPrevie
   );
 }
 
-function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
-  const accentColor = styles.accentColor || '#4f46e5';
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const layout = props.layout || 'image-left';
   const bullets = (props.bullets as (string | { text: string })[]) || [];
   
@@ -2801,9 +2898,9 @@ function RichTextComponent({ props, styles, isSelected, onClick, isPreview, onTe
   );
 }
 
-function TeamComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
-  const accentColor = styles.accentColor || '#4f46e5';
+  const accentColor = resolveAccentColor(styles, globalStyles);
   const members = (props.members as TeamMember[]) || [];
   const cardStyle = styles.cardStyle || 'elevated';
   
@@ -2873,10 +2970,12 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview }: Compon
   );
 }
 
-function TimelineComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+function TimelineComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
-  const accentColor = styles.accentColor || '#4f46e5';
+  const accentColor = resolveAccentColor(styles, globalStyles);
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const items = (props.items as TimelineItem[]) || [];
+  const { containerRef, getItemStyle } = useStaggerAnimation(items.length, isPreview);
   
   return (
     <section
@@ -2891,37 +2990,38 @@ function TimelineComponent({ props, styles, isSelected, onClick, isPreview }: Co
     >
       <div style={{ maxWidth: '800px', margin: '0 auto' }}>
         {props.title && (
-          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '60px' }}>
+          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '64px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
             {props.title}
           </h2>
         )}
-        <div style={{ position: 'relative' }}>
-          <div style={{ position: 'absolute', left: '24px', top: 0, bottom: 0, width: '2px', backgroundColor: hexToRgba(accentColor, 0.2) }} />
+        <div ref={containerRef} style={{ position: 'relative' }}>
+          <div style={{ position: 'absolute', left: '24px', top: 0, bottom: 0, width: '2px', backgroundColor: hexToRgba(accentColor, 0.15) }} />
           {items.map((item, index) => (
-            <div 
-              key={item.id || index} 
-              style={{ display: 'flex', gap: '32px', marginBottom: '48px', position: 'relative' }}
+            <div
+              key={item.id || index}
+              style={{ display: 'flex', gap: '32px', marginBottom: '48px', position: 'relative', ...getItemStyle(index) }}
               data-testid={`timeline-item-${index}`}
             >
-              <div style={{ 
-                width: '50px', 
-                height: '50px', 
-                borderRadius: '50%', 
-                backgroundColor: accentColor, 
-                color: '#fff', 
-                display: 'flex', 
-                alignItems: 'center', 
+              <div style={{
+                width: '50px',
+                height: '50px',
+                borderRadius: '50%',
+                backgroundColor: accentColor,
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: '700',
-                fontSize: '18px',
+                fontSize: '16px',
                 flexShrink: 0,
                 zIndex: 1,
+                boxShadow: `0 4px 12px ${hexToRgba(accentColor, 0.3)}`,
               }}>
                 {item.year || index + 1}
               </div>
               <div style={{ flex: 1, paddingTop: '8px' }}>
-                <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px' }}>{item.title}</h3>
-                <p style={{ fontSize: '16px', opacity: 0.7, lineHeight: '1.6' }}>{item.description || item.content}</p>
+                <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', lineHeight: 1.3 }}>{item.title}</h3>
+                <p style={{ fontSize: '15px', opacity: 0.7, lineHeight: '1.7' }}>{item.description || item.content}</p>
               </div>
             </div>
           ))}
@@ -2931,25 +3031,27 @@ function TimelineComponent({ props, styles, isSelected, onClick, isPreview }: Co
   );
 }
 
-function ServicesComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+function ServicesComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
-  const accentColor = styles.accentColor || '#4f46e5';
+  const accentColor = resolveAccentColor(styles, globalStyles);
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const services = (props.services as ServiceItem[]) || [];
   const cardStyle = styles.cardStyle || 'bordered';
-  
+  const { containerRef, getItemStyle } = useStaggerAnimation(services.length, isPreview);
+
   const getCardStyles = () => {
     switch (cardStyle) {
       case 'elevated':
-        return { boxShadow: '0 10px 40px rgba(0,0,0,0.1)', border: 'none' };
+        return { boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08)', border: 'none' };
       case 'glass':
         return { background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.2)' };
       case 'flat':
         return { boxShadow: 'none', background: 'rgba(0,0,0,0.02)', border: 'none' };
       default:
-        return { border: '1px solid rgba(0,0,0,0.1)', boxShadow: 'none' };
+        return { border: `1px solid ${hexToRgba(accentColor, 0.1)}`, boxShadow: 'none' };
     }
   };
-  
+
   return (
     <section
       style={{
@@ -2957,51 +3059,55 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview }: Co
         padding: styles.padding || '100px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
+        fontFamily,
       }}
       onClick={onClick}
       data-testid="services-section"
     >
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {props.title && (
-          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
             {props.title}
           </h2>
         )}
         {props.subtitle && (
-          <p style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '60px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto' }}>
+          <p style={{ fontSize: '18px', opacity: 0.6, textAlign: 'center', marginBottom: '64px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
             {props.subtitle}
           </p>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '32px' }}>
+        <div ref={containerRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
           {services.map((service, index) => (
-            <div 
-              key={service.id || index} 
-              style={{ 
-                padding: '40px', 
+            <div
+              key={service.id || index}
+              style={{
+                padding: '36px',
                 borderRadius: '16px',
                 backgroundColor: '#ffffff',
-                transition: 'transform 0.3s, box-shadow 0.3s',
+                transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease',
                 ...getCardStyles(),
+                ...getItemStyle(index),
               }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = `0 12px 32px ${hexToRgba(accentColor, 0.12)}`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = ''; }}
               data-testid={`service-item-${index}`}
             >
               {service.icon && (
-                <div style={{ 
-                  width: '60px', 
-                  height: '60px', 
-                  borderRadius: '12px', 
-                  backgroundColor: hexToRgba(accentColor, 0.1), 
-                  display: 'flex', 
-                  alignItems: 'center', 
+                <div style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '12px',
+                  backgroundColor: hexToRgba(accentColor, 0.08),
+                  display: 'flex',
+                  alignItems: 'center',
                   justifyContent: 'center',
                   marginBottom: '24px',
-                  fontSize: '28px',
+                  fontSize: '26px',
                 }}>
                   {service.icon}
                 </div>
               )}
-              <h3 style={{ fontSize: '22px', fontWeight: '700', marginBottom: '12px' }}>{service.title || service.name}</h3>
-              <p style={{ fontSize: '16px', opacity: 0.7, lineHeight: '1.7', marginBottom: '20px' }}>{service.description}</p>
+              <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '12px', lineHeight: 1.3 }}>{service.title || service.name}</h3>
+              <p style={{ fontSize: '15px', opacity: 0.7, lineHeight: '1.7', marginBottom: '20px' }}>{service.description}</p>
               {service.price && (
                 <div style={{ fontSize: '18px', fontWeight: '700', color: accentColor }}>{service.price}</div>
               )}
@@ -3020,7 +3126,7 @@ type ContainerComponentProps = ComponentRenderProps & {
   pages?: BuilderPage[];
 };
 
-function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, deviceMode, onClick }: ContainerComponentProps) {
+function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, deviceMode, onClick, globalStyles }: ContainerComponentProps) {
   const children = props.children || [];
   const layout = props.layout || 'vertical';
   const gap = props.gap || '24px';
@@ -3081,6 +3187,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
             pages={pages}
             allComponents={allComponents}
             deviceMode={deviceMode}
+            globalStyles={globalStyles}
             onClick={onComponentClick ? (e) => {
               e.stopPropagation();
               onComponentClick(childComponent.id);
@@ -3092,7 +3199,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -3124,6 +3231,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     onImageResize,
     onStyleChange,
     deviceMode,
+    globalStyles,
   };
 
   const headerProps = {
