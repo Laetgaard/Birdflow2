@@ -147,6 +147,9 @@ export default function ElementOverlay({
 
   const handleTextBlur = useCallback((element: HTMLElement, detected: DetectedElement) => {
     element.contentEditable = 'false';
+    // Remove editing visual indicator
+    element.style.outline = '';
+    element.style.outlineOffset = '';
     setIsEditing(false);
     const newText = element.textContent || '';
     const originalText = element.dataset.originalText || '';
@@ -210,7 +213,8 @@ export default function ElementOverlay({
     };
   }, [containerRef, detectElements]);
 
-  const handleElementSelect = useCallback((detected: DetectedElement) => {
+  // Single click selects, double-click enables text editing (Framer-like)
+  const handleElementSelect = useCallback((detected: DetectedElement, enableTextEdit = false) => {
     const currentStyles = elementStyles.get(detected.id) || {};
     selectElement({
       id: detected.id,
@@ -219,12 +223,23 @@ export default function ElementOverlay({
       path: detected.path,
       styles: currentStyles,
     });
-    if (detected.type === 'text') {
+    // Only enable text editing on double-click, not single click
+    if (detected.type === 'text' && enableTextEdit) {
       setTimeout(() => {
         detected.element.contentEditable = 'true';
         detected.element.focus();
+        // Select all text for easy replacement
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(detected.element);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
         setIsEditing(true);
         detected.element.dataset.originalText = detected.element.textContent || '';
+        // Add visual editing indicator
+        detected.element.style.outline = '2px solid #3b82f6';
+        detected.element.style.outlineOffset = '2px';
+        detected.element.style.borderRadius = '4px';
       }, 10);
     }
   }, [selectElement, elementStyles]);
@@ -242,12 +257,31 @@ export default function ElementOverlay({
 
       if (resolved) {
         e.stopPropagation();
-        handleElementSelect(resolved);
+        // Single click = select only (no text editing)
+        handleElementSelect(resolved, false);
+      }
+    };
+
+    // Double-click enables text editing (Framer-like behavior)
+    const handleContainerDblClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (overlayRef.current?.contains(target)) return;
+
+      const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
+
+      if (resolved && resolved.type === 'text') {
+        e.stopPropagation();
+        e.preventDefault();
+        handleElementSelect(resolved, true);
       }
     };
 
     container.addEventListener('click', handleContainerClick, true);
-    return () => container.removeEventListener('click', handleContainerClick, true);
+    container.addEventListener('dblclick', handleContainerDblClick, true);
+    return () => {
+      container.removeEventListener('click', handleContainerClick, true);
+      container.removeEventListener('dblclick', handleContainerDblClick, true);
+    };
   }, [allDetectedElements, handleElementSelect, isEditing, containerRef]);
 
   useEffect(() => {
@@ -375,16 +409,28 @@ export default function ElementOverlay({
             top: hoveredDetected.rect.top,
             width: hoveredDetected.rect.width,
             height: hoveredDetected.rect.height,
+            transition: 'all 0.1s ease-out',
           }}
         >
           <div
-            className="absolute inset-0 border border-blue-400/60 pointer-events-none"
+            className="absolute inset-0 pointer-events-none"
             style={{
               borderRadius: (elementStyles.get(hoveredDetected.id) || {} as any).borderRadius || '0',
+              border: '1.5px dashed rgba(99, 102, 241, 0.5)',
+              backgroundColor: 'rgba(99, 102, 241, 0.03)',
             }}
           />
-          <div className="absolute -top-6 left-0 bg-blue-500/80 text-white text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none">
+          <div
+            className="absolute -top-6 left-0 text-white text-[10px] px-2 py-0.5 rounded-md whitespace-nowrap pointer-events-none"
+            style={{
+              backgroundColor: 'rgba(99, 102, 241, 0.85)',
+              backdropFilter: 'blur(4px)',
+              fontWeight: 600,
+              letterSpacing: '0.02em',
+            }}
+          >
             {getDanishLabel(hoveredDetected.type)}
+            {hoveredDetected.type === 'text' && ' · Dobbeltklik for at redigere'}
           </div>
         </div>
       )}

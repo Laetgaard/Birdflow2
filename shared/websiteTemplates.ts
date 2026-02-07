@@ -745,7 +745,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: 'Min Baggrund',
                 description: 'Jeg er autoriseret psykolog med over 15 års erfaring i at hjælpe mennesker med at navigere livets udfordringer. Efter min kandidatgrad fra Københavns Universitet specialiserede jeg mig i kognitiv adfærdsterapi og har siden videreuddannet mig i ACT, mindfulness og traumeterapi.\n\nMit arbejde bygger på en grundlæggende tro på, at alle mennesker har ressourcer til forandring. Min rolle er at skabe et trygt rum, hvor disse ressourcer kan folde sig ud.',
-                imageUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=600&h=800&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1594824476967-48c8b964ac31?w=600&h=800&fit=crop',
                 imageSide: 'left',
               },
               styles: {
@@ -965,7 +965,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
     name: 'Mindful Terapi – Psykologklinik',
     description: 'Professionel psykologklinik med booking, tillids-signaler og GDPR-kompatible formularer',
     category: 'services',
-    thumbnail: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=400&h=300&fit=crop',
+    thumbnail: 'https://images.unsplash.com/photo-1545205597-3d9d02c29597?w=400&h=300&fit=crop',
     builderState: {
       pages: [
         {
@@ -998,17 +998,18 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: 'Professionel psykologhjælp i trygge rammer',
                 subtitle: 'Autoriseret psykolog – Katrine Møller Hansen',
-                description: 'Akut krise? Ring 112 eller Livslinien 70 201 201 (24/7). Specialiseret i angst, depression og stress. Modtager sundhedskort og forsikringer. Medlem af Dansk Psykolog Forening.',
+                description: 'Specialiseret i angst, depression og stress. Modtager sundhedskort og forsikringer. Medlem af Dansk Psykolog Forening.',
                 buttonText: 'Book gratis 20 min. samtale',
                 buttonLink: '/kontakt',
                 alignment: 'center',
-                imageUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1400&h=800&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1545205597-3d9d02c29597?w=1400&h=800&fit=crop',
               },
               styles: {
                 backgroundColor: '#F4F1EA',
                 textColor: '#1A1A1A',
                 padding: '120px 48px',
                 fontFamily: 'Inter, sans-serif',
+                titleFontSize: '56px',
                 accentColor: '#2D5F5D',
                 buttonColor: '#2D5F5D',
                 buttonStyle: 'solid',
@@ -1062,7 +1063,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: 'Katrine Møller Hansen',
                 description: 'Autoriseret psykolog (aut. 8274). Jeg har arbejdet med psykoterapi siden 2012 og specialiserer mig i kognitiv adfærdsterapi (KBT) og mindfulness-baserede metoder. Mit mål er at skabe et trygt rum, hvor du kan udforske dine tanker og følelser uden at føle dig dømt.',
-                imageUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=800&h=600&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1594824476967-48c8b964ac31?w=800&h=600&fit=crop',
                 imageSide: 'right',
               },
               styles: {
@@ -1233,7 +1234,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: 'Min baggrund',
                 description: 'Jeg har arbejdet med psykoterapi siden 2012 og specialiserer mig i kognitiv adfærdsterapi (KBT) og mindfulness-baserede metoder. Efter min kandidatgrad fra Aarhus Universitet har jeg videreuddannet mig løbende og behandlet over 2.000 klienter.\n\nMit arbejde bygger på en grundlæggende tro på, at alle mennesker har ressourcer til forandring. Min rolle er at skabe et trygt rum, hvor disse ressourcer kan folde sig ud. Jeg kombinerer evidensbaserede metoder med en varm, nærværende tilgang.',
-                imageUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=600&h=800&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1594824476967-48c8b964ac31?w=600&h=800&fit=crop',
                 imageSide: 'left',
               },
               styles: {
@@ -1347,13 +1348,13 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: 'Behandlingstilbud',
                 subtitle: '',
-                services: [
-                  { id: '1', title: 'Individuel Terapi', description: 'Dybdegående samtaleforløb med fokus på dine personlige udfordringer. 50-60 minutter per session. Typisk 8-15 sessioner.', price: '800 kr', icon: '👤' },
-                  { id: '2', title: 'Parterapi', description: 'Styrk jeres relation og kommunikation. Sessioner af 90 minutters varighed med fokus på forståelse og nærhed.', price: '1.400 kr', icon: '💑' },
-                  { id: '3', title: 'Stresshåndtering', description: 'Intensivt forløb med fokus på at genvinde balance. Inkluderer praktiske værktøjer og øvelser til hverdagen.', price: '800 kr', icon: '🧘' },
-                  { id: '4', title: 'Angstbehandling', description: 'Evidensbaseret kognitiv terapi målrettet angst, OCD og panikangst. Gradvis eksponering og tankemæssig omstrukturering.', price: '800 kr', icon: '🌿' },
-                  { id: '5', title: 'Online Terapi', description: 'Samme kvalitet hjemmefra. Fleksible tider via sikker videoplatform. Perfekt hvis du bor langt væk eller har travlt.', price: '700 kr', icon: '💻' },
-                  { id: '6', title: 'Gratis Forsamtale', description: '20 minutters uforpligtende telefonsamtale hvor vi afklarer dine behov og om vi er et godt match.', price: 'Gratis', icon: '📞' },
+                items: [
+                  { id: '1', title: 'Individuel Terapi', description: 'Dybdegående samtaleforløb med fokus på dine personlige udfordringer. 50-60 minutter per session. Typisk 8-15 sessioner.', icon: '👤' },
+                  { id: '2', title: 'Parterapi', description: 'Styrk jeres relation og kommunikation. Sessioner af 90 minutters varighed med fokus på forståelse og nærhed.', icon: '💑' },
+                  { id: '3', title: 'Stresshåndtering', description: 'Intensivt forløb med fokus på at genvinde balance. Inkluderer praktiske værktøjer og øvelser til hverdagen.', icon: '🧘' },
+                  { id: '4', title: 'Angstbehandling', description: 'Evidensbaseret kognitiv terapi målrettet angst, OCD og panikangst. Gradvis eksponering og tankemæssig omstrukturering.', icon: '🌿' },
+                  { id: '5', title: 'Online Terapi', description: 'Samme kvalitet hjemmefra. Fleksible tider via sikker videoplatform. Perfekt hvis du bor langt væk eller har travlt.', icon: '💻' },
+                  { id: '6', title: 'Gratis Forsamtale', description: '20 minutters uforpligtende telefonsamtale hvor vi afklarer dine behov og om vi er et godt match.', icon: '📞' },
                 ],
               },
               styles: {
@@ -1649,7 +1650,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
     name: 'Aurora Skincare – Premium Serum',
     description: 'Single-product DTC webshop med urgency, social proof og videnskabeligt indhold',
     category: 'ecommerce',
-    thumbnail: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400&h=300&fit=crop',
+    thumbnail: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=400&h=300&fit=crop',
     builderState: {
       pages: [
         {
@@ -1682,17 +1683,18 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: 'Reducer rynker med 34% på 8 uger',
                 subtitle: '★★★★★ Over 12.000 tilfredse kunder',
-                description: 'Vores prisbelønnede Vitamin C serum til 499 kr (før 649 kr). Kun 47 stk. tilbage på lager. Gratis fragt + 2 gratis prøver ved køb i dag.',
+                description: 'Vores prisbelønnede Vitamin C serum til 499 kr (før 649 kr). Gratis fragt + 2 gratis prøver ved køb i dag.',
                 buttonText: 'Køb nu – 499 kr',
                 buttonLink: '/produkt',
                 alignment: 'center',
-                imageUrl: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=1400&h=800&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=1400&h=800&fit=crop',
               },
               styles: {
                 backgroundColor: '#1A1A1A',
                 textColor: '#F7F5F2',
                 padding: '140px 48px',
                 fontFamily: 'Playfair Display, serif',
+                titleFontSize: '52px',
                 accentColor: '#C9A86A',
                 buttonColor: '#C9A86A',
                 buttonStyle: 'solid',
@@ -1730,7 +1732,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
                   { text: 'Pigmentpletter: -28% efter 8 uger' },
                   { text: 'Klinisk studie med 127 deltagere, 2023' },
                 ],
-                imageUrl: 'https://images.unsplash.com/photo-1570194065650-d99fb4b38b17?w=600&h=400&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&h=400&fit=crop',
               },
               styles: {
                 backgroundColor: '#F7F5F2',
@@ -1865,7 +1867,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
                   { text: 'Ingen spørgsmål stillet' },
                   { text: 'Fuld refundering inden for 24 timer' },
                 ],
-                imageUrl: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?w=600&h=400&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1596755389378-c31d21fd1273?w=600&h=400&fit=crop',
               },
               styles: {
                 backgroundColor: '#F7F5F2',
@@ -2001,7 +2003,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: 'Ingredienser du kan stole på',
                 description: 'Fuld ingrediensliste: Aqua, L-Ascorbic Acid (15%), Propanediol, Sodium Hyaluronate, Tocopherol, Ferulic Acid, Panthenol, Glycerin, Pentylene Glycol, Citric Acid, Sodium Hydroxide. Alle ingredienser er nøje udvalgt for maksimal effekt og minimal irritation.',
-                imageUrl: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=800&h=600&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1611930022073-b7a4ba5fcccd?w=800&h=600&fit=crop',
                 imageSide: 'left',
               },
               styles: {
@@ -2210,7 +2212,7 @@ export const websiteTemplates: WebsiteTemplate[] = [
               props: {
                 title: 'Fra laboratoriet til din hud',
                 description: 'Aurora Skincare blev grundlagt i 2020 af et team af danske dermatologer og kemikere med en fælles frustration: hudplejemarkedet var fyldt med tomme løfter og overprisede produkter. Vi besluttede at gøre det anderledes – at skabe produkter baseret på klinisk forskning, med ærlig kommunikation om hvad de kan og ikke kan.',
-                imageUrl: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=800&h=600&fit=crop',
+                imageUrl: 'https://images.unsplash.com/photo-1611930022073-b7a4ba5fcccd?w=800&h=600&fit=crop',
                 imageSide: 'right',
               },
               styles: {
