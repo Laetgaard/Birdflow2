@@ -5,11 +5,12 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  Image, Type, Square, Circle, Palette, Layers, Move, 
-  RotateCcw, Maximize2, Upload, Link, AlignLeft, AlignCenter, AlignRight,
-  Bold, Italic, Underline, X, GripHorizontal
+  Upload, Link, AlignLeft, AlignCenter, AlignRight,
+  Bold, Italic, Underline, X, GripHorizontal, Minus, Plus
 } from 'lucide-react';
+import { fontFamilyPresets, fontWeightPresets } from '@shared/componentRegistry';
 
 type ElementType = 'image' | 'button' | 'card' | 'text' | 'container' | 'icon';
 
@@ -27,6 +28,9 @@ interface ElementStyles {
   borderColor?: string;
   fontSize?: string;
   fontWeight?: string;
+  fontFamily?: string;
+  letterSpacing?: string;
+  lineHeight?: string;
   textAlign?: 'left' | 'center' | 'right';
   hoverBackgroundColor?: string;
   hoverColor?: string;
@@ -83,13 +87,22 @@ const PADDING_OPTIONS = [
   { label: '2XL', value: '48px' },
 ];
 
-function ColorPicker({ 
-  value, 
-  onChange, 
-  label 
-}: { 
-  value: string; 
-  onChange: (color: string) => void; 
+const DANISH_LABELS: Record<ElementType, string> = {
+  image: 'Billede',
+  button: 'Knap',
+  card: 'Kort',
+  text: 'Tekst',
+  container: 'Container',
+  icon: 'Ikon',
+};
+
+function ColorPicker({
+  value,
+  onChange,
+  label
+}: {
+  value: string;
+  onChange: (color: string) => void;
   label: string;
 }) {
   return (
@@ -102,7 +115,7 @@ function ColorPicker({
             className="w-full justify-start h-8"
           >
             <div
-              className="w-4 h-4 rounded border mr-2"
+              className="w-4 h-4 rounded border mr-2 shrink-0"
               style={{ backgroundColor: value || '#ffffff' }}
             />
             <span className="text-xs truncate">{value || 'Vælg farve'}</span>
@@ -113,7 +126,7 @@ function ColorPicker({
             {COLOR_PRESETS.map((color) => (
               <button
                 key={color}
-                className="w-5 h-5 rounded border border-gray-200 hover:scale-110 transition-transform"
+                className={`w-5 h-5 rounded border transition-transform hover:scale-110 ${value === color ? 'border-primary ring-1 ring-primary/30' : 'border-gray-200'}`}
                 style={{ backgroundColor: color }}
                 onClick={() => onChange(color)}
               />
@@ -191,13 +204,14 @@ export default function ElementEditPanel({
   }, [isDragging]);
 
   return (
-    <div 
+    <div
       ref={panelRef}
-      className="w-64 bg-white rounded-lg shadow-xl border z-50"
+      className="w-72 bg-white/95 rounded-xl shadow-2xl border z-50"
       style={{
         transform: `translate(${position.x}px, ${position.y}px)`,
         cursor: isDragging ? 'grabbing' : 'default',
         willChange: isDragging ? 'transform' : 'auto',
+        backdropFilter: 'blur(8px)',
       }}
       data-testid="element-edit-panel"
       data-element-editing="true"
@@ -205,13 +219,13 @@ export default function ElementEditPanel({
       onClick={(e) => e.stopPropagation()}
     >
       {/* Draggable header */}
-      <div 
-        className="flex items-center justify-between px-3 py-2 border-b cursor-grab active:cursor-grabbing select-none"
+      <div
+        className="flex items-center justify-between px-3 py-2 border-b cursor-grab active:cursor-grabbing select-none bg-muted/30 rounded-t-xl"
         onMouseDown={handleMouseDown}
       >
         <div className="flex items-center gap-2">
           <GripHorizontal className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium capitalize">{elementType}</span>
+          <span className="text-sm font-medium">{DANISH_LABELS[elementType]}</span>
         </div>
         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
           <X className="h-4 w-4" />
@@ -219,13 +233,13 @@ export default function ElementEditPanel({
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full grid grid-cols-3 h-9 m-1 mr-2">
+        <TabsList className="w-full grid grid-cols-3 h-9 mx-2 mt-2" style={{ width: 'calc(100% - 16px)' }}>
           <TabsTrigger value="style" className="text-xs">Stil</TabsTrigger>
           <TabsTrigger value="size" className="text-xs">Størrelse</TabsTrigger>
           <TabsTrigger value="hover" className="text-xs">Hover</TabsTrigger>
         </TabsList>
 
-        <div className="p-3 max-h-80 overflow-y-auto">
+        <div className="p-3 max-h-96 overflow-y-auto">
           <TabsContent value="style" className="mt-0 space-y-4">
             {/* Image controls */}
             {elementType === 'image' && (
@@ -251,8 +265,8 @@ export default function ElementEditPanel({
                           placeholder="https://..."
                           className="text-xs h-8 mb-2"
                         />
-                        <Button 
-                          size="sm" 
+                        <Button
+                          size="sm"
                           className="w-full h-7"
                           onClick={() => {
                             onImageChange?.(urlInput);
@@ -267,7 +281,10 @@ export default function ElementEditPanel({
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Gennemsigtighed</Label>
+                  <div className="flex justify-between items-center">
+                    <Label className="text-xs text-muted-foreground">Gennemsigtighed</Label>
+                    <span className="text-xs text-muted-foreground tabular-nums">{styles.opacity ?? 100}%</span>
+                  </div>
                   <Slider
                     value={[styles.opacity ?? 100]}
                     min={0}
@@ -293,6 +310,18 @@ export default function ElementEditPanel({
                   value={styles.color || '#ffffff'}
                   onChange={(color) => onStyleChange({ color })}
                 />
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Skriftstørrelse</Label>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => onStyleChange({ fontSize: `${Math.max(10, parseInt(styles.fontSize || '16') - 2)}px` })}>
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                    <span className="text-xs font-medium min-w-[30px] text-center tabular-nums">{parseInt(styles.fontSize || '16')}px</span>
+                    <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => onStyleChange({ fontSize: `${Math.min(60, parseInt(styles.fontSize || '16') + 2)}px` })}>
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
               </>
             )}
 
@@ -310,9 +339,23 @@ export default function ElementEditPanel({
                   onChange={(color) => onStyleChange({ borderColor: color })}
                 />
                 <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Kanttykkelse</Label>
+                  <div className="flex items-center gap-2">
+                    <Slider
+                      value={[parseInt(styles.borderWidth || '0')]}
+                      min={0}
+                      max={6}
+                      step={1}
+                      onValueChange={([v]) => onStyleChange({ borderWidth: `${v}px` })}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-muted-foreground w-8 text-right tabular-nums">{styles.borderWidth || '0'}</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">Padding</Label>
                   <div className="grid grid-cols-4 gap-1">
-                    {PADDING_OPTIONS.slice(0, 4).map((option) => (
+                    {PADDING_OPTIONS.slice(0, 7).map((option) => (
                       <Button
                         key={option.value}
                         variant={styles.padding === option.value ? 'default' : 'outline'}
@@ -323,6 +366,20 @@ export default function ElementEditPanel({
                         {option.label}
                       </Button>
                     ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Mellemrum (Gap)</Label>
+                  <div className="flex items-center gap-2">
+                    <Slider
+                      value={[parseInt(styles.gap || '0')]}
+                      min={0}
+                      max={48}
+                      step={4}
+                      onValueChange={([v]) => onStyleChange({ gap: `${v}px` })}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-muted-foreground w-8 text-right tabular-nums">{styles.gap || '0'}</span>
                   </div>
                 </div>
               </>
@@ -336,43 +393,114 @@ export default function ElementEditPanel({
                   value={styles.color || '#000000'}
                   onChange={(color) => onStyleChange({ color })}
                 />
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Skrifttype</Label>
+                  <Select
+                    value={styles.fontFamily || 'inherit'}
+                    onValueChange={(v) => onStyleChange({ fontFamily: v === 'inherit' ? undefined : v })}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Inherit" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      <SelectItem value="inherit">Arv fra forælder</SelectItem>
+                      {fontFamilyPresets.map(f => (
+                        <SelectItem key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                          {f.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Skriftstørrelse</Label>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => onStyleChange({ fontSize: `${Math.max(10, parseInt(styles.fontSize || '16') - 2)}px` })}>
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                    <span className="text-xs font-medium min-w-[30px] text-center tabular-nums">{parseInt(styles.fontSize || '16')}px</span>
+                    <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => onStyleChange({ fontSize: `${Math.min(120, parseInt(styles.fontSize || '16') + 2)}px` })}>
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Vægt</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {fontWeightPresets.map((preset) => (
+                      <Button
+                        key={preset.value}
+                        variant={styles.fontWeight === preset.value ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs px-2"
+                        style={{ fontWeight: parseInt(preset.value) }}
+                        onClick={() => onStyleChange({ fontWeight: preset.value })}
+                      >
+                        {preset.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <Label className="text-xs text-muted-foreground">Bogstavafstand</Label>
+                    <span className="text-xs text-muted-foreground tabular-nums">{styles.letterSpacing || '0px'}</span>
+                  </div>
+                  <Slider
+                    value={[parseFloat(styles.letterSpacing || '0')]}
+                    min={-2}
+                    max={10}
+                    step={0.5}
+                    onValueChange={([v]) => onStyleChange({ letterSpacing: `${v}px` })}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <Label className="text-xs text-muted-foreground">Linjehøjde</Label>
+                    <span className="text-xs text-muted-foreground tabular-nums">{styles.lineHeight || '1.6'}</span>
+                  </div>
+                  <Slider
+                    value={[parseFloat(styles.lineHeight || '1.6') * 10]}
+                    min={10}
+                    max={30}
+                    step={1}
+                    onValueChange={([v]) => onStyleChange({ lineHeight: `${v / 10}` })}
+                    className="w-full"
+                  />
+                </div>
+
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">Justering</Label>
                   <div className="flex gap-1">
-                    <Button
-                      variant={styles.textAlign === 'left' ? 'default' : 'outline'}
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => onStyleChange({ textAlign: 'left' })}
-                    >
-                      <AlignLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant={styles.textAlign === 'center' ? 'default' : 'outline'}
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => onStyleChange({ textAlign: 'center' })}
-                    >
-                      <AlignCenter className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant={styles.textAlign === 'right' ? 'default' : 'outline'}
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => onStyleChange({ textAlign: 'right' })}
-                    >
-                      <AlignRight className="h-4 w-4" />
-                    </Button>
+                    {(['left', 'center', 'right'] as const).map((align) => (
+                      <Button
+                        key={align}
+                        variant={styles.textAlign === align ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-8 flex-1 p-0"
+                        onClick={() => onStyleChange({ textAlign: align })}
+                      >
+                        {align === 'left' && <AlignLeft className="h-4 w-4" />}
+                        {align === 'center' && <AlignCenter className="h-4 w-4" />}
+                        {align === 'right' && <AlignRight className="h-4 w-4" />}
+                      </Button>
+                    ))}
                   </div>
                 </div>
               </>
             )}
 
-            {/* Common controls */}
+            {/* Common controls - Radius and Shadow */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Hjørneafrunding</Label>
               <div className="grid grid-cols-3 gap-1">
-                {RADIUS_OPTIONS.slice(0, 6).map((option) => (
+                {RADIUS_OPTIONS.map((option) => (
                   <Button
                     key={option.value}
                     variant={styles.borderRadius === option.value ? 'default' : 'outline'}
@@ -389,7 +517,7 @@ export default function ElementEditPanel({
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Skygge</Label>
               <div className="grid grid-cols-3 gap-1">
-                {SHADOW_OPTIONS.slice(0, 6).map((option) => (
+                {SHADOW_OPTIONS.map((option) => (
                   <Button
                     key={option.value}
                     variant={styles.boxShadow === option.value ? 'default' : 'outline'}
@@ -405,26 +533,32 @@ export default function ElementEditPanel({
           </TabsContent>
 
           <TabsContent value="size" className="mt-0 space-y-4">
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Bredde</Label>
-              <Input
-                value={styles.width || ''}
-                onChange={(e) => onStyleChange({ width: e.target.value })}
-                placeholder="auto"
-                className="h-8 text-xs"
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Bredde</Label>
+                <Input
+                  value={styles.width || ''}
+                  onChange={(e) => onStyleChange({ width: e.target.value })}
+                  placeholder="auto"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Højde</Label>
+                <Input
+                  value={styles.height || ''}
+                  onChange={(e) => onStyleChange({ height: e.target.value })}
+                  placeholder="auto"
+                  className="h-8 text-xs"
+                />
+              </div>
             </div>
+
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Højde</Label>
-              <Input
-                value={styles.height || ''}
-                onChange={(e) => onStyleChange({ height: e.target.value })}
-                placeholder="auto"
-                className="h-8 text-xs"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Gennemsigtighed</Label>
+              <div className="flex justify-between items-center">
+                <Label className="text-xs text-muted-foreground">Gennemsigtighed</Label>
+                <span className="text-xs text-muted-foreground tabular-nums">{styles.opacity ?? 100}%</span>
+              </div>
               <Slider
                 value={[styles.opacity ?? 100]}
                 min={0}
@@ -433,21 +567,39 @@ export default function ElementEditPanel({
                 onValueChange={([v]) => onStyleChange({ opacity: v })}
                 className="w-full"
               />
-              <span className="text-xs text-muted-foreground">{styles.opacity ?? 100}%</span>
             </div>
+
+            {(elementType === 'card' || elementType === 'container') && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Padding</Label>
+                <div className="flex flex-wrap gap-1">
+                  {PADDING_OPTIONS.map((option) => (
+                    <Button
+                      key={option.value}
+                      variant={styles.padding === option.value ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => onStyleChange({ padding: option.value })}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="hover" className="mt-0 space-y-4">
-            <p className="text-xs text-muted-foreground mb-3">
-              Definer hvordan elementet ser ud når musen holdes over det.
+            <p className="text-xs text-muted-foreground">
+              Definer hover-effekter for dette element.
             </p>
-            
+
             <ColorPicker
               label="Hover baggrundsfarve"
               value={styles.hoverBackgroundColor || ''}
               onChange={(color) => onStyleChange({ hoverBackgroundColor: color })}
             />
-            
+
             {(elementType === 'button' || elementType === 'text') && (
               <ColorPicker
                 label="Hover tekstfarve"
@@ -459,7 +611,7 @@ export default function ElementEditPanel({
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Hover skygge</Label>
               <div className="grid grid-cols-3 gap-1">
-                {SHADOW_OPTIONS.slice(0, 6).map((option) => (
+                {SHADOW_OPTIONS.map((option) => (
                   <Button
                     key={option.value}
                     variant={styles.hoverShadow === option.value ? 'default' : 'outline'}
@@ -474,7 +626,10 @@ export default function ElementEditPanel({
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Hover skalering</Label>
+              <div className="flex justify-between items-center">
+                <Label className="text-xs text-muted-foreground">Hover skalering</Label>
+                <span className="text-xs text-muted-foreground tabular-nums">{styles.hoverScale ?? 100}%</span>
+              </div>
               <Slider
                 value={[styles.hoverScale ?? 100]}
                 min={90}
@@ -483,11 +638,13 @@ export default function ElementEditPanel({
                 onValueChange={([v]) => onStyleChange({ hoverScale: v })}
                 className="w-full"
               />
-              <span className="text-xs text-muted-foreground">{styles.hoverScale ?? 100}%</span>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Hover gennemsigtighed</Label>
+              <div className="flex justify-between items-center">
+                <Label className="text-xs text-muted-foreground">Hover gennemsigtighed</Label>
+                <span className="text-xs text-muted-foreground tabular-nums">{styles.hoverOpacity ?? 100}%</span>
+              </div>
               <Slider
                 value={[styles.hoverOpacity ?? 100]}
                 min={0}
@@ -496,7 +653,6 @@ export default function ElementEditPanel({
                 onValueChange={([v]) => onStyleChange({ hoverOpacity: v })}
                 className="w-full"
               />
-              <span className="text-xs text-muted-foreground">{styles.hoverOpacity ?? 100}%</span>
             </div>
           </TabsContent>
         </div>

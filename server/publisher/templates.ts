@@ -2113,6 +2113,94 @@ function getImageUrl(image: ImageValue | undefined): string {
   return image.url || '';
 }
 
+// Color utility functions (matching builder's ComponentRenderer)
+function hexToRgba(hex: string, opacity: number): string {
+  const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
+  if (result) {
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + opacity + ')';
+  }
+  return hex;
+}
+
+function getContrastColor(hexColor: string): string {
+  const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hexColor);
+  if (result) {
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5 ? '#000000' : '#ffffff';
+  }
+  return '#ffffff';
+}
+
+function resolveAccentColor(styles: ComponentStyles): string {
+  return (styles.accentColor as string) || theme.primaryColor || '#4f46e5';
+}
+
+function resolveFontFamily(styles: ComponentStyles): string {
+  return (styles.fontFamily as string) || theme.fontFamily || 'Inter, system-ui, sans-serif';
+}
+
+function resolveButtonColor(styles: ComponentStyles): string {
+  return (styles.buttonColor as string) || theme.primaryColor || '#4f46e5';
+}
+
+// Stagger animation hook for scroll-triggered per-item animations
+function useStaggerAnimation(itemCount: number) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+            observer.disconnect();
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const getItemStyle = (index: number): React.CSSProperties => ({
+    opacity: isVisible ? 1 : 0,
+    transform: isVisible ? 'translateY(0)' : 'translateY(24px)',
+    transition: 'opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1) ' + (index * 0.08) + 's, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) ' + (index * 0.08) + 's',
+  });
+
+  return { containerRef, getItemStyle };
+}
+
+// Hover card component for features, testimonials, etc.
+function HoverCard({ children, style, accentColor }: { children: React.ReactNode; style?: React.CSSProperties; accentColor?: string }) {
+  const [isHovered, setIsHovered] = useState(false);
+  const hoverShadow = accentColor ? '0 12px 32px ' + hexToRgba(accentColor, 0.12) : '0 12px 32px rgba(0,0,0,0.12)';
+
+  return (
+    <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        ...style,
+        transform: isHovered ? 'translateY(-4px)' : 'translateY(0)',
+        boxShadow: isHovered ? hoverShadow : (style?.boxShadow || 'none'),
+        transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 const animationKeyframes = \`
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
@@ -2233,8 +2321,25 @@ type ComponentStyles = {
   accentColor?: string;
   buttonStyle?: string;
   buttonRadius?: string;
+  buttonColor?: string;
+  buttonHoverColor?: string;
   cardStyle?: string;
-  [key: string]: any; // Allow additional properties
+  fontFamily?: string;
+  titleFontSize?: string;
+  bodyFontSize?: string;
+  fontWeight?: string;
+  letterSpacing?: string;
+  lineHeight?: string;
+  textTransform?: string;
+  borderWidth?: string;
+  borderColor?: string;
+  borderStyle?: string;
+  isTransparent?: boolean | string;
+  overlayMode?: boolean | string;
+  scrollBehavior?: string;
+  scrolledBackgroundColor?: string;
+  hoverColor?: string;
+  [key: string]: any;
 };
 
 type ComponentData = {
@@ -2250,6 +2355,16 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
     color: styles.textColor,
     padding: styles.padding || '0',
     position: 'relative',
+    ...(styles.letterSpacing && { letterSpacing: styles.letterSpacing }),
+    ...(styles.lineHeight && { lineHeight: styles.lineHeight }),
+    ...(styles.textTransform && styles.textTransform !== 'none' && { textTransform: styles.textTransform }),
+    ...(styles.borderStyle && styles.borderStyle !== 'none' && {
+      borderStyle: styles.borderStyle,
+      borderWidth: styles.borderWidth || '1px',
+      borderColor: styles.borderColor || '#e5e7eb',
+    }),
+    ...(styles.borderRadius && { borderRadius: styles.borderRadius }),
+    ...(styles.boxShadow && styles.boxShadow !== 'none' && { boxShadow: styles.boxShadow }),
   };
 }
 
@@ -2277,16 +2392,18 @@ function HoverButtonComponent({
   const [isHovered, setIsHovered] = useState(false);
   
   const buttonStyle: React.CSSProperties = {
-    padding: '12px 24px',
+    padding: '14px 28px',
     backgroundColor: isHovered && !disabled ? hoverBackgroundColor : backgroundColor,
     color: textColor || '#ffffff',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: '10px',
     fontSize: '16px',
     fontWeight: 600,
+    letterSpacing: '-0.01em',
     cursor: disabled ? 'not-allowed' : 'pointer',
-    transition: 'background-color 0.2s ease, transform 0.2s ease',
+    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
     transform: isHovered && !disabled ? 'translateY(-2px)' : 'translateY(0)',
+    boxShadow: isHovered && !disabled ? '0 8px 24px ' + hexToRgba(backgroundColor, 0.35) + ', 0 2px 8px rgba(0,0,0,0.1)' : '0 2px 8px rgba(0,0,0,0.08)',
     textDecoration: 'none',
     display: 'inline-block',
     opacity: disabled ? 0.7 : 1,
@@ -2405,9 +2522,9 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
       {/* Color overlay - sits on top of the background image */}
       <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
       <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 2 }}>
-        <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px' }}>{props.title}</h1>
-        {props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px' }}>{props.subtitle}</p>}
-        {props.description && <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
+        <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.1, letterSpacing: '-0.02em' }}>{props.title}</h1>
+        {props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px', lineHeight: 1.3 }}>{props.subtitle}</p>}
+        {props.description && <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', lineHeight: 1.6, maxWidth: '600px', margin: props.alignment === 'center' ? '0 auto 32px' : '0 0 32px' }}>{props.description}</p>}
         {props.buttonText && (
           <HoverButtonComponent
             backgroundColor={buttonColor}
@@ -2443,19 +2560,31 @@ function ImageSliderSection({ props, styles }: { props: ComponentProps; styles: 
 
 function TextImageSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
   const isImageLeft = props.imageSide === 'left';
   const imageUrl = getImageUrl(props.imageUrl);
-  
+
   return (
-    <section style={baseStyle}>
+    <section style={{ ...baseStyle, fontFamily }}>
       <div style={{ display: 'flex', gap: '48px', alignItems: 'center', flexDirection: isImageLeft ? 'row-reverse' : 'row', flexWrap: 'wrap', maxWidth: '1000px', margin: '0 auto' }}>
         <div style={{ flex: 1, minWidth: '300px' }}>
-          <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
+          <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
           <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{props.description}</p>
+          {props.buttonText && (
+            <HoverButtonComponent
+              backgroundColor={resolveButtonColor(styles)}
+              hoverBackgroundColor={styles.buttonHoverColor as string || '#4338ca'}
+              textColor={getContrastColor(resolveButtonColor(styles))}
+              href={props.buttonLink || '#'}
+              style={{ marginTop: '24px' }}
+            >
+              {props.buttonText}
+            </HoverButtonComponent>
+          )}
         </div>
         {imageUrl && (
           <div style={{ flex: 1, minWidth: '300px' }}>
-            <img src={imageUrl} alt="" style={{ width: '100%', borderRadius: '12px' }} />
+            <img src={imageUrl} alt={props.title || ''} style={{ width: '100%', borderRadius: '12px' }} />
           </div>
         )}
       </div>
@@ -2465,25 +2594,16 @@ function TextImageSection({ props, styles }: { props: ComponentProps; styles: Co
 
 function CTASection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
-  const buttonColor = styles.buttonColor || '#ffffff';
-  const buttonHoverColor = (styles.buttonHoverColor as string) || '#e5e7eb';
-  const buttonTextColor = (() => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(buttonColor);
-    if (result) {
-      const r = parseInt(result[1], 16);
-      const g = parseInt(result[2], 16);
-      const b = parseInt(result[3], 16);
-      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      return luminance > 0.5 ? '#000000' : '#ffffff';
-    }
-    return styles.backgroundColor || '#4f46e5';
-  })();
-  
+  const fontFamily = resolveFontFamily(styles);
+  const buttonColor = resolveButtonColor(styles);
+  const buttonHoverColor = (styles.buttonHoverColor as string) || '#4338ca';
+  const buttonTextColor = getContrastColor(buttonColor);
+
   return (
-    <section style={baseStyle}>
-      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '16px' }}>{props.title}</h2>
-        <p style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px' }}>{props.description}</p>
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+        <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
+        <p style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px', lineHeight: 1.6 }}>{props.description}</p>
         {props.buttonText && (
           <HoverButtonComponent
             backgroundColor={buttonColor}
@@ -2502,19 +2622,28 @@ function CTASection({ props, styles }: { props: ComponentProps; styles: Componen
 
 function FeaturesSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
-  
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0);
+
   return (
-    <section style={baseStyle}>
-      <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>
-        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px' }}>{props.subtitle}</p>}
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div ref={containerRef} style={{ maxWidth: '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+        <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '32px' }}>
-          {props.items?.map(item => (
-            <div key={item.id} style={{ padding: '24px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '12px' }}>
-              {item.icon && <div style={{ fontSize: '32px', marginBottom: '16px' }}>{item.icon}</div>}
-              <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px' }}>{item.title}</h3>
-              <p style={{ fontSize: '14px', opacity: 0.8 }}>{item.description}</p>
-            </div>
+          {props.items?.map((item, index) => (
+            <HoverCard key={item.id} accentColor={accentColor} style={{
+              padding: '32px 24px',
+              backgroundColor: hexToRgba(accentColor, 0.04),
+              borderRadius: '16px',
+              border: '1px solid ' + hexToRgba(accentColor, 0.08),
+              ...getItemStyle(index),
+            }}>
+              {item.icon && <div style={{ fontSize: '32px', marginBottom: '16px', width: '56px', height: '56px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: hexToRgba(accentColor, 0.1), borderRadius: '12px', margin: props.alignment === 'center' ? '0 auto 16px' : '0 0 16px' }}>{item.icon}</div>}
+              <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px', lineHeight: 1.3 }}>{item.title}</h3>
+              <p style={{ fontSize: '15px', opacity: 0.75, lineHeight: 1.6 }}>{item.description}</p>
+            </HoverCard>
           ))}
         </div>
       </div>
@@ -2524,17 +2653,41 @@ function FeaturesSection({ props, styles }: { props: ComponentProps; styles: Com
 
 function TestimonialsSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
-  
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0);
+
+  // Detect if background is dark for card contrast
+  const bgLuminance = (() => {
+    const bg = styles.backgroundColor || '#ffffff';
+    const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(bg);
+    if (result) {
+      const r = parseInt(result[1], 16); const g = parseInt(result[2], 16); const b = parseInt(result[3], 16);
+      return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    }
+    return 1;
+  })();
+  const isDarkBg = bgLuminance < 0.5;
+  const cardBg = isDarkBg ? 'rgba(255,255,255,0.08)' : '#f8f9fa';
+
   return (
-    <section style={baseStyle}>
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '48px' }}>{props.title}</h2>
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div ref={containerRef} style={{ maxWidth: '900px', margin: '0 auto', textAlign: 'center' }}>
+        <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '48px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
-          {props.items?.map(item => (
-            <div key={item.id} style={{ padding: '32px', backgroundColor: '#f8f9fa', borderRadius: '12px', textAlign: 'left' }}>
-              <p style={{ fontSize: '16px', fontStyle: 'italic', marginBottom: '16px', color: styles.textColor }}>"{item.description}"</p>
-              <p style={{ fontWeight: 600, color: styles.textColor }}>{item.title}</p>
-            </div>
+          {props.items?.map((item, index) => (
+            <HoverCard key={item.id} accentColor={accentColor} style={{
+              padding: '32px',
+              backgroundColor: cardBg,
+              borderRadius: '16px',
+              textAlign: 'left',
+              position: 'relative',
+              ...getItemStyle(index),
+            }}>
+              <div style={{ fontSize: '48px', lineHeight: 1, opacity: 0.1, position: 'absolute', top: '12px', left: '20px', fontFamily: 'Georgia, serif' }}>"</div>
+              <p style={{ fontSize: '16px', lineHeight: 1.7, marginBottom: '20px', color: styles.textColor, position: 'relative', zIndex: 1 }}>{item.description}</p>
+              <p style={{ fontWeight: 600, color: accentColor, fontSize: '15px' }}>{item.title}</p>
+            </HoverCard>
           ))}
         </div>
       </div>
@@ -2910,9 +3063,10 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
 
 function FooterSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle({ ...styles, padding: '32px 24px' });
-  
+  const fontFamily = resolveFontFamily(styles);
+
   return (
-    <footer style={baseStyle}>
+    <footer style={{ ...baseStyle, fontFamily }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
         <p style={{ fontWeight: 600, marginBottom: '8px' }}>{props.title}</p>
         <p style={{ opacity: 0.7, fontSize: '14px' }}>{props.description}</p>
@@ -3106,30 +3260,39 @@ function GallerySection({ props, styles }: { props: ComponentProps; styles: Comp
 
 function PricingTableSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
   const items = props.items || [];
-  const cardStyle = styles.cardStyle || 'elevated';
-  
-  const getCardStyles = () => {
-    switch (cardStyle) {
-      case 'elevated': return { boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)' };
-      case 'bordered': return { border: '1px solid rgba(0,0,0,0.1)' };
-      case 'glass': return { background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' };
-      default: return {};
-    }
-  };
-  
+  const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+
   return (
-    <section style={baseStyle}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-        {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '48px' }}>{props.subtitle}</p>}
-        <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${items.length || 1}, 1fr)\`, gap: '24px' }}>
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div ref={containerRef} style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
           {items.map((item: any, index: number) => (
-            <div key={item.id || index} style={{ padding: '32px', borderRadius: '16px', backgroundColor: 'rgba(255,255,255,0.05)', ...getCardStyles() }}>
+            <HoverCard key={item.id || index} accentColor={accentColor} style={{
+              padding: '32px',
+              borderRadius: '16px',
+              backgroundColor: 'rgba(255,255,255,0.05)',
+              border: item.featured ? '2px solid ' + accentColor : '1px solid ' + hexToRgba(accentColor, 0.1),
+              boxShadow: item.featured ? '0 8px 24px ' + hexToRgba(accentColor, 0.15) : '0 2px 8px rgba(0,0,0,0.06)',
+              ...getItemStyle(index),
+            }}>
               {item.icon && <div style={{ fontSize: '40px', marginBottom: '16px' }}>{item.icon}</div>}
               <h3 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px' }}>{item.title}</h3>
-              <p style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px' }}>{item.description}</p>
-            </div>
+              <p style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px', color: accentColor }}>{item.description}</p>
+              {item.features && item.features.length > 0 && (
+                <ul style={{ listStyle: 'none', padding: 0, margin: '16px 0 0', textAlign: 'left' }}>
+                  {item.features.map((f: string, fi: number) => (
+                    <li key={fi} style={{ padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,0.05)', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: accentColor }}>✓</span> {f}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </HoverCard>
           ))}
         </div>
       </div>
@@ -3139,18 +3302,28 @@ function PricingTableSection({ props, styles }: { props: ComponentProps; styles:
 
 function FAQSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
   const items = props.items || [];
-  
+  const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+
   return (
-    <section style={baseStyle}>
-      <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '40px', textAlign: 'center' }}>{props.subtitle}</p>}
-        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '16px' }}>
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div ref={containerRef} style={{ maxWidth: '800px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '40px', textAlign: 'center', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '12px' }}>
           {items.map((item: any, index: number) => (
-            <details key={item.id || index} style={{ padding: '20px', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.03)', cursor: 'pointer' }}>
-              <summary style={{ fontWeight: 600, fontSize: '18px' }}>{item.title}</summary>
-              <p style={{ marginTop: '12px', opacity: 0.8 }}>{item.description}</p>
+            <details key={item.id || index} style={{
+              padding: '20px 24px',
+              borderRadius: '12px',
+              backgroundColor: hexToRgba(accentColor, 0.04),
+              border: '1px solid ' + hexToRgba(accentColor, 0.08),
+              cursor: 'pointer',
+              ...getItemStyle(index),
+            }}>
+              <summary style={{ fontWeight: 600, fontSize: '17px', lineHeight: 1.4 }}>{item.title}</summary>
+              <p style={{ marginTop: '12px', opacity: 0.75, lineHeight: 1.7, fontSize: '15px' }}>{item.description}</p>
             </details>
           ))}
         </div>
@@ -3161,20 +3334,23 @@ function FAQSection({ props, styles }: { props: ComponentProps; styles: Componen
 
 function StatsCounterSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
   const stats = (props as any).stats || [];
-  
+  const { containerRef, getItemStyle } = useStaggerAnimation(stats.length);
+
   return (
-    <section style={baseStyle}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '48px' }}>{props.subtitle}</p>}
-        <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${stats.length || 1}, 1fr)\`, gap: '32px' }}>
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div ref={containerRef} style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '32px' }}>
           {stats.map((stat: any, index: number) => (
-            <div key={stat.id || index}>
-              <div style={{ fontSize: '48px', fontWeight: 800, marginBottom: '8px' }}>
+            <div key={stat.id || index} style={getItemStyle(index)}>
+              <div style={{ fontSize: '48px', fontWeight: 800, marginBottom: '8px', color: accentColor, letterSpacing: '-0.02em' }}>
                 {stat.prefix}{stat.value}{stat.suffix}
               </div>
-              <div style={{ fontSize: '16px', opacity: 0.8 }}>{stat.label}</div>
+              <div style={{ fontSize: '15px', opacity: 0.75, fontWeight: 500 }}>{stat.label}</div>
             </div>
           ))}
         </div>
@@ -3342,6 +3518,351 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
             </HoverButtonComponent>
           </form>
         )}
+      </div>
+    </section>
+  );
+}
+
+// === Missing component types (matching builder's ComponentRenderer) ===
+
+function ServicesSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const items = props.items || [];
+  const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div ref={containerRef} style={{ maxWidth: '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
+          {items.map((item, index) => (
+            <HoverCard key={item.id} accentColor={accentColor} style={{
+              padding: '32px 24px',
+              backgroundColor: hexToRgba(accentColor, 0.04),
+              borderRadius: '16px',
+              border: '1px solid ' + hexToRgba(accentColor, 0.08),
+              textAlign: 'left',
+              ...getItemStyle(index),
+            }}>
+              {item.icon && <div style={{ fontSize: '32px', marginBottom: '16px' }}>{item.icon}</div>}
+              <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px', lineHeight: 1.3 }}>{item.title}</h3>
+              <p style={{ fontSize: '15px', opacity: 0.75, lineHeight: 1.6 }}>{item.description}</p>
+              {item.price !== undefined && (
+                <p style={{ fontSize: '18px', fontWeight: 700, marginTop: '16px', color: accentColor }}>{item.price} DKK</p>
+              )}
+            </HoverCard>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TimelineSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const items = props.items || [];
+  const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div ref={containerRef} style={{ maxWidth: '700px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '48px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        <div style={{ position: 'relative', paddingLeft: '40px' }}>
+          {/* Vertical line */}
+          <div style={{ position: 'absolute', left: '15px', top: 0, bottom: 0, width: '2px', backgroundColor: hexToRgba(accentColor, 0.2) }} />
+          {items.map((item: any, index: number) => (
+            <div key={item.id || index} style={{ position: 'relative', paddingBottom: '40px', ...getItemStyle(index) }}>
+              {/* Dot */}
+              <div style={{
+                position: 'absolute', left: '-33px', top: '4px',
+                width: '14px', height: '14px', borderRadius: '50%',
+                backgroundColor: accentColor,
+                boxShadow: '0 0 0 4px ' + hexToRgba(accentColor, 0.2),
+              }} />
+              {item.year && <span style={{ fontSize: '13px', fontWeight: 600, color: accentColor, marginBottom: '4px', display: 'block' }}>{item.year}</span>}
+              <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px', lineHeight: 1.3 }}>{item.title}</h3>
+              <p style={{ fontSize: '15px', opacity: 0.75, lineHeight: 1.6 }}>{item.description}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TeamSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const items = props.items || [];
+  const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div ref={containerRef} style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '32px' }}>
+          {items.map((item, index) => {
+            const imageUrl = getImageUrl(item.imageUrl);
+            return (
+              <HoverCard key={item.id} accentColor={accentColor} style={{ textAlign: 'center', ...getItemStyle(index) }}>
+                {imageUrl ? (
+                  <img src={imageUrl} alt={item.title} style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', margin: '0 auto 16px', display: 'block' }} />
+                ) : (
+                  <div style={{ width: '120px', height: '120px', borderRadius: '50%', backgroundColor: hexToRgba(accentColor, 0.1), margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '40px' }}>
+                    {item.icon || '👤'}
+                  </div>
+                )}
+                <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '4px' }}>{item.title}</h3>
+                <p style={{ fontSize: '14px', opacity: 0.7 }}>{item.description}</p>
+              </HoverCard>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SplitSectionComponent({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const accentColor = resolveAccentColor(styles);
+  const layout = props.layout || 'image-left';
+  const isImageLeft = layout === 'image-left' || props.imageSide === 'left';
+  const imageUrl = getImageUrl(props.imageUrl);
+  const bullets: (string | { text: string })[] = (props as any).bullets || [];
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div style={{ display: 'flex', gap: '60px', alignItems: 'center', flexDirection: isImageLeft ? 'row' : 'row-reverse', flexWrap: 'wrap', maxWidth: '1100px', margin: '0 auto' }}>
+        {imageUrl && (
+          <div style={{ flex: 1, minWidth: '300px' }}>
+            <img src={imageUrl} alt={props.title || ''} style={{ width: '100%', borderRadius: '16px' }} />
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: '300px' }}>
+          {props.subtitle && (
+            <div style={{ fontSize: '14px', fontWeight: 600, color: accentColor, textTransform: 'uppercase' as const, letterSpacing: '0.1em', marginBottom: '16px' }}>{props.subtitle}</div>
+          )}
+          <h2 style={{ fontSize: styles.titleFontSize || '40px', fontWeight: 700, marginBottom: '24px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
+          <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>
+          {/* Support both bullets (template format) and items (generic format) */}
+          {bullets.length > 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {bullets.map((bullet, index) => (
+                <li key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '16px' }}>
+                  <span style={{ color: accentColor, fontWeight: 700, fontSize: '20px' }}>✓</span>
+                  <span style={{ fontSize: '16px' }}>{typeof bullet === 'string' ? bullet : bullet.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {props.items && props.items.length > 0 && bullets.length === 0 && (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {props.items.map((item) => (
+                <li key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+                  <span style={{ color: accentColor, fontSize: '18px', lineHeight: 1.4 }}>✓</span>
+                  <div>
+                    <strong style={{ fontSize: '15px' }}>{item.title}</strong>
+                    {item.description && <p style={{ fontSize: '14px', opacity: 0.7, marginTop: '2px' }}>{item.description}</p>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {props.buttonText && (
+            <HoverButtonComponent
+              backgroundColor={resolveButtonColor(styles)}
+              hoverBackgroundColor={styles.buttonHoverColor as string || '#4338ca'}
+              textColor={getContrastColor(resolveButtonColor(styles))}
+              href={props.buttonLink || '#'}
+              style={{ marginTop: '24px' }}
+            >
+              {props.buttonText}
+            </HoverButtonComponent>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ComparisonTableSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const tableColumns = (props as any).tableColumns || [];
+  const features = (props as any).features || [];
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', textAlign: 'center', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
+            <thead>
+              <tr>
+                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600 }}>Feature</th>
+                {tableColumns.map((col: any, i: number) => (
+                  <th key={i} style={{ padding: '16px', textAlign: 'center', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600, color: accentColor }}>{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {features.map((feature: any, fi: number) => (
+                <tr key={fi} style={{ borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                  <td style={{ padding: '14px 16px', fontWeight: 500 }}>{feature.name}</td>
+                  {(feature.values || []).map((val: any, vi: number) => (
+                    <td key={vi} style={{ padding: '14px 16px', textAlign: 'center' }}>
+                      {val === true ? <span style={{ color: accentColor }}>✓</span> : val === false ? <span style={{ opacity: 0.3 }}>—</span> : val}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TabsSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const items = props.items || [];
+  const [activeTab, setActiveTab] = useState(0);
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '32px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {items.map((item, index) => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(index)}
+              style={{
+                padding: '10px 20px',
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: activeTab === index ? accentColor : hexToRgba(accentColor, 0.08),
+                color: activeTab === index ? getContrastColor(accentColor) : 'inherit',
+                fontWeight: 600,
+                fontSize: '15px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              {item.title}
+            </button>
+          ))}
+        </div>
+        {items[activeTab] && (
+          <div style={{ padding: '32px', backgroundColor: hexToRgba(accentColor, 0.03), borderRadius: '16px', border: '1px solid ' + hexToRgba(accentColor, 0.08) }}>
+            <p style={{ fontSize: '16px', lineHeight: 1.7, opacity: 0.85 }}>{items[activeTab].description}</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MarqueeSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const items = props.items || [];
+  const speed = props.speed || 30;
+
+  return (
+    <section style={{ ...baseStyle, fontFamily, overflow: 'hidden' }}>
+      {props.title && <h2 style={{ fontSize: styles.titleFontSize || '24px', fontWeight: 700, marginBottom: '24px', textAlign: 'center', lineHeight: 1.2 }}>{props.title}</h2>}
+      <div style={{ display: 'flex', gap: '48px', animation: 'marqueeScroll ' + speed + 's linear infinite', whiteSpace: 'nowrap' }}>
+        {[...items, ...items].map((item, index) => (
+          <span key={index} style={{ fontSize: '16px', opacity: 0.7, flexShrink: 0 }}>{item.title}</span>
+        ))}
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: '@keyframes marqueeScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }' }} />
+    </section>
+  );
+}
+
+function ContactFormSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const accentColor = resolveAccentColor(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const fields = props.formFields || [];
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const form = e.target as HTMLFormElement;
+      const formData = new FormData(form);
+      const data: Record<string, string> = {};
+      formData.forEach((value, key) => { data[key] = value as string; });
+      await fetch('/api/form-submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formData: data }),
+      });
+      setSubmitted(true);
+    } catch (err) {
+      console.error('Form submission error:', err);
+    }
+    setIsSubmitting(false);
+  };
+
+  if (submitted) {
+    return (
+      <section style={{ ...baseStyle, fontFamily }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center', padding: '48px 24px' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>Tak for din besked!</h2>
+          <p style={{ opacity: 0.7 }}>Vi vender tilbage hurtigst muligt.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {props.description && <p style={{ fontSize: '16px', opacity: 0.7, marginBottom: '32px', textAlign: 'center', lineHeight: 1.5 }}>{props.description}</p>}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {fields.map((field) => (
+            <div key={field.id}>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, marginBottom: '6px' }}>{field.label}{field.required && ' *'}</label>
+              {field.type === 'textarea' ? (
+                <textarea name={field.label} required={field.required} placeholder={field.placeholder || ''} rows={4} style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid ' + hexToRgba(accentColor, 0.2), fontSize: '15px', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+              ) : (
+                <input name={field.label} type={field.type || 'text'} required={field.required} placeholder={field.placeholder || ''} style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid ' + hexToRgba(accentColor, 0.2), fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
+              )}
+            </div>
+          ))}
+          <HoverButtonComponent
+            type="submit"
+            disabled={isSubmitting}
+            backgroundColor={resolveButtonColor(styles)}
+            hoverBackgroundColor={styles.buttonHoverColor as string || '#4338ca'}
+            textColor={getContrastColor(resolveButtonColor(styles))}
+            style={{ marginTop: '8px', width: '100%' }}
+          >
+            {props.buttonText || 'Send besked'}
+          </HoverButtonComponent>
+        </form>
       </div>
     </section>
   );
@@ -3555,6 +4076,22 @@ export default function ComponentRenderer({ component, products = [], pages = []
         return <NewsletterSection props={component.props} styles={component.styles} />;
       case 'before-after':
         return <BeforeAfterSection props={component.props} styles={component.styles} />;
+      case 'services':
+        return <ServicesSection props={component.props} styles={component.styles} />;
+      case 'timeline':
+        return <TimelineSection props={component.props} styles={component.styles} />;
+      case 'team':
+        return <TeamSection props={component.props} styles={component.styles} />;
+      case 'split-section':
+        return <SplitSectionComponent props={component.props} styles={component.styles} />;
+      case 'comparison-table':
+        return <ComparisonTableSection props={component.props} styles={component.styles} />;
+      case 'tabs':
+        return <TabsSection props={component.props} styles={component.styles} />;
+      case 'marquee':
+        return <MarqueeSection props={component.props} styles={component.styles} />;
+      case 'contact-form':
+        return <ContactFormSection props={component.props} styles={component.styles} />;
       default:
         return null;
     }
