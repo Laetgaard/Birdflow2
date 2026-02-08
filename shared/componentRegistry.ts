@@ -290,33 +290,33 @@ export const animationPresets = {
 export const editableTextFields: Record<ComponentType, string[]> = {
   'hero': ['styledTitle', 'styledSubtitle', 'styledDescription', 'buttonText'],
   'image-slider': [],
-  'text-image': ['title', 'description'],
-  'cta': ['title', 'description', 'buttonText'],
-  'features': ['title', 'subtitle'],
-  'testimonials': ['title'],
+  'text-image': ['styledTitle', 'styledDescription'],
+  'cta': ['styledTitle', 'styledDescription', 'buttonText'],
+  'features': ['styledTitle', 'styledSubtitle'],
+  'testimonials': ['styledTitle'],
   'footer': ['title'],
   'header': ['title'],
   'product-grid': ['title'],
   'booking': ['title', 'subtitle'],
-  'gallery': ['title', 'description'],
-  'pricing-table': ['title', 'subtitle'],
-  'faq': ['title', 'subtitle'],
-  'stats-counter': ['title', 'subtitle'],
-  'contact-form': ['title', 'description', 'buttonText'],
-  'video-embed': ['title', 'description'],
+  'gallery': ['styledTitle', 'styledDescription'],
+  'pricing-table': ['styledTitle', 'styledSubtitle'],
+  'faq': ['styledTitle', 'styledSubtitle'],
+  'stats-counter': ['styledTitle', 'styledSubtitle'],
+  'contact-form': ['styledTitle', 'styledDescription', 'buttonText'],
+  'video-embed': ['styledTitle', 'styledDescription'],
   'divider': [],
   'spacer': [],
-  'newsletter': ['title', 'subtitle', 'buttonText', 'successMessage'],
+  'newsletter': ['styledTitle', 'styledSubtitle', 'buttonText', 'successMessage'],
   'before-after': ['title', 'beforeLabel', 'afterLabel'],
-  'logo-cloud': ['title', 'subtitle'],
+  'logo-cloud': ['styledTitle', 'styledSubtitle'],
   'marquee': [],
-  'tabs': ['title'],
-  'comparison-table': ['title', 'subtitle'],
-  'split-section': ['title', 'subtitle', 'description', 'buttonText'],
+  'tabs': ['styledTitle'],
+  'comparison-table': ['styledTitle', 'styledSubtitle'],
+  'split-section': ['styledTitle', 'styledSubtitle', 'styledDescription', 'buttonText'],
   'rich-text': [],
-  'team': ['title', 'subtitle'],
-  'timeline': ['title', 'subtitle'],
-  'services': ['title', 'subtitle', 'description'],
+  'team': ['styledTitle', 'styledSubtitle'],
+  'timeline': ['styledTitle', 'styledSubtitle'],
+  'services': ['styledTitle', 'styledSubtitle', 'styledDescription'],
   'container': [],
 };
 
@@ -578,6 +578,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Text + Image',
     icon: 'type',
     defaultProps: {
+      styledTitle: { text: 'Our Story' },
+      styledDescription: { text: 'We are passionate about creating exceptional digital experiences that help businesses grow and succeed in the modern world.' },
       title: 'Our Story',
       description: 'We are passionate about creating exceptional digital experiences that help businesses grow and succeed in the modern world.',
       imageUrl: 'https://images.unsplash.com/photo-1553877522-43269d4ea984?w=600',
@@ -589,8 +591,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       padding: '0',
     },
     fields: [
-      { key: 'title', label: 'Heading', type: 'text', group: 'content' },
-      { key: 'description', label: 'Body Text', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Heading', type: 'styled-text', group: 'content' },
+      { key: 'styledDescription', label: 'Body Text', type: 'styled-text', group: 'content' },
       { key: 'imageUrl', label: 'Image', type: 'image', group: 'content' },
       { key: 'imageSide', label: 'Image Side', type: 'select', group: 'content', options: ['left', 'right'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
@@ -604,6 +606,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Call to Action',
     icon: 'mouse-pointer',
     defaultProps: {
+      styledTitle: { text: 'Ready to Get Started?' },
+      styledDescription: { text: 'Join thousands of satisfied customers and transform your business today.' },
       title: 'Ready to Get Started?',
       description: 'Join thousands of satisfied customers and transform your business today.',
       buttonText: 'Start Free Trial',
@@ -617,8 +621,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       buttonHoverColor: '#e5e7eb',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'buttonLink', label: 'Button URL', type: 'text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
@@ -634,6 +638,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Features Grid',
     icon: 'layout',
     defaultProps: {
+      styledTitle: { text: 'Our Features' },
+      styledSubtitle: { text: 'Everything you need to succeed' },
       title: 'Our Features',
       subtitle: 'Everything you need to succeed',
       items: [
@@ -648,8 +654,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       padding: '0',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'items', label: 'Feature Items', type: 'items', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -662,6 +668,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Testimonials',
     icon: 'user',
     defaultProps: {
+      styledTitle: { text: 'What Our Customers Say' },
       title: 'What Our Customers Say',
       items: [
         { id: '1', title: 'John Doe', description: 'This platform transformed our business!', imageUrl: '' },
@@ -674,7 +681,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       padding: '0',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
       { key: 'items', label: 'Testimonials', type: 'items', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -801,6 +808,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Image Gallery',
     icon: 'grid',
     defaultProps: {
+      styledTitle: { text: 'Our Gallery' },
+      styledDescription: { text: 'Explore our collection' },
       title: 'Our Gallery',
       description: 'Explore our collection',
       images: [
@@ -820,8 +829,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       borderRadius: '8px',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'images', label: 'Images', type: 'image-array', group: 'content' },
       { key: 'columns', label: 'Columns', type: 'select', group: 'content', options: ['2', '3', '4'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
@@ -835,6 +844,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Pricing Table',
     icon: 'dollar-sign',
     defaultProps: {
+      styledTitle: { text: 'Simple, Transparent Pricing' },
+      styledSubtitle: { text: 'Choose the plan that works for you' },
       title: 'Simple, Transparent Pricing',
       subtitle: 'Choose the plan that works for you',
       items: [
@@ -850,8 +861,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       cardStyle: 'elevated',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'items', label: 'Pricing Plans', type: 'items', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -864,6 +875,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'FAQ Accordion',
     icon: 'help-circle',
     defaultProps: {
+      styledTitle: { text: 'Frequently Asked Questions' },
+      styledSubtitle: { text: 'Got questions? We have answers.' },
       title: 'Frequently Asked Questions',
       subtitle: 'Got questions? We have answers.',
       items: [
@@ -878,8 +891,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       padding: '0',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'items', label: 'FAQ Items', type: 'items', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -892,6 +905,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Stats Counter',
     icon: 'bar-chart',
     defaultProps: {
+      styledTitle: { text: 'Our Impact' },
+      styledSubtitle: { text: 'Numbers that speak for themselves' },
       title: 'Our Impact',
       subtitle: 'Numbers that speak for themselves',
       stats: [
@@ -907,8 +922,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       padding: '0',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
@@ -920,6 +935,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Contact Form',
     icon: 'mail',
     defaultProps: {
+      styledTitle: { text: 'Get in Touch' },
+      styledDescription: { text: 'Fill out the form below and we\'ll get back to you within 24 hours.' },
       title: 'Get in Touch',
       description: 'Fill out the form below and we\'ll get back to you within 24 hours.',
       buttonText: 'Send Message',
@@ -936,8 +953,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       accentColor: '#4f46e5',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -950,6 +967,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Video Embed',
     icon: 'play-circle',
     defaultProps: {
+      styledTitle: { text: 'Watch Our Story' },
+      styledDescription: { text: 'Learn more about what we do' },
       title: 'Watch Our Story',
       description: 'Learn more about what we do',
       videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
@@ -962,8 +981,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       borderRadius: '12px',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'videoUrl', label: 'Video URL', type: 'text', group: 'content', placeholder: 'https://youtube.com/watch?v=...' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -1011,6 +1030,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Newsletter Signup',
     icon: 'mail',
     defaultProps: {
+      styledTitle: { text: 'Subscribe to Our Newsletter' },
+      styledSubtitle: { text: 'Get the latest updates and exclusive offers delivered to your inbox.' },
       title: 'Subscribe to Our Newsletter',
       subtitle: 'Get the latest updates and exclusive offers delivered to your inbox.',
       buttonText: 'Subscribe',
@@ -1029,8 +1050,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'placeholder', label: 'Input Placeholder', type: 'text', group: 'content' },
       { key: 'successMessage', label: 'Success Message', type: 'textarea', group: 'content' },
@@ -1081,6 +1102,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Logo Cloud',
     icon: 'grid-3x3',
     defaultProps: {
+      styledTitle: { text: 'Trusted by leading companies' },
+      styledSubtitle: { text: 'Join thousands of satisfied customers worldwide' },
       title: 'Trusted by leading companies',
       subtitle: 'Join thousands of satisfied customers worldwide',
       logos: [
@@ -1103,8 +1126,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'variant', label: 'Layout', type: 'select', group: 'content', options: ['grid', 'row', 'marquee'] },
       { key: 'grayscale', label: 'Grayscale Logos', type: 'select', group: 'style', options: ['true', 'false'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
@@ -1156,6 +1179,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Tabs',
     icon: 'folder',
     defaultProps: {
+      styledTitle: { text: 'Explore Our Solutions' },
       title: 'Explore Our Solutions',
       tabs: [
         { id: '1', title: 'For Businesses', content: 'Powerful tools designed for enterprise-level operations with advanced analytics and team collaboration.', icon: 'building', imageUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800' },
@@ -1175,7 +1199,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
-      { key: 'title', label: 'Section Title', type: 'text', group: 'content' },
+      { key: 'styledTitle', label: 'Section Title', type: 'styled-text', group: 'content' },
       { key: 'variant', label: 'Tab Style', type: 'select', group: 'content', options: ['horizontal', 'vertical', 'pills', 'underlined'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -1189,6 +1213,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Comparison Table',
     icon: 'table',
     defaultProps: {
+      styledTitle: { text: 'Compare Plans' },
+      styledSubtitle: { text: 'Choose the perfect plan for your needs' },
       title: 'Compare Plans',
       subtitle: 'Choose the perfect plan for your needs',
       tableColumns: [
@@ -1215,8 +1241,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'accentColor', label: 'Highlight Color', type: 'color', group: 'style' },
@@ -1229,6 +1255,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Split Section',
     icon: 'columns',
     defaultProps: {
+      styledTitle: { text: 'Transform Your Workflow' },
+      styledSubtitle: { text: 'Powerful Features' },
+      styledDescription: { text: 'Our platform combines cutting-edge technology with intuitive design to help you achieve more in less time. Experience the difference that smart tools can make.' },
       title: 'Transform Your Workflow',
       subtitle: 'Powerful Features',
       description: 'Our platform combines cutting-edge technology with intuitive design to help you achieve more in less time. Experience the difference that smart tools can make.',
@@ -1254,9 +1283,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle/Eyebrow', type: 'text', group: 'content' },
-      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle/Eyebrow', type: 'styled-text', group: 'content' },
+      { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'imageUrl', label: 'Image', type: 'image', group: 'content' },
       { key: 'imageSide', label: 'Image Side', type: 'select', group: 'content', options: ['left', 'right'] },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
@@ -1304,6 +1333,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Team',
     icon: 'users',
     defaultProps: {
+      styledTitle: { text: 'Meet Our Team' },
+      styledSubtitle: { text: 'The people behind our success' },
       title: 'Meet Our Team',
       subtitle: 'The people behind our success',
       members: [
@@ -1327,8 +1358,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'variant', label: 'Layout', type: 'select', group: 'content', options: ['grid', 'carousel', 'cards', 'minimal'] },
       { key: 'columns', label: 'Columns', type: 'select', group: 'content', options: ['2', '3', '4'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
@@ -1344,6 +1375,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Timeline',
     icon: 'git-branch',
     defaultProps: {
+      styledTitle: { text: 'Our Journey' },
+      styledSubtitle: { text: 'Key milestones that shaped our company' },
       title: 'Our Journey',
       subtitle: 'Key milestones that shaped our company',
       items: [
@@ -1366,8 +1399,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'variant', label: 'Layout', type: 'select', group: 'content', options: ['alternating', 'left', 'right', 'centered'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -1381,6 +1414,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Services',
     icon: 'briefcase',
     defaultProps: {
+      styledTitle: { text: 'Our Services' },
+      styledSubtitle: { text: 'What we offer' },
+      styledDescription: { text: 'Comprehensive solutions tailored to your business needs' },
       title: 'Our Services',
       subtitle: 'What we offer',
       description: 'Comprehensive solutions tailored to your business needs',
@@ -1405,9 +1441,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
-      { key: 'title', label: 'Title', type: 'text', group: 'content' },
-      { key: 'subtitle', label: 'Subtitle', type: 'text', group: 'content' },
-      { key: 'description', label: 'Description', type: 'textarea', group: 'content' },
+      { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
+      { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
+      { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'variant', label: 'Layout', type: 'select', group: 'content', options: ['cards', 'list', 'icon-boxes', 'alternating', 'grid'] },
       { key: 'columns', label: 'Columns', type: 'select', group: 'content', options: ['2', '3', '4'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },

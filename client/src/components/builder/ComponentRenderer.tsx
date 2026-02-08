@@ -537,11 +537,17 @@ function EditableText({
 
 function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: boolean): React.CSSProperties {
   return {
-    backgroundColor: styles.backgroundColor,
+    backgroundColor: styles.backgroundGradient && styles.backgroundGradient !== 'none'
+      ? undefined
+      : styles.backgroundColor,
     color: styles.textColor,
     padding: styles.padding || '0',
     cursor: isPreview ? 'default' : 'pointer',
     position: 'relative' as const,
+    fontFamily: styles.fontFamily || undefined,
+    ...(styles.backgroundGradient && styles.backgroundGradient !== 'none' && {
+      background: styles.backgroundGradient,
+    }),
     ...(styles.letterSpacing && { letterSpacing: styles.letterSpacing }),
     ...(styles.lineHeight && { lineHeight: styles.lineHeight }),
     ...(styles.textTransform && styles.textTransform !== 'none' && { textTransform: styles.textTransform }),
@@ -552,6 +558,11 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
     }),
     ...(styles.borderRadius && { borderRadius: styles.borderRadius }),
     ...(styles.boxShadow && styles.boxShadow !== 'none' && { boxShadow: styles.boxShadow }),
+    ...(styles.opacity && { opacity: parseFloat(styles.opacity) }),
+    ...(styles.margin && { margin: styles.margin }),
+    ...(styles.minHeight && { minHeight: styles.minHeight }),
+    ...(styles.maxWidth && { maxWidth: styles.maxWidth }),
+    ...(styles.gap && { gap: styles.gap }),
   };
 }
 
