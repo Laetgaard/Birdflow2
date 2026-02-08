@@ -2146,17 +2146,22 @@ type ComponentProps = {
 };
 
 // Helper to resolve StyledText props - returns text and inline style overrides
-function getStyledText(styledProp: StyledText | undefined, fallbackText: string | undefined): { text: string; style: React.CSSProperties } {
+// Matches builder's getStyledTextValue() / getStyledTextStyle() behavior
+function getStyledText(styledProp: StyledText | string | undefined, fallbackText: string | undefined): { text: string; style: React.CSSProperties } {
+  // Handle plain string (old data or direct string values)
+  if (typeof styledProp === 'string') {
+    return { text: styledProp || fallbackText || '', style: {} };
+  }
   if (styledProp && typeof styledProp === 'object' && styledProp.text) {
     const style: React.CSSProperties = {};
     if (styledProp.fontFamily) style.fontFamily = styledProp.fontFamily;
     if (styledProp.fontSize) style.fontSize = styledProp.fontSize;
-    if (styledProp.fontWeight) style.fontWeight = parseInt(styledProp.fontWeight) || styledProp.fontWeight;
+    if (styledProp.fontWeight) style.fontWeight = styledProp.fontWeight;
     if (styledProp.color) style.color = styledProp.color;
-    if (styledProp.textAlign) style.textAlign = styledProp.textAlign;
+    if (styledProp.textAlign) style.textAlign = styledProp.textAlign as any;
     if (styledProp.letterSpacing) style.letterSpacing = styledProp.letterSpacing;
     if (styledProp.lineHeight) style.lineHeight = styledProp.lineHeight;
-    if (styledProp.textTransform && styledProp.textTransform !== 'none') style.textTransform = styledProp.textTransform;
+    if (styledProp.textTransform && styledProp.textTransform !== 'none') style.textTransform = styledProp.textTransform as any;
     return { text: styledProp.text, style };
   }
   return { text: fallbackText || '', style: {} };
@@ -2408,7 +2413,7 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
   return {
     backgroundColor: styles.backgroundGradient && styles.backgroundGradient !== 'none'
       ? undefined
-      : (styles.backgroundColor || theme.backgroundColor),
+      : (styles.backgroundColor || undefined),
     color: styles.textColor,
     padding: styles.padding || '0',
     position: 'relative' as const,
@@ -5479,7 +5484,90 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
 `;
 }
 
-export function generateRootLayout(siteName: string, websiteId: string): string {
+// Extract all font family names used in a builder state
+function extractUsedFonts(builderState: any): string[] {
+  const fontNames = new Set<string>();
+
+  // System fonts that don't need Google Fonts loading
+  const systemFonts = new Set(['system-ui', 'sans-serif', 'serif', 'monospace', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Arial', 'Helvetica']);
+
+  function extractFontName(fontFamily: string): string | null {
+    if (!fontFamily) return null;
+    // Take the first font in the stack (before the comma), strip quotes
+    const primary = fontFamily.split(',')[0].trim().replace(/['"]/g, '');
+    if (systemFonts.has(primary)) return null;
+    return primary;
+  }
+
+  function scanObject(obj: any): void {
+    if (!obj || typeof obj !== 'object') return;
+
+    if (Array.isArray(obj)) {
+      for (const item of obj) scanObject(item);
+      return;
+    }
+
+    // Check fontFamily in styles and styledText props
+    if (obj.fontFamily && typeof obj.fontFamily === 'string') {
+      const name = extractFontName(obj.fontFamily);
+      if (name) fontNames.add(name);
+    }
+
+    // Recurse into all object values
+    for (const value of Object.values(obj)) {
+      if (value && typeof value === 'object') scanObject(value);
+    }
+  }
+
+  // Scan globalStyles
+  if (builderState.globalStyles) scanObject(builderState.globalStyles);
+  // Scan all pages and their components
+  if (builderState.pages) scanObject(builderState.pages);
+
+  // Always include Inter as the default font
+  fontNames.add('Inter');
+
+  return Array.from(fontNames).sort();
+}
+
+// Build Google Fonts URL for specific font names
+function buildGoogleFontsUrl(fontNames: string[]): string {
+  // Map of font names to their weight specs
+  const fontWeightSpecs: Record<string, string> = {
+    'Abril Fatface': '',
+    'Anton': '',
+    'Bebas Neue': '',
+    'Righteous': '',
+    'Space Mono': ':wght@400;700',
+    'Cardo': ':wght@400;700',
+    'PT Serif': ':wght@400;700',
+    'Libre Baskerville': ':wght@400;700',
+    'Lato': ':wght@400;700;900',
+    'Merriweather': ':wght@400;700;900',
+    'Roboto': ':wght@400;500;700',
+    'Manrope': ':wght@400;500;600;700;800',
+    'Montserrat': ':wght@400;500;600;700;800',
+    'Plus Jakarta Sans': ':wght@400;500;600;700;800',
+    'Big Shoulders Display': ':wght@400;500;600;700;800',
+    'Inter': ':wght@300;400;500;600;700;800;900',
+    'Crimson Text': ':wght@400;600;700',
+  };
+  const defaultWeights = ':wght@400;500;600;700';
+
+  const families = fontNames.map(name => {
+    const urlName = name.replace(/ /g, '+');
+    const weights = fontWeightSpecs[name] ?? defaultWeights;
+    return `family=${urlName}${weights}`;
+  });
+
+  return `https://fonts.googleapis.com/css2?${families.join('&')}&display=swap`;
+}
+
+export function generateRootLayout(siteName: string, websiteId: string, builderState?: any): string {
+  // Dynamically extract only the fonts actually used in the site
+  const usedFonts = builderState ? extractUsedFonts(builderState) : ['Inter'];
+  const fontsUrl = buildGoogleFontsUrl(usedFonts);
+
   return `import type { Metadata } from 'next';
 import './globals.css';
 import { WebsiteProvider } from '@/components/WebsiteProvider';
@@ -5499,7 +5587,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Anton&family=Archivo:wght@400;500;600;700&family=Barlow:wght@400;500;600;700&family=Bebas+Neue&family=Big+Shoulders+Display:wght@400;500;600;700;800&family=Bitter:wght@400;500;600;700&family=Cabin:wght@400;500;600;700&family=Cardo:wght@400;700&family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:wght@400;500;600;700&family=Crimson+Text:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&family=EB+Garamond:wght@400;500;600;700&family=Exo+2:wght@400;500;600;700&family=Figtree:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&family=Frank+Ruhl+Libre:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Josefin+Sans:wght@400;500;600;700&family=Karla:wght@400;500;600;700&family=Lato:wght@400;700;900&family=Lexend:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&family=Lora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Merriweather:wght@400;700;900&family=Montserrat:wght@400;500;600;700;800&family=Mulish:wght@400;500;600;700&family=Nunito+Sans:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&family=Oswald:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Overpass:wght@400;500;600;700&family=PT+Serif:wght@400;700&family=Playfair+Display:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Raleway:wght@400;500;600;700&family=Righteous&family=Roboto+Mono:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Rubik:wght@400;500;600;700&family=Sora:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600;700&family=Source+Serif+4:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Spectral:wght@400;500;600;700&family=Teko:wght@400;500;600;700&family=Urbanist:wght@400;500;600;700&family=Vollkorn:wght@400;500;600;700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        <link href="${fontsUrl}" rel="stylesheet" />
       </head>
       <body>
         <WebsiteProvider>
@@ -5518,17 +5606,27 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 export function generateGlobalsCss(theme?: ThemeConfig): string {
-  const fontFamily = theme?.fontFamily || "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const fontFamily = theme?.fontFamily || "Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const primaryColor = theme?.primaryColor || '#4f46e5';
   const secondaryColor = theme?.secondaryColor || '#22c55e';
   const backgroundColor = theme?.backgroundColor || '#ffffff';
   const textColor = theme?.textColor || '#1f2937';
   const borderRadius = theme?.borderRadius || '8px';
   
-  return `* {
+  return `/* CSS reset matching Tailwind preflight */
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  border-width: 0;
+  border-style: solid;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  -moz-tab-size: 4;
+  tab-size: 4;
 }
 
 :root {
@@ -5545,6 +5643,24 @@ body {
   line-height: 1.5;
   background-color: var(--background-color);
   color: var(--text-color);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img, svg, video, canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+input, button, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-size: inherit;
+  font-weight: inherit;
 }
 
 a {
@@ -5590,23 +5706,23 @@ a {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-/* Animation keyframes for component entrance animations */
+/* Animation keyframes for component entrance animations - matched to builder */
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes slideDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes slideLeft { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes slideRight { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes zoomIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
-@keyframes zoomOut { from { opacity: 0; transform: scale(1.2); } to { opacity: 1; transform: scale(1); } }
-@keyframes bounce { 
+@keyframes zoomIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes zoomOut { from { opacity: 0; transform: scale(1.1); } to { opacity: 1; transform: scale(1); } }
+@keyframes bounce {
   0% { opacity: 0; transform: translateY(30px); }
   60% { opacity: 1; transform: translateY(-10px); }
   80% { transform: translateY(5px); }
   100% { transform: translateY(0); }
 }
-@keyframes flip { 
-  from { opacity: 0; transform: perspective(400px) rotateX(90deg); } 
-  to { opacity: 1; transform: perspective(400px) rotateX(0); } 
+@keyframes flip {
+  from { opacity: 0; transform: perspective(400px) rotateX(90deg); }
+  to { opacity: 1; transform: perspective(400px) rotateX(0); }
 }
 `;
 }
