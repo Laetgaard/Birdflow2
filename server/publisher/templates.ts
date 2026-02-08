@@ -2080,6 +2080,18 @@ type FormField = {
   placeholder?: string;
 };
 
+type StyledText = {
+  text: string;
+  fontFamily?: string;
+  fontSize?: string;
+  fontWeight?: string;
+  color?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  letterSpacing?: string;
+  lineHeight?: string;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+};
+
 type ComponentProps = {
   title?: string;
   subtitle?: string;
@@ -2104,8 +2116,51 @@ type ComponentProps = {
   showAddToCart?: boolean;
   height?: string;
   style?: string;
+  styledTitle?: StyledText;
+  styledSubtitle?: StyledText;
+  styledDescription?: StyledText;
+  content?: string;
+  maxWidth?: string;
+  variant?: string;
+  grayscale?: boolean | string;
+  logos?: ComponentItem[];
+  separator?: string;
+  direction?: string;
+  beforeImage?: ImageValue;
+  afterImage?: ImageValue;
+  beforeLabel?: string;
+  afterLabel?: string;
+  sliderPosition?: number;
+  placeholder?: string;
+  successMessage?: string;
+  members?: ComponentItem[];
+  services?: ComponentItem[];
+  tableColumns?: ComponentItem[];
+  features?: ComponentItem[];
+  bullets?: (string | { text: string })[];
+  tabs?: ComponentItem[];
+  showCart?: boolean | string;
+  gap?: string;
+  children?: string[];
   [key: string]: any; // Allow additional properties
 };
+
+// Helper to resolve StyledText props - returns text and inline style overrides
+function getStyledText(styledProp: StyledText | undefined, fallbackText: string | undefined): { text: string; style: React.CSSProperties } {
+  if (styledProp && typeof styledProp === 'object' && styledProp.text) {
+    const style: React.CSSProperties = {};
+    if (styledProp.fontFamily) style.fontFamily = styledProp.fontFamily;
+    if (styledProp.fontSize) style.fontSize = styledProp.fontSize;
+    if (styledProp.fontWeight) style.fontWeight = parseInt(styledProp.fontWeight) || styledProp.fontWeight;
+    if (styledProp.color) style.color = styledProp.color;
+    if (styledProp.textAlign) style.textAlign = styledProp.textAlign;
+    if (styledProp.letterSpacing) style.letterSpacing = styledProp.letterSpacing;
+    if (styledProp.lineHeight) style.lineHeight = styledProp.lineHeight;
+    if (styledProp.textTransform && styledProp.textTransform !== 'none') style.textTransform = styledProp.textTransform;
+    return { text: styledProp.text, style };
+  }
+  return { text: fallbackText || '', style: {} };
+}
 
 function getImageUrl(image: ImageValue | undefined): string {
   if (!image) return '';
@@ -2351,10 +2406,21 @@ type ComponentData = {
 
 function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
   return {
-    backgroundColor: styles.backgroundColor || theme.backgroundColor,
+    backgroundColor: styles.backgroundGradient && styles.backgroundGradient !== 'none'
+      ? undefined
+      : (styles.backgroundColor || theme.backgroundColor),
     color: styles.textColor,
     padding: styles.padding || '0',
-    position: 'relative',
+    position: 'relative' as const,
+    fontFamily: styles.fontFamily || undefined,
+    ...(styles.backgroundGradient && styles.backgroundGradient !== 'none' && {
+      background: styles.backgroundGradient,
+    }),
+    ...(styles.backgroundImage && {
+      backgroundImage: styles.backgroundImage,
+      backgroundSize: styles.backgroundSize || 'cover',
+      backgroundPosition: styles.backgroundPosition || 'center',
+    }),
     ...(styles.letterSpacing && { letterSpacing: styles.letterSpacing }),
     ...(styles.lineHeight && { lineHeight: styles.lineHeight }),
     ...(styles.textTransform && styles.textTransform !== 'none' && { textTransform: styles.textTransform }),
@@ -2365,6 +2431,11 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
     }),
     ...(styles.borderRadius && { borderRadius: styles.borderRadius }),
     ...(styles.boxShadow && styles.boxShadow !== 'none' && { boxShadow: styles.boxShadow }),
+    ...(styles.opacity && { opacity: parseFloat(styles.opacity) }),
+    ...(styles.margin && { margin: styles.margin }),
+    ...(styles.minHeight && { minHeight: styles.minHeight }),
+    ...(styles.maxWidth && { maxWidth: styles.maxWidth }),
+    ...(styles.gap && { gap: styles.gap }),
   };
 }
 
@@ -2522,9 +2593,18 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
       {/* Color overlay - sits on top of the background image */}
       <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
       <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 2 }}>
-        <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.1, letterSpacing: '-0.02em' }}>{props.title}</h1>
-        {props.subtitle && <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px', lineHeight: 1.3 }}>{props.subtitle}</p>}
-        {props.description && <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', lineHeight: 1.6, maxWidth: '600px', margin: props.alignment === 'center' ? '0 auto 32px' : '0 0 32px' }}>{props.description}</p>}
+        {(() => {
+          const stTitle = getStyledText(props.styledTitle, props.title);
+          return stTitle.text ? <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.1, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h1> : null;
+        })()}
+        {(() => {
+          const stSub = getStyledText(props.styledSubtitle, props.subtitle);
+          return stSub.text ? <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px', lineHeight: 1.3, ...stSub.style }}>{stSub.text}</p> : null;
+        })()}
+        {(() => {
+          const stDesc = getStyledText(props.styledDescription, props.description);
+          return stDesc.text ? <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', lineHeight: 1.6, maxWidth: '600px', margin: props.alignment === 'center' ? '0 auto 32px' : '0 0 32px', ...stDesc.style }}>{stDesc.text}</p> : null;
+        })()}
         {props.buttonText && (
           <HoverButtonComponent
             backgroundColor={buttonColor}
@@ -2563,13 +2643,15 @@ function TextImageSection({ props, styles }: { props: ComponentProps; styles: Co
   const fontFamily = resolveFontFamily(styles);
   const isImageLeft = props.imageSide === 'left';
   const imageUrl = getImageUrl(props.imageUrl);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stDesc = getStyledText(props.styledDescription, props.description);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div style={{ display: 'flex', gap: '48px', alignItems: 'center', flexDirection: isImageLeft ? 'row-reverse' : 'row', flexWrap: 'wrap', maxWidth: '1000px', margin: '0 auto' }}>
         <div style={{ flex: 1, minWidth: '300px' }}>
-          <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
-          <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8 }}>{props.description}</p>
+          {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+          {stDesc.text && <p style={{ fontSize: styles.bodyFontSize || '18px', lineHeight: 1.7, opacity: 0.8, ...stDesc.style }}>{stDesc.text}</p>}
           {props.buttonText && (
             <HoverButtonComponent
               backgroundColor={resolveButtonColor(styles)}
@@ -2598,12 +2680,14 @@ function CTASection({ props, styles }: { props: ComponentProps; styles: Componen
   const buttonColor = resolveButtonColor(styles);
   const buttonHoverColor = (styles.buttonHoverColor as string) || '#4338ca';
   const buttonTextColor = getContrastColor(buttonColor);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stDesc = getStyledText(props.styledDescription, props.description);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
-        <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
-        <p style={{ fontSize: '18px', opacity: 0.9, marginBottom: '32px', lineHeight: 1.6 }}>{props.description}</p>
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stDesc.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.9, marginBottom: '32px', lineHeight: 1.6, ...stDesc.style }}>{stDesc.text}</p>}
         {props.buttonText && (
           <HoverButtonComponent
             backgroundColor={buttonColor}
@@ -2625,12 +2709,14 @@ function FeaturesSection({ props, styles }: { props: ComponentProps; styles: Com
   const accentColor = resolveAccentColor(styles);
   const fontFamily = resolveFontFamily(styles);
   const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div ref={containerRef} style={{ maxWidth: '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
-        <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
-        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '32px' }}>
           {props.items?.map((item, index) => (
             <HoverCard key={item.id} accentColor={accentColor} style={{
@@ -2670,10 +2756,12 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
   const isDarkBg = bgLuminance < 0.5;
   const cardBg = isDarkBg ? 'rgba(255,255,255,0.08)' : '#f8f9fa';
 
+  const stTitle = getStyledText(props.styledTitle, props.title);
+
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div ref={containerRef} style={{ maxWidth: '900px', margin: '0 auto', textAlign: 'center' }}>
-        <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '48px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '48px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
           {props.items?.map((item, index) => (
             <HoverCard key={item.id} accentColor={accentColor} style={{
@@ -3237,14 +3325,17 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
 
 function GallerySection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
   const images = props.images || [];
   const columns = props.columns || 2;
-  
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stDesc = getStyledText(props.styledDescription, props.description);
+
   return (
-    <section style={{ ...baseStyle, borderRadius: styles.borderRadius }}>
+    <section style={{ ...baseStyle, fontFamily, borderRadius: styles.borderRadius }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
-        {props.description && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '32px', textAlign: 'center' }}>{props.description}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stDesc.text && <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.8, marginBottom: '32px', textAlign: 'center', ...stDesc.style }}>{stDesc.text}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: styles.gap || '16px' }}>
           {images.map((image: ImageValue, index: number) => {
             const imageUrl = getImageUrl(image);
@@ -3264,12 +3355,14 @@ function PricingTableSection({ props, styles }: { props: ComponentProps; styles:
   const fontFamily = resolveFontFamily(styles);
   const items = props.items || [];
   const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div ref={containerRef} style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.8, marginBottom: '48px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
           {items.map((item: any, index: number) => (
             <HoverCard key={item.id || index} accentColor={accentColor} style={{
@@ -3306,12 +3399,14 @@ function FAQSection({ props, styles }: { props: ComponentProps; styles: Componen
   const fontFamily = resolveFontFamily(styles);
   const items = props.items || [];
   const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div ref={containerRef} style={{ maxWidth: '800px', margin: '0 auto' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '40px', textAlign: 'center', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.8, marginBottom: '40px', textAlign: 'center', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '12px' }}>
           {items.map((item: any, index: number) => (
             <details key={item.id || index} style={{
@@ -3338,12 +3433,14 @@ function StatsCounterSection({ props, styles }: { props: ComponentProps; styles:
   const fontFamily = resolveFontFamily(styles);
   const stats = (props as any).stats || [];
   const { containerRef, getItemStyle } = useStaggerAnimation(stats.length);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div ref={containerRef} style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.8, marginBottom: '48px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '32px' }}>
           {stats.map((stat: any, index: number) => (
             <div key={stat.id || index} style={getItemStyle(index)}>
@@ -3382,8 +3479,8 @@ function VideoEmbedSection({ props, styles }: { props: ComponentProps; styles: C
   return (
     <section style={{ ...baseStyle, borderRadius: styles.borderRadius }}>
       <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
-        {props.title && <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>{props.title}</h2>}
-        {props.description && <p style={{ fontSize: '16px', opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>}
+        {(() => { const st = getStyledText(props.styledTitle, props.title); return st.text ? <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', ...st.style }}>{st.text}</h2> : null; })()}
+        {(() => { const st = getStyledText(props.styledDescription, props.description); return st.text ? <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.8, marginBottom: '32px', ...st.style }}>{st.text}</p> : null; })()}
         {videoUrl ? (
           <div style={{ aspectRatio: '16/9', borderRadius: styles.borderRadius || '12px', overflow: 'hidden' }}>
             <iframe 
@@ -3460,23 +3557,26 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
   const buttonTextColor = buttonColor && /^#[a-fA-F0-9]{6}$/.test(buttonColor) ? 
     (parseInt(buttonColor.slice(1), 16) > 0xffffff/2 ? '#000000' : '#ffffff') : '#ffffff';
 
+  const fontFamily = resolveFontFamily(styles);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
+
   return (
     <section
       style={{
-        backgroundColor: styles.backgroundColor || '#f8f9fa',
-        padding: styles.padding || '60px 24px',
-        color: textColor,
+        ...getBaseStyle(styles),
+        fontFamily,
       }}
     >
       <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-        {props.title && (
-          <h2 style={{ fontSize: '32px', fontWeight: '700', marginBottom: '16px', color: textColor }}>
-            {props.title}
+        {stTitle.text && (
+          <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: '700', marginBottom: '16px', color: textColor, ...stTitle.style }}>
+            {stTitle.text}
           </h2>
         )}
-        {props.subtitle && (
-          <p style={{ fontSize: '18px', opacity: 0.8, marginBottom: '32px', color: textColor }}>
-            {props.subtitle}
+        {stSub.text && (
+          <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.8, marginBottom: '32px', color: textColor, ...stSub.style }}>
+            {stSub.text}
           </p>
         )}
         {submitted ? (
@@ -3531,12 +3631,14 @@ function ServicesSection({ props, styles }: { props: ComponentProps; styles: Com
   const fontFamily = resolveFontFamily(styles);
   const items = props.items || [];
   const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div ref={containerRef} style={{ maxWidth: '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
           {items.map((item, index) => (
             <HoverCard key={item.id} accentColor={accentColor} style={{
@@ -3567,11 +3669,12 @@ function TimelineSection({ props, styles }: { props: ComponentProps; styles: Com
   const fontFamily = resolveFontFamily(styles);
   const items = props.items || [];
   const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+  const stTitle = getStyledText(props.styledTitle, props.title);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div ref={containerRef} style={{ maxWidth: '700px', margin: '0 auto' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '48px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '48px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         <div style={{ position: 'relative', paddingLeft: '40px' }}>
           {/* Vertical line */}
           <div style={{ position: 'absolute', left: '15px', top: 0, bottom: 0, width: '2px', backgroundColor: hexToRgba(accentColor, 0.2) }} />
@@ -3601,12 +3704,14 @@ function TeamSection({ props, styles }: { props: ComponentProps; styles: Compone
   const fontFamily = resolveFontFamily(styles);
   const items = props.items || [];
   const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div ref={containerRef} style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '32px' }}>
           {items.map((item, index) => {
             const imageUrl = getImageUrl(item.imageUrl);
@@ -3638,21 +3743,24 @@ function SplitSectionComponent({ props, styles }: { props: ComponentProps; style
   const isImageLeft = layout === 'image-left' || props.imageSide === 'left';
   const imageUrl = getImageUrl(props.imageUrl);
   const bullets: (string | { text: string })[] = (props as any).bullets || [];
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
+  const stDesc = getStyledText(props.styledDescription, props.description);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div style={{ display: 'flex', gap: '60px', alignItems: 'center', flexDirection: isImageLeft ? 'row' : 'row-reverse', flexWrap: 'wrap', maxWidth: '1100px', margin: '0 auto' }}>
         {imageUrl && (
           <div style={{ flex: 1, minWidth: '300px' }}>
-            <img src={imageUrl} alt={props.title || ''} style={{ width: '100%', borderRadius: '16px' }} />
+            <img src={imageUrl} alt={stTitle.text || ''} style={{ width: '100%', borderRadius: '16px' }} />
           </div>
         )}
         <div style={{ flex: 1, minWidth: '300px' }}>
-          {props.subtitle && (
-            <div style={{ fontSize: '14px', fontWeight: 600, color: accentColor, textTransform: 'uppercase' as const, letterSpacing: '0.1em', marginBottom: '16px' }}>{props.subtitle}</div>
+          {stSub.text && (
+            <div style={{ fontSize: '14px', fontWeight: 600, color: accentColor, textTransform: 'uppercase' as const, letterSpacing: '0.1em', marginBottom: '16px', ...stSub.style }}>{stSub.text}</div>
           )}
-          <h2 style={{ fontSize: styles.titleFontSize || '40px', fontWeight: 700, marginBottom: '24px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>
-          <p style={{ fontSize: '18px', lineHeight: 1.7, opacity: 0.8, marginBottom: '32px' }}>{props.description}</p>
+          {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '40px', fontWeight: 700, marginBottom: '24px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+          {stDesc.text && <p style={{ fontSize: styles.bodyFontSize || '18px', lineHeight: 1.7, opacity: 0.8, marginBottom: '32px', ...stDesc.style }}>{stDesc.text}</p>}
           {/* Support both bullets (template format) and items (generic format) */}
           {bullets.length > 0 && (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
@@ -3700,12 +3808,14 @@ function ComparisonTableSection({ props, styles }: { props: ComponentProps; styl
   const fontFamily = resolveFontFamily(styles);
   const tableColumns = (props as any).tableColumns || [];
   const features = (props as any).features || [];
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
-        {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7, marginBottom: '48px', textAlign: 'center', lineHeight: 1.5 }}>{props.subtitle}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.7, marginBottom: '48px', textAlign: 'center', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
             <thead>
@@ -3741,11 +3851,12 @@ function TabsSection({ props, styles }: { props: ComponentProps; styles: Compone
   const fontFamily = resolveFontFamily(styles);
   const items = props.items || [];
   const [activeTab, setActiveTab] = useState(0);
+  const stTitle = getStyledText(props.styledTitle, props.title);
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '32px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '32px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', justifyContent: 'center', flexWrap: 'wrap' }}>
           {items.map((item, index) => (
             <button
@@ -3836,11 +3947,14 @@ function ContactFormSection({ props, styles }: { props: ComponentProps; styles: 
     );
   }
 
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stDesc = getStyledText(props.styledDescription, props.description);
+
   return (
     <section style={{ ...baseStyle, fontFamily }}>
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-        {props.title && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em' }}>{props.title}</h2>}
-        {props.description && <p style={{ fontSize: '16px', opacity: 0.7, marginBottom: '32px', textAlign: 'center', lineHeight: 1.5 }}>{props.description}</p>}
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
+        {stDesc.text && <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.7, marginBottom: '32px', textAlign: 'center', lineHeight: 1.5, ...stDesc.style }}>{stDesc.text}</p>}
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {fields.map((field) => (
             <div key={field.id}>
@@ -4037,6 +4151,105 @@ function BeforeAfterSection({ props, styles }: { props: ComponentProps; styles: 
   );
 }
 
+function LogoCloudSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const logos = props.logos || props.items || [];
+  const isGrayscale = props.grayscale === true || props.grayscale === 'true';
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
+        {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '24px', fontWeight: 600, marginBottom: '8px', lineHeight: 1.3, ...stTitle.style }}>{stTitle.text}</h2>}
+        {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.7, marginBottom: '40px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: '40px' }}>
+          {logos.map((logo: any, index: number) => {
+            const logoUrl = getImageUrl(logo.imageUrl);
+            return logoUrl ? (
+              <img
+                key={logo.id || index}
+                src={logoUrl}
+                alt={logo.name || logo.title || ''}
+                style={{
+                  height: '40px',
+                  maxWidth: '140px',
+                  objectFit: 'contain',
+                  filter: isGrayscale ? 'grayscale(100%) opacity(0.6)' : 'none',
+                  transition: 'filter 0.3s ease',
+                }}
+              />
+            ) : (
+              <span key={logo.id || index} style={{ fontSize: '14px', fontWeight: 500, opacity: 0.5 }}>{logo.name || logo.title}</span>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RichTextSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
+  const accentColor = resolveAccentColor(styles);
+  const content = props.content || '';
+  const maxWidth = props.maxWidth || '720px';
+  const alignment = props.alignment || 'center';
+
+  return (
+    <section style={{ ...baseStyle, fontFamily }}>
+      <div style={{
+        maxWidth,
+        margin: alignment === 'center' ? '0 auto' : alignment === 'right' ? '0 0 0 auto' : '0',
+      }}>
+        <div
+          dangerouslySetInnerHTML={{ __html: content }}
+          style={{
+            fontSize: styles.bodyFontSize || '17px',
+            lineHeight: 1.8,
+            color: styles.textColor || '#374151',
+          }}
+        />
+        <style dangerouslySetInnerHTML={{ __html: \`
+          .rich-text-content h1 { font-size: 2.5em; font-weight: 800; margin: 1em 0 0.5em; line-height: 1.2; }
+          .rich-text-content h2 { font-size: 2em; font-weight: 700; margin: 1em 0 0.5em; line-height: 1.2; }
+          .rich-text-content h3 { font-size: 1.5em; font-weight: 600; margin: 0.8em 0 0.4em; line-height: 1.3; }
+          .rich-text-content p { margin: 0 0 1em; }
+          .rich-text-content blockquote { border-left: 4px solid \${accentColor}; padding: 16px 24px; margin: 24px 0; font-style: italic; opacity: 0.85; background: rgba(0,0,0,0.02); border-radius: 0 8px 8px 0; }
+          .rich-text-content a { color: \${accentColor}; text-decoration: underline; }
+          .rich-text-content ul, .rich-text-content ol { padding-left: 24px; margin: 0 0 1em; }
+          .rich-text-content li { margin-bottom: 0.5em; }
+          .rich-text-content img { max-width: 100%; border-radius: 8px; margin: 16px 0; }
+          .rich-text-content hr { border: none; height: 1px; background: rgba(0,0,0,0.1); margin: 32px 0; }
+        \` }} />
+      </div>
+    </section>
+  );
+}
+
+function ContainerSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const layout = props.layout || 'vertical';
+  const gap = props.gap || styles.gap || '24px';
+  const maxWidth = styles.maxWidth || '1200px';
+
+  const layoutStyles: React.CSSProperties = layout === 'horizontal'
+    ? { display: 'flex', flexDirection: 'row', gap, flexWrap: 'wrap', maxWidth, margin: '0 auto' }
+    : layout.startsWith('grid-')
+    ? { display: 'grid', gridTemplateColumns: \`repeat(\${layout.split('-')[1] || 2}, 1fr)\`, gap, maxWidth, margin: '0 auto' }
+    : { display: 'flex', flexDirection: 'column', gap, maxWidth, margin: '0 auto' };
+
+  return (
+    <section style={{ ...baseStyle }}>
+      <div style={layoutStyles}>
+        {/* Container children are rendered by the parent page */}
+      </div>
+    </section>
+  );
+}
+
 export default function ComponentRenderer({ component, products = [], pages = [] }: { component: ComponentData; products?: any[]; pages?: BuilderPage[] }) {
   const renderComponent = () => {
     switch (component.type) {
@@ -4092,6 +4305,12 @@ export default function ComponentRenderer({ component, products = [], pages = []
         return <MarqueeSection props={component.props} styles={component.styles} />;
       case 'contact-form':
         return <ContactFormSection props={component.props} styles={component.styles} />;
+      case 'logo-cloud':
+        return <LogoCloudSection props={component.props} styles={component.styles} />;
+      case 'rich-text':
+        return <RichTextSection props={component.props} styles={component.styles} />;
+      case 'container':
+        return <ContainerSection props={component.props} styles={component.styles} />;
       default:
         return null;
     }

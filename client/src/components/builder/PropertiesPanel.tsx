@@ -23,6 +23,7 @@ import {
   borderRadiusPresets,
   buttonStylePresets,
   cardStylePresets,
+  gradientPresets,
   type BuilderComponentData,
   type ComponentProps,
   type ComponentStyles,
@@ -1083,6 +1084,36 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Background Gradient Section */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            Baggrundsgradient
+          </h4>
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1">
+              {gradientPresets.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.backgroundGradient === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { backgroundGradient: preset.value } })}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+            {component.styles.backgroundGradient && component.styles.backgroundGradient !== 'none' && (
+              <div
+                className="h-8 rounded-md border"
+                style={{ background: component.styles.backgroundGradient }}
+              />
+            )}
           </div>
         </div>
 
