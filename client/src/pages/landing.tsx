@@ -34,19 +34,6 @@ const stagger = {
 };
 
 /* ─── data ─── */
-const showcaseSites = [
-  { name: "Studio Klip", type: "Frisørsalon", gradient: "from-rose-500 to-pink-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Online booking", "Prisliste", "Galleri"] },
-  { name: "BalanceBody", type: "Yoga & Wellness", gradient: "from-emerald-500 to-teal-600", accent: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300", tags: ["Holdtilmelding", "Booking", "Webshop"] },
-  { name: "FitCoach Mia", type: "Personlig træner", gradient: "from-orange-500 to-amber-600", accent: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", tags: ["Booking", "Programmer", "Betaling"] },
-  { name: "Lyswerk", type: "Stearinlys", gradient: "from-amber-500 to-yellow-600", accent: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300", tags: ["Webshop", "Forsendelse", "Betaling"] },
-  { name: "Foto af Sara", type: "Fotograf", gradient: "from-violet-500 to-purple-600", accent: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", tags: ["Portfolio", "Booking", "Priser"] },
-  { name: "Hundesalon Vuf", type: "Hundefrisør", gradient: "from-cyan-500 to-blue-600", accent: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300", tags: ["Online booking", "Services", "Galleri"] },
-  { name: "Café Hygge", type: "Café & Bageri", gradient: "from-rose-500 to-red-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Menukort", "Catering", "Bestilling"] },
-  { name: "Klinik Sund", type: "Fysioterapi", gradient: "from-blue-500 to-indigo-600", accent: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", tags: ["Booking", "Behandlinger", "Kontakt"] },
-  { name: "Kreativ Studio", type: "Kunsthåndværk", gradient: "from-fuchsia-500 to-pink-600", accent: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300", tags: ["Webshop", "Kurser", "Galleri"] },
-  { name: "FixIt Henrik", type: "Handyman", gradient: "from-slate-600 to-gray-700", accent: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", tags: ["Booking", "Priser", "Anmeldelser"] },
-];
-
 const features = [
   { title: "Book kunder direkte", desc: "Dine kunder booker selv online. Du slipper for telefonopkald og mails frem og tilbage.", outcome: "Spar tid på booking", gradient: "from-blue-500 to-indigo-600", Icon: CalendarIcon },
   { title: "Sælg produkter online", desc: "Komplet webshop med produkter, varianter og automatisk lagerstyring. Klar til at sælge fra dag ét.", outcome: "Tjen penge mens du sover", gradient: "from-emerald-500 to-teal-600", Icon: CartIcon },
@@ -129,7 +116,7 @@ export default function LandingPage() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
-            {[["#showcase", "Eksempler"], ["#how-it-works", "Sådan virker det"], ["#features", "Alt du får"], ["#pricing", "Pris"], ["#faq", "FAQ"]].map(([href, label]) => (
+            {[["#how-it-works", "Sådan virker det"], ["#features", "Alt du får"], ["#pricing", "Pris"], ["#faq", "FAQ"]].map(([href, label]) => (
               <a key={href} href={href} className="relative py-1 hover:text-foreground transition-colors after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-indigo-500 after:transition-all hover:after:w-full">
                 {label}
               </a>
@@ -165,17 +152,6 @@ export default function LandingPage() {
 
               {/* Left: Copy */}
               <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }} className="text-center lg:text-left">
-
-                {/* Badge with subtle pulse */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.92 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.4, delay: 0.1 }}
-                  className="landing-badge-pulse inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 text-sm font-medium mb-8 border border-indigo-200/50 dark:border-indigo-800/40"
-                >
-                  <Zap className="w-3.5 h-3.5" />
-                  AI-powered business starter kit
-                </motion.div>
 
                 {/* Headline — tighter tracking, larger weight contrast */}
                 <h1 className="text-[2.75rem] sm:text-5xl md:text-6xl lg:text-[4.25rem] font-extrabold tracking-[-0.025em] leading-[1.08] mb-6">
@@ -260,43 +236,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ═══════════════ SHOWCASE ═══════════════ */}
-        <section id="showcase" className="py-24 md:py-32 px-6 lg:px-12">
-          <div className="w-full max-w-7xl mx-auto">
-            <ScrollReveal className="text-center mb-16">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Se hvad andre har bygget</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Rigtige businesses. Rigtige kunder. Startet på under 24 timer.</p>
-            </ScrollReveal>
-
-            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              {showcaseSites.map((site, i) => (
-                <motion.div key={i} variants={fadeUp} whileHover={{ y: -5, transition: { duration: 0.2 } }} className="group bg-card rounded-2xl border overflow-hidden hover:shadow-xl hover:shadow-indigo-500/5 transition-shadow duration-300">
-                  <div className={`h-24 bg-gradient-to-br ${site.gradient} relative p-3 flex flex-col justify-between`}>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                      <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                      <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                    </div>
-                    <div>
-                      <div className="h-1.5 bg-white/30 rounded w-3/4 mb-1" />
-                      <div className="h-1 bg-white/20 rounded w-1/2" />
-                    </div>
-                  </div>
-                  <div className="p-3.5">
-                    <h3 className="font-bold text-sm mb-1">{site.name}</h3>
-                    <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${site.accent} mb-2.5`}>{site.type}</span>
-                    <div className="flex flex-wrap gap-1">
-                      {site.tags.map((tag, j) => (
-                        <span key={j} className="text-[9px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </motion.div>
-          </div>
-        </section>
-
         {/* ═══════════════ 3. HOW IT WORKS — Interactive Process Flow ═══════════════
             Replaced static SVG with interactive 4-step animated flow.
             Left side: step indicators with progress.
@@ -369,67 +308,8 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ═══════════════ 4. PRICING — Premium single-plan ═══════════════
-            Redesigned with better shadows, spacing, "Mest populære"
-            badge, hover effects, trust indicators near CTA. */}
-        <section id="pricing" className="py-24 md:py-32 px-6 lg:px-12">
-          <div className="w-full max-w-lg mx-auto">
-            <ScrollReveal className="text-center mb-12">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Simpel pris. Alt inkluderet.</h2>
-              <p className="text-lg text-muted-foreground">Ét abonnement. Start gratis i 31 dage.</p>
-            </ScrollReveal>
-
-            <ScrollReveal delay={0.1}>
-              <div className="relative">
-                {/* "Mest populære" floating badge */}
-                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-10">
-                  <div className="px-4 py-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold shadow-lg shadow-indigo-500/30 flex items-center gap-1.5">
-                    <Star className="w-3 h-3 fill-white" />
-                    Mest populære
-                  </div>
-                </div>
-
-                <div className="bg-card rounded-3xl border-2 border-indigo-500/70 shadow-2xl shadow-indigo-500/8 overflow-hidden hover:shadow-indigo-500/15 transition-shadow duration-500 landing-birdflow-glow">
-                  {/* Header ribbon with shimmer */}
-                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 py-4 text-center relative overflow-hidden">
-                    <span className="relative z-10 text-white/90 text-sm font-semibold uppercase tracking-wider">BirdFlow Basis</span>
-                    <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)] landing-shimmer" />
-                  </div>
-
-                  <div className="p-8 md:p-10">
-                    {/* Price */}
-                    <div className="text-center mb-8">
-                      <div className="flex items-baseline justify-center gap-1">
-                        <span className="text-6xl font-extrabold tracking-tight">69</span>
-                        <span className="text-xl font-bold text-muted-foreground">kr/md</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-2">Første 31 dage koster ingenting</p>
-                    </div>
-
-                    {/* CTA button */}
-                    <Link href="/auth?mode=signup">
-                      <Button size="lg" className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-xl shadow-indigo-500/20 hover:shadow-indigo-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow">
-                        Start din gratis prøveperiode
-                        <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                      </Button>
-                    </Link>
-
-                    {/* Trust indicators right under CTA */}
-                    <div className="flex items-center justify-center gap-4 mt-4 text-[11px] text-muted-foreground">
-                      <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> Intet kreditkort</span>
-                      <span className="flex items-center gap-1"><Check className="w-3 h-3" /> Opsig når som helst</span>
-                    </div>
-
-                    {/* Feature checklist with animated checkmarks */}
-                    <div className="border-t mt-8 pt-8">
-                      <PricingChecklist />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </ScrollReveal>
-          </div>
-        </section>
+        {/* ═══════════════ 4. PRICING ═══════════════ */}
+        <PricingSection />
 
         {/* ═══════════════ TESTIMONIALS ═══════════════ */}
         <section className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/50 to-transparent dark:from-slate-900/20">
@@ -559,21 +439,140 @@ function FeatureCard({ feature }: { feature: (typeof features)[0] }) {
   );
 }
 
-/* ─── Pricing checklist with scroll-triggered spring checkmarks ─── */
-function PricingChecklist() {
+/* ─── Pricing Section with annual/monthly toggle ─── */
+const pricingFeatures = [
+  { category: "Hjemmeside", items: ["AI website builder", "Drag & drop editor", "Eget domæne + SSL", "Ubegrænset sider", "Mobil-optimeret"] },
+  { category: "Business tools", items: ["Online booking system", "Komplet webshop", "Stripe betalinger", "Email notifikationer", "Analytics dashboard"] },
+  { category: "Platform", items: ["Op til 5 websites", "99.9% uptime", "Automatisk backup", "Support på dansk", "GDPR compliant"] },
+];
+
+function PricingSection() {
+  const [annual, setAnnual] = useState(true);
   const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-20px" });
-  const items = ["Hjemmeside med AI builder", "Booking system", "Komplet webshop", "Stripe betalinger", "Eget domæne + SSL", "Email notifikationer", "Analytics dashboard", "Op til 5 websites"];
+  const isInView = useInView(ref, { once: true, margin: "-40px" });
+
+  const price = annual ? 58 : 69;
+  const period = "kr/md";
+  const savings = annual ? "Spar 138 kr/år" : null;
+
   return (
-    <div ref={ref} className="grid sm:grid-cols-2 gap-3 text-left">
-      {items.map((item, i) => (
-        <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={isInView ? { opacity: 1, x: 0 } : {}} transition={{ delay: i * 0.05, duration: 0.3 }} className="flex items-center gap-2.5">
-          <motion.div initial={{ scale: 0 }} animate={isInView ? { scale: 1 } : {}} transition={{ delay: i * 0.05 + 0.08, type: "spring", stiffness: 400, damping: 15 }}>
-            <Check className="w-4 h-4 text-green-500 shrink-0" />
-          </motion.div>
-          <span className="text-sm">{item}</span>
-        </motion.div>
-      ))}
-    </div>
+    <section id="pricing" className="py-24 md:py-32 px-6 lg:px-12">
+      <div className="w-full max-w-2xl mx-auto">
+        <ScrollReveal className="text-center mb-10">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Simpel pris. Alt inkluderet.</h2>
+          <p className="text-lg text-muted-foreground mb-8">Ét abonnement. Start gratis i 31 dage.</p>
+
+          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-full">
+            <button
+              onClick={() => setAnnual(false)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${!annual ? "bg-white dark:bg-slate-700 shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              data-testid="toggle-monthly"
+            >
+              Månedlig
+            </button>
+            <button
+              onClick={() => setAnnual(true)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 flex items-center gap-1.5 ${annual ? "bg-white dark:bg-slate-700 shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              data-testid="toggle-annual"
+            >
+              Årlig
+              <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-1.5 py-0.5 rounded-full">Spar 17%</span>
+            </button>
+          </div>
+        </ScrollReveal>
+
+        <ScrollReveal delay={0.1}>
+          <div ref={ref} className="relative">
+            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-10">
+              <div className="px-4 py-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold shadow-lg shadow-indigo-500/30 flex items-center gap-1.5">
+                <Star className="w-3 h-3 fill-white" />
+                31 dage gratis
+              </div>
+            </div>
+
+            <div className="bg-card rounded-3xl border-2 border-indigo-500/70 shadow-2xl shadow-indigo-500/8 overflow-hidden hover:shadow-indigo-500/15 transition-shadow duration-500 landing-birdflow-glow">
+              <div className="bg-gradient-to-r from-indigo-500 to-purple-600 py-4 text-center relative overflow-hidden">
+                <span className="relative z-10 text-white/90 text-sm font-semibold uppercase tracking-wider">BirdFlow Basis</span>
+                <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)] landing-shimmer" />
+              </div>
+
+              <div className="p-8 md:p-10">
+                <div className="text-center mb-8">
+                  <div className="flex items-baseline justify-center gap-1">
+                    <motion.span
+                      key={price}
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                      className="text-6xl font-extrabold tracking-tight"
+                    >
+                      {price}
+                    </motion.span>
+                    <span className="text-xl font-bold text-muted-foreground">{period}</span>
+                  </div>
+                  <div className="h-6 mt-2">
+                    {savings ? (
+                      <motion.p
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="text-sm font-semibold text-green-600 dark:text-green-400"
+                      >
+                        {savings}
+                      </motion.p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Betal månedligt, opsig når som helst</p>
+                    )}
+                  </div>
+                  {annual && <p className="text-xs text-muted-foreground mt-1">690 kr faktureret årligt</p>}
+                </div>
+
+                <Link href="/auth?mode=signup">
+                  <Button size="lg" className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-xl shadow-indigo-500/20 hover:shadow-indigo-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow" data-testid="button-pricing-cta">
+                    Start din gratis prøveperiode
+                    <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                </Link>
+
+                <div className="flex items-center justify-center gap-4 mt-4 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> Intet kreditkort</span>
+                  <span className="flex items-center gap-1"><Check className="w-3 h-3" /> Opsig når som helst</span>
+                </div>
+
+                <div className="border-t mt-8 pt-8 space-y-6">
+                  {pricingFeatures.map((group, gi) => (
+                    <div key={group.category}>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">{group.category}</h4>
+                      <div className="grid sm:grid-cols-2 gap-2.5">
+                        {group.items.map((item, i) => {
+                          const idx = gi * 5 + i;
+                          return (
+                            <motion.div
+                              key={item}
+                              initial={{ opacity: 0, x: -8 }}
+                              animate={isInView ? { opacity: 1, x: 0 } : {}}
+                              transition={{ delay: idx * 0.04, duration: 0.3 }}
+                              className="flex items-center gap-2.5"
+                            >
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={isInView ? { scale: 1 } : {}}
+                                transition={{ delay: idx * 0.04 + 0.06, type: "spring", stiffness: 400, damping: 15 }}
+                              >
+                                <Check className="w-4 h-4 text-green-500 shrink-0" />
+                              </motion.div>
+                              <span className="text-sm">{item}</span>
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </ScrollReveal>
+      </div>
+    </section>
   );
 }
