@@ -3,24 +3,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select";
-import { Trash2, Plus, GripVertical, Upload, Crop, Loader2, Move } from "lucide-react";
-import { 
-  componentRegistry, 
+import { Trash2, Plus, GripVertical, Upload, Crop, Loader2, Move, Type, Paintbrush, Sparkles, ChevronDown, ChevronUp, Square, Circle } from "lucide-react";
+import {
+  componentRegistry,
   themeColors,
   spacingPresets,
   fontFamilyPresets,
   fontSizePresets,
   fontWeightPresets,
   animationPresets,
-  type BuilderComponentData, 
-  type ComponentProps, 
+  shadowPresets,
+  borderRadiusPresets,
+  buttonStylePresets,
+  cardStylePresets,
+  gradientPresets,
+  type BuilderComponentData,
+  type ComponentProps,
   type ComponentStyles,
   type FieldDefinition,
   type ComponentItem,
@@ -50,24 +55,25 @@ type Props = {
   accessToken: string;
 };
 
+type TabId = 'content' | 'design' | 'animation';
+
 async function uploadImage(
-  websiteId: string, 
-  accessToken: string, 
+  websiteId: string,
+  accessToken: string,
   file: File
 ): Promise<{ url: string; mediaId: string }> {
-  // Use optimized image upload endpoint for compression and WebP conversion
   const formData = new FormData();
   formData.append('image', file);
-  
+
   const optimizedRes = await fetch('/api/uploads/optimized-image', {
     method: 'POST',
     body: formData,
   });
-  
+
   if (!optimizedRes.ok) {
     throw new Error('Failed to upload and optimize image');
   }
-  
+
   const { objectPath, optimizedSize } = await optimizedRes.json();
 
   let width: number | undefined;
@@ -117,13 +123,15 @@ async function uploadImage(
 
 export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken }: Props) {
   const definition = componentRegistry[component.type];
+  const [activeTab, setActiveTab] = useState<TabId>('content');
   const [uploadingField, setUploadingField] = useState<string | null>(null);
   const [cropperOpen, setCropperOpen] = useState(false);
   const [cropperImage, setCropperImage] = useState<string>('');
   const [cropperField, setCropperField] = useState<{ field: FieldDefinition; index?: number } | null>(null);
   const [initialCrop, setInitialCrop] = useState<CropData | undefined>();
+  const [showAdvancedSpacing, setShowAdvancedSpacing] = useState(false);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  
+
   if (!definition) {
     return <div className="p-4 text-muted-foreground">Unknown component type</div>;
   }
@@ -159,10 +167,10 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
   const handleFileUpload = async (field: FieldDefinition, file: File, arrayIndex?: number) => {
     const fieldKey = arrayIndex !== undefined ? `${field.key}-${arrayIndex}` : field.key;
     setUploadingField(fieldKey);
-    
+
     try {
       const { url, mediaId } = await uploadImage(websiteId, accessToken, file);
-      
+
       if (arrayIndex !== undefined) {
         const currentValue = getValue(field);
         const images = Array.isArray(currentValue) ? [...currentValue] : [];
@@ -187,9 +195,9 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
 
   const handleCropSave = (crop: CropData) => {
     if (!cropperField) return;
-    
+
     const { field, index } = cropperField;
-    
+
     if (index !== undefined) {
       const currentValue = getValue(field);
       const images = Array.isArray(currentValue) ? [...currentValue] : [];
@@ -200,9 +208,19 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
       const current = parseImageValue(getValue(field));
       setValue(field, { ...current, crop });
     }
-    
+
     setCropperOpen(false);
     setCropperField(null);
+  };
+
+  // Parse padding into 4 values
+  const parsePadding = (padding: string | undefined): { top: string; right: string; bottom: string; left: string } => {
+    if (!padding) return { top: '60', right: '24', bottom: '60', left: '24' };
+    const parts = padding.replace(/px/g, '').trim().split(/\s+/);
+    if (parts.length === 1) return { top: parts[0], right: parts[0], bottom: parts[0], left: parts[0] };
+    if (parts.length === 2) return { top: parts[0], right: parts[1], bottom: parts[0], left: parts[1] };
+    if (parts.length === 3) return { top: parts[0], right: parts[1], bottom: parts[2], left: parts[1] };
+    return { top: parts[0], right: parts[1], bottom: parts[2], left: parts[3] };
   };
 
   const renderField = (field: FieldDefinition) => {
@@ -237,7 +255,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         );
 
       case 'color': {
-        const colorPresets = field.key === 'backgroundColor' ? themeColors.backgrounds : 
+        const colorPresets = field.key === 'backgroundColor' ? themeColors.backgrounds :
           field.key === 'buttonColor' ? themeColors.backgrounds : themeColors.text;
         return (
           <div key={field.key} className="space-y-2">
@@ -320,7 +338,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
       case 'image': {
         const imageValue = parseImageValue(value);
         const isUploading = uploadingField === field.key;
-        
+
         return (
           <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
@@ -367,9 +385,9 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             </div>
             {imageValue.url && (
               <div className="relative">
-                <img 
-                  src={imageValue.url} 
-                  alt="Preview" 
+                <img
+                  src={imageValue.url}
+                  alt="Preview"
                   className="w-full h-24 object-cover rounded-md"
                   style={imageValue.crop ? {
                     objectFit: 'none',
@@ -391,14 +409,14 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
 
       case 'image-array': {
         const images = Array.isArray(value) ? value.map(parseImageValue) : [];
-        
+
         return (
           <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
             {images.map((img, i) => {
               const fieldKey = `${field.key}-${i}`;
               const isUploading = uploadingField === fieldKey;
-              
+
               return (
                 <div key={i} className="space-y-1 p-2 border rounded-md bg-muted/30">
                   <div className="flex gap-1">
@@ -444,9 +462,9 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                         <Crop className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       className="h-9 w-9 shrink-0"
                       onClick={() => {
                         const newImages = images.filter((_, idx) => idx !== i);
@@ -458,9 +476,9 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                   </div>
                   {img.url && (
                     <div className="relative">
-                      <img 
-                        src={img.url} 
-                        alt={`Image ${i + 1}`} 
+                      <img
+                        src={img.url}
+                        alt={`Image ${i + 1}`}
                         className="w-full h-16 object-cover rounded"
                       />
                       {img.crop && (
@@ -495,9 +513,9 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                 <div className="flex items-center gap-1">
                   <GripVertical className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs font-medium flex-1">Item {i + 1}</span>
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     className="h-6 w-6"
                     onClick={() => {
                       const newItems = items.filter((_, idx) => idx !== i);
@@ -561,26 +579,26 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         );
 
       case 'styled-text': {
-        const styledValue: StyledText = typeof value === 'object' && value !== null 
-          ? value as StyledText 
+        const styledValue: StyledText = typeof value === 'object' && value !== null
+          ? value as StyledText
           : { text: typeof value === 'string' ? value : '' };
-        
+
         return (
           <div key={field.key} className="space-y-3 border rounded-lg p-3 bg-muted/30">
             <Label className="text-xs font-medium">{field.label}</Label>
-            
+
             <Input
               value={styledValue.text || ''}
               onChange={(e) => setValue(field, { ...styledValue, text: e.target.value })}
               placeholder={field.placeholder || 'Enter text...'}
               data-testid={`styled-text-${field.key}`}
             />
-            
+
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Font</Label>
-                <Select 
-                  value={styledValue.fontFamily || 'inherit'} 
+                <Select
+                  value={styledValue.fontFamily || 'inherit'}
                   onValueChange={(v) => setValue(field, { ...styledValue, fontFamily: v === 'inherit' ? '' : v })}
                 >
                   <SelectTrigger className="h-8 text-xs">
@@ -596,11 +614,11 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Size</Label>
-                <Select 
-                  value={styledValue.fontSize || 'inherit'} 
+                <Select
+                  value={styledValue.fontSize || 'inherit'}
                   onValueChange={(v) => setValue(field, { ...styledValue, fontSize: v === 'inherit' ? '' : v })}
                 >
                   <SelectTrigger className="h-8 text-xs">
@@ -625,11 +643,11 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Weight</Label>
-                <Select 
-                  value={styledValue.fontWeight || 'inherit'} 
+                <Select
+                  value={styledValue.fontWeight || 'inherit'}
                   onValueChange={(v) => setValue(field, { ...styledValue, fontWeight: v === 'inherit' ? '' : v })}
                 >
                   <SelectTrigger className="h-8 text-xs">
@@ -645,11 +663,11 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-1">
                 <Label className="text-[10px] text-muted-foreground">Transform</Label>
-                <Select 
-                  value={styledValue.textTransform || ''} 
+                <Select
+                  value={styledValue.textTransform || ''}
                   onValueChange={(v) => setValue(field, { ...styledValue, textTransform: v as StyledText['textTransform'] })}
                 >
                   <SelectTrigger className="h-8 text-xs">
@@ -664,7 +682,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                 </Select>
               </div>
             </div>
-            
+
             <div className="space-y-1">
               <Label className="text-[10px] text-muted-foreground">Color</Label>
               <div className="flex gap-1">
@@ -691,147 +709,490 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
     }
   };
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-sm">{definition.name}</h3>
-        <div className="flex gap-1">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onMove('up')} data-testid="button-move-up">
-            <Move className="w-4 h-4 rotate-180" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onMove('down')} data-testid="button-move-down">
-            <Move className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={onDelete} data-testid="button-delete">
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-
-      <Separator />
-
-      {contentFields.length > 0 && (
-        <div className="space-y-3">
-          <h4 className="font-medium text-sm text-muted-foreground">Content</h4>
-          {contentFields.map(renderField)}
-        </div>
-      )}
-
+  // ---- TAB: Content ----
+  const renderContentTab = () => (
+    <div className="space-y-3">
+      {contentFields.length > 0 && contentFields.map(renderField)}
       {styleFields.length > 0 && (
         <>
-          <Separator />
-          <div className="space-y-3">
-            <h4 className="font-medium text-sm text-muted-foreground">Styles</h4>
-            {styleFields.map(renderField)}
-          </div>
+          <Separator className="my-3" />
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Stil-felter</h4>
+          {styleFields.map(renderField)}
         </>
       )}
+    </div>
+  );
 
-      <Separator />
-      <div className="space-y-3">
-        <h4 className="font-medium text-sm text-muted-foreground">Spacing</h4>
-        <div className="space-y-2">
-          <Label className="text-xs">Padding</Label>
-          <div className="flex flex-wrap gap-1">
-            {spacingPresets.padding.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.padding === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { padding: preset.value } })}
-                data-testid={`spacing-padding-${preset.name.toLowerCase().replace(' ', '-')}`}
-              >
-                {preset.name}
-              </button>
-            ))}
+  // ---- TAB: Design ----
+  const renderDesignTab = () => {
+    const padding = parsePadding(component.styles.padding);
+
+    return (
+      <div className="space-y-4">
+        {/* Typography Section */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Type className="h-3 w-3" />
+            Typografi
+          </h4>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Skrifttype</Label>
+            <Select
+              value={component.styles.fontFamily || 'Inter, system-ui, sans-serif'}
+              onValueChange={(value) => onUpdate({ styles: { fontFamily: value } })}
+            >
+              <SelectTrigger className="h-8" data-testid="select-font-family">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px] overflow-y-auto">
+                {fontFamilyPresets.map((font) => (
+                  <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
+                    {font.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
-      </div>
 
-      <Separator />
-      <div className="space-y-3">
-        <h4 className="font-medium text-sm text-muted-foreground">Typography</h4>
-        
-        <div className="space-y-2">
-          <Label className="text-xs">Font Family</Label>
-          <Select 
-            value={component.styles.fontFamily || 'Inter, system-ui, sans-serif'} 
-            onValueChange={(value) => onUpdate({ styles: { fontFamily: value } })}
-          >
-            <SelectTrigger className="h-8" data-testid="select-font-family">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="max-h-[300px] overflow-y-auto">
-              {fontFamilyPresets.map((font) => (
-                <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
-                  {font.name}
-                </SelectItem>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[10px] text-muted-foreground">Overskrift</Label>
+              <Select
+                value={component.styles.titleFontSize || '36px'}
+                onValueChange={(value) => onUpdate({ styles: { titleFontSize: value } })}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {fontSizePresets.heading.map((preset) => (
+                    <SelectItem key={preset.value} value={preset.value}>{preset.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] text-muted-foreground">Brødtekst</Label>
+              <Select
+                value={component.styles.bodyFontSize || '16px'}
+                onValueChange={(value) => onUpdate({ styles: { bodyFontSize: value } })}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {fontSizePresets.body.map((preset) => (
+                    <SelectItem key={preset.value} value={preset.value}>{preset.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Vægt</Label>
+            <div className="flex flex-wrap gap-1">
+              {fontWeightPresets.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.fontWeight === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { fontWeight: preset.value } })}
+                  style={{ fontWeight: parseInt(preset.value) }}
+                  data-testid={`font-weight-${preset.name.toLowerCase()}`}
+                >
+                  {preset.name}
+                </button>
               ))}
-            </SelectContent>
-          </Select>
-        </div>
+            </div>
+          </div>
 
-        <div className="space-y-2">
-          <Label className="text-xs">Heading Size</Label>
-          <div className="flex flex-wrap gap-1">
-            {fontSizePresets.heading.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.titleFontSize === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { titleFontSize: preset.value } })}
-                data-testid={`font-heading-${preset.name.toLowerCase().replace(' ', '-')}`}
-              >
-                {preset.name}
-              </button>
-            ))}
+          {/* Letter Spacing */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <Label className="text-xs">Bogstavafstand</Label>
+              <span className="text-xs text-muted-foreground">{component.styles.letterSpacing || '0px'}</span>
+            </div>
+            <input
+              type="range"
+              min={-2}
+              max={10}
+              step={0.5}
+              value={parseFloat(component.styles.letterSpacing || '0') || 0}
+              onChange={(e) => onUpdate({ styles: { letterSpacing: `${e.target.value}px` } })}
+              className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+            />
+          </div>
+
+          {/* Line Height */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <Label className="text-xs">Linjehøjde</Label>
+              <span className="text-xs text-muted-foreground">{component.styles.lineHeight || '1.6'}</span>
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={0.1}
+              value={parseFloat(component.styles.lineHeight || '1.6') || 1.6}
+              onChange={(e) => onUpdate({ styles: { lineHeight: e.target.value } })}
+              className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+            />
+          </div>
+
+          {/* Text Transform */}
+          <div className="space-y-2">
+            <Label className="text-xs">Teksttransform</Label>
+            <div className="flex flex-wrap gap-1">
+              {[
+                { label: 'Normal', value: 'none' },
+                { label: 'STORE', value: 'uppercase' },
+                { label: 'små', value: 'lowercase' },
+                { label: 'Start', value: 'capitalize' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${(component.styles.textTransform || 'none') === opt.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { textTransform: opt.value as any } })}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label className="text-xs">Body Size</Label>
-          <div className="flex flex-wrap gap-1">
-            {fontSizePresets.body.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.bodyFontSize === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { bodyFontSize: preset.value } })}
-                data-testid={`font-body-${preset.name.toLowerCase().replace(' ', '-')}`}
-              >
-                {preset.name}
-              </button>
-            ))}
+        <Separator />
+
+        {/* Spacing Section */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            Afstand
+          </h4>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Padding</Label>
+            <div className="flex flex-wrap gap-1">
+              {spacingPresets.padding.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.padding === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { padding: preset.value } })}
+                  data-testid={`spacing-padding-${preset.name.toLowerCase().replace(' ', '-')}`}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Advanced 4-value spacing */}
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setShowAdvancedSpacing(!showAdvancedSpacing)}
+          >
+            {showAdvancedSpacing ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            Avanceret afstand
+          </button>
+
+          {showAdvancedSpacing && (
+            <div className="space-y-2 p-3 border rounded-lg bg-muted/30">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Top (px)</Label>
+                  <Input
+                    type="number"
+                    value={padding.top}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      onUpdate({ styles: { padding: `${v}px ${padding.right}px ${padding.bottom}px ${padding.left}px` } });
+                    }}
+                    className="h-8 text-xs"
+                    min={0}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Højre (px)</Label>
+                  <Input
+                    type="number"
+                    value={padding.right}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      onUpdate({ styles: { padding: `${padding.top}px ${v}px ${padding.bottom}px ${padding.left}px` } });
+                    }}
+                    className="h-8 text-xs"
+                    min={0}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Bund (px)</Label>
+                  <Input
+                    type="number"
+                    value={padding.bottom}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      onUpdate({ styles: { padding: `${padding.top}px ${padding.right}px ${v}px ${padding.left}px` } });
+                    }}
+                    className="h-8 text-xs"
+                    min={0}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Venstre (px)</Label>
+                  <Input
+                    type="number"
+                    value={padding.left}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      onUpdate({ styles: { padding: `${padding.top}px ${padding.right}px ${padding.bottom}px ${v}px` } });
+                    }}
+                    className="h-8 text-xs"
+                    min={0}
+                  />
+                </div>
+              </div>
+              {/* Visual padding preview */}
+              <div className="flex items-center justify-center py-2">
+                <div className="relative w-24 h-20 border border-dashed border-muted-foreground/30 rounded">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div
+                      className="bg-primary/10 border border-primary/30 rounded-sm"
+                      style={{
+                        width: `${Math.max(20, 80 - parseInt(padding.left || '0') - parseInt(padding.right || '0'))}%`,
+                        height: `${Math.max(20, 80 - parseInt(padding.top || '0') / 2 - parseInt(padding.bottom || '0') / 2)}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 text-[8px] text-muted-foreground">{padding.top}</span>
+                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[8px] text-muted-foreground">{padding.bottom}</span>
+                  <span className="absolute left-0.5 top-1/2 -translate-y-1/2 text-[8px] text-muted-foreground">{padding.left}</span>
+                  <span className="absolute right-0.5 top-1/2 -translate-y-1/2 text-[8px] text-muted-foreground">{padding.right}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* Border & Radius Section */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Square className="h-3 w-3" />
+            Kant & Afrunding
+          </h4>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Kantafrunding</Label>
+            <div className="flex flex-wrap gap-1">
+              {borderRadiusPresets.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.borderRadius === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { borderRadius: preset.value } })}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Kantstil</Label>
+            <div className="flex flex-wrap gap-1">
+              {[
+                { label: 'Ingen', value: 'none' },
+                { label: 'Solid', value: 'solid' },
+                { label: 'Stiplet', value: 'dashed' },
+                { label: 'Prikket', value: 'dotted' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${(component.styles.borderStyle || 'none') === opt.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { borderStyle: opt.value as any } })}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {component.styles.borderStyle && component.styles.borderStyle !== 'none' && (
+            <>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <Label className="text-xs">Kanttykkelse</Label>
+                  <span className="text-xs text-muted-foreground">{component.styles.borderWidth || '1px'}</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={8}
+                  step={1}
+                  value={parseInt(component.styles.borderWidth || '1') || 1}
+                  onChange={(e) => onUpdate({ styles: { borderWidth: `${e.target.value}px` } })}
+                  className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs">Kantfarve</Label>
+                <div className="flex gap-1">
+                  <Input
+                    type="color"
+                    value={component.styles.borderColor || '#e5e7eb'}
+                    onChange={(e) => onUpdate({ styles: { borderColor: e.target.value } })}
+                    className="w-10 h-8 p-1 cursor-pointer"
+                  />
+                  <Input
+                    value={component.styles.borderColor || ''}
+                    onChange={(e) => onUpdate({ styles: { borderColor: e.target.value } })}
+                    placeholder="#e5e7eb"
+                    className="flex-1 h-8 text-xs"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* Shadow Section */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            Skygge
+          </h4>
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1">
+              {shadowPresets.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.boxShadow === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { boxShadow: preset.value } })}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label className="text-xs">Font Weight</Label>
-          <div className="flex flex-wrap gap-1">
-            {fontWeightPresets.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.fontWeight === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { fontWeight: preset.value } })}
-                style={{ fontWeight: parseInt(preset.value) }}
-                data-testid={`font-weight-${preset.name.toLowerCase()}`}
-              >
-                {preset.name}
-              </button>
-            ))}
+        <Separator />
+
+        {/* Background Gradient Section */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            Baggrundsgradient
+          </h4>
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1">
+              {gradientPresets.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.backgroundGradient === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { backgroundGradient: preset.value } })}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+            {component.styles.backgroundGradient && component.styles.backgroundGradient !== 'none' && (
+              <div
+                className="h-8 rounded-md border"
+                style={{ background: component.styles.backgroundGradient }}
+              />
+            )}
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Button & Card Styles */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Circle className="h-3 w-3" />
+            Knap & Kort
+          </h4>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Knapstil</Label>
+            <div className="flex flex-wrap gap-1">
+              {buttonStylePresets.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.buttonStyle === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { buttonStyle: preset.value as any } })}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Knapfarve</Label>
+            <div className="flex gap-1">
+              <Input
+                type="color"
+                value={component.styles.buttonColor || component.styles.accentColor || '#3b82f6'}
+                onChange={(e) => onUpdate({ styles: { buttonColor: e.target.value } })}
+                className="w-10 h-8 p-1 cursor-pointer"
+              />
+              <Input
+                value={component.styles.buttonColor || ''}
+                onChange={(e) => onUpdate({ styles: { buttonColor: e.target.value } })}
+                placeholder="Accent farve"
+                className="flex-1 h-8 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Kortstil</Label>
+            <div className="flex flex-wrap gap-1">
+              {cardStylePresets.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.cardStyle === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                  onClick={() => onUpdate({ styles: { cardStyle: preset.value as any } })}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
+    );
+  };
 
-      <Separator />
+  // ---- TAB: Animation ----
+  const renderAnimationTab = () => (
+    <div className="space-y-4">
       <div className="space-y-3">
-        <h4 className="font-medium text-sm text-muted-foreground">Animation</h4>
-        
+        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3" />
+          Indgangsanimation
+        </h4>
+
         <div className="space-y-2">
-          <Label className="text-xs">Entrance Animation</Label>
-          <Select 
-            value={component.styles.animationType || 'none'} 
+          <Label className="text-xs">Type</Label>
+          <Select
+            value={component.styles.animationType || 'none'}
             onValueChange={(value) => onUpdate({ styles: { animationType: value as any } })}
           >
             <SelectTrigger className="h-8" data-testid="select-animation-type">
@@ -848,7 +1209,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs">Animation Trigger</Label>
+          <Label className="text-xs">Trigger</Label>
           <div className="flex flex-wrap gap-1">
             {animationPresets.trigger.map((preset) => (
               <button
@@ -865,7 +1226,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs">Duration</Label>
+          <Label className="text-xs">Varighed</Label>
           <div className="flex flex-wrap gap-1">
             {animationPresets.duration.map((preset) => (
               <button
@@ -882,7 +1243,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs">Delay</Label>
+          <Label className="text-xs">Forsinkelse</Label>
           <div className="flex flex-wrap gap-1">
             {animationPresets.delay.map((preset) => (
               <button
@@ -897,6 +1258,67 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Animation preview hint */}
+      {component.styles.animationType && component.styles.animationType !== 'none' && (
+        <div className="p-3 bg-muted/50 rounded-lg border border-dashed border-muted-foreground/20">
+          <p className="text-xs text-muted-foreground">
+            Animationen afspilles ved {component.styles.animationTrigger === 'scroll' ? 'scroll' : 'sideindlæsning'}.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+
+  const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
+    { id: 'content', label: 'Indhold', icon: <Type className="h-3.5 w-3.5" /> },
+    { id: 'design', label: 'Design', icon: <Paintbrush className="h-3.5 w-3.5" /> },
+    { id: 'animation', label: 'Animation', icon: <Sparkles className="h-3.5 w-3.5" /> },
+  ];
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b">
+        <h3 className="font-semibold text-sm">{definition.name}</h3>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onMove('up')} data-testid="button-move-up" title="Flyt op">
+            <Move className="w-3.5 h-3.5 rotate-180" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onMove('down')} data-testid="button-move-down" title="Flyt ned">
+            <Move className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={onDelete} data-testid="button-delete" title="Slet">
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Tab Switcher */}
+      <div className="flex border-b">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-all border-b-2 ${
+              activeTab === tab.id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
+            }`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {activeTab === 'content' && renderContentTab()}
+        {activeTab === 'design' && renderDesignTab()}
+        {activeTab === 'animation' && renderAnimationTab()}
       </div>
 
       {cropperOpen && cropperImage && (
