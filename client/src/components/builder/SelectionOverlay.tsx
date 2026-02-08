@@ -436,7 +436,7 @@ export default function SelectionOverlay() {
               left: selectedRect.left,
               display: 'flex',
               alignItems: 'center',
-              gap: '4px',
+              gap: '6px',
               backgroundColor: '#3b82f6',
               color: 'white',
               fontSize: '11px',
@@ -452,7 +452,60 @@ export default function SelectionOverlay() {
             data-testid="component-type-label"
           >
             {selectedId ? (COMPONENT_LABELS[getComponent(selectedId)?.type || ''] || 'Component') : 'Component'}
+            {/* Show dimensions during resize */}
+            {isResizing && (
+              <span style={{ opacity: 0.8, fontWeight: 400, fontSize: '10px' }}>
+                {Math.round(selectedRect.width)} × {Math.round(selectedRect.height)}
+              </span>
+            )}
           </div>
+
+          {/* Padding labels during resize */}
+          {isResizing && selectedId && (() => {
+            const comp = getComponent(selectedId);
+            const padding = comp?.styles?.padding || '60px 24px';
+            const match = padding.match(/(\d+)px\s*(\d+)?px?/);
+            const pV = match ? parseInt(match[1]) || 60 : 60;
+            const pH = match ? parseInt(match[2] || match[1]) || 24 : 24;
+            return (
+              <>
+                {/* Top padding label */}
+                <div style={{
+                  position: 'absolute',
+                  top: selectedRect.top + 4,
+                  left: selectedRect.left + selectedRect.width / 2,
+                  transform: 'translateX(-50%)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.9)',
+                  color: 'white',
+                  fontSize: '10px',
+                  fontWeight: 500,
+                  padding: '1px 6px',
+                  borderRadius: '4px',
+                  pointerEvents: 'none',
+                  fontFamily: 'monospace',
+                }}>
+                  {pV}px
+                </div>
+                {/* Left padding label */}
+                <div style={{
+                  position: 'absolute',
+                  top: selectedRect.top + selectedRect.height / 2,
+                  left: selectedRect.left + 4,
+                  transform: 'translateY(-50%)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.9)',
+                  color: 'white',
+                  fontSize: '10px',
+                  fontWeight: 500,
+                  padding: '1px 6px',
+                  borderRadius: '4px',
+                  pointerEvents: 'none',
+                  fontFamily: 'monospace',
+                }}>
+                  {pH}px
+                </div>
+              </>
+            );
+          })()}
         </>
       )}
     </div>,

@@ -62,6 +62,7 @@ import CoachMarks from "@/components/builder/CoachMarks";
 import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
 import DragDropLayer from "@/components/builder/DragDropLayer";
 import MobileBottomSheet from "@/components/builder/MobileBottomSheet";
+import GlobalStylesPanel from "@/components/builder/GlobalStylesPanel";
 import SpacingIndicators from "@/components/builder/SpacingIndicators";
 import { ElementSelectionProvider } from "@/components/builder/ElementSelectionContext";
 import ElementOverlay from "@/components/builder/ElementOverlay";
@@ -1125,14 +1126,22 @@ export default function BuilderPage() {
               }}
             >
               {activePage?.components.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
-                  <Layout className="w-16 h-16 mb-4 opacity-30" />
-                  <p className="text-lg font-medium mb-2">No components yet</p>
-                  <p className="text-sm text-center mb-4">Add components from the sidebar to start building your page.</p>
-                  <Button variant="outline" onClick={() => setSidebarTab("components")}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Component
-                  </Button>
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-12">
+                  <div className="w-20 h-20 rounded-3xl bg-muted/80 flex items-center justify-center mb-6">
+                    <Layout className="w-10 h-10 opacity-30" />
+                  </div>
+                  <p className="text-lg font-semibold mb-2 text-foreground/70">Ingen sektioner endnu</p>
+                  <p className="text-sm text-center mb-6 max-w-xs opacity-60">Tilføj sektioner fra sidepanelet eller vælg en skabelon for at komme i gang.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setSidebarTab("components")} className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      Tilføj sektion
+                    </Button>
+                    <Button variant="default" onClick={() => setTemplateGalleryOpen(true)} className="gap-2">
+                      <Layout className="w-4 h-4" />
+                      Vælg skabelon
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 activePage?.components.map(comp => (
@@ -1212,39 +1221,54 @@ export default function BuilderPage() {
             </TabsList>
 
             <TabsContent value="components" className="flex-1 p-4 pt-2 overflow-auto">
-              <div className="space-y-2">
+              <div className="space-y-3">
+                {/* Global Styles */}
+                {builderState?.globalStyles && (
+                  <GlobalStylesPanel
+                    globalStyles={builderState.globalStyles}
+                    onUpdate={(updates) => {
+                      const newState = {
+                        ...builderState,
+                        globalStyles: { ...builderState.globalStyles, ...updates },
+                      };
+                      updateStateWithHistory(newState, 'Update global styles');
+                    }}
+                  />
+                )}
+
+                {/* Template Button */}
                 <Button
                   variant="outline"
-                  className="w-full mb-4 justify-start gap-2 border-dashed border-2 hover:border-primary hover:bg-primary/5"
+                  className="w-full justify-start gap-2 border-dashed border-2 hover:border-primary hover:bg-primary/5 h-11"
                   onClick={() => setTemplateGalleryOpen(true)}
                   data-testid="open-template-gallery"
                 >
-                  <Layout className="w-4 h-4" />
-                  <span>Vælg Skabelon</span>
+                  <Layout className="w-4 h-4 text-primary" />
+                  <span className="font-medium">Vælg Skabelon</span>
                 </Button>
-                <Separator className="my-3" />
-                <h3 className="font-semibold text-sm mb-3">Tilføj Sektion</h3>
-                {getComponentTypes().map((type) => {
-                  const def = componentRegistry[type];
-                  const IconComponent = ICON_MAP[def.icon] || Layout;
-                  return (
-                    <button
-                      key={type}
-                      onClick={() => addComponent(type)}
-                      className="w-full flex items-center gap-3 p-3 rounded-lg border bg-background hover:bg-muted transition-colors text-left"
-                      data-testid={`add-component-${type}`}
-                    >
-                      <div className="w-10 h-10 rounded bg-primary/10 flex items-center justify-center">
-                        <IconComponent className="w-5 h-5 text-primary" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">{def.name}</p>
-                        <p className="text-xs text-muted-foreground">Click to add</p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground" />
-                    </button>
-                  );
-                })}
+
+                <Separator />
+
+                <h3 className="font-semibold text-sm">Tilføj Sektion</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {getComponentTypes().map((type) => {
+                    const def = componentRegistry[type];
+                    const IconComponent = ICON_MAP[def.icon] || Layout;
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => addComponent(type)}
+                        className="flex flex-col items-center gap-2 p-3 rounded-xl border bg-background hover:bg-primary/5 hover:border-primary/30 transition-all text-center group"
+                        data-testid={`add-component-${type}`}
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-muted group-hover:bg-primary/10 flex items-center justify-center transition-colors">
+                          <IconComponent className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                        </div>
+                        <span className="text-xs font-medium leading-tight">{def.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </TabsContent>
 
@@ -1264,9 +1288,12 @@ export default function BuilderPage() {
                       accessToken={session?.access_token || ''}
                     />
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground">
-                      <Settings className="w-8 h-8 mb-3 opacity-50" />
-                      <p className="text-sm">Select a component to edit its properties.</p>
+                    <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground px-6">
+                      <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
+                        <Settings className="w-6 h-6 opacity-40" />
+                      </div>
+                      <p className="text-sm font-medium mb-1">Ingen sektion valgt</p>
+                      <p className="text-xs opacity-70">Klik på en sektion i forhåndsvisningen for at redigere den.</p>
                     </div>
                   )}
                 </div>

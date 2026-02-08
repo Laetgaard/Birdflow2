@@ -3249,12 +3249,16 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     pages,
   };
 
-  const wrapperProps: React.HTMLAttributes<HTMLDivElement> & { 'data-testid': string; 'data-component-type': string; 'data-element-id': string } = {
+  const wrapperProps: React.HTMLAttributes<HTMLDivElement> & { 'data-testid': string; 'data-component-type': string; 'data-element-id': string; 'data-component-id': string } = {
     'data-testid': `component-${component.id}`,
     'data-component-type': component.type,
     'data-element-id': component.id,
+    'data-component-id': component.id,
     onMouseEnter: handleMouseEnter,
     onMouseLeave: handleMouseLeave,
+    style: {
+      transition: 'all 0.2s ease',
+    },
   };
 
   const renderComponent = () => {
