@@ -5131,6 +5131,11 @@ export async function registerRoutes(
           bookingConfirmationEnabled: true,
           bookingUpdatedEnabled: true,
           bookingCancelledEnabled: true,
+          shippingConfirmationEnabled: true,
+          welcomeEmailEnabled: true,
+          abandonedCartEnabled: true,
+          newSubmissionEnabled: true,
+          refundConfirmationEnabled: true,
         });
       }
 
@@ -5161,6 +5166,11 @@ export async function registerRoutes(
           bookingConfirmationEnabled: true,
           bookingUpdatedEnabled: true,
           bookingCancelledEnabled: true,
+          shippingConfirmationEnabled: true,
+          welcomeEmailEnabled: true,
+          abandonedCartEnabled: true,
+          newSubmissionEnabled: true,
+          refundConfirmationEnabled: true,
         });
       }
 
