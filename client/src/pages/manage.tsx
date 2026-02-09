@@ -24,7 +24,8 @@ import {
   ShoppingCart, Calendar, Mail, Users, Palette,
   Package, Clock, CheckCircle, XCircle, AlertCircle,
   Plus, Pencil, Trash2, DollarSign, Image, Upload,
-  Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3, X
+  Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3, X,
+  FileText
 } from "lucide-react";
 import { AnalyticsDashboard } from "@/components/AnalyticsDashboard";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -1013,8 +1014,63 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
     );
   }
 
+  const notificationItems = [
+    {
+      field: 'orderConfirmationEnabled' as keyof EmailSettings,
+      label: 'Order Confirmations',
+      description: 'Send email when a customer completes a purchase',
+      icon: ShoppingCart,
+      testId: 'toggle-order-confirmation',
+    },
+    {
+      field: 'bookingConfirmationEnabled' as keyof EmailSettings,
+      label: 'Booking Confirmations',
+      description: 'Send email when a customer creates a booking',
+      icon: Calendar,
+      testId: 'toggle-booking-confirmation',
+    },
+    {
+      field: 'bookingUpdatedEnabled' as keyof EmailSettings,
+      label: 'Booking Updates',
+      description: 'Send email when a booking is modified',
+      icon: RefreshCw,
+      testId: 'toggle-booking-updated',
+    },
+    {
+      field: 'bookingCancelledEnabled' as keyof EmailSettings,
+      label: 'Booking Cancellations',
+      description: 'Send email when a booking is cancelled',
+      icon: XCircle,
+      testId: 'toggle-booking-cancelled',
+    },
+  ];
+
+  const enabledCount = notificationItems.filter(item => settings?.[item.field]).length;
+
   return (
     <div className="space-y-6">
+      {/* Header */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-6 text-white">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItSDI0di0yaDEyek0zNiAyNHYySDI0di0yaDEyeiIvPjwvZz48L2c+PC9zdmc+')] opacity-30" />
+        <div className="relative">
+          <div className="flex items-center gap-2 mb-1">
+            <Mail className="w-5 h-5" />
+            <h3 className="text-lg font-semibold">Email Configuration</h3>
+          </div>
+          <p className="text-white/70 text-sm">Manage notifications, branding, and email templates for your customers</p>
+          <div className="flex items-center gap-4 mt-3">
+            <div className="flex items-center gap-1.5 bg-white/10 rounded-full px-3 py-1 text-xs">
+              <CheckCircle className="w-3.5 h-3.5" />
+              {enabledCount} of {notificationItems.length} notifications active
+            </div>
+            <div className="flex items-center gap-1.5 bg-white/10 rounded-full px-3 py-1 text-xs">
+              <Pencil className="w-3.5 h-3.5" />
+              {templates.length} custom template{templates.length !== 1 ? 's' : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Email Notifications Toggles */}
       <Card>
         <CardHeader>
@@ -1022,68 +1078,42 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
             <Mail className="w-5 h-5" />
             Email Notifications
           </CardTitle>
-          <CardDescription>Control which emails are sent to your customers</CardDescription>
+          <CardDescription>Control which automated emails are sent to your customers. Toggle each notification type on or off.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <p className="font-medium">Order Confirmations</p>
-              <p className="text-sm text-muted-foreground">Send email when a customer completes a purchase</p>
-            </div>
-            <Button
-              variant={settings?.orderConfirmationEnabled ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleToggle('orderConfirmationEnabled', !settings?.orderConfirmationEnabled)}
-              data-testid="toggle-order-confirmation"
-            >
-              {settings?.orderConfirmationEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <p className="font-medium">Booking Confirmations</p>
-              <p className="text-sm text-muted-foreground">Send email when a customer creates a booking</p>
-            </div>
-            <Button
-              variant={settings?.bookingConfirmationEnabled ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleToggle('bookingConfirmationEnabled', !settings?.bookingConfirmationEnabled)}
-              data-testid="toggle-booking-confirmation"
-            >
-              {settings?.bookingConfirmationEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <p className="font-medium">Booking Updates</p>
-              <p className="text-sm text-muted-foreground">Send email when a booking is modified</p>
-            </div>
-            <Button
-              variant={settings?.bookingUpdatedEnabled ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleToggle('bookingUpdatedEnabled', !settings?.bookingUpdatedEnabled)}
-              data-testid="toggle-booking-updated"
-            >
-              {settings?.bookingUpdatedEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <p className="font-medium">Booking Cancellations</p>
-              <p className="text-sm text-muted-foreground">Send email when a booking is cancelled</p>
-            </div>
-            <Button
-              variant={settings?.bookingCancelledEnabled ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleToggle('bookingCancelledEnabled', !settings?.bookingCancelledEnabled)}
-              data-testid="toggle-booking-cancelled"
-            >
-              {settings?.bookingCancelledEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
+        <CardContent className="space-y-1">
+          {notificationItems.map((item, index) => {
+            const IconComponent = item.icon;
+            const isEnabled = !!settings?.[item.field];
+            return (
+              <div key={item.field}>
+                <div className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${isEnabled ? 'bg-primary/10' : 'bg-muted'}`}>
+                      <IconComponent className={`w-4 h-4 ${isEnabled ? 'text-primary' : 'text-muted-foreground'}`} />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">{item.label}</p>
+                      <p className="text-xs text-muted-foreground">{item.description}</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant={isEnabled ? "default" : "outline"}
+                    size="sm"
+                    className={`min-w-[90px] ${isEnabled ? '' : 'text-muted-foreground'}`}
+                    onClick={() => handleToggle(item.field, !isEnabled)}
+                    data-testid={item.testId}
+                  >
+                    {isEnabled ? (
+                      <><CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Enabled</>
+                    ) : (
+                      <><XCircle className="w-3.5 h-3.5 mr-1.5" /> Disabled</>
+                    )}
+                  </Button>
+                </div>
+                {index < notificationItems.length - 1 && <Separator />}
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
@@ -1094,36 +1124,45 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
             <Palette className="w-5 h-5" />
             Email Branding
           </CardTitle>
-          <CardDescription>Customize the look and feel of your emails</CardDescription>
+          <CardDescription>Customize the look and feel of your emails. Changes are reflected in all outgoing messages.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Sender Name</Label>
-              <Input
-                value={settings?.senderName || ''}
-                onChange={(e) => setSettings(prev => prev ? { ...prev, senderName: e.target.value } : null)}
-                onBlur={(e) => handleBrandingUpdate({ senderName: e.target.value || null })}
-                placeholder="Your Company Name"
-                data-testid="input-sender-name"
-              />
-            </div>
-            <div>
-              <Label>Sender Email</Label>
-              <Input
-                type="email"
-                value={settings?.senderEmail || ''}
-                onChange={(e) => setSettings(prev => prev ? { ...prev, senderEmail: e.target.value } : null)}
-                onBlur={(e) => handleBrandingUpdate({ senderEmail: e.target.value || null })}
-                placeholder="hello@yourcompany.com"
-                data-testid="input-sender-email"
-              />
+        <CardContent className="space-y-6">
+          <div>
+            <h4 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wider">Sender Identity</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Sender Name</Label>
+                <Input
+                  value={settings?.senderName || ''}
+                  onChange={(e) => setSettings(prev => prev ? { ...prev, senderName: e.target.value } : null)}
+                  onBlur={(e) => handleBrandingUpdate({ senderName: e.target.value || null })}
+                  placeholder="Your Company Name"
+                  data-testid="input-sender-name"
+                />
+                <p className="text-xs text-muted-foreground">Appears as the "From" name in customer inboxes</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reply-To Email</Label>
+                <Input
+                  type="email"
+                  value={settings?.senderEmail || ''}
+                  onChange={(e) => setSettings(prev => prev ? { ...prev, senderEmail: e.target.value } : null)}
+                  onBlur={(e) => handleBrandingUpdate({ senderEmail: e.target.value || null })}
+                  placeholder="hello@yourcompany.com"
+                  data-testid="input-sender-email"
+                />
+                <p className="text-xs text-muted-foreground">Customers can reply directly to this address</p>
+              </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Logo URL</Label>
-              <div className="flex gap-2">
+
+          <Separator />
+
+          <div>
+            <h4 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wider">Visual Identity</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Logo URL</Label>
                 <Input
                   value={settings?.logoUrl || ''}
                   onChange={(e) => setSettings(prev => prev ? { ...prev, logoUrl: e.target.value } : null)}
@@ -1131,46 +1170,72 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
                   placeholder="https://example.com/logo.png"
                   data-testid="input-logo-url"
                 />
+                {settings?.logoUrl ? (
+                  <div className="mt-2 p-3 bg-muted rounded-lg border border-dashed flex items-center justify-center">
+                    <img src={settings.logoUrl} alt="Logo preview" className="max-h-10 object-contain" />
+                  </div>
+                ) : (
+                  <div className="mt-2 p-3 bg-muted/50 rounded-lg border border-dashed text-center">
+                    <Image className="w-5 h-5 mx-auto text-muted-foreground/40 mb-1" />
+                    <p className="text-xs text-muted-foreground/60">Paste a logo URL above to preview</p>
+                  </div>
+                )}
               </div>
-              {settings?.logoUrl && (
-                <div className="mt-2 p-2 bg-muted rounded">
-                  <img src={settings.logoUrl} alt="Logo preview" className="max-h-8 object-contain" />
+              <div className="space-y-1.5">
+                <Label>Brand Color</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="color"
+                    value={settings?.primaryColor || '#6366f1'}
+                    onChange={(e) => {
+                      setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null);
+                      handleBrandingUpdate({ primaryColor: e.target.value });
+                    }}
+                    className="w-12 h-10 p-1 cursor-pointer rounded-lg"
+                    data-testid="input-primary-color"
+                  />
+                  <Input
+                    value={settings?.primaryColor || '#6366f1'}
+                    onChange={(e) => setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null)}
+                    onBlur={(e) => handleBrandingUpdate({ primaryColor: e.target.value || null })}
+                    placeholder="#6366f1"
+                    className="flex-1 font-mono text-sm"
+                  />
                 </div>
-              )}
-            </div>
-            <div>
-              <Label>Primary Color</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="color"
-                  value={settings?.primaryColor || '#6366f1'}
-                  onChange={(e) => {
-                    setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null);
-                    handleBrandingUpdate({ primaryColor: e.target.value });
-                  }}
-                  className="w-12 h-10 p-1 cursor-pointer"
-                  data-testid="input-primary-color"
-                />
-                <Input
-                  value={settings?.primaryColor || '#6366f1'}
-                  onChange={(e) => setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null)}
-                  onBlur={(e) => handleBrandingUpdate({ primaryColor: e.target.value || null })}
-                  placeholder="#6366f1"
-                  className="flex-1"
-                />
+                <p className="text-xs text-muted-foreground">Used for buttons and accent elements in emails</p>
+                <div className="flex gap-1.5 mt-2">
+                  {['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'].map(color => (
+                    <button
+                      key={color}
+                      className="w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                      style={{ backgroundColor: color, borderColor: settings?.primaryColor === color ? 'white' : 'transparent', boxShadow: settings?.primaryColor === color ? `0 0 0 2px ${color}` : 'none' }}
+                      onClick={() => {
+                        setSettings(prev => prev ? { ...prev, primaryColor: color } : null);
+                        handleBrandingUpdate({ primaryColor: color });
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
+
+          <Separator />
+
           <div>
-            <Label>Footer Text</Label>
-            <Textarea
-              value={settings?.footerText || ''}
-              onChange={(e) => setSettings(prev => prev ? { ...prev, footerText: e.target.value } : null)}
-              onBlur={(e) => handleBrandingUpdate({ footerText: e.target.value || null })}
-              placeholder="Sent via BirdFlow - Website Builder Platform"
-              rows={2}
-              data-testid="input-footer-text"
-            />
+            <h4 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wider">Footer</h4>
+            <div className="space-y-1.5">
+              <Label>Footer Text</Label>
+              <Textarea
+                value={settings?.footerText || ''}
+                onChange={(e) => setSettings(prev => prev ? { ...prev, footerText: e.target.value } : null)}
+                onBlur={(e) => handleBrandingUpdate({ footerText: e.target.value || null })}
+                placeholder="Sent via BirdFlow - Website Builder Platform"
+                rows={2}
+                data-testid="input-footer-text"
+              />
+              <p className="text-xs text-muted-foreground">Shown at the bottom of every email. Include your company address for compliance.</p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1178,47 +1243,64 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
       {/* Email Templates */}
       <Card>
         <CardHeader>
-          <CardTitle>Email Templates</CardTitle>
-          <CardDescription>Customize the content of each email type</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            Email Templates
+          </CardTitle>
+          <CardDescription>Customize the content of each email type. Use template variables to personalize messages.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {EMAIL_TEMPLATE_TYPES.map(type => {
               const hasCustom = templates.find(t => t.templateType === type.id);
+              const templateIcon = type.id.includes('order') ? ShoppingCart : type.id.includes('booking') ? Calendar : type.id.includes('publish') ? Globe : Mail;
+              const TemplateIcon = templateIcon;
               return (
-                <div 
-                  key={type.id} 
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                <div
+                  key={type.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors group"
                   data-testid={`template-${type.id}`}
                 >
-                  <div>
-                    <p className="font-medium">{type.name}</p>
-                    <p className="text-sm text-muted-foreground">{type.description}</p>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-primary/5 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                      <TemplateIcon className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-sm">{type.name}</p>
+                        {hasCustom && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Customized</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{type.description}</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {hasCustom && (
-                      <Badge variant="secondary" className="text-xs">Customized</Badge>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openTemplateEditor(type.id)}
-                      data-testid={`edit-template-${type.id}`}
-                    >
-                      <Pencil className="w-3 h-3 mr-1" />
-                      Edit
-                    </Button>
-                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openTemplateEditor(type.id)}
+                    data-testid={`edit-template-${type.id}`}
+                    className="opacity-70 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Pencil className="w-3 h-3 mr-1.5" />
+                    {hasCustom ? 'Edit' : 'Customize'}
+                  </Button>
                 </div>
               );
             })}
+          </div>
+          <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium">Available variables:</span>{' '}
+              {'{{customerName}}'}, {'{{orderId}}'}, {'{{serviceName}}'}, {'{{bookingDate}}'}, {'{{totalAmount}}'}, {'{{websiteUrl}}'}
+            </p>
           </div>
         </CardContent>
       </Card>
 
       {/* Template Editor Dialog */}
       <Dialog open={!!selectedTemplateType} onOpenChange={(open) => !open && setSelectedTemplateType(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>
               Edit {EMAIL_TEMPLATE_TYPES.find(t => t.id === selectedTemplateType)?.name} Template
@@ -1227,43 +1309,80 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
               Customize the content of this email. Use variables like {"{{orderId}}"}, {"{{customerName}}"}, etc.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <Label>Subject Line</Label>
-              <Input
-                value={templateForm.subject}
-                onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
-                placeholder="Order Confirmation - #{{orderId}}"
-                data-testid="template-subject"
-              />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-4">
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Subject Line</Label>
+                <Input
+                  value={templateForm.subject}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
+                  placeholder="Order Confirmation - #{{orderId}}"
+                  data-testid="template-subject"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Heading</Label>
+                <Input
+                  value={templateForm.heading}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, heading: e.target.value }))}
+                  placeholder="Thank you for your order!"
+                  data-testid="template-heading"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Body Text</Label>
+                <Textarea
+                  value={templateForm.bodyText}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, bodyText: e.target.value }))}
+                  placeholder="We have received your order and are processing it..."
+                  rows={5}
+                  data-testid="template-body"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Button Text (optional)</Label>
+                <Input
+                  value={templateForm.buttonText}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, buttonText: e.target.value }))}
+                  placeholder="View Order"
+                  data-testid="template-button"
+                />
+              </div>
             </div>
-            <div>
-              <Label>Heading</Label>
-              <Input
-                value={templateForm.heading}
-                onChange={(e) => setTemplateForm(prev => ({ ...prev, heading: e.target.value }))}
-                placeholder="Thank you for your order!"
-                data-testid="template-heading"
-              />
-            </div>
-            <div>
-              <Label>Body Text</Label>
-              <Textarea
-                value={templateForm.bodyText}
-                onChange={(e) => setTemplateForm(prev => ({ ...prev, bodyText: e.target.value }))}
-                placeholder="We have received your order and are processing it..."
-                rows={4}
-                data-testid="template-body"
-              />
-            </div>
-            <div>
-              <Label>Button Text (optional)</Label>
-              <Input
-                value={templateForm.buttonText}
-                onChange={(e) => setTemplateForm(prev => ({ ...prev, buttonText: e.target.value }))}
-                placeholder="View Order"
-                data-testid="template-button"
-              />
+            <div className="space-y-2">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Preview</Label>
+              <div className="border rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-950">
+                <div className="p-4 text-center border-b" style={{ backgroundColor: settings?.primaryColor || '#6366f1' }}>
+                  {settings?.logoUrl ? (
+                    <img src={settings.logoUrl} alt="Logo" className="max-h-8 mx-auto object-contain" />
+                  ) : (
+                    <p className="text-white text-sm font-medium">{settings?.senderName || 'Your Company'}</p>
+                  )}
+                </div>
+                <div className="p-5 bg-white dark:bg-gray-900">
+                  <h3 className="text-base font-semibold mb-2 text-gray-900 dark:text-white">
+                    {templateForm.heading || 'Email Heading'}
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-line mb-4">
+                    {templateForm.bodyText || 'Email body text will appear here...'}
+                  </p>
+                  {templateForm.buttonText && (
+                    <div className="text-center">
+                      <span
+                        className="inline-block px-5 py-2 rounded-md text-white text-sm font-medium"
+                        style={{ backgroundColor: settings?.primaryColor || '#6366f1' }}
+                      >
+                        {templateForm.buttonText}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="px-5 py-3 text-center border-t bg-gray-50 dark:bg-gray-950">
+                  <p className="text-[10px] text-gray-400">
+                    {settings?.footerText || 'Footer text'}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -3798,13 +3917,19 @@ export default function ManagePage() {
                           <Label htmlFor="price">Price</Label>
                           <div className="relative">
                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <Input 
+                            <Input
                               id="price"
-                              type="number"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               className="pl-9"
-                              value={productForm.price || '0'} 
-                              onChange={(e) => setProductForm({...productForm, price: e.target.value})}
+                              placeholder="0.00"
+                              value={productForm.price}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                                  setProductForm({...productForm, price: val});
+                                }
+                              }}
                               data-testid="input-product-price"
                             />
                           </div>
@@ -3813,14 +3938,19 @@ export default function ManagePage() {
                           <Label htmlFor="compare_at_price">Compare at Price (Original)</Label>
                           <div className="relative">
                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <Input 
+                            <Input
                               id="compare_at_price"
-                              type="number"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               className="pl-9"
                               placeholder="Leave empty if not on sale"
-                              value={productForm.compareAtPrice || ''} 
-                              onChange={(e) => setProductForm({...productForm, compareAtPrice: e.target.value || null})}
+                              value={productForm.compareAtPrice || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                                  setProductForm({...productForm, compareAtPrice: val || null});
+                                }
+                              }}
                               data-testid="input-product-compare-price"
                             />
                           </div>
@@ -4430,12 +4560,18 @@ export default function ManagePage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="servicePrice">Price</Label>
-                          <Input 
+                          <Input
                             id="servicePrice"
-                            type="number"
-                            step="0.01"
-                            value={serviceForm.price || '0'} 
-                            onChange={(e) => setServiceForm({...serviceForm, price: e.target.value})}
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0.00"
+                            value={serviceForm.price}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                                setServiceForm({...serviceForm, price: val});
+                              }
+                            }}
                             data-testid="input-service-price"
                           />
                         </div>
