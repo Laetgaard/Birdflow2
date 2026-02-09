@@ -29,7 +29,7 @@ import {
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig } from "./publisher/vercel";
+import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
 import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { emailService } from "./email/service";
@@ -3316,6 +3316,130 @@ export async function registerRoutes(
 
       await storage.deleteCustomDomain(req.params.domainId, req.params.id);
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ DOMAIN PURCHASE ROUTES ============
+
+  // Check domain availability and pricing
+  app.get("/api/websites/:id/domains/check-availability", requireAuth, async (req, res) => {
+    try {
+      const { domain } = req.query;
+      if (!domain || typeof domain !== 'string') {
+        return res.status(400).json({ message: "Domain name is required" });
+      }
+
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const vercelToken = process.env.VERCEL_TOKEN;
+      if (!vercelToken) {
+        return res.status(400).json({ message: "Domain registration requires Vercel integration. Please contact support." });
+      }
+
+      const vercelConfig = {
+        token: vercelToken,
+        teamId: process.env.VERCEL_TEAM_ID,
+      };
+
+      const availability = await checkDomainAvailability(domain.toLowerCase(), vercelConfig);
+      res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Purchase a domain and optionally connect it to the website
+  app.post("/api/websites/:id/domains/purchase", requireAuth, async (req, res) => {
+    try {
+      const { domain, connectToWebsite } = req.body;
+      if (!domain) {
+        return res.status(400).json({ message: "Domain is required" });
+      }
+
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== (req as any).user.id) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const vercelToken = process.env.VERCEL_TOKEN;
+      if (!vercelToken) {
+        return res.status(400).json({ message: "Domain purchase requires Vercel integration." });
+      }
+
+      const vercelConfig = {
+        token: vercelToken,
+        teamId: process.env.VERCEL_TEAM_ID,
+      };
+
+      // Step 1: Purchase the domain through Vercel
+      const purchaseResult = await purchaseDomain(domain.toLowerCase(), vercelConfig);
+      if (!purchaseResult.success) {
+        return res.status(400).json({ message: purchaseResult.error || "Failed to purchase domain" });
+      }
+
+      // Step 2: If connectToWebsite is true, also add it to the website's Vercel project
+      if (connectToWebsite && website.deploymentUrl) {
+        const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+        // Add domain to the Vercel project
+        const addResult = await addCustomDomain(projectName, domain.toLowerCase(), vercelConfig);
+
+        // Determine DNS configuration
+        const domainParts = domain.toLowerCase().split('.');
+        const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
+
+        let dnsType: string;
+        let dnsName: string;
+        let dnsValue: string;
+
+        if (isSubdomain) {
+          dnsType = 'CNAME';
+          dnsName = domainParts[0];
+          dnsValue = 'cname.vercel-dns.com';
+        } else {
+          dnsType = 'A';
+          dnsName = '@';
+          dnsValue = '76.76.21.21';
+        }
+
+        // Create the domain record in our database
+        const customDomain = await storage.createCustomDomain({
+          websiteId: req.params.id,
+          domain: domain.toLowerCase(),
+          status: 'verifying', // Since we own the domain, DNS should auto-configure
+          vercelProjectId: projectName,
+          dnsType,
+          dnsName,
+          dnsValue,
+        });
+
+        return res.status(201).json({
+          success: true,
+          purchased: true,
+          connected: true,
+          domain: customDomain,
+          message: "Domain purchased and connected! Since the domain is registered through Vercel, DNS will be configured automatically.",
+        });
+      }
+
+      res.status(201).json({
+        success: true,
+        purchased: true,
+        connected: false,
+        domain: domain.toLowerCase(),
+        message: "Domain purchased successfully! You can now connect it to your website.",
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

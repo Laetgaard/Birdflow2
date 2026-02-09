@@ -867,6 +867,273 @@ function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId: strin
   );
 }
 
+type DomainAvailability = {
+  available: boolean;
+  domain: string;
+  price?: number;
+  period?: number;
+  suggestions?: Array<{ domain: string; available: boolean; price?: number }>;
+};
+
+function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId: string; accessToken: string; isPublished: boolean }) {
+  const { toast } = useToast();
+  const [searchDomain, setSearchDomain] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [availability, setAvailability] = useState<DomainAvailability | null>(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [connectToWebsite, setConnectToWebsite] = useState(true);
+  const [purchaseComplete, setPurchaseComplete] = useState<{ domain: string; connected: boolean } | null>(null);
+
+  const handleSearch = async () => {
+    const domain = searchDomain.trim().toLowerCase();
+    if (!domain) return;
+
+    // Ensure the domain has a TLD
+    const domainToCheck = domain.includes('.') ? domain : `${domain}.com`;
+
+    setIsSearching(true);
+    setAvailability(null);
+    setPurchaseComplete(null);
+
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/domains/check-availability?domain=${encodeURIComponent(domainToCheck)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Failed to check availability');
+      }
+      const data = await res.json();
+      setAvailability(data);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message,
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handlePurchase = async (domain: string) => {
+    setIsPurchasing(true);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/domains/purchase`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ domain, connectToWebsite: connectToWebsite && isPublished }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to purchase domain');
+      }
+      setPurchaseComplete({ domain, connected: data.connected });
+      setAvailability(null);
+      setSearchDomain('');
+      toast({
+        title: 'Domain Purchased!',
+        description: data.message,
+      });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Purchase Failed',
+        description: error.message,
+      });
+    } finally {
+      setIsPurchasing(false);
+    }
+  };
+
+  const formatPrice = (price: number) => {
+    return `$${price.toFixed(2)}`;
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Globe className="w-5 h-5" />
+          Buy a Domain
+        </CardTitle>
+        <CardDescription>Search for and register a new domain directly through Vercel. The domain will be managed in your Vercel account.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-5">
+          {/* Search */}
+          <div className="flex gap-2">
+            <Input
+              placeholder="Search for a domain (e.g. mybusiness.com)"
+              value={searchDomain}
+              onChange={(e) => setSearchDomain(e.target.value)}
+              disabled={isSearching || isPurchasing}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              data-testid="input-search-domain"
+            />
+            <Button
+              onClick={handleSearch}
+              disabled={isSearching || !searchDomain.trim() || isPurchasing}
+              data-testid="btn-search-domain"
+            >
+              {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4 mr-1" />}
+              Search
+            </Button>
+          </div>
+
+          {/* Results */}
+          {availability && (
+            <div className="space-y-3">
+              {/* Primary domain result */}
+              <div className={`border rounded-lg p-4 ${
+                availability.available
+                  ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
+                  : 'border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      availability.available ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'
+                    }`}>
+                      {availability.available ? (
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                      ) : (
+                        <XCircle className="w-5 h-5 text-red-600" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-base">{availability.domain}</p>
+                      <p className={`text-sm ${availability.available ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
+                        {availability.available ? 'Available' : 'Not available'}
+                      </p>
+                    </div>
+                  </div>
+                  {availability.available && (
+                    <div className="flex items-center gap-3">
+                      {availability.price !== undefined && (
+                        <div className="text-right">
+                          <p className="text-lg font-bold">{formatPrice(availability.price)}</p>
+                          <p className="text-xs text-muted-foreground">/ {availability.period || 1} year{(availability.period || 1) > 1 ? 's' : ''}</p>
+                        </div>
+                      )}
+                      <Button
+                        onClick={() => handlePurchase(availability.domain)}
+                        disabled={isPurchasing}
+                        className="min-w-[120px]"
+                        data-testid="btn-purchase-domain"
+                      >
+                        {isPurchasing ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <ShoppingCart className="w-4 h-4 mr-1" />}
+                        Buy Domain
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Connect to website option */}
+              {availability.available && isPublished && (
+                <div className="flex items-center gap-2 px-1">
+                  <input
+                    type="checkbox"
+                    id="connectDomainToWebsite"
+                    checked={connectToWebsite}
+                    onChange={(e) => setConnectToWebsite(e.target.checked)}
+                    className="rounded"
+                  />
+                  <Label htmlFor="connectDomainToWebsite" className="text-sm text-muted-foreground cursor-pointer">
+                    Automatically connect this domain to my website after purchase (DNS configured via Vercel)
+                  </Label>
+                </div>
+              )}
+
+              {/* Suggestions */}
+              {availability.suggestions && availability.suggestions.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">
+                    {availability.available ? 'Also available:' : 'Try these alternatives:'}
+                  </p>
+                  <div className="space-y-2">
+                    {availability.suggestions.map((suggestion) => (
+                      <div
+                        key={suggestion.domain}
+                        className="flex items-center justify-between p-3 border rounded-lg bg-background hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span className="font-medium text-sm">{suggestion.domain}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {suggestion.price !== undefined && (
+                            <span className="text-sm font-semibold">{formatPrice(suggestion.price)}/yr</span>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handlePurchase(suggestion.domain)}
+                            disabled={isPurchasing}
+                          >
+                            {isPurchasing ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Purchase complete */}
+          {purchaseComplete && (
+            <div className="border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/20 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="w-6 h-6 text-green-600 mt-0.5" />
+                <div>
+                  <h4 className="font-semibold text-green-900 dark:text-green-200">
+                    Domain Registered Successfully!
+                  </h4>
+                  <p className="text-sm text-green-700 dark:text-green-400 mt-1">
+                    <span className="font-medium">{purchaseComplete.domain}</span> has been registered to your Vercel account.
+                    {purchaseComplete.connected
+                      ? ' It has been automatically connected to your website and DNS will be configured within minutes.'
+                      : ' You can connect it to your website using the "Custom Domains" section above.'}
+                  </p>
+                  {purchaseComplete.connected && (
+                    <p className="text-xs text-green-600 dark:text-green-500 mt-2 flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      DNS is being configured automatically. Your domain should be live within a few minutes.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Info box */}
+          {!availability && !purchaseComplete && (
+            <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium">How it works:</span>
+              </p>
+              <ul className="text-sm text-muted-foreground space-y-1 ml-4 list-disc">
+                <li>Search for your desired domain name</li>
+                <li>Purchase it directly through Vercel's domain registration</li>
+                <li>The domain will be registered and managed in your Vercel account</li>
+                <li>If your site is published, the domain can be auto-connected with DNS configured automatically</li>
+                <li>Payment is handled through your Vercel account billing</li>
+              </ul>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; accessToken: string }) {
   const { toast } = useToast();
   const [settings, setSettings] = useState<EmailSettings | null>(null);
@@ -4549,11 +4816,20 @@ export default function ManagePage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="serviceDuration">Duration (minutes)</Label>
-                        <Input 
+                        <Input
                           id="serviceDuration"
-                          type="number"
-                          value={serviceForm.durationMinutes || 60} 
-                          onChange={(e) => setServiceForm({...serviceForm, durationMinutes: parseInt(e.target.value) || 60})}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="60"
+                          value={serviceForm.durationMinutes === 0 ? '' : String(serviceForm.durationMinutes || '')}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '') {
+                              setServiceForm({...serviceForm, durationMinutes: 0});
+                            } else if (/^\d+$/.test(val)) {
+                              setServiceForm({...serviceForm, durationMinutes: parseInt(val)});
+                            }
+                          }}
                           data-testid="input-service-duration"
                         />
                       </div>
@@ -5495,6 +5771,8 @@ export default function ManagePage() {
               </Card>
 
               <DomainsCard websiteId={id!} accessToken={session?.access_token || ''} isPublished={website?.status === 'published'} />
+
+              <DomainPurchaseCard websiteId={id!} accessToken={session?.access_token || ''} isPublished={website?.status === 'published'} />
 
               <Card>
                 <CardHeader>
