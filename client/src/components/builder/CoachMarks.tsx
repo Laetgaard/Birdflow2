@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { X, ArrowRight, ArrowLeft, Sparkles, Layout, Settings, Wand2, Upload, MousePointer, Rocket } from "lucide-react";
+import { X, ArrowRight, ArrowLeft, Sparkles, Layout, Settings, Wand2, Upload, MousePointer, Rocket, Type, ImageIcon, Palette } from "lucide-react";
 
 type CoachStep = {
   id: string;
@@ -23,10 +23,34 @@ const COACH_STEPS: CoachStep[] = [
   {
     id: "canvas",
     title: "Dit arbejdsområde",
-    description: "Klik på en sektion for at vælge den. Du kan redigere tekst direkte ved at klikke på den.",
+    description: "Klik på en sektion for at vælge den. Dobbeltklik på tekst for at redigere direkte. Klik på billeder for at skifte dem.",
     targetSelector: "[data-preview-area]",
     position: "center",
     icon: <MousePointer className="w-8 h-8" />,
+  },
+  {
+    id: "inline-editing",
+    title: "Rediger direkte i forhåndsvisningen",
+    description: "Dobbeltklik på tekst for at redigere den. Klik på billeder for at skifte dem. Klik på knapper for at ændre tekst og farve - alt direkte i forhåndsvisningen!",
+    targetSelector: "[data-preview-area]",
+    position: "center",
+    icon: <Type className="w-8 h-8" />,
+  },
+  {
+    id: "insert-sections",
+    title: "Tilføj sektioner mellem eksisterende",
+    description: "Hold musen mellem to sektioner for at se en '+' knap. Klik for at tilføje en ny sektion præcis der, hvor du vil have den.",
+    targetSelector: "[data-preview-area]",
+    position: "center",
+    icon: <Layout className="w-8 h-8" />,
+  },
+  {
+    id: "style-presets",
+    title: "Skift stil med ét klik",
+    description: "Når du vælger en sektion, tryk på palette-ikonet i værktøjslinjen for at se stilarter og layout-varianter. Skift udseendet med ét klik!",
+    targetSelector: "[data-testid='floating-toolbar']",
+    position: "center",
+    icon: <Palette className="w-8 h-8" />,
   },
   {
     id: "add-components",

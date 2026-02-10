@@ -67,6 +67,8 @@ import GlobalStylesPanel from "@/components/builder/GlobalStylesPanel";
 import SpacingIndicators from "@/components/builder/SpacingIndicators";
 import { ElementSelectionProvider } from "@/components/builder/ElementSelectionContext";
 import ElementOverlay from "@/components/builder/ElementOverlay";
+import SectionInsertPoint from "@/components/builder/SectionInsertPoint";
+import ContextualTips from "@/components/builder/ContextualTips";
 import type { WebsiteTemplate } from "@shared/websiteTemplates";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
 import { 
@@ -607,6 +609,27 @@ export default function BuilderPage() {
           ? { ...page, components: [...page.components, newComponent] }
           : page
       ),
+    };
+
+    updateStateWithHistory(newState, `Add ${def.name}`);
+    setSelectedComponentId(newComponent.id);
+    setSidebarTab("properties");
+  };
+
+  const addComponentAtIndex = (type: ComponentType, index: number) => {
+    if (!builderState) return;
+
+    const newComponent = createComponent(type);
+    const def = componentRegistry[type];
+
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map(page => {
+        if (page.id !== builderState.activePage) return page;
+        const newComponents = [...page.components];
+        newComponents.splice(index, 0, newComponent);
+        return { ...page, components: newComponents };
+      }),
     };
 
     updateStateWithHistory(newState, `Add ${def.name}`);
@@ -1197,27 +1220,34 @@ export default function BuilderPage() {
                   </div>
                 </div>
               ) : (
-                activePage?.components.map(comp => (
-                  <ComponentRenderer
-                    key={comp.id}
-                    component={comp}
-                    isSelected={selectedComponentId === comp.id}
-                    onClick={() => {
-                      setSelectedComponentId(comp.id);
-                      setSidebarTab("properties");
-                    }}
-                    websiteId={id}
-                    pages={builderState?.pages}
-                    onTextChange={handleTextChange(comp.id)}
-                    editingField={selectedComponentId === comp.id ? editingField : null}
-                    onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
-                    onImageResize={(width, height) => updateComponent(comp.id, { props: { imageWidth: width, imageHeight: height } })}
-                    onStyleChange={(styles) => updateComponent(comp.id, { styles })}
-                    onHover={setHoveredComponentId}
-                    deviceMode={device}
-                    globalStyles={builderState?.globalStyles}
-                  />
-                ))
+                <>
+                  {/* Insert point before first component */}
+                  <SectionInsertPoint index={0} onAddComponent={addComponentAtIndex} />
+                  {activePage?.components.map((comp, idx) => (
+                    <div key={comp.id}>
+                      <ComponentRenderer
+                        component={comp}
+                        isSelected={selectedComponentId === comp.id}
+                        onClick={() => {
+                          setSelectedComponentId(comp.id);
+                          setSidebarTab("properties");
+                        }}
+                        websiteId={id}
+                        pages={builderState?.pages}
+                        onTextChange={handleTextChange(comp.id)}
+                        editingField={selectedComponentId === comp.id ? editingField : null}
+                        onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
+                        onImageResize={(width, height) => updateComponent(comp.id, { props: { imageWidth: width, imageHeight: height } })}
+                        onStyleChange={(styles) => updateComponent(comp.id, { styles })}
+                        onHover={setHoveredComponentId}
+                        deviceMode={device}
+                        globalStyles={builderState?.globalStyles}
+                      />
+                      {/* Insert point after each component */}
+                      <SectionInsertPoint index={idx + 1} onAddComponent={addComponentAtIndex} />
+                    </div>
+                  ))}
+                </>
               )}
             </div>
             <ElementOverlay
@@ -1491,11 +1521,17 @@ export default function BuilderPage() {
 
       {/* Coach Marks for First-Time Users */}
       {showCoachMarks && (
-        <CoachMarks 
-          isFirstTime={true} 
-          onComplete={() => setShowCoachMarks(false)} 
+        <CoachMarks
+          isFirstTime={true}
+          onComplete={() => setShowCoachMarks(false)}
         />
       )}
+
+      {/* Contextual Tips for Non-Tech Users */}
+      <ContextualTips
+        componentType={selectedComponent?.type || null}
+        isVisible={!!selectedComponentId && !showCoachMarks}
+      />
 
       {/* Template Gallery Modal */}
       <TemplateGalleryModal
