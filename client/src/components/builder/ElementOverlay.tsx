@@ -5,6 +5,7 @@ import ElementEditPanel from './ElementEditPanel';
 import InlineTextToolbar from './InlineTextToolbar';
 import type { ElementType, ElementStyles } from './SelectableElement';
 import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
+import { Pencil, Palette } from 'lucide-react';
 
 interface DetectedElement {
   id: string;
@@ -20,6 +21,7 @@ interface ElementOverlayProps {
   containerRef: React.RefObject<HTMLElement | null>;
   isPreview?: boolean;
   onTextPropChange?: (componentId: string, propKey: string, newText: string) => void;
+  onButtonEdit?: (componentId: string, buttonProps: { text: string; element: HTMLElement }) => void;
 }
 
 const ELEMENT_SELECTORS = {
@@ -120,10 +122,53 @@ function resolveElementAtPoint(
   return null;
 }
 
+/**
+ * Place the caret at the mouse click position within a contentEditable element.
+ * Uses caretPositionFromPoint (standard) or caretRangeFromPoint (WebKit fallback).
+ */
+function placeCaretAtPoint(x: number, y: number) {
+  const sel = window.getSelection();
+  if (!sel) return;
+
+  // Standard API (Firefox, Chrome 128+)
+  if (typeof (document as any).caretPositionFromPoint === 'function') {
+    const pos = (document as any).caretPositionFromPoint(x, y);
+    if (pos) {
+      const range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return;
+    }
+  }
+
+  // WebKit / older Chrome fallback
+  if (typeof document.caretRangeFromPoint === 'function') {
+    const range = document.caretRangeFromPoint(x, y);
+    if (range) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return;
+    }
+  }
+
+  // Ultimate fallback: collapse to end
+  const activeEl = document.activeElement;
+  if (activeEl && activeEl instanceof HTMLElement) {
+    const range = document.createRange();
+    range.selectNodeContents(activeEl);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+}
+
 export default function ElementOverlay({
   containerRef,
   isPreview = false,
   onTextPropChange,
+  onButtonEdit,
 }: ElementOverlayProps) {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -146,8 +191,11 @@ export default function ElementOverlay({
   const [allDetectedElements, setAllDetectedElements] = useState<DetectedElement[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [editingButtonId, setEditingButtonId] = useState<string | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const resizeObserver = useRef<ResizeObserver | null>(null);
+  // Store the last double-click coordinates so we can place the caret after contentEditable activates
+  const pendingCaretPosition = useRef<{ x: number; y: number } | null>(null);
 
   const inferTextPropKey = useCallback((element: HTMLElement, componentId: string): string | null => {
     const componentEl = element.closest('[data-component-id]') ||
@@ -217,6 +265,26 @@ export default function ElementOverlay({
     delete element.dataset.originalText;
   }, [updateElementStyles, onTextPropChange, inferTextPropKey]);
 
+  const handleButtonTextBlur = useCallback((element: HTMLElement, detected: DetectedElement) => {
+    element.contentEditable = 'false';
+    element.style.outline = '';
+    element.style.outlineOffset = '';
+    setEditingButtonId(null);
+    setIsEditing(false);
+    const newText = element.textContent || '';
+    const originalText = element.dataset.originalText || '';
+    if (newText !== originalText) {
+      updateElementStyles(detected.id, { textContent: newText });
+      if (onTextPropChange) {
+        const propKey = inferTextPropKey(element, detected.componentId);
+        if (propKey) {
+          onTextPropChange(detected.componentId, propKey, newText);
+        }
+      }
+    }
+    delete element.dataset.originalText;
+  }, [updateElementStyles, onTextPropChange, inferTextPropKey]);
+
   const detectElements = useCallback(() => {
     if (!containerRef.current || isPreview) return;
     const container = containerRef.current;
@@ -271,8 +339,80 @@ export default function ElementOverlay({
     };
   }, [containerRef, detectElements]);
 
+  // Enable text editing mode for a text element (places caret at click position)
+  const enableTextEditing = useCallback((detected: DetectedElement, clientX?: number, clientY?: number) => {
+    const element = detected.element;
+    element.dataset.originalText = element.textContent || '';
+    element.contentEditable = 'true';
+    element.style.outline = '2px solid #3b82f6';
+    element.style.outlineOffset = '2px';
+    element.style.borderRadius = '4px';
+    setIsEditing(true);
+
+    // Store caret coordinates; we place the caret after the element receives focus
+    if (clientX !== undefined && clientY !== undefined) {
+      pendingCaretPosition.current = { x: clientX, y: clientY };
+    } else {
+      pendingCaretPosition.current = null;
+    }
+
+    // Focus the element; use requestAnimationFrame to ensure contentEditable is active
+    requestAnimationFrame(() => {
+      element.focus();
+      if (pendingCaretPosition.current) {
+        placeCaretAtPoint(pendingCaretPosition.current.x, pendingCaretPosition.current.y);
+        pendingCaretPosition.current = null;
+      } else {
+        // Fallback: collapse caret to end
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    });
+  }, []);
+
+  // Enable button inline text editing
+  const enableButtonTextEditing = useCallback((detected: DetectedElement, clientX?: number, clientY?: number) => {
+    const element = detected.element;
+    element.dataset.originalText = element.textContent || '';
+    element.contentEditable = 'true';
+    element.style.outline = '2px solid #8b5cf6';
+    element.style.outlineOffset = '2px';
+    element.style.borderRadius = '4px';
+    setEditingButtonId(detected.id);
+    setIsEditing(true);
+
+    if (clientX !== undefined && clientY !== undefined) {
+      pendingCaretPosition.current = { x: clientX, y: clientY };
+    } else {
+      pendingCaretPosition.current = null;
+    }
+
+    requestAnimationFrame(() => {
+      element.focus();
+      if (pendingCaretPosition.current) {
+        placeCaretAtPoint(pendingCaretPosition.current.x, pendingCaretPosition.current.y);
+        pendingCaretPosition.current = null;
+      } else {
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+    });
+  }, []);
+
   // Single click selects, double-click enables text editing (Framer-like)
-  const handleElementSelect = useCallback((detected: DetectedElement, enableTextEdit = false) => {
+  const handleElementSelect = useCallback((detected: DetectedElement, enableEdit = false, clientX?: number, clientY?: number) => {
     const currentStyles = elementStyles.get(detected.id) || {};
     selectElement({
       id: detected.id,
@@ -281,33 +421,31 @@ export default function ElementOverlay({
       path: detected.path,
       styles: currentStyles,
     });
-    // Only enable text editing on double-click, not single click
-    if (detected.type === 'text' && enableTextEdit) {
+
+    // Text: double-click enters editing mode
+    if (detected.type === 'text' && enableEdit) {
       setTimeout(() => {
-        detected.element.contentEditable = 'true';
-        detected.element.focus();
-        // Select all text for easy replacement
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(detected.element);
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-        setIsEditing(true);
-        detected.element.dataset.originalText = detected.element.textContent || '';
-        // Add visual editing indicator
-        detected.element.style.outline = '2px solid #3b82f6';
-        detected.element.style.outlineOffset = '2px';
-        detected.element.style.borderRadius = '4px';
+        enableTextEditing(detected, clientX, clientY);
       }, 10);
     }
-  }, [selectElement, elementStyles]);
+
+    // Button: double-click enters inline text editing
+    if (detected.type === 'button' && enableEdit) {
+      setTimeout(() => {
+        enableButtonTextEditing(detected, clientX, clientY);
+      }, 10);
+    }
+  }, [selectElement, elementStyles, enableTextEditing, enableButtonTextEditing]);
 
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
 
     const handleContainerClick = (e: MouseEvent) => {
-      if (isEditing) return;
+      if (isEditing) {
+        // When already editing text, let native click-to-position-cursor work
+        return;
+      }
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
 
@@ -320,17 +458,17 @@ export default function ElementOverlay({
       }
     };
 
-    // Double-click enables text editing (Framer-like behavior)
+    // Double-click enables text editing for text and buttons (Framer-like behavior)
     const handleContainerDblClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
 
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
 
-      if (resolved && resolved.type === 'text') {
+      if (resolved && (resolved.type === 'text' || resolved.type === 'button')) {
         e.stopPropagation();
         e.preventDefault();
-        handleElementSelect(resolved, true);
+        handleElementSelect(resolved, true, e.clientX, e.clientY);
       }
     };
 
@@ -365,15 +503,26 @@ export default function ElementOverlay({
     };
   }, [allDetectedElements, isEditing, containerRef]);
 
+  // Blur handler for text elements
   useEffect(() => {
     if (!isEditing || !selectedElement) return;
     const selectedDetected = allDetectedElements.find(d => d.id === selectedElement.id);
-    if (!selectedDetected || selectedDetected.type !== 'text') return;
-    const element = selectedDetected.element;
-    const blurHandler = () => handleTextBlur(element, selectedDetected);
-    element.addEventListener('blur', blurHandler);
-    return () => element.removeEventListener('blur', blurHandler);
-  }, [isEditing, selectedElement, allDetectedElements, handleTextBlur]);
+    if (!selectedDetected) return;
+
+    if (selectedDetected.type === 'text') {
+      const element = selectedDetected.element;
+      const blurHandler = () => handleTextBlur(element, selectedDetected);
+      element.addEventListener('blur', blurHandler);
+      return () => element.removeEventListener('blur', blurHandler);
+    }
+
+    if (selectedDetected.type === 'button' && editingButtonId === selectedDetected.id) {
+      const element = selectedDetected.element;
+      const blurHandler = () => handleButtonTextBlur(element, selectedDetected);
+      element.addEventListener('blur', blurHandler);
+      return () => element.removeEventListener('blur', blurHandler);
+    }
+  }, [isEditing, selectedElement, allDetectedElements, handleTextBlur, handleButtonTextBlur, editingButtonId]);
 
   const handleStyleChange = useCallback((styles: Partial<ElementStyles>) => {
     if (!selectedElement) return;
@@ -452,6 +601,16 @@ export default function ElementOverlay({
     }
   };
 
+  const getHoverHint = (type: ElementType) => {
+    switch (type) {
+      case 'text': return 'Dobbeltklik for at redigere tekst';
+      case 'button': return 'Klik for at redigere knap';
+      case 'card': return 'Klik for at tilpasse kort';
+      case 'image': return 'Klik for at skifte billede';
+      default: return '';
+    }
+  };
+
   return (
     <div
       ref={overlayRef}
@@ -459,6 +618,7 @@ export default function ElementOverlay({
       style={{ zIndex: 100 }}
       data-testid="element-overlay"
     >
+      {/* Hover highlight */}
       {hoveredDetected && !isElementSelected(hoveredDetected.id) && (
         <div
           className="absolute pointer-events-none"
@@ -488,11 +648,14 @@ export default function ElementOverlay({
             }}
           >
             {getDanishLabel(hoveredDetected.type)}
-            {hoveredDetected.type === 'text' && ' · Dobbeltklik for at redigere'}
+            {getHoverHint(hoveredDetected.type) && (
+              <span style={{ opacity: 0.85 }}> · {getHoverHint(hoveredDetected.type)}</span>
+            )}
           </div>
         </div>
       )}
 
+      {/* Selection box */}
       {selectedDetected && (
         <div
           className="absolute"
@@ -526,8 +689,100 @@ export default function ElementOverlay({
         </div>
       )}
 
+      {/* Action badge for selected TEXT (not editing) */}
+      {selectedDetected && selectedDetected.type === 'text' && !isEditing && (
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            left: selectedDetected.rect.left,
+            top: selectedDetected.rect.top - 32,
+            zIndex: 210,
+          }}
+        >
+          <div
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-indigo-700 whitespace-nowrap"
+            style={{
+              backgroundColor: 'rgba(238, 242, 255, 0.95)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            <Pencil className="w-3 h-3" />
+            Dobbeltklik for at redigere
+          </div>
+        </div>
+      )}
+
+      {/* Action badge for selected BUTTON */}
+      {selectedDetected && selectedDetected.type === 'button' && !isEditing && (
+        <div
+          className="absolute pointer-events-auto"
+          style={{
+            left: selectedDetected.rect.left,
+            top: selectedDetected.rect.top - 32,
+            zIndex: 210,
+          }}
+        >
+          <div className="flex items-center gap-1.5">
+            <div
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-purple-700 whitespace-nowrap cursor-pointer hover:bg-purple-100 transition-colors"
+              style={{
+                backgroundColor: 'rgba(243, 232, 255, 0.95)',
+                border: '1px solid rgba(139, 92, 246, 0.3)',
+                backdropFilter: 'blur(4px)',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onButtonEdit && selectedDetected) {
+                  onButtonEdit(selectedDetected.componentId, {
+                    text: selectedDetected.element.textContent || '',
+                    element: selectedDetected.element,
+                  });
+                }
+              }}
+            >
+              <Pencil className="w-3 h-3" />
+              Rediger knap
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action badge for selected CARD */}
+      {selectedDetected && selectedDetected.type === 'card' && !isEditing && (
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            left: selectedDetected.rect.left,
+            top: selectedDetected.rect.top - 32,
+            zIndex: 210,
+          }}
+        >
+          <div
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold text-amber-700 whitespace-nowrap"
+            style={{
+              backgroundColor: 'rgba(255, 251, 235, 0.95)',
+              border: '1px solid rgba(217, 119, 6, 0.3)',
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            <Palette className="w-3 h-3" />
+            Tilpas kort
+          </div>
+        </div>
+      )}
+
       {/* Inline Text Toolbar - shows when editing text */}
       {isEditing && selectedDetected && selectedDetected.type === 'text' && (
+        <InlineTextToolbar
+          targetElement={selectedDetected.element}
+          containerRef={containerRef}
+          onFormatChange={(styles) => handleStyleChange(styles as Partial<ElementStyles>)}
+        />
+      )}
+
+      {/* Inline Text Toolbar for button text editing */}
+      {isEditing && selectedDetected && selectedDetected.type === 'button' && editingButtonId === selectedDetected.id && (
         <InlineTextToolbar
           targetElement={selectedDetected.element}
           containerRef={containerRef}

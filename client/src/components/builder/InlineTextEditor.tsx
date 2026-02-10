@@ -11,6 +11,43 @@ interface InlineTextEditorProps {
   as?: 'h1' | 'h2' | 'h3' | 'p' | 'span';
 }
 
+/**
+ * Places the caret at the position nearest to the click coordinates.
+ * Falls back to placing caret at end of element if APIs aren't available.
+ */
+function placeCaretAtPoint(element: HTMLElement, clientX: number, clientY: number) {
+  // Try the standard API first (Firefox, modern browsers)
+  if ('caretPositionFromPoint' in document) {
+    const pos = (document as any).caretPositionFromPoint(clientX, clientY);
+    if (pos) {
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      return;
+    }
+  }
+  // WebKit/Blink API (Chrome, Safari, Edge)
+  if (document.caretRangeFromPoint) {
+    const range = document.caretRangeFromPoint(clientX, clientY);
+    if (range) {
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      return;
+    }
+  }
+  // Fallback: place caret at end
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
 export default function InlineTextEditor({
   componentId,
   field,
@@ -25,39 +62,65 @@ export default function InlineTextEditor({
   const [localValue, setLocalValue] = useState(value);
   const editorRef = useRef<HTMLDivElement>(null);
   const fieldId = `${componentId}-${field}`;
-  
+  const justEnteredEditingRef = useRef(false);
+  const pendingClickRef = useRef<{ x: number; y: number } | null>(null);
+
   const isActive = editingTextFieldId === fieldId;
 
   useEffect(() => {
     setLocalValue(value);
   }, [value]);
 
+  // When entering edit mode, focus the element and place caret at click position
   useEffect(() => {
-    if (isActive && editorRef.current) {
+    if (isActive && editorRef.current && justEnteredEditingRef.current) {
+      justEnteredEditingRef.current = false;
       editorRef.current.focus();
-      // Select all text
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(editorRef.current);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
+
+      // Place caret at the double-click position instead of selecting all
+      if (pendingClickRef.current) {
+        placeCaretAtPoint(editorRef.current, pendingClickRef.current.x, pendingClickRef.current.y);
+        pendingClickRef.current = null;
+      } else {
+        // Fallback: place caret at end
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editorRef.current);
+        range.collapse(false);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
     }
   }, [isActive]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (!isBuilderMode) return;
     e.stopPropagation();
+    e.preventDefault();
+
+    // Save the click position so we can place the caret there
+    pendingClickRef.current = { x: e.clientX, y: e.clientY };
+    justEnteredEditingRef.current = true;
     setIsEditing(true);
     setEditingTextFieldId(fieldId);
   }, [isBuilderMode, fieldId, setEditingTextFieldId]);
 
+  // When clicking inside while already editing, let the browser handle caret positioning naturally
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (isEditing) {
+      // Don't interfere - let the browser place the cursor naturally
+      e.stopPropagation();
+      return;
+    }
+  }, [isEditing]);
+
   const handleBlur = useCallback(() => {
     if (!isEditing) return;
-    
+
     const newValue = editorRef.current?.textContent || '';
     if (newValue !== value) {
-      onUpdateComponent(componentId, { 
-        props: { [field]: newValue } 
+      onUpdateComponent(componentId, {
+        props: { [field]: newValue }
       });
     }
     setIsEditing(false);
@@ -67,6 +130,9 @@ export default function InlineTextEditor({
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      if (editorRef.current) {
+        editorRef.current.textContent = value;
+      }
       setLocalValue(value);
       setIsEditing(false);
       setEditingTextFieldId(null);
@@ -99,6 +165,7 @@ export default function InlineTextEditor({
       ref={editorRef}
       contentEditable={isEditing}
       suppressContentEditableWarning
+      onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
