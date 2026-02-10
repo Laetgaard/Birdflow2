@@ -41,8 +41,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { 
-  componentRegistry, 
+import {
+  componentRegistry,
   createComponent,
   getComponentTypes,
   type ComponentType,
@@ -50,6 +50,7 @@ import {
   type ComponentProps,
   type ComponentStyles
 } from "@shared/componentRegistry";
+import type { BuilderStateData, BuilderPage, DesignTokens } from "@shared/schema";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
@@ -77,25 +78,6 @@ import {
   canRedo,
   type BuilderHistory 
 } from "@shared/builderHistory";
-
-type BuilderPage = {
-  id: string;
-  name: string;
-  path: string;
-  hidden?: boolean;
-  components: BuilderComponentData[];
-};
-
-type BuilderStateData = {
-  pages: BuilderPage[];
-  activePage: string;
-  globalStyles: {
-    primaryColor: string;
-    secondaryColor: string;
-    fontFamily: string;
-    backgroundColor: string;
-  };
-};
 
 type Website = {
   id: string;
@@ -133,6 +115,7 @@ export default function BuilderPage() {
   const [builderState, setBuilderState] = useState<BuilderStateData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
@@ -150,11 +133,76 @@ export default function BuilderPage() {
   const [hasPendingEdit, setHasPendingEdit] = useState(false);
   const [showCoachMarks, setShowCoachMarks] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const saveInFlightRef = useRef(false);
+  const pendingSaveRef = useRef<BuilderStateData | null>(null);
+  const lastSavedStateRef = useRef<string>('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const previewContainerRef = useRef<HTMLElement>(null);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const [propertiesPaddingTop, setPropertiesPaddingTop] = useState(0);
+
+  const executeSave = useCallback(async (stateToSave: BuilderStateData): Promise<boolean> => {
+    if (!session || !id) return false;
+
+    const stateJson = JSON.stringify(stateToSave);
+    if (stateJson === lastSavedStateRef.current) {
+      setIsDirty(false);
+      return true;
+    }
+
+    setIsSaving(true);
+    saveInFlightRef.current = true;
+    try {
+      const response = await fetch(`/api/websites/${id}/builder`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ state: stateToSave }),
+      });
+
+      if (!response.ok) throw new Error("Failed to save");
+
+      lastSavedStateRef.current = stateJson;
+      setIsDirty(false);
+
+      if (pendingSaveRef.current) {
+        const next = pendingSaveRef.current;
+        pendingSaveRef.current = null;
+        executeSave(next);
+      }
+      return true;
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
+      return false;
+    } finally {
+      setIsSaving(false);
+      saveInFlightRef.current = false;
+    }
+  }, [session, id, toast]);
+
+  const saveState = useCallback(async (newState: BuilderStateData | null): Promise<boolean> => {
+    if (!newState) return false;
+    if (saveInFlightRef.current) {
+      pendingSaveRef.current = newState;
+      return true;
+    }
+    return executeSave(newState);
+  }, [executeSave]);
+
+  const scheduleAutoSave = useCallback((stateToSave: BuilderStateData) => {
+    setIsDirty(true);
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      saveState(stateToSave);
+    }, 2000);
+  }, [saveState]);
 
   const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
     if (historyDebounceRef.current) {
@@ -171,47 +219,25 @@ export default function BuilderPage() {
       setBuilderState(newState);
       setHistory(prev => prev ? pushHistory(prev, newState, description) : createHistory(newState));
     }
-  }, [builderState]);
+    scheduleAutoSave(newState);
+  }, [builderState, scheduleAutoSave]);
 
   const debouncedHistoryPush = useCallback((newState: BuilderStateData, description: string, delay = 1000) => {
     setBuilderState(newState);
     pendingHistoryDescriptionRef.current = description;
     setHasPendingEdit(true);
-    
+
     if (historyDebounceRef.current) {
       clearTimeout(historyDebounceRef.current);
     }
-    
+
     historyDebounceRef.current = setTimeout(() => {
       setHistory(prev => prev ? pushHistory(prev, newState, pendingHistoryDescriptionRef.current) : createHistory(newState));
       historyDebounceRef.current = null;
       setHasPendingEdit(false);
     }, delay);
-  }, []);
-
-  const saveState = useCallback(async (newState: BuilderStateData) => {
-    if (!session || !id) return;
-
-    setIsSaving(true);
-    try {
-      const response = await fetch(`/api/websites/${id}/builder`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ state: newState }),
-      });
-
-      if (!response.ok) throw new Error("Failed to save");
-
-      toast({ title: "Saved", description: "Your changes have been saved." });
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
-    } finally {
-      setIsSaving(false);
-    }
-  }, [session, id, toast]);
+    scheduleAutoSave(newState);
+  }, [scheduleAutoSave]);
 
   const flushPendingHistory = useCallback(() => {
     if (historyDebounceRef.current && builderState) {
@@ -224,35 +250,33 @@ export default function BuilderPage() {
 
   const handleUndo = useCallback(() => {
     flushPendingHistory();
-    
+
     setHistory(prev => {
       if (!prev) return prev;
       const result = undoHistory(prev);
       if (result.state) {
         setBuilderState(result.state);
-        saveState(result.state);
-        toast({ title: "Undone", description: "Reverted to previous state" });
+        scheduleAutoSave(result.state);
         return result.history;
       }
       return prev;
     });
-  }, [flushPendingHistory, saveState, toast]);
+  }, [flushPendingHistory, scheduleAutoSave]);
 
   const handleRedo = useCallback(() => {
     flushPendingHistory();
-    
+
     setHistory(prev => {
       if (!prev) return prev;
       const result = redoHistory(prev);
       if (result.state) {
         setBuilderState(result.state);
-        saveState(result.state);
-        toast({ title: "Redone", description: "Restored next state" });
+        scheduleAutoSave(result.state);
         return result.history;
       }
       return prev;
     });
-  }, [flushPendingHistory, saveState, toast]);
+  }, [flushPendingHistory, scheduleAutoSave]);
 
   const deleteComponent = useCallback((componentId: string) => {
     if (!builderState) return;
@@ -392,8 +416,22 @@ export default function BuilderPage() {
       if (historyDebounceRef.current) {
         clearTimeout(historyDebounceRef.current);
       }
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
     };
   }, []);
+
+  // Warn on close if there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -453,9 +491,11 @@ export default function BuilderPage() {
             };
             setBuilderState(migratedState);
             setHistory(createHistory(migratedState));
+            lastSavedStateRef.current = JSON.stringify(migratedState);
           } else {
             setBuilderState(state);
             setHistory(createHistory(state));
+            lastSavedStateRef.current = JSON.stringify(state);
           }
         }
 
@@ -511,8 +551,17 @@ export default function BuilderPage() {
   const publishSite = useCallback(async () => {
     if (!session || !id || !builderState) return;
 
-    await saveState(builderState);
-    
+    // Cancel pending auto-save and save immediately before publishing
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    const saved = await saveState(builderState);
+    if (!saved) {
+      toast({ title: "Publish cancelled", description: "Failed to save before publishing. Please try again.", variant: "destructive" });
+      return;
+    }
+
     setIsPublishing(true);
     try {
       const response = await fetch(`/api/websites/${id}/publish`, {
@@ -650,10 +699,11 @@ export default function BuilderPage() {
         historyDebounceRef.current = null;
         setHasPendingEdit(false);
       }, 1500);
-      
+
+      scheduleAutoSave(newState);
       return newState;
     });
-  }, []);
+  }, [scheduleAutoSave]);
 
   const applyTemplate = useCallback((template: WebsiteTemplate) => {
     const newState: BuilderStateData = {
@@ -670,13 +720,12 @@ export default function BuilderPage() {
     
     updateStateWithHistory(newState, `Apply template: ${template.name}`);
     setSelectedComponentId(null);
-    saveState(newState);
-    
+
     toast({
       title: "Skabelon anvendt",
       description: `"${template.name}" er nu indlæst i din editor.`,
     });
-  }, [updateStateWithHistory, toast, saveState]);
+  }, [updateStateWithHistory, toast]);
 
   const handleSelectionUpdate = useCallback((componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
     updateComponent(componentId, updates);
@@ -923,9 +972,10 @@ export default function BuilderPage() {
 
         {/* Action buttons - save always visible, others hidden on small screens */}
         <div className="flex items-center gap-1 md:gap-2">
-          <Button size="sm" className="gap-1 md:gap-2 px-2 md:px-3" onClick={() => saveState(builderState)} disabled={isSaving} data-testid="button-save">
+          <Button size="sm" className={`gap-1 md:gap-2 px-2 md:px-3 relative ${isDirty ? 'border-amber-400' : ''}`} variant={isDirty ? "outline" : "default"} onClick={() => { if (autoSaveTimerRef.current) { clearTimeout(autoSaveTimerRef.current); autoSaveTimerRef.current = null; } saveState(builderState); }} disabled={isSaving} data-testid="button-save">
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span className="hidden sm:inline">Save</span>
+            <span className="hidden sm:inline">{isSaving ? 'Saving...' : isDirty ? 'Unsaved' : 'Saved'}</span>
+            {isDirty && !isSaving && <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full" />}
           </Button>
           <Button size="sm" variant="secondary" className="gap-1 md:gap-2 px-2 md:px-3" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
             {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
@@ -1318,7 +1368,6 @@ export default function BuilderPage() {
                       builderState={builderState}
                       onStateChange={(newState, description) => {
                         updateStateWithHistory(newState, description);
-                        saveState(newState);
                       }}
                     />
                   </TabsContent>
@@ -1329,7 +1378,6 @@ export default function BuilderPage() {
                       builderState={builderState}
                       onStateChange={(newState, description) => {
                         updateStateWithHistory(newState, description);
-                        saveState(newState);
                       }}
                       history={history}
                       hasPendingEdit={hasPendingEdit}

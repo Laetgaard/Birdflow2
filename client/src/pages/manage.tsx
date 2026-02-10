@@ -24,7 +24,9 @@ import {
   ShoppingCart, Calendar, Mail, Users, Palette,
   Package, Clock, CheckCircle, XCircle, AlertCircle,
   Plus, Pencil, Trash2, DollarSign, Image, Upload,
-  Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3, X
+  Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3, X,
+  FileText, Send, UserPlus, ShoppingBag, FileInput, RotateCcw,
+  LayoutGrid, Columns, Search, Eye, Heart, Star, Grid3X3, Grid2X2
 } from "lucide-react";
 import { AnalyticsDashboard } from "@/components/AnalyticsDashboard";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -287,6 +289,11 @@ type EmailSettings = {
   bookingConfirmationEnabled: boolean;
   bookingUpdatedEnabled: boolean;
   bookingCancelledEnabled: boolean;
+  shippingConfirmationEnabled: boolean;
+  welcomeEmailEnabled: boolean;
+  abandonedCartEnabled: boolean;
+  newSubmissionEnabled: boolean;
+  refundConfirmationEnabled: boolean;
   senderName?: string | null;
   senderEmail?: string | null;
   logoUrl?: string | null;
@@ -317,9 +324,14 @@ type EmailTemplate = {
 
 const EMAIL_TEMPLATE_TYPES = [
   { id: 'order_confirmation', name: 'Order Confirmation', description: 'Sent when a customer completes a purchase' },
+  { id: 'shipping_confirmation', name: 'Shipping Confirmation', description: 'Sent when an order is shipped with tracking info' },
+  { id: 'refund_confirmation', name: 'Refund Confirmation', description: 'Sent when a refund is processed for an order' },
   { id: 'booking_confirmation', name: 'Booking Confirmation', description: 'Sent when a customer creates a booking' },
   { id: 'booking_updated', name: 'Booking Updated', description: 'Sent when a booking is modified' },
   { id: 'booking_cancelled', name: 'Booking Cancelled', description: 'Sent when a booking is cancelled' },
+  { id: 'welcome_email', name: 'Welcome Email', description: 'Sent to new customers after their first purchase or signup' },
+  { id: 'abandoned_cart', name: 'Abandoned Cart Reminder', description: 'Sent when a customer leaves items in their cart' },
+  { id: 'new_submission', name: 'New Form Submission', description: 'Notifies you when someone submits a contact form' },
   { id: 'website_published', name: 'Website Published', description: 'Sent to you when your website is published' },
 ];
 
@@ -329,6 +341,17 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; body
     heading: 'Thank you for your order!',
     bodyText: 'We have received your order and are processing it. You will receive another email when your order ships.',
     buttonText: 'View Order',
+  },
+  shipping_confirmation: {
+    subject: 'Your order has shipped! - #{{orderId}}',
+    heading: 'Your order is on its way!',
+    bodyText: 'Great news! Your order #{{orderId}} has been shipped. You can track your package using the link below.',
+    buttonText: 'Track Package',
+  },
+  refund_confirmation: {
+    subject: 'Refund Processed - #{{orderId}}',
+    heading: 'Your refund has been processed',
+    bodyText: 'We have processed a refund of {{totalAmount}} for order #{{orderId}}. Please allow 5-10 business days for the refund to appear in your account.',
   },
   booking_confirmation: {
     subject: 'Booking Confirmation - {{serviceName}}',
@@ -346,6 +369,24 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; body
     subject: 'Booking Cancelled - {{serviceName}}',
     heading: 'Your booking has been cancelled',
     bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
+  },
+  welcome_email: {
+    subject: 'Welcome to {{websiteName}}!',
+    heading: 'Welcome aboard, {{customerName}}!',
+    bodyText: 'Thank you for joining us! We\'re excited to have you. Browse our latest products and find something you love.',
+    buttonText: 'Start Shopping',
+  },
+  abandoned_cart: {
+    subject: 'You left something behind!',
+    heading: 'Your cart is waiting for you',
+    bodyText: 'It looks like you left some items in your shopping cart. Complete your purchase before they sell out!',
+    buttonText: 'Complete Purchase',
+  },
+  new_submission: {
+    subject: 'New form submission from {{websiteName}}',
+    heading: 'You have a new contact form submission',
+    bodyText: 'A visitor has submitted a form on your website. Review the details below and respond promptly.',
+    buttonText: 'View Submission',
   },
   website_published: {
     subject: 'Your website is now live!',
@@ -866,6 +907,370 @@ function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId: strin
   );
 }
 
+type DomainAvailability = {
+  available: boolean;
+  domain: string;
+  price?: number;
+  period?: number;
+  suggestions?: Array<{ domain: string; available: boolean; price?: number }>;
+};
+
+function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId: string; accessToken: string; isPublished: boolean }) {
+  const { toast } = useToast();
+  const [searchDomain, setSearchDomain] = useState('');
+  const [selectedTld, setSelectedTld] = useState('.com');
+  const [isSearching, setIsSearching] = useState(false);
+  const [availability, setAvailability] = useState<DomainAvailability | null>(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [purchasingDomain, setPurchasingDomain] = useState<string | null>(null);
+  const [connectToWebsite, setConnectToWebsite] = useState(true);
+  const [purchaseComplete, setPurchaseComplete] = useState<{ domain: string; connected: boolean } | null>(null);
+
+  const tldOptions = ['.com', '.net', '.org', '.io', '.co', '.dev', '.app', '.store', '.shop'];
+
+  const getFullDomain = () => {
+    const base = searchDomain.trim().toLowerCase().replace(/\s+/g, '');
+    if (!base) return '';
+    // If user typed a full domain with TLD, use it as-is
+    if (base.includes('.')) return base;
+    return `${base}${selectedTld}`;
+  };
+
+  const handleSearch = async () => {
+    const domain = getFullDomain();
+    if (!domain) return;
+
+    setIsSearching(true);
+    setAvailability(null);
+    setPurchaseComplete(null);
+
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/domains/check-availability?domain=${encodeURIComponent(domain)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Failed to check availability');
+      }
+      const data = await res.json();
+      setAvailability(data);
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message,
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handlePurchase = async (domain: string) => {
+    setIsPurchasing(true);
+    setPurchasingDomain(domain);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/domains/purchase`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ domain, connectToWebsite: connectToWebsite && isPublished }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to purchase domain');
+      }
+      setPurchaseComplete({ domain, connected: data.connected });
+      setAvailability(null);
+      setSearchDomain('');
+      toast({
+        title: 'Domain Purchased!',
+        description: data.message,
+      });
+    } catch (error: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Purchase Failed',
+        description: error.message,
+      });
+    } finally {
+      setIsPurchasing(false);
+      setPurchasingDomain(null);
+    }
+  };
+
+  const formatPrice = (price: number) => {
+    return `$${price.toFixed(2)}`;
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShoppingBag className="w-5 h-5" />
+          Buy a Domain
+        </CardTitle>
+        <CardDescription>Search for and register a new domain. Purchased domains are managed through Vercel and can be auto-connected to your website.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-5">
+          {/* Search with TLD selector */}
+          <div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Enter domain name (e.g. mybusiness)"
+                  className="pl-9"
+                  value={searchDomain}
+                  onChange={(e) => setSearchDomain(e.target.value.replace(/\s/g, ''))}
+                  disabled={isSearching || isPurchasing}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  data-testid="input-search-domain"
+                />
+              </div>
+              <Select value={selectedTld} onValueChange={setSelectedTld}>
+                <SelectTrigger className="w-[100px]" data-testid="select-tld">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {tldOptions.map(tld => (
+                    <SelectItem key={tld} value={tld}>{tld}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                onClick={handleSearch}
+                disabled={isSearching || !searchDomain.trim() || isPurchasing}
+                data-testid="btn-search-domain"
+              >
+                {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-1" />}
+                Search
+              </Button>
+            </div>
+            {searchDomain.trim() && !searchDomain.includes('.') && (
+              <p className="text-xs text-muted-foreground mt-1.5 ml-1">
+                Searching for: <span className="font-medium">{getFullDomain()}</span>
+              </p>
+            )}
+          </div>
+
+          {/* Auto-connect toggle */}
+          {isPublished && (
+            <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-lg">
+              <input
+                type="checkbox"
+                id="connectDomainToWebsite"
+                checked={connectToWebsite}
+                onChange={(e) => setConnectToWebsite(e.target.checked)}
+                className="rounded mt-0.5"
+              />
+              <div>
+                <Label htmlFor="connectDomainToWebsite" className="text-sm font-medium cursor-pointer">
+                  Auto-connect to my website
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Purchased domains will be automatically linked to your published website with DNS configured through Vercel. No manual setup needed.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Loading state */}
+          {isSearching && (
+            <div className="flex items-center justify-center py-8 gap-3">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Checking availability and pricing...</p>
+            </div>
+          )}
+
+          {/* Results */}
+          {availability && !isSearching && (
+            <div className="space-y-3">
+              {/* Primary domain result */}
+              <div className={`border-2 rounded-lg p-4 transition-colors ${
+                availability.available
+                  ? 'border-green-300 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20'
+                  : 'border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20'
+              }`}>
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      availability.available ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'
+                    }`}>
+                      {availability.available ? (
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                      ) : (
+                        <XCircle className="w-5 h-5 text-red-600" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-lg">{availability.domain}</p>
+                      <p className={`text-sm ${availability.available ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
+                        {availability.available ? 'Available for registration' : 'This domain is taken'}
+                      </p>
+                    </div>
+                  </div>
+                  {availability.available && (
+                    <div className="flex items-center gap-3">
+                      {availability.price !== undefined && (
+                        <div className="text-right">
+                          <p className="text-xl font-bold">{formatPrice(availability.price)}</p>
+                          <p className="text-xs text-muted-foreground">per year</p>
+                        </div>
+                      )}
+                      <Button
+                        onClick={() => handlePurchase(availability.domain)}
+                        disabled={isPurchasing}
+                        size="lg"
+                        className="min-w-[140px]"
+                        data-testid="btn-purchase-domain"
+                      >
+                        {purchasingDomain === availability.domain ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        ) : (
+                          <ShoppingCart className="w-4 h-4 mr-2" />
+                        )}
+                        Buy Domain
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                {availability.available && connectToWebsite && isPublished && (
+                  <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-800 flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Will be auto-connected to your website after purchase
+                  </div>
+                )}
+              </div>
+
+              {/* Suggestions */}
+              {availability.suggestions && availability.suggestions.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">
+                    {availability.available ? 'Also available:' : 'Try these alternatives:'}
+                  </p>
+                  <div className="space-y-2">
+                    {availability.suggestions.map((suggestion) => (
+                      <div
+                        key={suggestion.domain}
+                        className="flex items-center justify-between p-3 border rounded-lg bg-background hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span className="font-medium">{suggestion.domain}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {suggestion.price !== undefined && (
+                            <span className="text-sm font-semibold">{formatPrice(suggestion.price)}<span className="text-muted-foreground font-normal">/yr</span></span>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handlePurchase(suggestion.domain)}
+                            disabled={isPurchasing}
+                          >
+                            {purchasingDomain === suggestion.domain ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Search again */}
+              {!availability.available && (!availability.suggestions || availability.suggestions.length === 0) && (
+                <div className="text-center py-4">
+                  <p className="text-sm text-muted-foreground mb-2">No alternatives found. Try a different name or extension.</p>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    {tldOptions.filter(t => t !== selectedTld).slice(0, 5).map(tld => (
+                      <Button
+                        key={tld}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const base = searchDomain.trim().toLowerCase().split('.')[0];
+                          setSearchDomain(base);
+                          setSelectedTld(tld);
+                          // Trigger search with new TLD
+                          setTimeout(() => {
+                            setAvailability(null);
+                            handleSearch();
+                          }, 100);
+                        }}
+                      >
+                        {searchDomain.trim().split('.')[0]}{tld}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Purchase complete */}
+          {purchaseComplete && (
+            <div className="border-2 border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/20 rounded-lg p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <h4 className="font-semibold text-green-900 dark:text-green-200 text-base">
+                    Domain Registered Successfully!
+                  </h4>
+                  <p className="text-sm text-green-700 dark:text-green-400 mt-1">
+                    <span className="font-semibold">{purchaseComplete.domain}</span> has been registered to your Vercel account.
+                  </p>
+                  {purchaseComplete.connected ? (
+                    <div className="mt-3 p-3 bg-green-100 dark:bg-green-900/20 rounded-lg">
+                      <div className="flex items-center gap-2 text-sm text-green-800 dark:text-green-300">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span className="font-medium">Auto-connecting to your website...</span>
+                      </div>
+                      <p className="text-xs text-green-600 dark:text-green-500 mt-1">
+                        DNS is being configured automatically. Your domain should be live within a few minutes.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-green-600 dark:text-green-500 mt-2">
+                      Connect it to your website using the "Custom Domains" section above.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Info box */}
+          {!availability && !purchaseComplete && !isSearching && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="p-3 bg-muted/40 rounded-lg text-center">
+                <Search className="w-5 h-5 mx-auto mb-1.5 text-muted-foreground" />
+                <p className="text-xs font-medium">Search</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Find your perfect domain</p>
+              </div>
+              <div className="p-3 bg-muted/40 rounded-lg text-center">
+                <ShoppingCart className="w-5 h-5 mx-auto mb-1.5 text-muted-foreground" />
+                <p className="text-xs font-medium">Purchase</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Buy through Vercel billing</p>
+              </div>
+              <div className="p-3 bg-muted/40 rounded-lg text-center">
+                <Link2 className="w-5 h-5 mx-auto mb-1.5 text-muted-foreground" />
+                <p className="text-xs font-medium">Connect</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Auto-link to your site</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; accessToken: string }) {
   const { toast } = useToast();
   const [settings, setSettings] = useState<EmailSettings | null>(null);
@@ -1013,8 +1418,98 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
     );
   }
 
+  const notificationItems = [
+    {
+      field: 'orderConfirmationEnabled' as keyof EmailSettings,
+      label: 'Order Confirmations',
+      description: 'Send email when a customer completes a purchase',
+      icon: ShoppingCart,
+      testId: 'toggle-order-confirmation',
+    },
+    {
+      field: 'shippingConfirmationEnabled' as keyof EmailSettings,
+      label: 'Shipping Confirmations',
+      description: 'Send email when an order is shipped with tracking details',
+      icon: Truck,
+      testId: 'toggle-shipping-confirmation',
+    },
+    {
+      field: 'refundConfirmationEnabled' as keyof EmailSettings,
+      label: 'Refund Confirmations',
+      description: 'Send email when a refund is processed',
+      icon: RotateCcw,
+      testId: 'toggle-refund-confirmation',
+    },
+    {
+      field: 'bookingConfirmationEnabled' as keyof EmailSettings,
+      label: 'Booking Confirmations',
+      description: 'Send email when a customer creates a booking',
+      icon: Calendar,
+      testId: 'toggle-booking-confirmation',
+    },
+    {
+      field: 'bookingUpdatedEnabled' as keyof EmailSettings,
+      label: 'Booking Updates',
+      description: 'Send email when a booking is modified',
+      icon: RefreshCw,
+      testId: 'toggle-booking-updated',
+    },
+    {
+      field: 'bookingCancelledEnabled' as keyof EmailSettings,
+      label: 'Booking Cancellations',
+      description: 'Send email when a booking is cancelled',
+      icon: XCircle,
+      testId: 'toggle-booking-cancelled',
+    },
+    {
+      field: 'welcomeEmailEnabled' as keyof EmailSettings,
+      label: 'Welcome Email',
+      description: 'Send a welcome email to new customers after first purchase',
+      icon: UserPlus,
+      testId: 'toggle-welcome-email',
+    },
+    {
+      field: 'abandonedCartEnabled' as keyof EmailSettings,
+      label: 'Abandoned Cart Reminders',
+      description: 'Remind customers who left items in their cart',
+      icon: ShoppingBag,
+      testId: 'toggle-abandoned-cart',
+    },
+    {
+      field: 'newSubmissionEnabled' as keyof EmailSettings,
+      label: 'Form Submission Alerts',
+      description: 'Notify you when someone submits a contact form',
+      icon: FileInput,
+      testId: 'toggle-new-submission',
+    },
+  ];
+
+  const enabledCount = notificationItems.filter(item => settings?.[item.field]).length;
+
   return (
     <div className="space-y-6">
+      {/* Header */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-6 text-white">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItSDI0di0yaDEyek0zNiAyNHYySDI0di0yaDEyeiIvPjwvZz48L2c+PC9zdmc+')] opacity-30" />
+        <div className="relative">
+          <div className="flex items-center gap-2 mb-1">
+            <Mail className="w-5 h-5" />
+            <h3 className="text-lg font-semibold">Email Configuration</h3>
+          </div>
+          <p className="text-white/70 text-sm">Manage notifications, branding, and email templates for your customers</p>
+          <div className="flex items-center gap-4 mt-3">
+            <div className="flex items-center gap-1.5 bg-white/10 rounded-full px-3 py-1 text-xs">
+              <CheckCircle className="w-3.5 h-3.5" />
+              {enabledCount} of {notificationItems.length} notifications active
+            </div>
+            <div className="flex items-center gap-1.5 bg-white/10 rounded-full px-3 py-1 text-xs">
+              <Pencil className="w-3.5 h-3.5" />
+              {templates.length} custom template{templates.length !== 1 ? 's' : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Email Notifications Toggles */}
       <Card>
         <CardHeader>
@@ -1022,68 +1517,42 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
             <Mail className="w-5 h-5" />
             Email Notifications
           </CardTitle>
-          <CardDescription>Control which emails are sent to your customers</CardDescription>
+          <CardDescription>Control which automated emails are sent to your customers. Toggle each notification type on or off.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <p className="font-medium">Order Confirmations</p>
-              <p className="text-sm text-muted-foreground">Send email when a customer completes a purchase</p>
-            </div>
-            <Button
-              variant={settings?.orderConfirmationEnabled ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleToggle('orderConfirmationEnabled', !settings?.orderConfirmationEnabled)}
-              data-testid="toggle-order-confirmation"
-            >
-              {settings?.orderConfirmationEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <p className="font-medium">Booking Confirmations</p>
-              <p className="text-sm text-muted-foreground">Send email when a customer creates a booking</p>
-            </div>
-            <Button
-              variant={settings?.bookingConfirmationEnabled ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleToggle('bookingConfirmationEnabled', !settings?.bookingConfirmationEnabled)}
-              data-testid="toggle-booking-confirmation"
-            >
-              {settings?.bookingConfirmationEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <p className="font-medium">Booking Updates</p>
-              <p className="text-sm text-muted-foreground">Send email when a booking is modified</p>
-            </div>
-            <Button
-              variant={settings?.bookingUpdatedEnabled ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleToggle('bookingUpdatedEnabled', !settings?.bookingUpdatedEnabled)}
-              data-testid="toggle-booking-updated"
-            >
-              {settings?.bookingUpdatedEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between py-2">
-            <div>
-              <p className="font-medium">Booking Cancellations</p>
-              <p className="text-sm text-muted-foreground">Send email when a booking is cancelled</p>
-            </div>
-            <Button
-              variant={settings?.bookingCancelledEnabled ? "default" : "outline"}
-              size="sm"
-              onClick={() => handleToggle('bookingCancelledEnabled', !settings?.bookingCancelledEnabled)}
-              data-testid="toggle-booking-cancelled"
-            >
-              {settings?.bookingCancelledEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
+        <CardContent className="space-y-1">
+          {notificationItems.map((item, index) => {
+            const IconComponent = item.icon;
+            const isEnabled = !!settings?.[item.field];
+            return (
+              <div key={item.field}>
+                <div className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${isEnabled ? 'bg-primary/10' : 'bg-muted'}`}>
+                      <IconComponent className={`w-4 h-4 ${isEnabled ? 'text-primary' : 'text-muted-foreground'}`} />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">{item.label}</p>
+                      <p className="text-xs text-muted-foreground">{item.description}</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant={isEnabled ? "default" : "outline"}
+                    size="sm"
+                    className={`min-w-[90px] ${isEnabled ? '' : 'text-muted-foreground'}`}
+                    onClick={() => handleToggle(item.field, !isEnabled)}
+                    data-testid={item.testId}
+                  >
+                    {isEnabled ? (
+                      <><CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Enabled</>
+                    ) : (
+                      <><XCircle className="w-3.5 h-3.5 mr-1.5" /> Disabled</>
+                    )}
+                  </Button>
+                </div>
+                {index < notificationItems.length - 1 && <Separator />}
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
@@ -1094,36 +1563,45 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
             <Palette className="w-5 h-5" />
             Email Branding
           </CardTitle>
-          <CardDescription>Customize the look and feel of your emails</CardDescription>
+          <CardDescription>Customize the look and feel of your emails. Changes are reflected in all outgoing messages.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Sender Name</Label>
-              <Input
-                value={settings?.senderName || ''}
-                onChange={(e) => setSettings(prev => prev ? { ...prev, senderName: e.target.value } : null)}
-                onBlur={(e) => handleBrandingUpdate({ senderName: e.target.value || null })}
-                placeholder="Your Company Name"
-                data-testid="input-sender-name"
-              />
-            </div>
-            <div>
-              <Label>Sender Email</Label>
-              <Input
-                type="email"
-                value={settings?.senderEmail || ''}
-                onChange={(e) => setSettings(prev => prev ? { ...prev, senderEmail: e.target.value } : null)}
-                onBlur={(e) => handleBrandingUpdate({ senderEmail: e.target.value || null })}
-                placeholder="hello@yourcompany.com"
-                data-testid="input-sender-email"
-              />
+        <CardContent className="space-y-6">
+          <div>
+            <h4 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wider">Sender Identity</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Sender Name</Label>
+                <Input
+                  value={settings?.senderName || ''}
+                  onChange={(e) => setSettings(prev => prev ? { ...prev, senderName: e.target.value } : null)}
+                  onBlur={(e) => handleBrandingUpdate({ senderName: e.target.value || null })}
+                  placeholder="Your Company Name"
+                  data-testid="input-sender-name"
+                />
+                <p className="text-xs text-muted-foreground">Appears as the "From" name in customer inboxes</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reply-To Email</Label>
+                <Input
+                  type="email"
+                  value={settings?.senderEmail || ''}
+                  onChange={(e) => setSettings(prev => prev ? { ...prev, senderEmail: e.target.value } : null)}
+                  onBlur={(e) => handleBrandingUpdate({ senderEmail: e.target.value || null })}
+                  placeholder="hello@yourcompany.com"
+                  data-testid="input-sender-email"
+                />
+                <p className="text-xs text-muted-foreground">Customers can reply directly to this address</p>
+              </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Logo URL</Label>
-              <div className="flex gap-2">
+
+          <Separator />
+
+          <div>
+            <h4 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wider">Visual Identity</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Logo URL</Label>
                 <Input
                   value={settings?.logoUrl || ''}
                   onChange={(e) => setSettings(prev => prev ? { ...prev, logoUrl: e.target.value } : null)}
@@ -1131,46 +1609,72 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
                   placeholder="https://example.com/logo.png"
                   data-testid="input-logo-url"
                 />
+                {settings?.logoUrl ? (
+                  <div className="mt-2 p-3 bg-muted rounded-lg border border-dashed flex items-center justify-center">
+                    <img src={settings.logoUrl} alt="Logo preview" className="max-h-10 object-contain" />
+                  </div>
+                ) : (
+                  <div className="mt-2 p-3 bg-muted/50 rounded-lg border border-dashed text-center">
+                    <Image className="w-5 h-5 mx-auto text-muted-foreground/40 mb-1" />
+                    <p className="text-xs text-muted-foreground/60">Paste a logo URL above to preview</p>
+                  </div>
+                )}
               </div>
-              {settings?.logoUrl && (
-                <div className="mt-2 p-2 bg-muted rounded">
-                  <img src={settings.logoUrl} alt="Logo preview" className="max-h-8 object-contain" />
+              <div className="space-y-1.5">
+                <Label>Brand Color</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="color"
+                    value={settings?.primaryColor || '#6366f1'}
+                    onChange={(e) => {
+                      setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null);
+                      handleBrandingUpdate({ primaryColor: e.target.value });
+                    }}
+                    className="w-12 h-10 p-1 cursor-pointer rounded-lg"
+                    data-testid="input-primary-color"
+                  />
+                  <Input
+                    value={settings?.primaryColor || '#6366f1'}
+                    onChange={(e) => setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null)}
+                    onBlur={(e) => handleBrandingUpdate({ primaryColor: e.target.value || null })}
+                    placeholder="#6366f1"
+                    className="flex-1 font-mono text-sm"
+                  />
                 </div>
-              )}
-            </div>
-            <div>
-              <Label>Primary Color</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="color"
-                  value={settings?.primaryColor || '#6366f1'}
-                  onChange={(e) => {
-                    setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null);
-                    handleBrandingUpdate({ primaryColor: e.target.value });
-                  }}
-                  className="w-12 h-10 p-1 cursor-pointer"
-                  data-testid="input-primary-color"
-                />
-                <Input
-                  value={settings?.primaryColor || '#6366f1'}
-                  onChange={(e) => setSettings(prev => prev ? { ...prev, primaryColor: e.target.value } : null)}
-                  onBlur={(e) => handleBrandingUpdate({ primaryColor: e.target.value || null })}
-                  placeholder="#6366f1"
-                  className="flex-1"
-                />
+                <p className="text-xs text-muted-foreground">Used for buttons and accent elements in emails</p>
+                <div className="flex gap-1.5 mt-2">
+                  {['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'].map(color => (
+                    <button
+                      key={color}
+                      className="w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                      style={{ backgroundColor: color, borderColor: settings?.primaryColor === color ? 'white' : 'transparent', boxShadow: settings?.primaryColor === color ? `0 0 0 2px ${color}` : 'none' }}
+                      onClick={() => {
+                        setSettings(prev => prev ? { ...prev, primaryColor: color } : null);
+                        handleBrandingUpdate({ primaryColor: color });
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
+
+          <Separator />
+
           <div>
-            <Label>Footer Text</Label>
-            <Textarea
-              value={settings?.footerText || ''}
-              onChange={(e) => setSettings(prev => prev ? { ...prev, footerText: e.target.value } : null)}
-              onBlur={(e) => handleBrandingUpdate({ footerText: e.target.value || null })}
-              placeholder="Sent via BirdFlow - Website Builder Platform"
-              rows={2}
-              data-testid="input-footer-text"
-            />
+            <h4 className="text-sm font-medium mb-3 text-muted-foreground uppercase tracking-wider">Footer</h4>
+            <div className="space-y-1.5">
+              <Label>Footer Text</Label>
+              <Textarea
+                value={settings?.footerText || ''}
+                onChange={(e) => setSettings(prev => prev ? { ...prev, footerText: e.target.value } : null)}
+                onBlur={(e) => handleBrandingUpdate({ footerText: e.target.value || null })}
+                placeholder="Sent via BirdFlow - Website Builder Platform"
+                rows={2}
+                data-testid="input-footer-text"
+              />
+              <p className="text-xs text-muted-foreground">Shown at the bottom of every email. Include your company address for compliance.</p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1178,47 +1682,64 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
       {/* Email Templates */}
       <Card>
         <CardHeader>
-          <CardTitle>Email Templates</CardTitle>
-          <CardDescription>Customize the content of each email type</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            Email Templates
+          </CardTitle>
+          <CardDescription>Customize the content of each email type. Use template variables to personalize messages.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {EMAIL_TEMPLATE_TYPES.map(type => {
               const hasCustom = templates.find(t => t.templateType === type.id);
+              const templateIcon = type.id.includes('order') ? ShoppingCart : type.id.includes('booking') ? Calendar : type.id.includes('publish') ? Globe : Mail;
+              const TemplateIcon = templateIcon;
               return (
-                <div 
-                  key={type.id} 
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                <div
+                  key={type.id}
+                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors group"
                   data-testid={`template-${type.id}`}
                 >
-                  <div>
-                    <p className="font-medium">{type.name}</p>
-                    <p className="text-sm text-muted-foreground">{type.description}</p>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-primary/5 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                      <TemplateIcon className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-sm">{type.name}</p>
+                        {hasCustom && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Customized</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{type.description}</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {hasCustom && (
-                      <Badge variant="secondary" className="text-xs">Customized</Badge>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openTemplateEditor(type.id)}
-                      data-testid={`edit-template-${type.id}`}
-                    >
-                      <Pencil className="w-3 h-3 mr-1" />
-                      Edit
-                    </Button>
-                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openTemplateEditor(type.id)}
+                    data-testid={`edit-template-${type.id}`}
+                    className="opacity-70 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Pencil className="w-3 h-3 mr-1.5" />
+                    {hasCustom ? 'Edit' : 'Customize'}
+                  </Button>
                 </div>
               );
             })}
+          </div>
+          <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium">Available variables:</span>{' '}
+              {'{{customerName}}'}, {'{{orderId}}'}, {'{{serviceName}}'}, {'{{bookingDate}}'}, {'{{totalAmount}}'}, {'{{websiteUrl}}'}
+            </p>
           </div>
         </CardContent>
       </Card>
 
       {/* Template Editor Dialog */}
       <Dialog open={!!selectedTemplateType} onOpenChange={(open) => !open && setSelectedTemplateType(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>
               Edit {EMAIL_TEMPLATE_TYPES.find(t => t.id === selectedTemplateType)?.name} Template
@@ -1227,43 +1748,80 @@ function EmailSettingsCard({ websiteId, accessToken }: { websiteId: string; acce
               Customize the content of this email. Use variables like {"{{orderId}}"}, {"{{customerName}}"}, etc.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <Label>Subject Line</Label>
-              <Input
-                value={templateForm.subject}
-                onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
-                placeholder="Order Confirmation - #{{orderId}}"
-                data-testid="template-subject"
-              />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-4">
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Subject Line</Label>
+                <Input
+                  value={templateForm.subject}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
+                  placeholder="Order Confirmation - #{{orderId}}"
+                  data-testid="template-subject"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Heading</Label>
+                <Input
+                  value={templateForm.heading}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, heading: e.target.value }))}
+                  placeholder="Thank you for your order!"
+                  data-testid="template-heading"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Body Text</Label>
+                <Textarea
+                  value={templateForm.bodyText}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, bodyText: e.target.value }))}
+                  placeholder="We have received your order and are processing it..."
+                  rows={5}
+                  data-testid="template-body"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Button Text (optional)</Label>
+                <Input
+                  value={templateForm.buttonText}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, buttonText: e.target.value }))}
+                  placeholder="View Order"
+                  data-testid="template-button"
+                />
+              </div>
             </div>
-            <div>
-              <Label>Heading</Label>
-              <Input
-                value={templateForm.heading}
-                onChange={(e) => setTemplateForm(prev => ({ ...prev, heading: e.target.value }))}
-                placeholder="Thank you for your order!"
-                data-testid="template-heading"
-              />
-            </div>
-            <div>
-              <Label>Body Text</Label>
-              <Textarea
-                value={templateForm.bodyText}
-                onChange={(e) => setTemplateForm(prev => ({ ...prev, bodyText: e.target.value }))}
-                placeholder="We have received your order and are processing it..."
-                rows={4}
-                data-testid="template-body"
-              />
-            </div>
-            <div>
-              <Label>Button Text (optional)</Label>
-              <Input
-                value={templateForm.buttonText}
-                onChange={(e) => setTemplateForm(prev => ({ ...prev, buttonText: e.target.value }))}
-                placeholder="View Order"
-                data-testid="template-button"
-              />
+            <div className="space-y-2">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Preview</Label>
+              <div className="border rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-950">
+                <div className="p-4 text-center border-b" style={{ backgroundColor: settings?.primaryColor || '#6366f1' }}>
+                  {settings?.logoUrl ? (
+                    <img src={settings.logoUrl} alt="Logo" className="max-h-8 mx-auto object-contain" />
+                  ) : (
+                    <p className="text-white text-sm font-medium">{settings?.senderName || 'Your Company'}</p>
+                  )}
+                </div>
+                <div className="p-5 bg-white dark:bg-gray-900">
+                  <h3 className="text-base font-semibold mb-2 text-gray-900 dark:text-white">
+                    {templateForm.heading || 'Email Heading'}
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-line mb-4">
+                    {templateForm.bodyText || 'Email body text will appear here...'}
+                  </p>
+                  {templateForm.buttonText && (
+                    <div className="text-center">
+                      <span
+                        className="inline-block px-5 py-2 rounded-md text-white text-sm font-medium"
+                        style={{ backgroundColor: settings?.primaryColor || '#6366f1' }}
+                      >
+                        {templateForm.buttonText}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="px-5 py-3 text-center border-t bg-gray-50 dark:bg-gray-950">
+                  <p className="text-[10px] text-gray-400">
+                    {settings?.footerText || 'Footer text'}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1471,6 +2029,23 @@ export default function ManagePage() {
     status: 'active',
     category: '',
     variants: [],
+  });
+
+  // Product display settings
+  const [productLayout, setProductLayout] = useState<{
+    columns: number;
+    cardStyle: 'default' | 'minimal' | 'detailed';
+    showDescription: boolean;
+    showCategory: boolean;
+    showInventory: boolean;
+    imageAspect: 'video' | 'square' | 'portrait';
+  }>({
+    columns: 3,
+    cardStyle: 'default',
+    showDescription: true,
+    showCategory: true,
+    showInventory: true,
+    imageAspect: 'video',
   });
 
   // Reviews state
@@ -2878,54 +3453,77 @@ export default function ManagePage() {
 
       {/* Main Content */}
       <main className="container mx-auto py-6 px-4">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold mb-1">Website Management</h1>
-          <p className="text-muted-foreground">Manage orders, bookings, form submissions, and customers for {website.name}</p>
+        {/* Page Header */}
+        <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 mb-6 text-white">
+          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMyI+PHBhdGggZD0iTTM2IDM0djItSDI0di0yaDEyek0zNiAyNHYySDI0di0yaDEyeiIvPjwvZz48L2c+PC9zdmc+')] opacity-50" />
+          <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold mb-1">{website.name}</h1>
+              <p className="text-white/60 text-sm">Manage your website, products, orders, and customer communications</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge className={`${website.status === 'published' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30'}`}>
+                {website.status === 'published' ? 'Live' : 'Draft'}
+              </Badge>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={() => setLocation(`/builder/${id}`)}>
+                <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                Edit Website
+              </Button>
+            </div>
+          </div>
         </div>
 
         {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Orders</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <ShoppingCart className="h-5 w-5 text-primary" />
-                <span className="text-2xl font-bold">{orders.length}</span>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <Card className="group hover:shadow-md transition-all border-l-4 border-l-blue-500">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Orders</p>
+                  <p className="text-2xl font-bold mt-1">{orders.length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <ShoppingCart className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </div>
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Bookings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />
-                <span className="text-2xl font-bold">{bookings.length}</span>
+          <Card className="group hover:shadow-md transition-all border-l-4 border-l-violet-500">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Bookings</p>
+                  <p className="text-2xl font-bold mt-1">{bookings.length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+                  <Calendar className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                </div>
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Form Submissions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-primary" />
-                <span className="text-2xl font-bold">{submissions.length}</span>
+          <Card className="group hover:shadow-md transition-all border-l-4 border-l-amber-500">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Submissions</p>
+                  <p className="text-2xl font-bold mt-1">{submissions.length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                  <Mail className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                </div>
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Customers</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" />
-                <span className="text-2xl font-bold">{customers.length}</span>
+          <Card className="group hover:shadow-md transition-all border-l-4 border-l-emerald-500">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Customers</p>
+                  <p className="text-2xl font-bold mt-1">{customers.length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                  <Users className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -3798,13 +4396,19 @@ export default function ManagePage() {
                           <Label htmlFor="price">Price</Label>
                           <div className="relative">
                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <Input 
+                            <Input
                               id="price"
-                              type="number"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               className="pl-9"
-                              value={productForm.price || '0'} 
-                              onChange={(e) => setProductForm({...productForm, price: e.target.value})}
+                              placeholder="0.00"
+                              value={productForm.price}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                                  setProductForm({...productForm, price: val});
+                                }
+                              }}
                               data-testid="input-product-price"
                             />
                           </div>
@@ -3813,14 +4417,19 @@ export default function ManagePage() {
                           <Label htmlFor="compare_at_price">Compare at Price (Original)</Label>
                           <div className="relative">
                             <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <Input 
+                            <Input
                               id="compare_at_price"
-                              type="number"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               className="pl-9"
                               placeholder="Leave empty if not on sale"
-                              value={productForm.compareAtPrice || ''} 
-                              onChange={(e) => setProductForm({...productForm, compareAtPrice: e.target.value || null})}
+                              value={productForm.compareAtPrice || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                                  setProductForm({...productForm, compareAtPrice: val || null});
+                                }
+                              }}
                               data-testid="input-product-compare-price"
                             />
                           </div>
@@ -4291,75 +4900,187 @@ export default function ManagePage() {
                 </Dialog>
               </CardHeader>
               <CardContent>
+                {/* Product Layout Editor */}
+                {products.length > 0 && (
+                  <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-dashed">
+                    <div className="flex items-center gap-2 mb-3">
+                      <LayoutGrid className="w-4 h-4 text-muted-foreground" />
+                      <h4 className="text-sm font-medium">Product Display Settings</h4>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Grid Columns</Label>
+                        <div className="flex gap-1">
+                          {[2, 3, 4].map(cols => (
+                            <Button
+                              key={cols}
+                              variant={productLayout.columns === cols ? 'default' : 'outline'}
+                              size="sm"
+                              className="flex-1 h-8"
+                              onClick={() => setProductLayout({...productLayout, columns: cols})}
+                            >
+                              {cols}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Card Style</Label>
+                        <Select value={productLayout.cardStyle} onValueChange={(v: any) => setProductLayout({...productLayout, cardStyle: v})}>
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            <SelectItem value="minimal">Minimal</SelectItem>
+                            <SelectItem value="detailed">Detailed</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Image Ratio</Label>
+                        <Select value={productLayout.imageAspect} onValueChange={(v: any) => setProductLayout({...productLayout, imageAspect: v})}>
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="video">16:9</SelectItem>
+                            <SelectItem value="square">1:1 Square</SelectItem>
+                            <SelectItem value="portrait">3:4 Portrait</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Show Elements</Label>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => setProductLayout({...productLayout, showDescription: !productLayout.showDescription})}
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${productLayout.showDescription ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-input text-muted-foreground'}`}
+                          >
+                            Desc
+                          </button>
+                          <button
+                            onClick={() => setProductLayout({...productLayout, showCategory: !productLayout.showCategory})}
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${productLayout.showCategory ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-input text-muted-foreground'}`}
+                          >
+                            Category
+                          </button>
+                          <button
+                            onClick={() => setProductLayout({...productLayout, showInventory: !productLayout.showInventory})}
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${productLayout.showInventory ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-input text-muted-foreground'}`}
+                          >
+                            Stock
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {products.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                    <p className="font-medium">No products yet</p>
-                    <p className="text-sm">Add products to your catalog to display them on your website.</p>
+                  <div className="text-center py-16 text-muted-foreground">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+                      <Package className="w-8 h-8 opacity-50" />
+                    </div>
+                    <p className="font-semibold text-foreground">No products yet</p>
+                    <p className="text-sm mt-1 max-w-sm mx-auto">Add your first product to start building your online catalog. Products will appear on your published website.</p>
+                    <Button variant="outline" className="mt-4" onClick={() => openProductDialog()}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Your First Product
+                    </Button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className={`grid gap-4 ${
+                    productLayout.columns === 2 ? 'grid-cols-1 md:grid-cols-2' :
+                    productLayout.columns === 4 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4' :
+                    'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+                  }`}>
                     {products.map(product => (
-                      <div key={product.id} className="border rounded-lg overflow-hidden" data-testid={`card-product-${product.id}`}>
-                        {product.imageUrl && (
-                          <div className="aspect-video bg-muted relative">
-                            <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
-                          </div>
-                        )}
-                        {!product.imageUrl && (
-                          <div className="aspect-video bg-muted flex items-center justify-center">
-                            <Package className="w-12 h-12 text-muted-foreground/50" />
-                          </div>
-                        )}
-                        <div className="p-4">
+                      <div
+                        key={product.id}
+                        className={`border rounded-lg overflow-hidden group hover:shadow-md transition-all ${
+                          productLayout.cardStyle === 'minimal' ? 'border-transparent hover:border-border' : ''
+                        }`}
+                        data-testid={`card-product-${product.id}`}
+                      >
+                        {/* Image */}
+                        <div className={`bg-muted relative overflow-hidden ${
+                          productLayout.imageAspect === 'square' ? 'aspect-square' :
+                          productLayout.imageAspect === 'portrait' ? 'aspect-[3/4]' :
+                          'aspect-video'
+                        }`}>
+                          {product.imageUrl ? (
+                            <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Package className="w-12 h-12 text-muted-foreground/30" />
+                            </div>
+                          )}
+                          {product.compareAtPrice && parseFloat(product.compareAtPrice) > parseFloat(product.price) && (
+                            <Badge className="absolute top-2 left-2 bg-red-500 text-white text-[10px] px-1.5">Sale</Badge>
+                          )}
+                          <Badge
+                            className={`absolute top-2 right-2 text-[10px] px-1.5 ${
+                              product.status === 'active' ? 'bg-emerald-500 text-white' :
+                              product.status === 'draft' ? 'bg-amber-500 text-white' :
+                              'bg-gray-500 text-white'
+                            }`}
+                          >
+                            {product.status}
+                          </Badge>
+                        </div>
+
+                        {/* Content */}
+                        <div className={`${productLayout.cardStyle === 'minimal' ? 'p-3' : 'p-4'}`}>
                           <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <h3 className="font-medium">{product.name}</h3>
-                              {product.category && (
-                                <p className="text-xs text-muted-foreground">{product.category}</p>
+                            <div className="min-w-0">
+                              <h3 className={`font-semibold truncate ${productLayout.cardStyle === 'minimal' ? 'text-sm' : ''}`}>{product.name}</h3>
+                              {productLayout.showCategory && product.category && (
+                                <p className="text-xs text-muted-foreground mt-0.5">{product.category}</p>
                               )}
                             </div>
-                            <Badge variant={product.status === 'active' ? 'default' : 'secondary'}>
-                              {product.status}
-                            </Badge>
                           </div>
-                          {product.description && (
+
+                          {productLayout.showDescription && productLayout.cardStyle !== 'minimal' && product.description && (
                             <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{product.description}</p>
                           )}
-                          {(product as any).trackInventory && (
+
+                          {productLayout.showInventory && (product as any).trackInventory && (
                             <div className="mt-2 flex items-center gap-2">
                               {(product as any).stockQuantity === 0 ? (
-                                <Badge variant="destructive" className="text-xs">Out of stock</Badge>
+                                <Badge variant="destructive" className="text-[10px]">Out of stock</Badge>
                               ) : (product as any).stockQuantity <= 5 ? (
-                                <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-400">
+                                <Badge variant="outline" className="text-[10px] text-yellow-600 border-yellow-400">
                                   Low stock: {(product as any).stockQuantity}
                                 </Badge>
                               ) : (
-                                <Badge variant="outline" className="text-xs">
+                                <Badge variant="outline" className="text-[10px]">
                                   In stock: {(product as any).stockQuantity}
                                 </Badge>
                               )}
                             </div>
                           )}
-                          <div className="flex items-center justify-between mt-4">
-                            <div className="flex items-center gap-2">
+
+                          {productLayout.cardStyle === 'detailed' && product.longDescription && (
+                            <p className="text-xs text-muted-foreground mt-2 line-clamp-3 border-t pt-2">{product.longDescription}</p>
+                          )}
+
+                          <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                            <div className="flex items-center gap-1.5">
                               {product.compareAtPrice && parseFloat(product.compareAtPrice) > parseFloat(product.price) && (
-                                <>
-                                  <span className="text-sm text-muted-foreground line-through">{formatCurrency(parseFloat(product.compareAtPrice), product.currency)}</span>
-                                  <Badge className="bg-red-100 text-red-800 text-xs">Sale</Badge>
-                                </>
+                                <span className="text-xs text-muted-foreground line-through">{formatCurrency(parseFloat(product.compareAtPrice), product.currency)}</span>
                               )}
-                              <span className="text-lg font-bold">{formatCurrency(parseFloat(product.price), product.currency)}</span>
+                              <span className="text-base font-bold">{formatCurrency(parseFloat(product.price), product.currency)}</span>
                             </div>
-                            <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" onClick={() => openReviewsDialog(product)} title="Manage reviews" data-testid={`button-reviews-${product.id}`}>
-                                <Users className="w-4 h-4" />
+                            <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openReviewsDialog(product)} title="Reviews" data-testid={`button-reviews-${product.id}`}>
+                                <Star className="w-3.5 h-3.5" />
                               </Button>
-                              <Button variant="ghost" size="icon" onClick={() => openProductDialog(product)} data-testid={`button-edit-${product.id}`}>
-                                <Pencil className="w-4 h-4" />
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openProductDialog(product)} data-testid={`button-edit-${product.id}`}>
+                                <Pencil className="w-3.5 h-3.5" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDeleteProduct(product.id)} data-testid={`button-delete-${product.id}`}>
-                                <Trash2 className="w-4 h-4" />
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDeleteProduct(product.id)} data-testid={`button-delete-${product.id}`}>
+                                <Trash2 className="w-3.5 h-3.5" />
                               </Button>
                             </div>
                           </div>
@@ -4419,23 +5140,38 @@ export default function ManagePage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="serviceDuration">Duration (minutes)</Label>
-                        <Input 
+                        <Input
                           id="serviceDuration"
-                          type="number"
-                          value={serviceForm.durationMinutes || 60} 
-                          onChange={(e) => setServiceForm({...serviceForm, durationMinutes: parseInt(e.target.value) || 60})}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="60"
+                          value={serviceForm.durationMinutes === 0 ? '' : String(serviceForm.durationMinutes || '')}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '') {
+                              setServiceForm({...serviceForm, durationMinutes: 0});
+                            } else if (/^\d+$/.test(val)) {
+                              setServiceForm({...serviceForm, durationMinutes: parseInt(val)});
+                            }
+                          }}
                           data-testid="input-service-duration"
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="servicePrice">Price</Label>
-                          <Input 
+                          <Input
                             id="servicePrice"
-                            type="number"
-                            step="0.01"
-                            value={serviceForm.price || '0'} 
-                            onChange={(e) => setServiceForm({...serviceForm, price: e.target.value})}
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0.00"
+                            value={serviceForm.price}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '' || /^\d*\.?\d{0,2}$/.test(val)) {
+                                setServiceForm({...serviceForm, price: val});
+                              }
+                            }}
                             data-testid="input-service-price"
                           />
                         </div>
@@ -5359,6 +6095,8 @@ export default function ManagePage() {
               </Card>
 
               <DomainsCard websiteId={id!} accessToken={session?.access_token || ''} isPublished={website?.status === 'published'} />
+
+              <DomainPurchaseCard websiteId={id!} accessToken={session?.access_token || ''} isPublished={website?.status === 'published'} />
 
               <Card>
                 <CardHeader>

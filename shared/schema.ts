@@ -794,6 +794,11 @@ export const emailSettings = pgTable("email_settings", {
   bookingConfirmationEnabled: boolean("booking_confirmation_enabled").default(true).notNull(),
   bookingUpdatedEnabled: boolean("booking_updated_enabled").default(true).notNull(),
   bookingCancelledEnabled: boolean("booking_cancelled_enabled").default(true).notNull(),
+  shippingConfirmationEnabled: boolean("shipping_confirmation_enabled").default(true).notNull(),
+  welcomeEmailEnabled: boolean("welcome_email_enabled").default(true).notNull(),
+  abandonedCartEnabled: boolean("abandoned_cart_enabled").default(true).notNull(),
+  newSubmissionEnabled: boolean("new_submission_enabled").default(true).notNull(),
+  refundConfirmationEnabled: boolean("refund_confirmation_enabled").default(true).notNull(),
   // Branding
   senderName: text("sender_name"),
   senderEmail: text("sender_email"),

@@ -2524,11 +2524,11 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
   // Builder always sets backgroundImage when url exists, then overlays CroppedImage when crop present
   const backgroundImage = imageUrl ? { backgroundImage: \`url(\${imageUrl})\`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
   
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles);
   const titleFontSize = styles.titleFontSize || '48px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight as string) : 700;
-  const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonColor = resolveButtonColor(styles);
   const buttonHoverColor = (styles.buttonHoverColor as string) || '#4338ca';
   const backgroundOpacity = typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : 1;
   
@@ -3552,10 +3552,9 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
   };
 
   const textColor = styles.textColor || '#1a1a1a';
-  const buttonColor = styles.buttonColor || '#4f46e5';
+  const buttonColor = resolveButtonColor(styles);
   const buttonHoverColor = (styles.buttonHoverColor as string) || '#4338ca';
-  const buttonTextColor = buttonColor && /^#[a-fA-F0-9]{6}$/.test(buttonColor) ? 
-    (parseInt(buttonColor.slice(1), 16) > 0xffffff/2 ? '#000000' : '#ffffff') : '#ffffff';
+  const buttonTextColor = getContrastColor(buttonColor);
 
   const fontFamily = resolveFontFamily(styles);
   const stTitle = getStyledText(props.styledTitle, props.title);
@@ -5518,7 +5517,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 export function generateGlobalsCss(theme?: ThemeConfig): string {
-  const fontFamily = theme?.fontFamily || "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const fontFamily = theme?.fontFamily || 'Inter, system-ui, sans-serif';
   const primaryColor = theme?.primaryColor || '#4f46e5';
   const secondaryColor = theme?.secondaryColor || '#22c55e';
   const backgroundColor = theme?.backgroundColor || '#ffffff';
@@ -5596,8 +5595,8 @@ a {
 @keyframes slideDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes slideLeft { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes slideRight { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes zoomIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
-@keyframes zoomOut { from { opacity: 0; transform: scale(1.2); } to { opacity: 1; transform: scale(1); } }
+@keyframes zoomIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes zoomOut { from { opacity: 0; transform: scale(1.1); } to { opacity: 1; transform: scale(1); } }
 @keyframes bounce { 
   0% { opacity: 0; transform: translateY(30px); }
   60% { opacity: 1; transform: translateY(-10px); }
