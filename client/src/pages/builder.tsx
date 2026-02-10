@@ -1253,6 +1253,11 @@ export default function BuilderPage() {
             <ElementOverlay
               containerRef={previewContainerRef}
               isPreview={false}
+              onButtonEdit={(componentId, { text, element }) => {
+                // When user clicks "Rediger knap" badge, update buttonText prop
+                setSelectedComponentId(componentId);
+                setSidebarTab("properties");
+              }}
               onTextPropChange={(componentId, propKey, newText) => {
                 // Persist inline text edits to component props
                 if (propKey.startsWith('styled')) {
