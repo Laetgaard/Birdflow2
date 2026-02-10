@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Calendar, Clock, User, Mail, Phone, FileText, CheckCircle, ArrowRight, Sparkles, Play, X } from 'lucide-react';
+import { Calendar, Clock, User, Mail, Phone, FileText, CheckCircle, ArrowRight, ArrowLeft, Sparkles, Play, X, Star, Shield, MapPin } from 'lucide-react';
 
 type BookingService = {
   id: string;
@@ -34,6 +34,13 @@ async function fetchServices(websiteId: string): Promise<BookingService[]> {
   const res = await fetch(`/api/public/websites/${websiteId}/booking-services`);
   if (!res.ok) return [];
   return res.json();
+}
+
+function formatCurrency(amount: number, currency: string = 'USD') {
+  const symbols: Record<string, string> = { USD: '$', EUR: '\u20ac', GBP: '\u00a3', DKK: 'kr ' };
+  const symbol = symbols[currency] || currency + ' ';
+  if (currency === 'DKK') return `${amount.toFixed(0)} kr`;
+  return `${symbol}${amount.toFixed(0)}`;
 }
 
 export default function BookingWidget({ websiteId, styles, props, isPreview, isSelected, onClick }: Props) {
@@ -83,7 +90,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
     setStatus('loading');
     try {
       const service = services.find(s => s.id === selectedService);
-      
+
       const res = await fetch(`/api/public/websites/${websiteId}/bookings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,7 +109,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.message || 'Booking failed');
       }
-      
+
       setStatus('success');
     } catch (err) {
       setStatus('error');
@@ -128,7 +135,10 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
 
   const bgColor = styles.backgroundColor || '#f8fafc';
   const textColor = styles.textColor || '#1e293b';
-  const accentColor = '#6366f1';
+  const accentColor = '#7c3aed';
+  const accentLight = '#ede9fe';
+
+  const stepLabels = ['Service', 'Schedule', 'Details'];
 
   return (
     <section
@@ -144,12 +154,13 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
       }}
       data-testid="booking-widget"
     >
+      {/* Test Mode Toggle */}
       {!isPreview && (
-        <div 
-          style={{ 
-            position: 'absolute', 
-            top: '16px', 
-            right: '16px', 
+        <div
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
             zIndex: 10,
           }}
           onClick={(e) => e.stopPropagation()}
@@ -162,18 +173,18 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
               }
             }}
             style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              padding: '8px 16px',
-              borderRadius: '8px',
+              padding: '8px 14px',
+              borderRadius: '10px',
               border: 'none',
               fontSize: '13px',
               fontWeight: 600,
               cursor: 'pointer',
               backgroundColor: testMode ? '#ef4444' : '#10b981',
               color: '#fff',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
               transition: 'all 0.2s ease',
             }}
             data-testid="button-toggle-test-mode"
@@ -181,7 +192,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
             {testMode ? (
               <>
                 <X style={{ width: '14px', height: '14px' }} />
-                Exit Test Mode
+                Exit Test
               </>
             ) : (
               <>
@@ -193,76 +204,100 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
           {testMode && (
             <div style={{
               marginTop: '8px',
-              padding: '8px 12px',
+              padding: '6px 12px',
               backgroundColor: '#fef3c7',
-              border: '1px solid #f59e0b',
-              borderRadius: '6px',
-              fontSize: '12px',
+              border: '1px solid #fbbf24',
+              borderRadius: '8px',
+              fontSize: '11px',
               color: '#92400e',
               textAlign: 'center',
+              fontWeight: 500,
             }}>
-              Test mode - no real bookings
+              Test mode active
             </div>
           )}
         </div>
       )}
-      <div style={{ maxWidth: '640px', margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <div style={{ 
-            display: 'inline-flex', 
-            alignItems: 'center', 
+
+      <div style={{ maxWidth: '580px', margin: '0 auto' }}>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: '36px' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
             justifyContent: 'center',
-            width: '64px', 
-            height: '64px', 
+            width: '56px',
+            height: '56px',
             borderRadius: '16px',
-            background: `linear-gradient(135deg, ${accentColor}, #8b5cf6)`,
-            marginBottom: '20px',
-            boxShadow: '0 10px 40px rgba(99, 102, 241, 0.3)'
+            background: `linear-gradient(135deg, ${accentColor}, #a855f7)`,
+            marginBottom: '16px',
+            boxShadow: `0 8px 32px ${accentColor}33`,
           }}>
-            <Calendar style={{ width: '32px', height: '32px', color: '#fff' }} />
+            <Calendar style={{ width: '28px', height: '28px', color: '#fff' }} />
           </div>
-          <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '12px', letterSpacing: '-0.02em' }}>
+          <h2 style={{
+            fontSize: '28px',
+            fontWeight: 800,
+            marginBottom: '8px',
+            letterSpacing: '-0.03em',
+            lineHeight: 1.2,
+          }}>
             {props.title || 'Book Your Appointment'}
           </h2>
-          <p style={{ fontSize: '18px', opacity: 0.7, maxWidth: '400px', margin: '0 auto' }}>
+          <p style={{ fontSize: '16px', opacity: 0.6, maxWidth: '380px', margin: '0 auto', lineHeight: 1.5 }}>
             {props.description || 'Schedule a time that works best for you'}
           </p>
         </div>
 
+        {/* Step Indicator */}
         {(isPreview || testMode) && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '32px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0',
+            marginBottom: '28px',
+            padding: '0 20px',
+          }}>
             {[1, 2, 3].map((s) => (
-              <div
-                key={s}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <div
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    backgroundColor: step >= s ? accentColor : 'rgba(0,0,0,0.1)',
-                    color: step >= s ? '#fff' : 'rgba(0,0,0,0.4)',
+              <div key={s} style={{ display: 'flex', alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      backgroundColor: step > s ? '#10b981' : step === s ? accentColor : '#e2e8f0',
+                      color: step >= s ? '#fff' : '#94a3b8',
+                      transition: 'all 0.3s ease',
+                      boxShadow: step === s ? `0 4px 12px ${accentColor}40` : 'none',
+                    }}
+                  >
+                    {step > s ? <CheckCircle style={{ width: '18px', height: '18px' }} /> : s}
+                  </div>
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: step === s ? 600 : 400,
+                    color: step === s ? accentColor : '#94a3b8',
                     transition: 'all 0.2s ease',
-                  }}
-                >
-                  {step > s ? <CheckCircle style={{ width: '16px', height: '16px' }} /> : s}
+                  }}>
+                    {stepLabels[s - 1]}
+                  </span>
                 </div>
                 {s < 3 && (
-                  <div style={{ 
-                    width: '40px', 
-                    height: '2px', 
-                    backgroundColor: step > s ? accentColor : 'rgba(0,0,0,0.1)',
-                    transition: 'all 0.2s ease',
+                  <div style={{
+                    width: '48px',
+                    height: '2px',
+                    backgroundColor: step > s ? '#10b981' : '#e2e8f0',
+                    transition: 'all 0.3s ease',
+                    margin: '0 8px',
+                    marginBottom: '20px',
+                    borderRadius: '1px',
                   }} />
                 )}
               </div>
@@ -270,84 +305,142 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
           </div>
         )}
 
+        {/* Success State */}
         {status === 'success' ? (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '48px 32px', 
-            background: testMode ? 'linear-gradient(135deg, #fef3c7, #fde68a)' : 'linear-gradient(135deg, #ecfdf5, #d1fae5)',
-            borderRadius: '16px',
-            border: testMode ? '1px solid #f59e0b' : '1px solid #a7f3d0',
+          <div style={{
+            textAlign: 'center',
+            padding: '40px 28px',
+            background: testMode
+              ? 'linear-gradient(135deg, #fffbeb, #fef3c7)'
+              : 'linear-gradient(135deg, #ecfdf5, #d1fae5)',
+            borderRadius: '20px',
+            border: testMode ? '1px solid #fbbf24' : '1px solid #6ee7b7',
           }}>
             <div style={{
-              width: '64px',
-              height: '64px',
+              width: '56px',
+              height: '56px',
               borderRadius: '50%',
-              background: testMode ? '#f59e0b' : '#10b981',
+              background: testMode
+                ? 'linear-gradient(135deg, #f59e0b, #d97706)'
+                : 'linear-gradient(135deg, #10b981, #059669)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              margin: '0 auto 20px',
+              margin: '0 auto 16px',
+              boxShadow: testMode
+                ? '0 8px 24px rgba(245, 158, 11, 0.3)'
+                : '0 8px 24px rgba(16, 185, 129, 0.3)',
             }}>
-              <CheckCircle style={{ width: '32px', height: '32px', color: '#fff' }} />
+              <CheckCircle style={{ width: '28px', height: '28px', color: '#fff' }} />
             </div>
-            <h3 style={{ color: testMode ? '#92400e' : '#065f46', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>
-              {testMode ? 'Test Booking Complete!' : 'Booking Confirmed!'}
+            <h3 style={{
+              color: testMode ? '#92400e' : '#065f46',
+              fontSize: '22px',
+              fontWeight: 800,
+              marginBottom: '6px',
+              letterSpacing: '-0.02em',
+            }}>
+              {testMode ? 'Test Complete!' : 'Booking Confirmed!'}
             </h3>
-            <p style={{ color: testMode ? '#b45309' : '#047857', marginBottom: '24px' }}>
-              {testMode 
-                ? 'This is how the confirmation looks. No actual booking was made.' 
+            <p style={{
+              color: testMode ? '#b45309' : '#047857',
+              marginBottom: '20px',
+              fontSize: '14px',
+              lineHeight: 1.5,
+            }}>
+              {testMode
+                ? 'This is how the confirmation looks. No actual booking was made.'
                 : `We'll send a confirmation email to ${email}`
               }
             </p>
+
+            {/* Summary */}
+            {selectedServiceData && (
+              <div style={{
+                backgroundColor: testMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                marginBottom: '16px',
+                textAlign: 'left',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                  <span style={{ opacity: 0.7 }}>Service</span>
+                  <span style={{ fontWeight: 600 }}>{selectedServiceData.name}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                  <span style={{ opacity: 0.7 }}>Date & Time</span>
+                  <span style={{ fontWeight: 600 }}>{selectedDate} at {selectedTime}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                  <span style={{ opacity: 0.7 }}>Price</span>
+                  <span style={{ fontWeight: 600 }}>{formatCurrency(parseFloat(selectedServiceData.price), selectedServiceData.currency)}</span>
+                </div>
+              </div>
+            )}
+
             <Button
               onClick={(e) => {
                 e.stopPropagation();
                 resetForm();
               }}
-              style={{ 
+              style={{
                 backgroundColor: testMode ? '#f59e0b' : '#10b981',
                 color: '#fff',
                 padding: '12px 24px',
-                borderRadius: '10px',
+                borderRadius: '12px',
                 fontWeight: 600,
+                fontSize: '14px',
               }}
               data-testid="button-new-booking"
             >
-              {testMode ? 'Test Again' : 'Book Another Appointment'}
+              {testMode ? 'Test Again' : 'Book Another'}
             </Button>
           </div>
         ) : (
           <div style={{
             backgroundColor: '#fff',
             borderRadius: '20px',
-            padding: '32px',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+            padding: '28px',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
             border: '1px solid rgba(0,0,0,0.06)',
           }}>
             {services.length === 0 ? (
-              <div style={{ 
-                textAlign: 'center', 
-                padding: '40px 20px',
+              <div style={{
+                textAlign: 'center',
+                padding: '36px 20px',
                 backgroundColor: '#fefce8',
-                borderRadius: '12px',
+                borderRadius: '14px',
                 border: '1px solid #fde047',
               }}>
-                <Sparkles style={{ width: '40px', height: '40px', color: '#ca8a04', margin: '0 auto 16px' }} />
-                <p style={{ color: '#854d0e', fontWeight: 500 }}>
-                  {!isPreview && !testMode 
-                    ? 'Add booking services in the Manage dashboard to test the booking flow' 
-                    : 'No services available right now'
+                <Calendar style={{ width: '36px', height: '36px', color: '#ca8a04', margin: '0 auto 12px', opacity: 0.7 }} />
+                <p style={{ color: '#854d0e', fontWeight: 600, fontSize: '15px', marginBottom: '4px' }}>
+                  {!isPreview && !testMode
+                    ? 'No services configured yet'
+                    : 'No services available'
+                  }
+                </p>
+                <p style={{ color: '#a16207', fontSize: '13px' }}>
+                  {!isPreview && !testMode
+                    ? 'Add booking services in Manage to enable the booking flow'
+                    : 'Check back soon for available appointments'
                   }
                 </p>
               </div>
             ) : (
               <form onSubmit={handleSubmit}>
+                {/* Step 1: Service Selection */}
                 {step === 1 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Sparkles style={{ width: '18px', height: '18px', color: accentColor }} />
-                      Choose a Service
-                    </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                      <div style={{
+                        width: '28px', height: '28px', borderRadius: '8px',
+                        backgroundColor: accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Sparkles style={{ width: '14px', height: '14px', color: accentColor }} />
+                      </div>
+                      <span style={{ fontWeight: 700, fontSize: '16px' }}>Choose a Service</span>
+                    </div>
+
                     {services.map((service) => (
                       <div
                         key={service.id}
@@ -357,41 +450,60 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                           setSelectedService(service.id);
                         }}
                         style={{
-                          padding: '20px',
-                          borderRadius: '12px',
-                          border: selectedService === service.id ? `2px solid ${accentColor}` : '2px solid #e2e8f0',
-                          backgroundColor: selectedService === service.id ? '#f0f4ff' : '#fff',
+                          padding: '16px 18px',
+                          borderRadius: '14px',
+                          border: selectedService === service.id
+                            ? `2px solid ${accentColor}`
+                            : '2px solid #f1f5f9',
+                          backgroundColor: selectedService === service.id ? accentLight : '#fafafa',
                           cursor: isBuilderMode ? 'default' : 'pointer',
-                          transition: 'all 0.15s ease',
+                          transition: 'all 0.2s ease',
+                          transform: selectedService === service.id ? 'scale(1.01)' : 'scale(1)',
                         }}
                         data-testid={`service-option-${service.id}`}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div>
-                            <p style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{service.name}</p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                              <p style={{ fontWeight: 700, fontSize: '15px', margin: 0 }}>{service.name}</p>
+                              {selectedService === service.id && (
+                                <div style={{
+                                  width: '18px', height: '18px', borderRadius: '50%',
+                                  backgroundColor: accentColor, display: 'flex',
+                                  alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                  <CheckCircle style={{ width: '12px', height: '12px', color: '#fff' }} />
+                                </div>
+                              )}
+                            </div>
                             {service.description && (
-                              <p style={{ fontSize: '14px', opacity: 0.6, marginBottom: '8px' }}>{service.description}</p>
+                              <p style={{ fontSize: '13px', opacity: 0.6, marginBottom: '6px', lineHeight: 1.4, margin: '0 0 6px 0' }}>
+                                {service.description}
+                              </p>
                             )}
-                            <div style={{ display: 'flex', gap: '12px', fontSize: '13px', opacity: 0.7 }}>
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <Clock style={{ width: '14px', height: '14px' }} />
+                            <div style={{ display: 'flex', gap: '10px', fontSize: '12px', opacity: 0.6 }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <Clock style={{ width: '12px', height: '12px' }} />
                                 {service.durationMinutes} min
                               </span>
                             </div>
                           </div>
-                          <div style={{ 
-                            fontSize: '20px', 
-                            fontWeight: 700, 
+                          <div style={{
+                            fontSize: '18px',
+                            fontWeight: 800,
                             color: accentColor,
-                            backgroundColor: '#f0f4ff',
-                            padding: '8px 12px',
-                            borderRadius: '8px',
+                            backgroundColor: accentLight,
+                            padding: '6px 12px',
+                            borderRadius: '10px',
+                            letterSpacing: '-0.02em',
+                            marginLeft: '12px',
                           }}>
-                            ${parseFloat(service.price).toFixed(0)}
+                            {formatCurrency(parseFloat(service.price), service.currency)}
                           </div>
                         </div>
                       </div>
                     ))}
+
                     <Button
                       type="button"
                       onClick={(e) => {
@@ -401,35 +513,62 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                       }}
                       disabled={!canProceedStep1 || isBuilderMode}
                       style={{
-                        marginTop: '16px',
+                        marginTop: '12px',
                         padding: '14px 24px',
-                        borderRadius: '12px',
-                        fontSize: '16px',
-                        fontWeight: 600,
+                        borderRadius: '14px',
+                        fontSize: '15px',
+                        fontWeight: 700,
                         backgroundColor: canProceedStep1 ? accentColor : '#e2e8f0',
                         color: canProceedStep1 ? '#fff' : '#94a3b8',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '8px',
+                        boxShadow: canProceedStep1 ? `0 4px 12px ${accentColor}33` : 'none',
+                        transition: 'all 0.2s ease',
                       }}
                       data-testid="button-next-step1"
                     >
-                      Continue <ArrowRight style={{ width: '18px', height: '18px' }} />
+                      Continue <ArrowRight style={{ width: '16px', height: '16px' }} />
                     </Button>
                   </div>
                 )}
 
+                {/* Step 2: Date & Time */}
                 {step === 2 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Calendar style={{ width: '18px', height: '18px', color: accentColor }} />
-                      Select Date & Time
-                    </p>
-                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{
+                        width: '28px', height: '28px', borderRadius: '8px',
+                        backgroundColor: accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Calendar style={{ width: '14px', height: '14px', color: accentColor }} />
+                      </div>
+                      <span style={{ fontWeight: 700, fontSize: '16px' }}>Pick a Date & Time</span>
+                    </div>
+
+                    {/* Selected service badge */}
+                    {selectedServiceData && (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '8px 14px',
+                        backgroundColor: accentLight,
+                        borderRadius: '10px',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        color: accentColor,
+                        alignSelf: 'flex-start',
+                      }}>
+                        <Star style={{ width: '13px', height: '13px' }} />
+                        {selectedServiceData.name} - {selectedServiceData.durationMinutes} min
+                      </div>
+                    )}
+
                     <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>
-                        Date
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+                        Select Date
                       </label>
                       <Input
                         type="date"
@@ -438,19 +577,20 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                         onChange={(e) => !isBuilderMode && setSelectedDate(e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         disabled={isBuilderMode}
-                        style={{ 
-                          padding: '14px 16px', 
-                          borderRadius: '10px',
-                          fontSize: '16px',
-                          border: '2px solid #e2e8f0',
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: '12px',
+                          fontSize: '15px',
+                          border: selectedDate ? `2px solid ${accentColor}` : '2px solid #e2e8f0',
+                          transition: 'all 0.2s ease',
                         }}
                         data-testid="input-date"
                       />
                     </div>
 
                     <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>
-                        Time
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+                        Select Time
                       </label>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
                         {timeSlots.map((time) => (
@@ -464,14 +604,16 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                             }}
                             disabled={isBuilderMode}
                             style={{
-                              padding: '12px',
-                              borderRadius: '8px',
-                              border: selectedTime === time ? `2px solid ${accentColor}` : '2px solid #e2e8f0',
-                              backgroundColor: selectedTime === time ? '#f0f4ff' : '#fff',
+                              padding: '10px',
+                              borderRadius: '10px',
+                              border: selectedTime === time ? `2px solid ${accentColor}` : '2px solid #f1f5f9',
+                              backgroundColor: selectedTime === time ? accentLight : '#fafafa',
                               color: selectedTime === time ? accentColor : textColor,
-                              fontWeight: 500,
+                              fontWeight: selectedTime === time ? 700 : 500,
+                              fontSize: '14px',
                               cursor: isBuilderMode ? 'default' : 'pointer',
-                              transition: 'all 0.15s ease',
+                              transition: 'all 0.2s ease',
+                              transform: selectedTime === time ? 'scale(1.03)' : 'scale(1)',
                             }}
                             data-testid={`time-slot-${time}`}
                           >
@@ -481,7 +623,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
                       <Button
                         type="button"
                         variant="outline"
@@ -491,9 +633,19 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                           setStep(1);
                         }}
                         disabled={isBuilderMode}
-                        style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600 }}
+                        style={{
+                          flex: 1,
+                          padding: '14px',
+                          borderRadius: '14px',
+                          fontWeight: 600,
+                          fontSize: '14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                        }}
                       >
-                        Back
+                        <ArrowLeft style={{ width: '14px', height: '14px' }} /> Back
                       </Button>
                       <Button
                         type="button"
@@ -506,134 +658,174 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                         style={{
                           flex: 2,
                           padding: '14px',
-                          borderRadius: '12px',
-                          fontWeight: 600,
+                          borderRadius: '14px',
+                          fontWeight: 700,
+                          fontSize: '15px',
                           backgroundColor: canProceedStep2 ? accentColor : '#e2e8f0',
                           color: canProceedStep2 ? '#fff' : '#94a3b8',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           gap: '8px',
+                          boxShadow: canProceedStep2 ? `0 4px 12px ${accentColor}33` : 'none',
+                          transition: 'all 0.2s ease',
                         }}
                         data-testid="button-next-step2"
                       >
-                        Continue <ArrowRight style={{ width: '18px', height: '18px' }} />
+                        Continue <ArrowRight style={{ width: '16px', height: '16px' }} />
                       </Button>
                     </div>
                   </div>
                 )}
 
+                {/* Step 3: Customer Details */}
                 {step === 3 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <User style={{ width: '18px', height: '18px', color: accentColor }} />
-                      Your Details
-                    </p>
-
-                    {selectedServiceData && (
-                      <div style={{ 
-                        padding: '16px', 
-                        backgroundColor: '#f8fafc', 
-                        borderRadius: '10px',
-                        marginBottom: '8px',
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                      <div style={{
+                        width: '28px', height: '28px', borderRadius: '8px',
+                        backgroundColor: accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center',
                       }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                          <span style={{ opacity: 0.7 }}>Service:</span>
+                        <User style={{ width: '14px', height: '14px', color: accentColor }} />
+                      </div>
+                      <span style={{ fontWeight: 700, fontSize: '16px' }}>Your Details</span>
+                    </div>
+
+                    {/* Booking Summary */}
+                    {selectedServiceData && (
+                      <div style={{
+                        padding: '14px 16px',
+                        backgroundColor: '#f8fafc',
+                        borderRadius: '12px',
+                        border: '1px solid #f1f5f9',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b' }}>
+                            <Star style={{ width: '12px', height: '12px' }} /> Service
+                          </span>
                           <span style={{ fontWeight: 600 }}>{selectedServiceData.name}</span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '4px' }}>
-                          <span style={{ opacity: 0.7 }}>Date & Time:</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b' }}>
+                            <Calendar style={{ width: '12px', height: '12px' }} /> Date & Time
+                          </span>
                           <span style={{ fontWeight: 600 }}>{selectedDate} at {selectedTime}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b' }}>
+                            <Clock style={{ width: '12px', height: '12px' }} /> Duration
+                          </span>
+                          <span style={{ fontWeight: 600 }}>{selectedServiceData.durationMinutes} min</span>
                         </div>
                       </div>
                     )}
 
                     <div>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
-                        <User style={{ width: '14px', height: '14px', opacity: 0.6 }} /> Full Name *
+                      <label style={{
+                        display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: '#475569',
+                      }}>
+                        Full Name <span style={{ color: accentColor }}>*</span>
                       </label>
-                      <Input
-                        type="text"
-                        value={name}
-                        onChange={(e) => !isBuilderMode && setName(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        disabled={isBuilderMode}
-                        placeholder="John Smith"
-                        style={{ padding: '14px 16px', borderRadius: '10px', fontSize: '16px' }}
-                        data-testid="input-name"
-                      />
+                      <div style={{ position: 'relative' }}>
+                        <User style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '16px', height: '16px', color: '#94a3b8' }} />
+                        <Input
+                          type="text"
+                          value={name}
+                          onChange={(e) => !isBuilderMode && setName(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          disabled={isBuilderMode}
+                          placeholder="John Smith"
+                          style={{ padding: '12px 14px 12px 38px', borderRadius: '12px', fontSize: '15px' }}
+                          data-testid="input-name"
+                        />
+                      </div>
                     </div>
 
                     <div>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
-                        <Mail style={{ width: '14px', height: '14px', opacity: 0.6 }} /> Email *
+                      <label style={{
+                        display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: '#475569',
+                      }}>
+                        Email <span style={{ color: accentColor }}>*</span>
                       </label>
-                      <Input
-                        type="email"
-                        value={email}
-                        onChange={(e) => !isBuilderMode && setEmail(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        disabled={isBuilderMode}
-                        placeholder="john@example.com"
-                        style={{ padding: '14px 16px', borderRadius: '10px', fontSize: '16px' }}
-                        data-testid="input-email"
-                      />
+                      <div style={{ position: 'relative' }}>
+                        <Mail style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '16px', height: '16px', color: '#94a3b8' }} />
+                        <Input
+                          type="email"
+                          value={email}
+                          onChange={(e) => !isBuilderMode && setEmail(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          disabled={isBuilderMode}
+                          placeholder="john@example.com"
+                          style={{ padding: '12px 14px 12px 38px', borderRadius: '12px', fontSize: '15px' }}
+                          data-testid="input-email"
+                        />
+                      </div>
                     </div>
 
                     <div>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
-                        <Phone style={{ width: '14px', height: '14px', opacity: 0.6 }} /> Phone (optional)
+                      <label style={{
+                        display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: '#475569',
+                      }}>
+                        Phone <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
                       </label>
-                      <Input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => !isBuilderMode && setPhone(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        disabled={isBuilderMode}
-                        placeholder="+1 (555) 123-4567"
-                        style={{ padding: '14px 16px', borderRadius: '10px', fontSize: '16px' }}
-                        data-testid="input-phone"
-                      />
+                      <div style={{ position: 'relative' }}>
+                        <Phone style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '16px', height: '16px', color: '#94a3b8' }} />
+                        <Input
+                          type="tel"
+                          value={phone}
+                          onChange={(e) => !isBuilderMode && setPhone(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          disabled={isBuilderMode}
+                          placeholder="+1 (555) 123-4567"
+                          style={{ padding: '12px 14px 12px 38px', borderRadius: '12px', fontSize: '15px' }}
+                          data-testid="input-phone"
+                        />
+                      </div>
                     </div>
 
                     <div>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
-                        <FileText style={{ width: '14px', height: '14px', opacity: 0.6 }} /> Notes (optional)
+                      <label style={{
+                        display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: '#475569',
+                      }}>
+                        Notes <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
                       </label>
                       <textarea
                         value={notes}
                         onChange={(e) => !isBuilderMode && setNotes(e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         disabled={isBuilderMode}
-                        rows={3}
-                        placeholder="Any special requests or information..."
+                        rows={2}
+                        placeholder="Any special requests..."
                         style={{
                           width: '100%',
-                          padding: '14px 16px',
-                          borderRadius: '10px',
+                          padding: '12px 14px',
+                          borderRadius: '12px',
                           border: '1px solid #e2e8f0',
-                          fontSize: '16px',
+                          fontSize: '15px',
                           resize: 'none',
                           fontFamily: 'inherit',
+                          lineHeight: 1.5,
                         }}
                         data-testid="input-notes"
                       />
                     </div>
 
                     {status === 'error' && (
-                      <div style={{ 
-                        padding: '12px 16px', 
-                        backgroundColor: '#fef2f2', 
-                        borderRadius: '8px',
+                      <div style={{
+                        padding: '10px 14px',
+                        backgroundColor: '#fef2f2',
+                        borderRadius: '10px',
                         color: '#dc2626',
-                        fontSize: '14px',
+                        fontSize: '13px',
                         textAlign: 'center',
+                        fontWeight: 500,
+                        border: '1px solid #fecaca',
                       }}>
                         Please fill in all required fields and try again.
                       </div>
                     )}
 
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
                       <Button
                         type="button"
                         variant="outline"
@@ -643,9 +835,19 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                           setStep(2);
                         }}
                         disabled={isBuilderMode}
-                        style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600 }}
+                        style={{
+                          flex: 1,
+                          padding: '14px',
+                          borderRadius: '14px',
+                          fontWeight: 600,
+                          fontSize: '14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                        }}
                       >
-                        Back
+                        <ArrowLeft style={{ width: '14px', height: '14px' }} /> Back
                       </Button>
                       <Button
                         type="submit"
@@ -654,11 +856,14 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                         style={{
                           flex: 2,
                           padding: '14px',
-                          borderRadius: '12px',
-                          fontWeight: 600,
+                          borderRadius: '14px',
+                          fontWeight: 700,
+                          fontSize: '15px',
                           backgroundColor: accentColor,
                           color: '#fff',
-                          opacity: status === 'loading' || !name || !email || isBuilderMode ? 0.6 : 1,
+                          opacity: status === 'loading' || !name || !email || isBuilderMode ? 0.5 : 1,
+                          boxShadow: `0 4px 12px ${accentColor}33`,
+                          transition: 'all 0.2s ease',
                         }}
                         data-testid="button-book"
                       >
@@ -669,6 +874,28 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                 )}
               </form>
             )}
+          </div>
+        )}
+
+        {/* Trust badges */}
+        {(isPreview || testMode) && status !== 'success' && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            gap: '24px',
+            marginTop: '24px',
+            fontSize: '12px',
+            color: '#94a3b8',
+          }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <Shield style={{ width: '13px', height: '13px' }} /> Secure
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <CheckCircle style={{ width: '13px', height: '13px' }} /> Instant Confirmation
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <Clock style={{ width: '13px', height: '13px' }} /> Free Cancellation
+            </span>
           </div>
         )}
       </div>
