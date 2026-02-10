@@ -144,6 +144,7 @@ export default function BuilderPage() {
   const previewContainerRef = useRef<HTMLElement>(null);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const [propertiesPaddingTop, setPropertiesPaddingTop] = useState(0);
+  const builderStateRef = useRef<BuilderStateData | null>(null);
 
   const executeSave = useCallback(async (stateToSave: BuilderStateData): Promise<boolean> => {
     if (!session || !id) return false;
@@ -195,14 +196,15 @@ export default function BuilderPage() {
     return executeSave(newState);
   }, [executeSave]);
 
-  const scheduleAutoSave = useCallback((stateToSave: BuilderStateData) => {
+  const scheduleAutoSave = useCallback(() => {
     setIsDirty(true);
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
     }
     autoSaveTimerRef.current = setTimeout(() => {
       autoSaveTimerRef.current = null;
-      saveState(stateToSave);
+      const latest = builderStateRef.current;
+      if (latest) saveState(latest);
     }, 2000);
   }, [saveState]);
 
@@ -211,21 +213,25 @@ export default function BuilderPage() {
       clearTimeout(historyDebounceRef.current);
       historyDebounceRef.current = null;
       setHasPendingEdit(false);
+      const currentState = builderStateRef.current;
       setHistory(prev => {
-        if (!prev || !builderState) return prev ? pushHistory(prev, newState, description) : createHistory(newState);
-        const withPending = pushHistory(prev, builderState, pendingHistoryDescriptionRef.current || 'Edit');
+        if (!prev || !currentState) return prev ? pushHistory(prev, newState, description) : createHistory(newState);
+        const withPending = pushHistory(prev, currentState, pendingHistoryDescriptionRef.current || 'Edit');
         return pushHistory(withPending, newState, description);
       });
       setBuilderState(newState);
+      builderStateRef.current = newState;
     } else {
       setBuilderState(newState);
+      builderStateRef.current = newState;
       setHistory(prev => prev ? pushHistory(prev, newState, description) : createHistory(newState));
     }
-    scheduleAutoSave(newState);
-  }, [builderState, scheduleAutoSave]);
+    scheduleAutoSave();
+  }, [scheduleAutoSave]);
 
   const debouncedHistoryPush = useCallback((newState: BuilderStateData, description: string, delay = 1000) => {
     setBuilderState(newState);
+    builderStateRef.current = newState;
     pendingHistoryDescriptionRef.current = description;
     setHasPendingEdit(true);
 
@@ -234,21 +240,27 @@ export default function BuilderPage() {
     }
 
     historyDebounceRef.current = setTimeout(() => {
-      setHistory(prev => prev ? pushHistory(prev, newState, pendingHistoryDescriptionRef.current) : createHistory(newState));
+      const latest = builderStateRef.current;
+      if (latest) {
+        setHistory(prev => prev ? pushHistory(prev, latest, pendingHistoryDescriptionRef.current) : createHistory(latest));
+      }
       historyDebounceRef.current = null;
       setHasPendingEdit(false);
     }, delay);
-    scheduleAutoSave(newState);
+    scheduleAutoSave();
   }, [scheduleAutoSave]);
 
   const flushPendingHistory = useCallback(() => {
-    if (historyDebounceRef.current && builderState) {
+    if (historyDebounceRef.current) {
       clearTimeout(historyDebounceRef.current);
       historyDebounceRef.current = null;
       setHasPendingEdit(false);
-      setHistory(prev => prev ? pushHistory(prev, builderState, pendingHistoryDescriptionRef.current || 'Edit') : createHistory(builderState));
+      const currentState = builderStateRef.current;
+      if (currentState) {
+        setHistory(prev => prev ? pushHistory(prev, currentState, pendingHistoryDescriptionRef.current || 'Edit') : createHistory(currentState));
+      }
     }
-  }, [builderState]);
+  }, []);
 
   const handleUndo = useCallback(() => {
     flushPendingHistory();
@@ -258,7 +270,8 @@ export default function BuilderPage() {
       const result = undoHistory(prev);
       if (result.state) {
         setBuilderState(result.state);
-        scheduleAutoSave(result.state);
+        builderStateRef.current = result.state;
+        scheduleAutoSave();
         return result.history;
       }
       return prev;
@@ -273,7 +286,8 @@ export default function BuilderPage() {
       const result = redoHistory(prev);
       if (result.state) {
         setBuilderState(result.state);
-        scheduleAutoSave(result.state);
+        builderStateRef.current = result.state;
+        scheduleAutoSave();
         return result.history;
       }
       return prev;
@@ -492,10 +506,12 @@ export default function BuilderPage() {
               },
             };
             setBuilderState(migratedState);
+            builderStateRef.current = migratedState;
             setHistory(createHistory(migratedState));
             lastSavedStateRef.current = JSON.stringify(migratedState);
           } else {
             setBuilderState(state);
+            builderStateRef.current = state;
             setHistory(createHistory(state));
             lastSavedStateRef.current = JSON.stringify(state);
           }
@@ -634,20 +650,14 @@ export default function BuilderPage() {
     setSidebarTab("properties");
   };
 
-  const updateComponentRef = useRef<(componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => void>(() => {});
-
   const updateComponent = useCallback((componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
-    updateComponentRef.current(componentId, updates);
-  }, []);
-
-  useEffect(() => {
-    updateComponentRef.current = (componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
-      if (!builderState) return;
+    setBuilderState(prev => {
+      if (!prev) return prev;
 
       const newState: BuilderStateData = {
-        ...builderState,
-        pages: builderState.pages.map(page =>
-          page.id === builderState.activePage
+        ...prev,
+        pages: prev.pages.map(page =>
+          page.id === prev.activePage
             ? {
                 ...page,
                 components: page.components.map(comp =>
@@ -664,9 +674,26 @@ export default function BuilderPage() {
         ),
       };
 
-      debouncedHistoryPush(newState, 'Update component properties');
-    };
-  }, [builderState, debouncedHistoryPush]);
+      builderStateRef.current = newState;
+
+      pendingHistoryDescriptionRef.current = 'Update component properties';
+      setHasPendingEdit(true);
+      if (historyDebounceRef.current) {
+        clearTimeout(historyDebounceRef.current);
+      }
+      historyDebounceRef.current = setTimeout(() => {
+        const latest = builderStateRef.current;
+        if (latest) {
+          setHistory(h => h ? pushHistory(h, latest, pendingHistoryDescriptionRef.current) : createHistory(latest));
+        }
+        historyDebounceRef.current = null;
+        setHasPendingEdit(false);
+      }, 1000);
+
+      scheduleAutoSave();
+      return newState;
+    });
+  }, [scheduleAutoSave]);
 
   const handleTextChange = useCallback((componentId: string) => (field: string, value: string | { text?: string; [key: string]: any }) => {
     setBuilderState(prev => {
@@ -712,18 +739,23 @@ export default function BuilderPage() {
         ),
       };
       
+      builderStateRef.current = newState;
+
       pendingHistoryDescriptionRef.current = 'Update text content';
       setHasPendingEdit(true);
       if (historyDebounceRef.current) {
         clearTimeout(historyDebounceRef.current);
       }
       historyDebounceRef.current = setTimeout(() => {
-        setHistory(h => h ? pushHistory(h, newState, pendingHistoryDescriptionRef.current) : createHistory(newState));
+        const latest = builderStateRef.current;
+        if (latest) {
+          setHistory(h => h ? pushHistory(h, latest, pendingHistoryDescriptionRef.current) : createHistory(latest));
+        }
         historyDebounceRef.current = null;
         setHasPendingEdit(false);
       }, 1500);
 
-      scheduleAutoSave(newState);
+      scheduleAutoSave();
       return newState;
     });
   }, [scheduleAutoSave]);
@@ -790,8 +822,12 @@ export default function BuilderPage() {
   }, [selectedComponentId]);
 
   const switchPage = (pageId: string) => {
-    if (!builderState) return;
-    setBuilderState({ ...builderState, activePage: pageId });
+    setBuilderState(prev => {
+      if (!prev) return prev;
+      const newState = { ...prev, activePage: pageId };
+      builderStateRef.current = newState;
+      return newState;
+    });
     setSelectedComponentId(null);
   };
 
