@@ -146,6 +146,67 @@ export default function BuilderPage() {
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const [propertiesPaddingTop, setPropertiesPaddingTop] = useState(0);
 
+  const executeSave = useCallback(async (stateToSave: BuilderStateData): Promise<boolean> => {
+    if (!session || !id) return false;
+
+    const stateJson = JSON.stringify(stateToSave);
+    if (stateJson === lastSavedStateRef.current) {
+      setIsDirty(false);
+      return true;
+    }
+
+    setIsSaving(true);
+    saveInFlightRef.current = true;
+    try {
+      const response = await fetch(`/api/websites/${id}/builder`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ state: stateToSave }),
+      });
+
+      if (!response.ok) throw new Error("Failed to save");
+
+      lastSavedStateRef.current = stateJson;
+      setIsDirty(false);
+
+      if (pendingSaveRef.current) {
+        const next = pendingSaveRef.current;
+        pendingSaveRef.current = null;
+        executeSave(next);
+      }
+      return true;
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
+      return false;
+    } finally {
+      setIsSaving(false);
+      saveInFlightRef.current = false;
+    }
+  }, [session, id, toast]);
+
+  const saveState = useCallback(async (newState: BuilderStateData | null): Promise<boolean> => {
+    if (!newState) return false;
+    if (saveInFlightRef.current) {
+      pendingSaveRef.current = newState;
+      return true;
+    }
+    return executeSave(newState);
+  }, [executeSave]);
+
+  const scheduleAutoSave = useCallback((stateToSave: BuilderStateData) => {
+    setIsDirty(true);
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      saveState(stateToSave);
+    }, 2000);
+  }, [saveState]);
+
   const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
     if (historyDebounceRef.current) {
       clearTimeout(historyDebounceRef.current);
@@ -180,70 +241,6 @@ export default function BuilderPage() {
     }, delay);
     scheduleAutoSave(newState);
   }, [scheduleAutoSave]);
-
-  const executeSave = useCallback(async (stateToSave: BuilderStateData): Promise<boolean> => {
-    if (!session || !id) return false;
-
-    const stateJson = JSON.stringify(stateToSave);
-    if (stateJson === lastSavedStateRef.current) {
-      setIsDirty(false);
-      return true;
-    }
-
-    setIsSaving(true);
-    saveInFlightRef.current = true;
-    try {
-      const response = await fetch(`/api/websites/${id}/builder`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ state: stateToSave }),
-      });
-
-      if (!response.ok) throw new Error("Failed to save");
-
-      lastSavedStateRef.current = stateJson;
-      setIsDirty(false);
-
-      // If another save was queued while this one was in-flight, fire it now
-      if (pendingSaveRef.current) {
-        const next = pendingSaveRef.current;
-        pendingSaveRef.current = null;
-        executeSave(next);
-      }
-      return true;
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to save changes.", variant: "destructive" });
-      return false;
-    } finally {
-      setIsSaving(false);
-      saveInFlightRef.current = false;
-    }
-  }, [session, id, toast]);
-
-  const saveState = useCallback(async (newState: BuilderStateData | null): Promise<boolean> => {
-    if (!newState) return false;
-    // If a save is already in-flight, queue this one
-    if (saveInFlightRef.current) {
-      pendingSaveRef.current = newState;
-      return true;
-    }
-    return executeSave(newState);
-  }, [executeSave]);
-
-  // Schedule auto-save 2s after last state change
-  const scheduleAutoSave = useCallback((stateToSave: BuilderStateData) => {
-    setIsDirty(true);
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-    autoSaveTimerRef.current = setTimeout(() => {
-      autoSaveTimerRef.current = null;
-      saveState(stateToSave);
-    }, 2000);
-  }, [saveState]);
 
   const flushPendingHistory = useCallback(() => {
     if (historyDebounceRef.current && builderState) {
