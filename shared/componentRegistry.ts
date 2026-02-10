@@ -1,4 +1,4 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text';
 
@@ -297,6 +297,7 @@ export const editableTextFields: Record<ComponentType, string[]> = {
   'footer': ['title'],
   'header': ['title'],
   'product-grid': ['title'],
+  'product-detail': [],
   'booking': ['title', 'subtitle'],
   'gallery': ['styledTitle', 'styledDescription'],
   'pricing-table': ['styledTitle', 'styledSubtitle'],
@@ -800,6 +801,40 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+    ],
+  },
+
+  'product-detail': {
+    type: 'product-detail',
+    name: 'Product Page Design',
+    icon: 'package',
+    defaultProps: {
+      layout: 'side-by-side',
+      showReviews: true,
+      showRelated: true,
+      showTrustBadges: true,
+      showAccordion: true,
+      accentColor: '#7c3aed',
+      buttonStyle: 'filled',
+      imageStyle: 'rounded',
+    },
+    defaultStyles: {
+      backgroundColor: '#ffffff',
+      textColor: '#1a1a1a',
+      padding: '40px 24px',
+    },
+    fields: [
+      { key: 'layout', label: 'Layout', type: 'select', group: 'content', options: ['side-by-side', 'stacked', 'gallery-focus'] },
+      { key: 'showReviews', label: 'Show Reviews', type: 'boolean', group: 'content' },
+      { key: 'showRelated', label: 'Show Related Products', type: 'boolean', group: 'content' },
+      { key: 'showTrustBadges', label: 'Show Trust Badges', type: 'boolean', group: 'content' },
+      { key: 'showAccordion', label: 'Show Details Accordion', type: 'boolean', group: 'content' },
+      { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
+      { key: 'buttonStyle', label: 'Button Style', type: 'select', group: 'style', options: ['filled', 'outline', 'rounded'] },
+      { key: 'imageStyle', label: 'Image Style', type: 'select', group: 'style', options: ['rounded', 'square', 'full-bleed'] },
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '40px 24px' },
     ],
   },
 

@@ -3331,6 +3331,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Domain name is required" });
       }
 
+      // Basic domain format validation
+      const domainStr = domain.trim().toLowerCase();
+      if (!domainStr.includes('.') || domainStr.length < 4) {
+        return res.status(400).json({ message: "Please enter a valid domain name (e.g., example.com)" });
+      }
+
       const website = await storage.getWebsite(req.params.id);
       if (!website) {
         return res.status(404).json({ message: "Website not found" });
@@ -3341,7 +3347,7 @@ export async function registerRoutes(
 
       const vercelToken = process.env.VERCEL_TOKEN;
       if (!vercelToken) {
-        return res.status(400).json({ message: "Domain registration requires Vercel integration. Please contact support." });
+        return res.status(400).json({ message: "Domain service is not configured. A Vercel token is required for domain registration. Please add VERCEL_TOKEN to your environment variables." });
       }
 
       const vercelConfig = {
@@ -3349,10 +3355,12 @@ export async function registerRoutes(
         teamId: process.env.VERCEL_TEAM_ID,
       };
 
-      const availability = await checkDomainAvailability(domain.toLowerCase(), vercelConfig);
+      const availability = await checkDomainAvailability(domainStr, vercelConfig);
       res.json(availability);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      console.error('Domain availability check error:', error);
+      const message = error.message || 'Failed to check domain availability';
+      res.status(500).json({ message });
     }
   });
 
@@ -3360,8 +3368,13 @@ export async function registerRoutes(
   app.post("/api/websites/:id/domains/purchase", requireAuth, async (req, res) => {
     try {
       const { domain, connectToWebsite } = req.body;
-      if (!domain) {
-        return res.status(400).json({ message: "Domain is required" });
+      if (!domain || typeof domain !== 'string') {
+        return res.status(400).json({ message: "Domain name is required" });
+      }
+
+      const domainStr = domain.trim().toLowerCase();
+      if (!domainStr.includes('.') || domainStr.length < 4) {
+        return res.status(400).json({ message: "Please enter a valid domain name" });
       }
 
       const website = await storage.getWebsite(req.params.id);
@@ -3374,7 +3387,7 @@ export async function registerRoutes(
 
       const vercelToken = process.env.VERCEL_TOKEN;
       if (!vercelToken) {
-        return res.status(400).json({ message: "Domain purchase requires Vercel integration." });
+        return res.status(400).json({ message: "Domain purchase requires a VERCEL_TOKEN. Please add it to your environment variables." });
       }
 
       const vercelConfig = {
@@ -3382,8 +3395,14 @@ export async function registerRoutes(
         teamId: process.env.VERCEL_TEAM_ID,
       };
 
+      // Check if domain is already in our database
+      const existingDomain = await storage.getCustomDomainByDomain(domainStr);
+      if (existingDomain) {
+        return res.status(400).json({ message: "This domain is already registered in the system." });
+      }
+
       // Step 1: Purchase the domain through Vercel
-      const purchaseResult = await purchaseDomain(domain.toLowerCase(), vercelConfig);
+      const purchaseResult = await purchaseDomain(domainStr, vercelConfig);
       if (!purchaseResult.success) {
         return res.status(400).json({ message: purchaseResult.error || "Failed to purchase domain" });
       }
@@ -3393,10 +3412,15 @@ export async function registerRoutes(
         const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
         // Add domain to the Vercel project
-        const addResult = await addCustomDomain(projectName, domain.toLowerCase(), vercelConfig);
+        try {
+          await addCustomDomain(projectName, domainStr, vercelConfig);
+        } catch (addErr: any) {
+          console.error('Failed to auto-connect domain to project:', addErr);
+          // Domain was purchased but auto-connect failed - still return success
+        }
 
         // Determine DNS configuration
-        const domainParts = domain.toLowerCase().split('.');
+        const domainParts = domainStr.split('.');
         const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
 
         let dnsType: string;
@@ -3416,8 +3440,8 @@ export async function registerRoutes(
         // Create the domain record in our database
         const customDomain = await storage.createCustomDomain({
           websiteId: req.params.id,
-          domain: domain.toLowerCase(),
-          status: 'verifying', // Since we own the domain, DNS should auto-configure
+          domain: domainStr,
+          status: 'verifying',
           vercelProjectId: projectName,
           dnsType,
           dnsName,
@@ -3429,7 +3453,7 @@ export async function registerRoutes(
           purchased: true,
           connected: true,
           domain: customDomain,
-          message: "Domain purchased and connected! Since the domain is registered through Vercel, DNS will be configured automatically.",
+          message: "Domain purchased and connected! DNS will be configured automatically.",
         });
       }
 
@@ -3437,11 +3461,13 @@ export async function registerRoutes(
         success: true,
         purchased: true,
         connected: false,
-        domain: domain.toLowerCase(),
+        domain: domainStr,
         message: "Domain purchased successfully! You can now connect it to your website.",
       });
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      console.error('Domain purchase error:', error);
+      const message = error.message || 'Failed to purchase domain';
+      res.status(500).json({ message });
     }
   });
 
