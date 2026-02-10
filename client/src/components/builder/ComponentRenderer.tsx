@@ -1757,6 +1757,231 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   );
 }
 
+function ProductDetailDesigner({ props, styles, isSelected, onClick, isPreview, websiteId }: ComponentRenderProps & { websiteId?: string }) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const layout = props.layout || 'side-by-side';
+  const accentColor = props.accentColor || '#7c3aed';
+  const accentLight = accentColor + '15';
+  const showReviews = props.showReviews !== false;
+  const showRelated = props.showRelated !== false;
+  const showTrustBadges = props.showTrustBadges !== false;
+  const showAccordion = props.showAccordion !== false;
+  const buttonStyle = props.buttonStyle || 'filled';
+  const imageStyle = props.imageStyle || 'rounded';
+
+  const imgRadius = imageStyle === 'rounded' ? '16px' : imageStyle === 'square' ? '0' : '0';
+  const btnStyles: React.CSSProperties = buttonStyle === 'filled'
+    ? { backgroundColor: accentColor, color: '#fff', border: 'none', borderRadius: '12px' }
+    : buttonStyle === 'outline'
+    ? { backgroundColor: 'transparent', color: accentColor, border: `2px solid ${accentColor}`, borderRadius: '12px' }
+    : { backgroundColor: accentColor, color: '#fff', border: 'none', borderRadius: '999px' };
+
+  return (
+    <section style={{ ...baseStyle }} onClick={onClick}>
+      <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+        {/* Product Page Template Label */}
+        <div style={{
+          textAlign: 'center',
+          marginBottom: '24px',
+          padding: '10px 16px',
+          backgroundColor: accentLight,
+          borderRadius: '10px',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '13px',
+          fontWeight: 600,
+          color: accentColor,
+          margin: '0 auto 24px',
+          width: 'fit-content',
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+            <line x1="7" y1="7" x2="7.01" y2="7"/>
+          </svg>
+          Product Page Design Preview
+        </div>
+
+        {/* Main Product Layout */}
+        <div style={{
+          display: layout === 'stacked' ? 'block' : 'grid',
+          gridTemplateColumns: layout === 'gallery-focus' ? '1.2fr 0.8fr' : '1fr 1fr',
+          gap: '32px',
+          alignItems: 'start',
+        }}>
+          {/* Image Section */}
+          <div>
+            <div style={{
+              width: '100%',
+              aspectRatio: layout === 'stacked' ? '16/9' : '1/1',
+              backgroundColor: '#f1f5f9',
+              borderRadius: imgRadius,
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '1px solid #e2e8f0',
+              marginBottom: layout === 'stacked' ? '24px' : '0',
+            }}>
+              <div style={{ textAlign: 'center', opacity: 0.4 }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 8px', display: 'block' }}>
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                <p style={{ fontSize: '13px', fontWeight: 500 }}>Product Image</p>
+              </div>
+            </div>
+            {/* Thumbnail strip */}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} style={{
+                  width: '60px', height: '60px', borderRadius: imageStyle === 'rounded' ? '10px' : '0',
+                  backgroundColor: i === 1 ? '#e2e8f0' : '#f8fafc',
+                  border: i === 1 ? `2px solid ${accentColor}` : '1px solid #e2e8f0',
+                  flexShrink: 0,
+                }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Product Info */}
+          <div style={{ padding: layout === 'stacked' ? '0' : '0 8px' }}>
+            <p style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.5, fontWeight: 500, marginBottom: '8px' }}>
+              Category
+            </p>
+            <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '12px', lineHeight: 1.2 }}>
+              Sample Product Name
+            </h1>
+
+            {/* Rating */}
+            {showReviews && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', gap: '2px' }}>
+                  {[1,2,3,4,5].map(s => (
+                    <svg key={s} width="16" height="16" viewBox="0 0 24 24" fill={s <= 4 ? '#fbbf24' : '#e5e7eb'} stroke={s <= 4 ? '#fbbf24' : '#e5e7eb'} strokeWidth="1">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                    </svg>
+                  ))}
+                </div>
+                <span style={{ fontSize: '13px', opacity: 0.6 }}>4.0 (12 reviews)</span>
+              </div>
+            )}
+
+            {/* Price */}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '16px' }}>
+              <span style={{ fontSize: '28px', fontWeight: 800, color: accentColor }}>$99.00</span>
+              <span style={{ fontSize: '16px', textDecoration: 'line-through', opacity: 0.4 }}>$149.00</span>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#10b981', backgroundColor: '#ecfdf5', padding: '3px 8px', borderRadius: '6px' }}>33% off</span>
+            </div>
+
+            <p style={{ fontSize: '14px', opacity: 0.6, lineHeight: 1.6, marginBottom: '20px' }}>
+              This is a sample product description. Customize the layout, colors, and which sections appear on your product pages.
+            </p>
+
+            {/* Stock indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '20px' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }} />
+              <span style={{ fontSize: '13px', fontWeight: 500, color: '#10b981' }}>In Stock</span>
+            </div>
+
+            {/* Quantity + Add to Cart */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden',
+              }}>
+                <div style={{ padding: '10px 14px', fontSize: '14px', cursor: 'default', userSelect: 'none', opacity: 0.4 }}>-</div>
+                <div style={{ padding: '10px 16px', fontSize: '14px', fontWeight: 600, borderLeft: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', minWidth: '40px', textAlign: 'center' }}>1</div>
+                <div style={{ padding: '10px 14px', fontSize: '14px', cursor: 'default', userSelect: 'none', opacity: 0.4 }}>+</div>
+              </div>
+              <div style={{
+                flex: 1,
+                padding: '12px 24px',
+                fontWeight: 700,
+                fontSize: '15px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                cursor: 'default',
+                ...btnStyles,
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                </svg>
+                Add to Cart
+              </div>
+            </div>
+
+            {/* Trust Badges */}
+            {showTrustBadges && (
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px',
+                padding: '14px', backgroundColor: '#f8fafc', borderRadius: '12px', marginBottom: '16px',
+              }}>
+                {[
+                  { icon: 'M20 12H4', label: 'Free Shipping' },
+                  { icon: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z', label: 'Secure' },
+                  { icon: 'M3 12h18', label: 'Easy Returns' },
+                ].map((badge, i) => (
+                  <div key={i} style={{ textAlign: 'center', fontSize: '11px', fontWeight: 500, opacity: 0.6 }}>
+                    <div style={{ fontSize: '16px', marginBottom: '2px' }}>{['🚚', '🛡️', '↩️'][i]}</div>
+                    {badge.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Accordion Section */}
+        {showAccordion && (
+          <div style={{ marginTop: '32px', borderTop: '1px solid #e2e8f0', paddingTop: '24px' }}>
+            {['Product Details', 'Shipping & Returns', 'Care Instructions'].map((section, i) => (
+              <div key={i} style={{
+                padding: '14px 0',
+                borderBottom: '1px solid #f1f5f9',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                cursor: 'default',
+              }}>
+                <span style={{ fontSize: '14px', fontWeight: 600 }}>{section}</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}>
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Related Products */}
+        {showRelated && (
+          <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #e2e8f0' }}>
+            <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '16px' }}>You May Also Like</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} style={{
+                  borderRadius: imageStyle === 'rounded' ? '14px' : '0',
+                  overflow: 'hidden',
+                  border: '1px solid #f1f5f9',
+                }}>
+                  <div style={{ width: '100%', aspectRatio: '1/1', backgroundColor: '#f8fafc' }} />
+                  <div style={{ padding: '10px' }}>
+                    <p style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Related Product</p>
+                    <p style={{ fontSize: '13px', fontWeight: 700, color: accentColor }}>$49.00</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const images = props.images || [];
@@ -3287,6 +3512,8 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
         return <FooterComponent {...commonProps} />;
       case 'product-grid':
         return <ProductGridComponent {...commonProps} websiteId={websiteId} />;
+      case 'product-detail':
+        return <ProductDetailDesigner {...commonProps} websiteId={websiteId} />;
       case 'booking':
         return <BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} />;
       case 'gallery':

@@ -375,66 +375,106 @@ export async function verifyDomainConfig(
 export type DomainAvailability = {
   available: boolean;
   domain: string;
-  price?: number; // price in USD cents for the registration period
+  price?: number; // price in USD
   period?: number; // years
   suggestions?: Array<{ domain: string; available: boolean; price?: number }>;
 };
+
+async function safeVercelFetch(
+  endpoint: string,
+  config: VercelConfig,
+  options: RequestInit = {}
+): Promise<{ ok: boolean; data: any }> {
+  try {
+    const res = await vercelFetch(endpoint, config, options);
+    const text = await res.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { rawResponse: text };
+    }
+    return { ok: res.ok, data };
+  } catch (error: any) {
+    return { ok: false, data: { error: { message: error.message || 'Network error' } } };
+  }
+}
 
 export async function checkDomainAvailability(
   domain: string,
   config: VercelConfig
 ): Promise<DomainAvailability> {
-  // Check domain availability via Vercel API
-  const res = await vercelFetch(`/v4/domains/status?name=${encodeURIComponent(domain)}`, config);
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error?.message || 'Failed to check domain availability');
+  // Validate domain format
+  if (!domain || !domain.includes('.')) {
+    throw new Error('Please enter a valid domain name (e.g., example.com)');
   }
 
-  const data = await res.json();
+  // Check domain availability via Vercel API
+  const { ok, data } = await safeVercelFetch(
+    `/v4/domains/status?name=${encodeURIComponent(domain)}`,
+    config
+  );
 
-  // Also get price info
+  if (!ok) {
+    const errorMsg = data?.error?.message || data?.error?.code || 'Failed to check domain availability';
+    if (errorMsg.includes('forbidden') || errorMsg.includes('unauthorized')) {
+      throw new Error('Domain service is not properly configured. Please check your Vercel token permissions.');
+    }
+    throw new Error(errorMsg);
+  }
+
+  // Get price info
   let price: number | undefined;
   let period: number | undefined;
-  try {
-    const priceRes = await vercelFetch(`/v4/domains/price?name=${encodeURIComponent(domain)}`, config);
-    if (priceRes.ok) {
-      const priceData = await priceRes.json();
-      price = priceData.price; // in USD (whole dollars from Vercel)
-      period = priceData.period || 1;
-    }
-  } catch {
-    // Price check failed, continue without it
+  const priceResult = await safeVercelFetch(
+    `/v4/domains/price?name=${encodeURIComponent(domain)}`,
+    config
+  );
+  if (priceResult.ok && priceResult.data?.price != null) {
+    price = typeof priceResult.data.price === 'number' ? priceResult.data.price : parseFloat(priceResult.data.price);
+    period = priceResult.data.period || 1;
+    // Ensure price is a valid number
+    if (isNaN(price)) price = undefined;
   }
 
-  // Get suggestions for alternative TLDs
-  const suggestions: DomainAvailability['suggestions'] = [];
+  // Get suggestions for alternative TLDs in parallel (faster than sequential)
   const baseName = domain.split('.')[0];
   const tlds = ['.com', '.net', '.org', '.io', '.co', '.dev', '.app'];
   const currentTld = '.' + domain.split('.').slice(1).join('.');
+  const altTlds = tlds.filter(t => t !== currentTld).slice(0, 3);
 
-  // Only fetch a few suggestions to avoid rate limiting
-  for (const tld of tlds.filter(t => t !== currentTld).slice(0, 4)) {
+  const suggestionPromises = altTlds.map(async (tld): Promise<{ domain: string; available: boolean; price?: number } | null> => {
     try {
       const altDomain = baseName + tld;
-      const altRes = await vercelFetch(`/v4/domains/status?name=${encodeURIComponent(altDomain)}`, config);
-      if (altRes.ok) {
-        const altData = await altRes.json();
-        if (altData.available) {
-          let altPrice: number | undefined;
-          try {
-            const altPriceRes = await vercelFetch(`/v4/domains/price?name=${encodeURIComponent(altDomain)}`, config);
-            if (altPriceRes.ok) {
-              const altPriceData = await altPriceRes.json();
-              altPrice = altPriceData.price;
-            }
-          } catch {}
-          suggestions.push({ domain: altDomain, available: true, price: altPrice });
+      const altResult = await safeVercelFetch(
+        `/v4/domains/status?name=${encodeURIComponent(altDomain)}`,
+        config
+      );
+      if (altResult.ok && altResult.data?.available) {
+        let altPrice: number | undefined;
+        const altPriceResult = await safeVercelFetch(
+          `/v4/domains/price?name=${encodeURIComponent(altDomain)}`,
+          config
+        );
+        if (altPriceResult.ok && altPriceResult.data?.price != null) {
+          altPrice = typeof altPriceResult.data.price === 'number'
+            ? altPriceResult.data.price
+            : parseFloat(altPriceResult.data.price);
+          if (isNaN(altPrice)) altPrice = undefined;
         }
+        return { domain: altDomain, available: true, price: altPrice };
       }
+      return null;
     } catch {
-      // Skip failed suggestion checks
+      return null;
+    }
+  });
+
+  const suggestionResults = await Promise.allSettled(suggestionPromises);
+  const suggestions: DomainAvailability['suggestions'] = [];
+  for (const result of suggestionResults) {
+    if (result.status === 'fulfilled' && result.value) {
+      suggestions.push(result.value);
     }
   }
 
@@ -451,18 +491,49 @@ export async function purchaseDomain(
   domain: string,
   config: VercelConfig
 ): Promise<{ success: boolean; domain?: string; error?: string }> {
-  const res = await vercelFetch('/v5/domains', config, {
-    method: 'POST',
-    body: JSON.stringify({ name: domain }),
-  });
-
-  const data = await res.json();
-
-  if (!res.ok) {
+  // First verify the domain is available before attempting purchase
+  const availCheck = await safeVercelFetch(
+    `/v4/domains/status?name=${encodeURIComponent(domain)}`,
+    config
+  );
+  if (availCheck.ok && !availCheck.data?.available) {
     return {
       success: false,
-      error: data.error?.message || 'Failed to purchase domain',
+      error: 'This domain is no longer available for purchase.',
     };
+  }
+
+  // Get price info for the expectedPrice field (required by Vercel for purchase)
+  let expectedPrice: number | undefined;
+  const priceResult = await safeVercelFetch(
+    `/v4/domains/price?name=${encodeURIComponent(domain)}`,
+    config
+  );
+  if (priceResult.ok && priceResult.data?.price != null) {
+    expectedPrice = typeof priceResult.data.price === 'number'
+      ? priceResult.data.price
+      : parseFloat(priceResult.data.price);
+  }
+
+  const purchaseBody: any = { name: domain };
+  if (expectedPrice != null && !isNaN(expectedPrice)) {
+    purchaseBody.expectedPrice = expectedPrice;
+  }
+
+  const { ok, data } = await safeVercelFetch('/v5/domains', config, {
+    method: 'POST',
+    body: JSON.stringify(purchaseBody),
+  });
+
+  if (!ok) {
+    const errorMsg = data?.error?.message || 'Failed to purchase domain';
+    if (errorMsg.includes('forbidden') || errorMsg.includes('unauthorized')) {
+      return { success: false, error: 'Domain purchase requires a Vercel account with billing enabled.' };
+    }
+    if (errorMsg.includes('already')) {
+      return { success: false, error: 'This domain is already registered in your account.' };
+    }
+    return { success: false, error: errorMsg };
   }
 
   return {

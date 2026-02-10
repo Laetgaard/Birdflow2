@@ -2,8 +2,8 @@ import { z } from "zod";
 import type { ComponentType } from "./componentRegistry";
 
 export const componentTypes: ComponentType[] = [
-  'hero', 'image-slider', 'text-image', 'cta', 'features', 
-  'testimonials', 'footer', 'header', 'product-grid', 'booking',
+  'hero', 'image-slider', 'text-image', 'cta', 'features',
+  'testimonials', 'footer', 'header', 'product-grid', 'product-detail', 'booking',
   'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed', 'divider', 'spacer'
 ];
 
@@ -82,7 +82,7 @@ export const ComponentStylesSchema = z.object({
 
 export const ComponentSchema = z.object({
   id: z.string(),
-  type: z.enum(['hero', 'image-slider', 'text-image', 'cta', 'features', 'testimonials', 'footer', 'header', 'product-grid', 'booking', 'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed', 'divider', 'spacer']),
+  type: z.enum(['hero', 'image-slider', 'text-image', 'cta', 'features', 'testimonials', 'footer', 'header', 'product-grid', 'product-detail', 'booking', 'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed', 'divider', 'spacer']),
   props: ComponentPropsSchema,
   styles: ComponentStylesSchema.optional().default({}),
 });

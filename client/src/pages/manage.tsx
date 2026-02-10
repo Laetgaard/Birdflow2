@@ -950,16 +950,25 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || 'Failed to check availability');
+        let errorMsg = 'Failed to check domain availability';
+        try {
+          const data = await res.json();
+          errorMsg = data.message || errorMsg;
+        } catch {
+          // Response wasn't JSON
+          if (res.status === 400) errorMsg = 'Invalid domain name. Please try a different name.';
+          else if (res.status === 403) errorMsg = 'Not authorized to check domains.';
+          else if (res.status >= 500) errorMsg = 'Server error. Please try again.';
+        }
+        throw new Error(errorMsg);
       }
       const data = await res.json();
       setAvailability(data);
     } catch (error: any) {
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error.message,
+        title: 'Domain Search Failed',
+        description: error.message || 'Unable to check domain availability. Please try again.',
       });
     } finally {
       setIsSearching(false);
@@ -967,6 +976,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
   };
 
   const handlePurchase = async (domain: string) => {
+    if (isPurchasing) return; // Prevent double-click
     setIsPurchasing(true);
     setPurchasingDomain(domain);
     try {
@@ -978,22 +988,27 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
         },
         body: JSON.stringify({ domain, connectToWebsite: connectToWebsite && isPublished }),
       });
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to purchase domain');
+        throw new Error(data.message || 'Failed to purchase domain. Please try again.');
       }
       setPurchaseComplete({ domain, connected: data.connected });
       setAvailability(null);
       setSearchDomain('');
       toast({
         title: 'Domain Purchased!',
-        description: data.message,
+        description: data.message || `${domain} has been registered successfully.`,
       });
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
-        description: error.message,
+        description: error.message || 'Unable to complete domain purchase. Please try again.',
       });
     } finally {
       setIsPurchasing(false);
@@ -1001,7 +1016,8 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
     }
   };
 
-  const formatPrice = (price: number) => {
+  const formatPrice = (price: number | undefined | null) => {
+    if (price == null || isNaN(price)) return 'Price unavailable';
     return `$${price.toFixed(2)}`;
   };
 
