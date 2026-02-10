@@ -7,13 +7,15 @@ import {
   AlignLeft, AlignCenter, AlignRight,
   Copy, Trash2, ChevronUp, ChevronDown,
   Minus, Plus, Type, Paintbrush,
-  Square, Maximize2, Columns, MoreHorizontal
+  Square, Maximize2, Columns, MoreHorizontal, Palette
 } from 'lucide-react';
 import {
   themeColors,
   alignmentPresets,
   spacingPresets,
 } from '@shared/componentRegistry';
+import SectionStylePresets from './SectionStylePresets';
+import VariantSwitcher from './VariantSwitcher';
 
 const FONT_OPTIONS = [
   { name: 'System', value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
@@ -191,6 +193,7 @@ export default function FloatingToolbar() {
   const [isVisible, setIsVisible] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showStylePanel, setShowStylePanel] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -339,6 +342,14 @@ export default function FloatingToolbar() {
 
   const handleButtonColorChange = (buttonColor: string) => {
     onUpdateComponent(selectedId, { styles: { buttonColor } });
+  };
+
+  const handleStylePresetApply = (preset: { backgroundColor: string; textColor: string; buttonColor: string }) => {
+    onUpdateComponent(selectedId, { styles: { backgroundColor: preset.backgroundColor, textColor: preset.textColor, buttonColor: preset.buttonColor } });
+  };
+
+  const handleVariantChange = (variant: string) => {
+    onUpdateComponent(selectedId, { props: { variant } });
   };
 
   const componentLabel = COMPONENT_LABELS[componentType] || componentType;
@@ -517,6 +528,7 @@ export default function FloatingToolbar() {
 
   // Desktop toolbar - full Canva-style pill design
   return (
+    <>
     <div
       ref={toolbarRef}
       style={{
@@ -941,6 +953,17 @@ export default function FloatingToolbar() {
 
       <ToolbarDivider />
 
+      {/* Style presets toggle */}
+      <ToolbarButton
+        active={showStylePanel}
+        onClick={() => setShowStylePanel(!showStylePanel)}
+        title="Stilarter & Layout"
+      >
+        <Palette className="h-4 w-4" />
+      </ToolbarButton>
+
+      <ToolbarDivider />
+
       {/* Action Buttons - Move, Duplicate, Delete */}
       <div style={{ display: 'flex', gap: '1px' }}>
         <ToolbarButton onClick={() => onMoveComponent(selectedId, 'up')} title="Flyt op (Alt+↑)">
@@ -959,5 +982,43 @@ export default function FloatingToolbar() {
         <Trash2 className="h-4 w-4" />
       </ToolbarButton>
     </div>
+
+    {/* Expanded style presets & variant panel */}
+    {showStylePanel && !isMobile && (
+      <div
+        style={{
+          position: 'fixed',
+          top: `${position.top + 52}px`,
+          left: `${position.left}px`,
+          transform: 'translateX(-50%)',
+          zIndex: 999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          padding: '10px 14px',
+          backgroundColor: 'white',
+          borderRadius: '14px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)',
+          backdropFilter: 'blur(8px)',
+          maxWidth: '380px',
+        }}
+      >
+        <SectionStylePresets
+          componentId={selectedId}
+          currentStyles={{
+            backgroundColor: currentBgColor,
+            textColor: currentTextColor,
+            buttonColor: currentButtonColor,
+          }}
+          onApplyPreset={handleStylePresetApply}
+        />
+        <VariantSwitcher
+          componentType={componentType}
+          currentVariant={component.props.variant as string || 'default'}
+          onVariantChange={handleVariantChange}
+        />
+      </div>
+    )}
+    </>
   );
 }
