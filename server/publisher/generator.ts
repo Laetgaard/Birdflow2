@@ -217,7 +217,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   const theme: ThemeConfig = {
     primaryColor: globalStyles.primaryColor || '#4f46e5',
     secondaryColor: globalStyles.secondaryColor || '#22c55e',
-    fontFamily: globalStyles.fontFamily || 'system-ui',
+    fontFamily: globalStyles.fontFamily || 'Inter, system-ui, sans-serif',
     backgroundColor: globalStyles.backgroundColor || '#ffffff',
     textColor: globalStyles.textColor || '#1f2937',
     borderRadius: globalStyles.borderRadius || '8px',

@@ -14,12 +14,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Palette, Type, Globe, ChevronDown, ChevronUp } from 'lucide-react';
 import { fontFamilyPresets } from '@shared/componentRegistry';
 
-interface GlobalStyles {
-  primaryColor: string;
-  secondaryColor: string;
-  fontFamily: string;
-  backgroundColor: string;
-}
+import type { DesignTokens } from '@shared/schema';
+
+type GlobalStyles = DesignTokens;
 
 interface GlobalStylesPanelProps {
   globalStyles: GlobalStyles;

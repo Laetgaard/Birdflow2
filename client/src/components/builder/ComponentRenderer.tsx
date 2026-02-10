@@ -348,12 +348,7 @@ type BuilderPage = {
 
 type DeviceMode = 'desktop' | 'tablet' | 'mobile';
 
-type GlobalStyles = {
-  primaryColor: string;
-  secondaryColor: string;
-  fontFamily: string;
-  backgroundColor: string;
-};
+type GlobalStyles = import('@shared/schema').DesignTokens;
 
 type RenderProps = {
   component: BuilderComponentData;
