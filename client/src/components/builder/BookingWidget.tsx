@@ -28,6 +28,9 @@ type Props = {
   isPreview?: boolean;
   isSelected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
+  onTextChange?: (field: string, value: string) => void;
+  editingField?: string | null;
+  onEditField?: ((field: string | null) => void) | undefined;
 };
 
 async function fetchServices(websiteId: string): Promise<BookingService[]> {
@@ -43,7 +46,8 @@ function formatCurrency(amount: number, currency: string = 'USD') {
   return `${symbol}${amount.toFixed(0)}`;
 }
 
-export default function BookingWidget({ websiteId, styles, props, isPreview, isSelected, onClick }: Props) {
+export default function BookingWidget({ websiteId, styles, props, isPreview, isSelected, onClick, onTextChange, editingField, onEditField }: Props) {
+  const canEditText = !isPreview && onTextChange && onEditField;
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedService, setSelectedService] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
@@ -235,16 +239,60 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
           }}>
             <Calendar style={{ width: '28px', height: '28px', color: '#fff' }} />
           </div>
-          <h2 style={{
-            fontSize: '28px',
-            fontWeight: 800,
-            marginBottom: '8px',
-            letterSpacing: '-0.03em',
-            lineHeight: 1.2,
-          }}>
+          <h2
+            data-editable-field={canEditText ? 'title' : undefined}
+            contentEditable={editingField === 'title'}
+            suppressContentEditableWarning
+            onClick={canEditText ? (e: React.MouseEvent) => { e.stopPropagation(); onEditField!('title'); } : undefined}
+            onBlur={editingField === 'title' ? (e: React.FocusEvent<HTMLHeadingElement>) => {
+              onTextChange!('title', e.currentTarget.innerText.trim());
+              onEditField!(null);
+            } : undefined}
+            onKeyDown={editingField === 'title' ? (e: React.KeyboardEvent) => {
+              if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLElement).blur(); }
+              if (e.key === 'Escape') { e.preventDefault(); onEditField!(null); }
+            } : undefined}
+            ref={(el: HTMLHeadingElement | null) => { if (el && editingField === 'title') el.focus(); }}
+            style={{
+              fontSize: '28px',
+              fontWeight: 800,
+              marginBottom: '8px',
+              letterSpacing: '-0.03em',
+              lineHeight: 1.2,
+              outline: editingField === 'title' ? '2px solid #3b82f6' : 'none',
+              outlineOffset: editingField === 'title' ? '2px' : undefined,
+              borderRadius: editingField === 'title' ? '4px' : undefined,
+              cursor: canEditText ? 'text' : undefined,
+            }}
+          >
             {props.title || 'Book Your Appointment'}
           </h2>
-          <p style={{ fontSize: '16px', opacity: 0.6, maxWidth: '380px', margin: '0 auto', lineHeight: 1.5 }}>
+          <p
+            data-editable-field={canEditText ? 'description' : undefined}
+            contentEditable={editingField === 'description'}
+            suppressContentEditableWarning
+            onClick={canEditText ? (e: React.MouseEvent) => { e.stopPropagation(); onEditField!('description'); } : undefined}
+            onBlur={editingField === 'description' ? (e: React.FocusEvent<HTMLParagraphElement>) => {
+              onTextChange!('description', e.currentTarget.innerText.trim());
+              onEditField!(null);
+            } : undefined}
+            onKeyDown={editingField === 'description' ? (e: React.KeyboardEvent) => {
+              if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLElement).blur(); }
+              if (e.key === 'Escape') { e.preventDefault(); onEditField!(null); }
+            } : undefined}
+            ref={(el: HTMLParagraphElement | null) => { if (el && editingField === 'description') el.focus(); }}
+            style={{
+              fontSize: '16px',
+              opacity: 0.6,
+              maxWidth: '380px',
+              margin: '0 auto',
+              lineHeight: 1.5,
+              outline: editingField === 'description' ? '2px solid #3b82f6' : 'none',
+              outlineOffset: editingField === 'description' ? '2px' : undefined,
+              borderRadius: editingField === 'description' ? '4px' : undefined,
+              cursor: canEditText ? 'text' : undefined,
+            }}
+          >
             {props.description || 'Schedule a time that works best for you'}
           </p>
         </div>
