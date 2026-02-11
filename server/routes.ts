@@ -29,7 +29,7 @@ import {
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
+import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain, type DomainContactInfo } from "./publisher/vercel";
 import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { emailService } from "./email/service";
@@ -3367,7 +3367,7 @@ export async function registerRoutes(
   // Purchase a domain and optionally connect it to the website
   app.post("/api/websites/:id/domains/purchase", requireAuth, async (req, res) => {
     try {
-      const { domain, connectToWebsite } = req.body;
+      const { domain, connectToWebsite, contactInfo, expectedPrice, years } = req.body;
       if (!domain || typeof domain !== 'string') {
         return res.status(400).json({ message: "Domain name is required" });
       }
@@ -3375,6 +3375,10 @@ export async function registerRoutes(
       const domainStr = domain.trim().toLowerCase();
       if (!domainStr.includes('.') || domainStr.length < 4) {
         return res.status(400).json({ message: "Please enter a valid domain name" });
+      }
+
+      if (!contactInfo || !contactInfo.firstName || !contactInfo.lastName || !contactInfo.email || !contactInfo.phone || !contactInfo.address1 || !contactInfo.city || !contactInfo.country || !contactInfo.zip) {
+        return res.status(400).json({ message: "Contact information is required for domain registration. Please fill in all required fields." });
       }
 
       const website = await storage.getWebsite(req.params.id);
@@ -3395,14 +3399,26 @@ export async function registerRoutes(
         teamId: process.env.VERCEL_TEAM_ID,
       };
 
-      // Check if domain is already in our database
       const existingDomain = await storage.getCustomDomainByDomain(domainStr);
       if (existingDomain) {
         return res.status(400).json({ message: "This domain is already registered in the system." });
       }
 
-      // Step 1: Purchase the domain through Vercel
-      const purchaseResult = await purchaseDomain(domainStr, vercelConfig);
+      const domainContactInfo: DomainContactInfo = {
+        firstName: contactInfo.firstName,
+        lastName: contactInfo.lastName,
+        email: contactInfo.email,
+        phone: contactInfo.phone,
+        address1: contactInfo.address1,
+        city: contactInfo.city,
+        state: contactInfo.state || '',
+        zip: contactInfo.zip,
+        country: contactInfo.country,
+        ...(contactInfo.address2 ? { address2: contactInfo.address2 } : {}),
+        ...(contactInfo.organization ? { organization: contactInfo.organization } : {}),
+      };
+
+      const purchaseResult = await purchaseDomain(domainStr, vercelConfig, domainContactInfo, expectedPrice, years || 1);
       if (!purchaseResult.success) {
         return res.status(400).json({ message: purchaseResult.error || "Failed to purchase domain" });
       }
