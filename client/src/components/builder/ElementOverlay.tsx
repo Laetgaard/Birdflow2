@@ -448,6 +448,8 @@ export default function ElementOverlay({
       }
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
+      // Don't intercept clicks on section insert points
+      if (target.closest('[data-section-insert-point]')) return;
 
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
 
@@ -462,6 +464,7 @@ export default function ElementOverlay({
     const handleContainerDblClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
+      if (target.closest('[data-section-insert-point]')) return;
 
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
 
