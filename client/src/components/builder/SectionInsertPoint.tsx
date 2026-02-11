@@ -162,6 +162,7 @@ export default function SectionInsertPoint({ index, onAddComponent, activeInsert
           transition: "opacity 150ms ease",
           zIndex: 10,
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         <Popover
           open={isOpen}
