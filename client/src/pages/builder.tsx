@@ -1254,6 +1254,7 @@ export default function BuilderPage() {
             <ElementOverlay
               containerRef={previewContainerRef}
               isPreview={false}
+              isFieldEditing={editingField !== null}
               onComponentSelect={(componentId) => {
                 setSelectedComponentId(componentId);
                 setSidebarTab("properties");
