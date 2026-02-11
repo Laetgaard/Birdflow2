@@ -3323,6 +3323,55 @@ export async function registerRoutes(
 
   // ============ DOMAIN PURCHASE ROUTES ============
 
+  // Pre-check: verify Vercel token works and has domain capabilities
+  app.get("/api/domains/config-status", requireAuth, async (req, res) => {
+    try {
+      const vercelToken = process.env.VERCEL_TOKEN;
+      if (!vercelToken) {
+        return res.json({
+          configured: false,
+          canPurchase: false,
+          error: 'VERCEL_TOKEN is not set. Domain purchasing requires a Vercel API token.',
+        });
+      }
+
+      const vercelConfig = {
+        token: vercelToken,
+        teamId: process.env.VERCEL_TEAM_ID,
+      };
+
+      // Test the token by checking a known domain's availability
+      const { checkDomainAvailability: checkAvail } = await import('./publisher/vercel');
+      try {
+        await checkAvail('example.com', vercelConfig);
+        return res.json({
+          configured: true,
+          canPurchase: true,
+        });
+      } catch (err: any) {
+        const msg = err.message || '';
+        if (msg.includes('not properly configured') || msg.includes('forbidden') || msg.includes('unauthorized')) {
+          return res.json({
+            configured: true,
+            canPurchase: false,
+            error: 'Vercel token does not have domain management permissions. Ensure the token has the correct scopes and the Vercel account has billing enabled.',
+          });
+        }
+        return res.json({
+          configured: true,
+          canPurchase: true,
+        });
+      }
+    } catch (error: any) {
+      console.error('Domain config status check error:', error);
+      res.json({
+        configured: false,
+        canPurchase: false,
+        error: 'Failed to verify domain service configuration.',
+      });
+    }
+  });
+
   // Check domain availability and pricing
   app.get("/api/websites/:id/domains/check-availability", requireAuth, async (req, res) => {
     try {
@@ -3387,7 +3436,10 @@ export async function registerRoutes(
 
       const vercelToken = process.env.VERCEL_TOKEN;
       if (!vercelToken) {
-        return res.status(400).json({ message: "Domain purchase requires a VERCEL_TOKEN. Please add it to your environment variables." });
+        return res.status(400).json({
+          message: "Domain purchase requires a VERCEL_TOKEN. Please add it to your environment variables.",
+          actionRequired: 'vercel_token',
+        });
       }
 
       const vercelConfig = {
@@ -3404,65 +3456,65 @@ export async function registerRoutes(
       // Step 1: Purchase the domain through Vercel
       const purchaseResult = await purchaseDomain(domainStr, vercelConfig);
       if (!purchaseResult.success) {
-        return res.status(400).json({ message: purchaseResult.error || "Failed to purchase domain" });
+        const isBillingIssue = purchaseResult.error?.toLowerCase().includes('billing') ||
+          purchaseResult.error?.toLowerCase().includes('payment');
+        return res.status(400).json({
+          message: purchaseResult.error || "Failed to purchase domain",
+          actionRequired: isBillingIssue ? 'vercel_billing' : undefined,
+          help: isBillingIssue
+            ? 'Please add a payment method to your Vercel account at vercel.com/account/billing and ensure you are on a Pro or Enterprise plan.'
+            : undefined,
+        });
       }
+
+      // Determine DNS configuration (used for both connected and unconnected)
+      const domainParts = domainStr.split('.');
+      const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
+      const dnsType = isSubdomain ? 'CNAME' : 'A';
+      const dnsName = isSubdomain ? domainParts[0] : '@';
+      const dnsValue = isSubdomain ? 'cname.vercel-dns.com' : '76.76.21.21';
 
       // Step 2: If connectToWebsite is true, also add it to the website's Vercel project
-      if (connectToWebsite && website.deploymentUrl) {
-        const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const shouldConnect = connectToWebsite && website.deploymentUrl;
+      let connectSuccess = false;
+      let projectName: string | undefined;
 
-        // Add domain to the Vercel project
+      if (shouldConnect) {
+        projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
         try {
-          await addCustomDomain(projectName, domainStr, vercelConfig);
+          const addResult = await addCustomDomain(projectName, domainStr, vercelConfig);
+          connectSuccess = addResult.success;
+          if (!addResult.success) {
+            console.error('Failed to auto-connect domain to project:', addResult.error);
+          }
         } catch (addErr: any) {
           console.error('Failed to auto-connect domain to project:', addErr);
-          // Domain was purchased but auto-connect failed - still return success
         }
-
-        // Determine DNS configuration
-        const domainParts = domainStr.split('.');
-        const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
-
-        let dnsType: string;
-        let dnsName: string;
-        let dnsValue: string;
-
-        if (isSubdomain) {
-          dnsType = 'CNAME';
-          dnsName = domainParts[0];
-          dnsValue = 'cname.vercel-dns.com';
-        } else {
-          dnsType = 'A';
-          dnsName = '@';
-          dnsValue = '76.76.21.21';
-        }
-
-        // Create the domain record in our database
-        const customDomain = await storage.createCustomDomain({
-          websiteId: req.params.id,
-          domain: domainStr,
-          status: 'verifying',
-          vercelProjectId: projectName,
-          dnsType,
-          dnsName,
-          dnsValue,
-        });
-
-        return res.status(201).json({
-          success: true,
-          purchased: true,
-          connected: true,
-          domain: customDomain,
-          message: "Domain purchased and connected! DNS will be configured automatically.",
-        });
       }
+
+      // Step 3: Always create a domain record in our database
+      const customDomain = await storage.createCustomDomain({
+        websiteId: req.params.id,
+        domain: domainStr,
+        status: connectSuccess ? 'verifying' : 'pending',
+        vercelProjectId: projectName || null,
+        dnsType,
+        dnsName,
+        dnsValue,
+      });
 
       res.status(201).json({
         success: true,
         purchased: true,
-        connected: false,
-        domain: domainStr,
-        message: "Domain purchased successfully! You can now connect it to your website.",
+        alreadyOwned: purchaseResult.alreadyOwned || false,
+        connected: connectSuccess,
+        domain: customDomain,
+        message: connectSuccess
+          ? "Domain purchased and connected! DNS will be configured automatically."
+          : purchaseResult.alreadyOwned
+            ? "Domain is already in your Vercel account and has been added to your website."
+            : "Domain purchased successfully! You can connect it to your website from the Custom Domains section.",
       });
     } catch (error: any) {
       console.error('Domain purchase error:', error);

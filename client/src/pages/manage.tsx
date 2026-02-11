@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { 
   Globe, ArrowLeft, Loader2, Settings, User, LogOut,
   ShoppingCart, Calendar, Mail, Users, Palette,
-  Package, Clock, CheckCircle, XCircle, AlertCircle,
+  Package, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle,
   Plus, Pencil, Trash2, DollarSign, Image, Upload,
   Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3, X,
   FileText, Send, UserPlus, ShoppingBag, FileInput, RotateCcw,
@@ -425,6 +425,13 @@ function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId: strin
 
   useEffect(() => {
     fetchDomains();
+  }, [fetchDomains]);
+
+  // Refresh domain list when a domain is purchased in DomainPurchaseCard
+  useEffect(() => {
+    const handler = () => fetchDomains();
+    window.addEventListener('domain-purchased', handler);
+    return () => window.removeEventListener('domain-purchased', handler);
   }, [fetchDomains]);
 
   useEffect(() => {
@@ -925,6 +932,16 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
   const [purchasingDomain, setPurchasingDomain] = useState<string | null>(null);
   const [connectToWebsite, setConnectToWebsite] = useState(true);
   const [purchaseComplete, setPurchaseComplete] = useState<{ domain: string; connected: boolean } | null>(null);
+  const [configStatus, setConfigStatus] = useState<{ configured: boolean; canPurchase: boolean; error?: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/domains/config-status', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then(res => res.json())
+      .then(data => setConfigStatus(data))
+      .catch(() => setConfigStatus(null));
+  }, [accessToken]);
 
   const tldOptions = ['.com', '.net', '.org', '.io', '.co', '.dev', '.app', '.store', '.shop'];
 
@@ -995,15 +1012,18 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
         data = {};
       }
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to purchase domain. Please try again.');
+        const errorDetail = data.help ? `${data.message} ${data.help}` : data.message;
+        throw new Error(errorDetail || 'Failed to purchase domain. Please try again.');
       }
       setPurchaseComplete({ domain, connected: data.connected });
       setAvailability(null);
       setSearchDomain('');
       toast({
-        title: 'Domain Purchased!',
+        title: data.alreadyOwned ? 'Domain Added!' : 'Domain Purchased!',
         description: data.message || `${domain} has been registered successfully.`,
       });
+      // Signal the DomainsCard to refresh its list
+      window.dispatchEvent(new CustomEvent('domain-purchased'));
     } catch (error: any) {
       toast({
         variant: 'destructive',
@@ -1032,6 +1052,19 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
       </CardHeader>
       <CardContent>
         <div className="space-y-5">
+          {/* Config warning */}
+          {configStatus && !configStatus.canPurchase && (
+            <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Domain purchasing is not configured</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  {configStatus.error || 'Please ensure your Vercel account has billing enabled and the VERCEL_TOKEN has domain management permissions.'}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Search with TLD selector */}
           <div>
             <div className="flex gap-2">

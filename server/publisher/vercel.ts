@@ -490,12 +490,14 @@ export async function checkDomainAvailability(
 export async function purchaseDomain(
   domain: string,
   config: VercelConfig
-): Promise<{ success: boolean; domain?: string; error?: string }> {
+): Promise<{ success: boolean; domain?: string; error?: string; alreadyOwned?: boolean }> {
   // First verify the domain is available before attempting purchase
   const availCheck = await safeVercelFetch(
     `/v4/domains/status?name=${encodeURIComponent(domain)}`,
     config
   );
+  console.log(`[Domain Purchase] Availability check for ${domain}:`, JSON.stringify(availCheck.data));
+
   if (availCheck.ok && !availCheck.data?.available) {
     return {
       success: false,
@@ -509,6 +511,8 @@ export async function purchaseDomain(
     `/v4/domains/price?name=${encodeURIComponent(domain)}`,
     config
   );
+  console.log(`[Domain Purchase] Price check for ${domain}:`, JSON.stringify(priceResult.data));
+
   if (priceResult.ok && priceResult.data?.price != null) {
     expectedPrice = typeof priceResult.data.price === 'number'
       ? priceResult.data.price
@@ -520,22 +524,28 @@ export async function purchaseDomain(
     purchaseBody.expectedPrice = expectedPrice;
   }
 
+  console.log(`[Domain Purchase] Purchasing ${domain} with body:`, JSON.stringify(purchaseBody));
   const { ok, data } = await safeVercelFetch('/v5/domains', config, {
     method: 'POST',
     body: JSON.stringify(purchaseBody),
   });
 
   if (!ok) {
-    const errorMsg = data?.error?.message || 'Failed to purchase domain';
-    if (errorMsg.includes('forbidden') || errorMsg.includes('unauthorized')) {
-      return { success: false, error: 'Domain purchase requires a Vercel account with billing enabled.' };
+    const errorMsg = data?.error?.message || data?.error?.code || 'Failed to purchase domain';
+    console.error(`[Domain Purchase] Vercel API error for ${domain}:`, JSON.stringify(data, null, 2));
+
+    if (errorMsg.toLowerCase().includes('forbidden') || errorMsg.toLowerCase().includes('unauthorized') || errorMsg.toLowerCase().includes('not_authorized')) {
+      return { success: false, error: 'Domain purchase requires a Vercel account with billing enabled. Please add a payment method at vercel.com/account/billing.' };
     }
-    if (errorMsg.includes('already')) {
-      return { success: false, error: 'This domain is already registered in your account.' };
+    // Domain already registered in this Vercel account — treat as success
+    if (errorMsg.toLowerCase().includes('already') || data?.error?.code === 'domain_already_exists') {
+      console.log(`[Domain Purchase] Domain ${domain} already owned in Vercel account, treating as success`);
+      return { success: true, domain, alreadyOwned: true };
     }
     return { success: false, error: errorMsg };
   }
 
+  console.log(`[Domain Purchase] Successfully purchased ${domain}:`, JSON.stringify(data));
   return {
     success: true,
     domain: data.name || domain,
