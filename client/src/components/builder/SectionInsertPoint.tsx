@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Plus, Layout, Star, MousePointerClick, ShoppingBag, Play, Columns } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -8,6 +8,8 @@ import type { ComponentType } from "@shared/componentRegistry";
 interface SectionInsertPointProps {
   index: number;
   onAddComponent: (type: ComponentType, index: number) => void;
+  activeInsertIndex: number | null;
+  onActivate: (index: number | null) => void;
 }
 
 type SectionEntry = {
@@ -103,59 +105,82 @@ const categories: CategoryDefinition[] = [
   },
 ];
 
-export default function SectionInsertPoint({ index, onAddComponent }: SectionInsertPointProps) {
+export default function SectionInsertPoint({ index, onAddComponent, activeInsertIndex, onActivate }: SectionInsertPointProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const isVisible = activeInsertIndex === index || isOpen;
 
   const handleSelect = (type: ComponentType) => {
     onAddComponent(type, index);
     setIsOpen(false);
+    onActivate(null);
+  };
+
+  const handleLineClick = () => {
+    // Clicking the line area opens the popover via the trigger
+    triggerRef.current?.click();
   };
 
   return (
     <div
-      className="relative w-full group"
-      style={{ height: "32px" }}
-      onMouseEnter={() => setIsHovered(true)}
+      className="relative w-full"
+      style={{ height: 0, zIndex: 20 }}
+      data-section-insert-point
+      onMouseEnter={() => onActivate(index)}
       onMouseLeave={() => {
-        if (!isOpen) setIsHovered(false);
+        if (!isOpen) onActivate(null);
       }}
     >
-      {/* Horizontal line */}
+      {/* Invisible hover/click target spanning across sections */}
       <div
-        className="absolute top-1/2 left-0 right-0 -translate-y-1/2 pointer-events-none"
+        className="absolute left-0 right-0 cursor-pointer"
         style={{
-          height: "1px",
-          backgroundColor: "#d1d5db",
-          opacity: isHovered || isOpen ? 1 : 0,
-          transition: "opacity 150ms ease",
+          height: "20px",
+          top: "-10px",
+          display: "flex",
+          alignItems: "center",
         }}
-      />
+        onClick={handleLineClick}
+      >
+        <div
+          style={{
+            width: "100%",
+            height: "2px",
+            backgroundColor: "#3b82f6",
+            opacity: isVisible ? 1 : 0,
+            transition: "opacity 150ms ease",
+          }}
+        />
+      </div>
 
       {/* Plus button centered on the line */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+        className="absolute left-1/2 -translate-x-1/2"
         style={{
-          opacity: isHovered || isOpen ? 1 : 0,
+          top: "-12px",
+          opacity: isVisible ? 1 : 0,
           transition: "opacity 150ms ease",
           zIndex: 10,
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         <Popover
           open={isOpen}
           onOpenChange={(open) => {
             setIsOpen(open);
-            if (!open) setIsHovered(false);
+            if (!open) onActivate(null);
           }}
         >
           <PopoverTrigger asChild>
             <button
+              ref={triggerRef}
               className={cn(
                 "flex items-center justify-center rounded-full border shadow-sm transition-colors duration-150",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400",
                 isOpen
                   ? "bg-blue-500 border-blue-500 text-white shadow-md"
-                  : "bg-white border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-500 hover:shadow-md"
+                  : "bg-white border-blue-400 text-blue-500 hover:bg-blue-500 hover:text-white hover:shadow-md"
               )}
               style={{ width: "24px", height: "24px" }}
               aria-label="Tilf\u00F8j sektion"

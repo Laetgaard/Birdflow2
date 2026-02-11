@@ -121,6 +121,7 @@ export default function BuilderPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
+  const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai">("components");
   const [device, setDevice] = useState<DeviceType>('desktop');
   const [pageDialogOpen, setPageDialogOpen] = useState(false);
@@ -1255,7 +1256,7 @@ export default function BuilderPage() {
               ) : (
                 <>
                   {/* Insert point before first component */}
-                  <SectionInsertPoint index={0} onAddComponent={addComponentAtIndex} />
+                  <SectionInsertPoint index={0} onAddComponent={addComponentAtIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
                   {activePage?.components.map((comp, idx) => (
                     <div key={comp.id}>
                       <ComponentRenderer
@@ -1277,7 +1278,7 @@ export default function BuilderPage() {
                         globalStyles={builderState?.globalStyles}
                       />
                       {/* Insert point after each component */}
-                      <SectionInsertPoint index={idx + 1} onAddComponent={addComponentAtIndex} />
+                      <SectionInsertPoint index={idx + 1} onAddComponent={addComponentAtIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
                     </div>
                   ))}
                 </>
