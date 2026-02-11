@@ -22,6 +22,7 @@ interface ElementOverlayProps {
   isPreview?: boolean;
   onTextPropChange?: (componentId: string, propKey: string, newText: string) => void;
   onButtonEdit?: (componentId: string, buttonProps: { text: string; element: HTMLElement }) => void;
+  onComponentSelect?: (componentId: string) => void;
 }
 
 const ELEMENT_SELECTORS = {
@@ -169,6 +170,7 @@ export default function ElementOverlay({
   isPreview = false,
   onTextPropChange,
   onButtonEdit,
+  onComponentSelect,
 }: ElementOverlayProps) {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -457,6 +459,10 @@ export default function ElementOverlay({
         e.stopPropagation();
         // Single click = select only (no text editing)
         handleElementSelect(resolved, false);
+        // Also select the parent component so EditableText gets rendered
+        if (onComponentSelect && resolved.componentId) {
+          onComponentSelect(resolved.componentId);
+        }
       }
     };
 
@@ -465,6 +471,8 @@ export default function ElementOverlay({
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
       if (target.closest('[data-section-insert-point]')) return;
+      // Let EditableText components handle their own double-click editing
+      if (target.closest('[data-editable-field]')) return;
 
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
 
@@ -481,7 +489,7 @@ export default function ElementOverlay({
       container.removeEventListener('click', handleContainerClick, true);
       container.removeEventListener('dblclick', handleContainerDblClick, true);
     };
-  }, [allDetectedElements, handleElementSelect, isEditing, containerRef]);
+  }, [allDetectedElements, handleElementSelect, isEditing, containerRef, onComponentSelect]);
 
   useEffect(() => {
     if (!containerRef.current) return;
