@@ -476,7 +476,7 @@ export default function ElementOverlay({
       if (overlayRef.current?.contains(target)) return;
       if (target.closest('[data-section-insert-point]')) return;
 
-      // For EditableText fields, directly trigger field editing via callback
+      // For EditableText fields (already rendered), directly trigger field editing
       const editableField = target.closest('[data-editable-field]') as HTMLElement | null;
       if (editableField && onFieldEdit) {
         const field = editableField.getAttribute('data-editable-field');
@@ -490,8 +490,20 @@ export default function ElementOverlay({
         }
       }
 
+      // For text/button elements that don't have data-editable-field yet
+      // (component not selected yet), infer the field and trigger editing
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
+      if (resolved && (resolved.type === 'text' || resolved.type === 'button') && onFieldEdit) {
+        const inferredField = inferTextPropKey(resolved.element, resolved.componentId);
+        if (inferredField) {
+          e.stopPropagation();
+          e.preventDefault();
+          onFieldEdit(resolved.componentId, inferredField);
+          return;
+        }
+      }
 
+      // Final fallback: use overlay's own contentEditable system
       if (resolved && (resolved.type === 'text' || resolved.type === 'button')) {
         e.stopPropagation();
         e.preventDefault();
