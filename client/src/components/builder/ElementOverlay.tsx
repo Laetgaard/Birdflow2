@@ -20,6 +20,7 @@ interface DetectedElement {
 interface ElementOverlayProps {
   containerRef: React.RefObject<HTMLElement | null>;
   isPreview?: boolean;
+  isFieldEditing?: boolean;
   onTextPropChange?: (componentId: string, propKey: string, newText: string) => void;
   onButtonEdit?: (componentId: string, buttonProps: { text: string; element: HTMLElement }) => void;
   onComponentSelect?: (componentId: string) => void;
@@ -169,6 +170,7 @@ function placeCaretAtPoint(x: number, y: number) {
 export default function ElementOverlay({
   containerRef,
   isPreview = false,
+  isFieldEditing = false,
   onTextPropChange,
   onButtonEdit,
   onComponentSelect,
@@ -446,8 +448,8 @@ export default function ElementOverlay({
     const container = containerRef.current;
 
     const handleContainerClick = (e: MouseEvent) => {
-      if (isEditing) {
-        // When already editing text, let native click-to-position-cursor work
+      if (isEditing || isFieldEditing) {
+        // When already editing text (overlay or React EditableText), let native click work
         return;
       }
       const target = e.target as HTMLElement;
@@ -517,7 +519,7 @@ export default function ElementOverlay({
       container.removeEventListener('click', handleContainerClick, true);
       container.removeEventListener('dblclick', handleContainerDblClick, true);
     };
-  }, [allDetectedElements, handleElementSelect, isEditing, containerRef, onComponentSelect, onFieldEdit]);
+  }, [allDetectedElements, handleElementSelect, isEditing, isFieldEditing, containerRef, onComponentSelect, onFieldEdit]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -703,7 +705,7 @@ export default function ElementOverlay({
             top: selectedDetected.rect.top,
             width: selectedDetected.rect.width,
             height: selectedDetected.rect.height,
-            pointerEvents: isEditing ? 'none' : 'auto',
+            pointerEvents: (isEditing || isFieldEditing) ? 'none' : 'auto',
           }}
           data-testid={`element-region-${selectedDetected.id}`}
           data-element-editing="true"
