@@ -2816,11 +2816,12 @@ function BeforeAfterComponent({ props, styles, isSelected, onClick, isPreview, o
   );
 }
 
-function LogoCloudComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+function LogoCloudComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
   const variant = props.variant || 'grid';
   const logos = (props.logos as LogoItem[]) || [];
-  
+  const canEdit = !isPreview && onTextChange && onEditField;
+
   return (
     <section
       style={{
@@ -2833,10 +2834,23 @@ function LogoCloudComponent({ props, styles, isSelected, onClick, isPreview }: C
       data-testid="logo-cloud-section"
     >
       <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-        {props.title && (
-          <h2 style={{ fontSize: '14px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.6, marginBottom: '32px' }}>
-            {props.title}
-          </h2>
+        {(props.title || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.title || 'Trusted by leading companies'}
+              field="title"
+              isEditing={editingField === 'title'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '14px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.6, marginBottom: '32px', display: 'block' }}
+              as="h2"
+              isPreview={isPreview}
+            />
+          ) : (
+            <h2 style={{ fontSize: '14px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.6, marginBottom: '32px' }}>
+              {props.title}
+            </h2>
+          )
         )}
         <div style={{ 
           display: 'flex', 
@@ -3515,7 +3529,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
       case 'product-detail':
         return <ProductDetailDesigner {...commonProps} websiteId={websiteId} />;
       case 'booking':
-        return <BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} />;
+        return <BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} onTextChange={onTextChange} editingField={editingField} onEditField={onEditField} />;
       case 'gallery':
         return <GalleryComponent {...commonProps} />;
       case 'pricing-table':
