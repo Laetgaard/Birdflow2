@@ -2915,12 +2915,13 @@ function MarqueeComponent({ props, styles, isSelected, onClick, isPreview }: Com
   );
 }
 
-function TabsComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
+function TabsComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const [activeTab, setActiveTab] = useState(0);
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const tabs = (props.tabs as TabItem[]) || [];
-  
+  const canEdit = !isPreview && onTextChange && onEditField;
+
   return (
     <section
       style={{
@@ -2933,10 +2934,23 @@ function TabsComponent({ props, styles, isSelected, onClick, isPreview, globalSt
       data-testid="tabs-section"
     >
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-        {props.title && (
-          <h2 style={{ fontSize: '36px', fontWeight: '700', textAlign: 'center', marginBottom: '48px' }}>
-            {props.title}
-          </h2>
+        {(props.title || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.title || 'Tab Section Title'}
+              field="title"
+              isEditing={editingField === 'title'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '36px', fontWeight: '700', textAlign: 'center', marginBottom: '48px', display: 'block' }}
+              as="h2"
+              isPreview={isPreview}
+            />
+          ) : (
+            <h2 style={{ fontSize: '36px', fontWeight: '700', textAlign: 'center', marginBottom: '48px' }}>
+              {props.title}
+            </h2>
+          )
         )}
         <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(0,0,0,0.1)', marginBottom: '32px', overflowX: 'auto' }}>
           {tabs.map((tab, index) => (
@@ -2976,12 +2990,13 @@ function TabsComponent({ props, styles, isSelected, onClick, isPreview, globalSt
   );
 }
 
-function ComparisonTableComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
+function ComparisonTableComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const tableColumns = (props.tableColumns as TableColumn[]) || [];
   const features = (props.features as FeatureRow[]) || [];
-  
+  const canEdit = !isPreview && onTextChange && onEditField;
+
   return (
     <section
       style={{
@@ -2994,15 +3009,41 @@ function ComparisonTableComponent({ props, styles, isSelected, onClick, isPrevie
       data-testid="comparison-table-section"
     >
       <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-        {props.title && (
-          <h2 style={{ fontSize: '36px', fontWeight: '700', textAlign: 'center', marginBottom: '16px' }}>
-            {props.title}
-          </h2>
+        {(props.title || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.title || 'Compare Plans'}
+              field="title"
+              isEditing={editingField === 'title'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '36px', fontWeight: '700', textAlign: 'center', marginBottom: '16px', display: 'block' }}
+              as="h2"
+              isPreview={isPreview}
+            />
+          ) : (
+            <h2 style={{ fontSize: '36px', fontWeight: '700', textAlign: 'center', marginBottom: '16px' }}>
+              {props.title}
+            </h2>
+          )
         )}
-        {props.subtitle && (
-          <p style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '48px' }}>
-            {props.subtitle}
-          </p>
+        {(props.subtitle || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.subtitle || 'Choose the right plan for you'}
+              field="subtitle"
+              isEditing={editingField === 'subtitle'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '48px', display: 'block' }}
+              as="p"
+              isPreview={isPreview}
+            />
+          ) : (
+            <p style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '48px' }}>
+              {props.subtitle}
+            </p>
+          )
         )}
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -3053,12 +3094,13 @@ function ComparisonTableComponent({ props, styles, isSelected, onClick, isPrevie
   );
 }
 
-function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
+function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const layout = props.layout || 'image-left';
   const bullets = (props.bullets as (string | { text: string })[]) || [];
-  
+  const canEdit = !isPreview && onTextChange && onEditField;
+
   return (
     <section
       style={{
@@ -3070,29 +3112,68 @@ function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview, 
       onClick={onClick}
       data-testid="split-section"
     >
-      <div style={{ 
-        maxWidth: '1200px', 
-        margin: '0 auto', 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(2, 1fr)', 
-        gap: '80px', 
+      <div style={{
+        maxWidth: '1200px',
+        margin: '0 auto',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gap: '80px',
         alignItems: 'center',
       }}>
         <div style={{ order: layout === 'image-right' ? 1 : 2 }}>
-          {props.subtitle && (
-            <div style={{ fontSize: '14px', fontWeight: '600', color: accentColor, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
-              {props.subtitle}
-            </div>
+          {(props.subtitle || canEdit) && (
+            canEdit ? (
+              <EditableText
+                value={props.subtitle || 'Subtitle'}
+                field="subtitle"
+                isEditing={editingField === 'subtitle'}
+                onEdit={onEditField}
+                onChange={onTextChange}
+                style={{ fontSize: '14px', fontWeight: '600', color: accentColor, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px', display: 'block' }}
+                as="div"
+                isPreview={isPreview}
+              />
+            ) : (
+              <div style={{ fontSize: '14px', fontWeight: '600', color: accentColor, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px' }}>
+                {props.subtitle}
+              </div>
+            )
           )}
-          {props.title && (
-            <h2 style={{ fontSize: '40px', fontWeight: '700', lineHeight: '1.2', marginBottom: '24px' }}>
-              {props.title}
-            </h2>
+          {(props.title || canEdit) && (
+            canEdit ? (
+              <EditableText
+                value={props.title || 'Section Title'}
+                field="title"
+                isEditing={editingField === 'title'}
+                onEdit={onEditField}
+                onChange={onTextChange}
+                style={{ fontSize: '40px', fontWeight: '700', lineHeight: '1.2', marginBottom: '24px', display: 'block' }}
+                as="h2"
+                isPreview={isPreview}
+              />
+            ) : (
+              <h2 style={{ fontSize: '40px', fontWeight: '700', lineHeight: '1.2', marginBottom: '24px' }}>
+                {props.title}
+              </h2>
+            )
           )}
-          {props.description && (
-            <p style={{ fontSize: '18px', lineHeight: '1.7', opacity: 0.8, marginBottom: '32px' }}>
-              {props.description}
-            </p>
+          {(props.description || canEdit) && (
+            canEdit ? (
+              <EditableText
+                value={props.description || 'Description text here'}
+                field="description"
+                isEditing={editingField === 'description'}
+                onEdit={onEditField}
+                onChange={onTextChange}
+                style={{ fontSize: '18px', lineHeight: '1.7', opacity: 0.8, marginBottom: '32px', display: 'block' }}
+                as="p"
+                isPreview={isPreview}
+              />
+            ) : (
+              <p style={{ fontSize: '18px', lineHeight: '1.7', opacity: 0.8, marginBottom: '32px' }}>
+                {props.description}
+              </p>
+            )
           )}
           {bullets.length > 0 && (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
@@ -3153,12 +3234,13 @@ function RichTextComponent({ props, styles, isSelected, onClick, isPreview, onTe
   );
 }
 
-function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
+function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const members = (props.members as TeamMember[]) || [];
   const cardStyle = styles.cardStyle || 'elevated';
-  
+  const canEdit = !isPreview && onTextChange && onEditField;
+
   const getCardStyles = () => {
     switch (cardStyle) {
       case 'bordered':
@@ -3171,7 +3253,7 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalSt
         return { boxShadow: '0 10px 40px rgba(0,0,0,0.1)' };
     }
   };
-  
+
   return (
     <section
       style={{
@@ -3184,15 +3266,41 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalSt
       data-testid="team-section"
     >
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        {props.title && (
-          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px' }}>
-            {props.title}
-          </h2>
+        {(props.title || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.title || 'Our Team'}
+              field="title"
+              isEditing={editingField === 'title'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px', display: 'block' }}
+              as="h2"
+              isPreview={isPreview}
+            />
+          ) : (
+            <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px' }}>
+              {props.title}
+            </h2>
+          )
         )}
-        {props.subtitle && (
-          <p style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '60px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto' }}>
-            {props.subtitle}
-          </p>
+        {(props.subtitle || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.subtitle || 'Meet the people behind our success'}
+              field="subtitle"
+              isEditing={editingField === 'subtitle'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '60px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto', display: 'block' }}
+              as="p"
+              isPreview={isPreview}
+            />
+          ) : (
+            <p style={{ fontSize: '18px', opacity: 0.7, textAlign: 'center', marginBottom: '60px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto' }}>
+              {props.subtitle}
+            </p>
+          )
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '32px' }}>
           {members.map((member, index) => (
@@ -3225,13 +3333,14 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalSt
   );
 }
 
-function TimelineComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
+function TimelineComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const fontFamily = resolveFontFamily(styles, globalStyles);
   const items = (props.items as TimelineItem[]) || [];
   const { containerRef, getItemStyle } = useStaggerAnimation(items.length, isPreview);
-  
+  const canEdit = !isPreview && onTextChange && onEditField;
+
   return (
     <section
       style={{
@@ -3244,10 +3353,23 @@ function TimelineComponent({ props, styles, isSelected, onClick, isPreview, glob
       data-testid="timeline-section"
     >
       <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-        {props.title && (
-          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '64px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
-            {props.title}
-          </h2>
+        {(props.title || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.title || 'Our Journey'}
+              field="title"
+              isEditing={editingField === 'title'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '64px', lineHeight: 1.2, letterSpacing: '-0.02em', display: 'block' }}
+              as="h2"
+              isPreview={isPreview}
+            />
+          ) : (
+            <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '64px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
+              {props.title}
+            </h2>
+          )
         )}
         <div ref={containerRef} style={{ position: 'relative' }}>
           <div style={{ position: 'absolute', left: '24px', top: 0, bottom: 0, width: '2px', backgroundColor: hexToRgba(accentColor, 0.15) }} />
@@ -3286,13 +3408,14 @@ function TimelineComponent({ props, styles, isSelected, onClick, isPreview, glob
   );
 }
 
-function ServicesComponent({ props, styles, isSelected, onClick, isPreview, globalStyles }: ComponentRenderProps) {
+function ServicesComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const fontFamily = resolveFontFamily(styles, globalStyles);
   const services = (props.services as ServiceItem[]) || [];
   const cardStyle = styles.cardStyle || 'bordered';
   const { containerRef, getItemStyle } = useStaggerAnimation(services.length, isPreview);
+  const canEdit = !isPreview && onTextChange && onEditField;
 
   const getCardStyles = () => {
     switch (cardStyle) {
@@ -3320,15 +3443,41 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview, glob
       data-testid="services-section"
     >
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        {props.title && (
-          <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
-            {props.title}
-          </h2>
+        {(props.title || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.title || 'Our Services'}
+              field="title"
+              isEditing={editingField === 'title'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em', display: 'block' }}
+              as="h2"
+              isPreview={isPreview}
+            />
+          ) : (
+            <h2 style={{ fontSize: '40px', fontWeight: '700', textAlign: 'center', marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
+              {props.title}
+            </h2>
+          )
         )}
-        {props.subtitle && (
-          <p style={{ fontSize: '18px', opacity: 0.6, textAlign: 'center', marginBottom: '64px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
-            {props.subtitle}
-          </p>
+        {(props.subtitle || canEdit) && (
+          canEdit ? (
+            <EditableText
+              value={props.subtitle || 'What we offer'}
+              field="subtitle"
+              isEditing={editingField === 'subtitle'}
+              onEdit={onEditField}
+              onChange={onTextChange}
+              style={{ fontSize: '18px', opacity: 0.6, textAlign: 'center', marginBottom: '64px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6, display: 'block' }}
+              as="p"
+              isPreview={isPreview}
+            />
+          ) : (
+            <p style={{ fontSize: '18px', opacity: 0.6, textAlign: 'center', marginBottom: '64px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
+              {props.subtitle}
+            </p>
+          )
         )}
         <div ref={containerRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
           {services.map((service, index) => (
