@@ -1040,24 +1040,19 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
         data = {};
       }
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to purchase domain. Please try again.');
+        throw new Error(data.message || 'Failed to create checkout session. Please try again.');
       }
-      setPurchaseComplete({ domain, connected: data.connected });
-      setAvailability(null);
-      setSearchDomain('');
-      setShowContactForm(false);
-      setSelectedDomainToBuy(null);
-      toast({
-        title: 'Domain Purchased!',
-        description: data.message || `${domain} has been registered successfully.`,
-      });
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error('No checkout URL received from server.');
+      }
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
-        description: error.message || 'Unable to complete domain purchase. Please try again.',
+        description: error.message || 'Unable to start checkout. Please try again.',
       });
-    } finally {
       setIsPurchasing(false);
       setPurchasingDomain(null);
     }
@@ -1397,7 +1392,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                   ) : (
                     <ShoppingCart className="w-4 h-4 mr-2" />
                   )}
-                  {isPurchasing ? 'Purchasing...' : `Buy ${selectedDomainToBuy}`}
+                  {isPurchasing ? 'Redirecting to checkout...' : `Pay & Register ${selectedDomainToBuy}`}
                 </Button>
                 <Button variant="outline" onClick={cancelPurchase} disabled={isPurchasing}>
                   Back to Results
@@ -1405,7 +1400,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Domain will be purchased and billed through your Vercel account. WHOIS privacy is included.
+                You will be redirected to a secure Stripe checkout page to complete payment. After payment, the domain will be automatically registered.
               </p>
             </div>
           )}
@@ -2204,6 +2199,32 @@ export default function ManagePage() {
   const [website, setWebsite] = useState<Website | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("orders");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const domainStatus = params.get('domain_status');
+    const domainName = params.get('domain');
+    const tab = params.get('tab');
+
+    if (tab === 'domain') {
+      setActiveTab('domain');
+    }
+
+    if (domainStatus === 'success' && domainName) {
+      toast({
+        title: 'Payment Successful!',
+        description: `Payment for ${domainName} received. Domain registration is being processed and will be ready shortly.`,
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (domainStatus === 'cancelled') {
+      toast({
+        variant: 'destructive',
+        title: 'Payment Cancelled',
+        description: 'Domain purchase was cancelled. No payment was made.',
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);

@@ -29,7 +29,7 @@ import {
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain, type DomainContactInfo } from "./publisher/vercel";
+import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability } from "./publisher/vercel";
 import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { emailService } from "./email/service";
@@ -3364,7 +3364,7 @@ export async function registerRoutes(
     }
   });
 
-  // Purchase a domain and optionally connect it to the website
+  // Create Stripe Checkout session for domain purchase
   app.post("/api/websites/:id/domains/purchase", requireAuth, async (req, res) => {
     try {
       const { domain, connectToWebsite, contactInfo, expectedPrice, years } = req.body;
@@ -3389,100 +3389,92 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
-        return res.status(400).json({ message: "Domain purchase requires a VERCEL_TOKEN. Please add it to your environment variables." });
-      }
-
-      const vercelConfig = {
-        token: vercelToken,
-        teamId: process.env.VERCEL_TEAM_ID,
-      };
-
       const existingDomain = await storage.getCustomDomainByDomain(domainStr);
       if (existingDomain) {
         return res.status(400).json({ message: "This domain is already registered in the system." });
       }
 
-      const domainContactInfo: DomainContactInfo = {
-        firstName: contactInfo.firstName,
-        lastName: contactInfo.lastName,
-        email: contactInfo.email,
-        phone: contactInfo.phone,
-        address1: contactInfo.address1,
-        city: contactInfo.city,
-        state: contactInfo.state || '',
-        zip: contactInfo.zip,
-        country: contactInfo.country,
-        ...(contactInfo.address2 ? { address2: contactInfo.address2 } : {}),
-        ...(contactInfo.organization ? { organization: contactInfo.organization } : {}),
-      };
-
-      const purchaseResult = await purchaseDomain(domainStr, vercelConfig, domainContactInfo, expectedPrice, years || 1);
-      if (!purchaseResult.success) {
-        return res.status(400).json({ message: purchaseResult.error || "Failed to purchase domain" });
+      const vercelToken = process.env.VERCEL_TOKEN;
+      if (!vercelToken) {
+        return res.status(400).json({ message: "Domain purchase requires a VERCEL_TOKEN. Please add it to your environment variables." });
       }
 
-      // Step 2: If connectToWebsite is true, also add it to the website's Vercel project
-      if (connectToWebsite && website.deploymentUrl) {
-        const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-
-        // Add domain to the Vercel project
-        try {
-          await addCustomDomain(projectName, domainStr, vercelConfig);
-        } catch (addErr: any) {
-          console.error('Failed to auto-connect domain to project:', addErr);
-          // Domain was purchased but auto-connect failed - still return success
-        }
-
-        // Determine DNS configuration
-        const domainParts = domainStr.split('.');
-        const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
-
-        let dnsType: string;
-        let dnsName: string;
-        let dnsValue: string;
-
-        if (isSubdomain) {
-          dnsType = 'CNAME';
-          dnsName = domainParts[0];
-          dnsValue = 'cname.vercel-dns.com';
-        } else {
-          dnsType = 'A';
-          dnsName = '@';
-          dnsValue = '76.76.21.21';
-        }
-
-        // Create the domain record in our database
-        const customDomain = await storage.createCustomDomain({
-          websiteId: req.params.id,
-          domain: domainStr,
-          status: 'verifying',
-          vercelProjectId: projectName,
-          dnsType,
-          dnsName,
-          dnsValue,
-        });
-
-        return res.status(201).json({
-          success: true,
-          purchased: true,
-          connected: true,
-          domain: customDomain,
-          message: "Domain purchased and connected! DNS will be configured automatically.",
-        });
+      const vercelConfig = { token: vercelToken, teamId: process.env.VERCEL_TEAM_ID };
+      const availabilityResult = await checkDomainAvailability(domainStr, vercelConfig);
+      if (!availabilityResult.available) {
+        return res.status(400).json({ message: "This domain is no longer available." });
       }
 
-      res.status(201).json({
-        success: true,
-        purchased: true,
-        connected: false,
+      const serverPrice = availabilityResult.purchasePrice;
+      if (!serverPrice || serverPrice <= 0) {
+        return res.status(400).json({ message: "Unable to determine domain price. Please try again." });
+      }
+
+      const priceCents = Math.round(serverPrice * 100);
+
+      const domainPurchase = await storage.createDomainPurchase({
+        websiteId: req.params.id,
+        userId: (req as any).user.id,
         domain: domainStr,
-        message: "Domain purchased successfully! You can now connect it to your website.",
+        status: 'pending',
+        priceCents,
+        currency: 'USD',
+        years: years || 1,
+        contactInfo: {
+          firstName: contactInfo.firstName,
+          lastName: contactInfo.lastName,
+          email: contactInfo.email,
+          phone: contactInfo.phone,
+          address1: contactInfo.address1,
+          address2: contactInfo.address2 || undefined,
+          city: contactInfo.city,
+          state: contactInfo.state || undefined,
+          zip: contactInfo.zip,
+          country: contactInfo.country,
+        },
+        connectToWebsite: !!(connectToWebsite && website.deploymentUrl),
+      });
+
+      const stripe = await getUncachableStripeClient();
+
+      const origin = `${req.protocol}://${req.get('host')}`;
+
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `Domain Registration: ${domainStr}`,
+              description: `${years || 1}-year registration for ${domainStr}`,
+            },
+            unit_amount: priceCents,
+          },
+          quantity: 1,
+        }],
+        metadata: {
+          type: 'domain_purchase',
+          domainPurchaseId: domainPurchase.id,
+          domain: domainStr,
+          websiteId: req.params.id,
+        },
+        success_url: `${origin}/manage/${req.params.id}?tab=domain&domain_status=success&domain=${encodeURIComponent(domainStr)}`,
+        cancel_url: `${origin}/manage/${req.params.id}?tab=domain&domain_status=cancelled`,
+        customer_email: contactInfo.email,
+      });
+
+      await storage.updateDomainPurchase(domainPurchase.id, {
+        stripeSessionId: session.id,
+      });
+
+      res.json({
+        checkoutUrl: session.url,
+        sessionId: session.id,
       });
     } catch (error: any) {
-      console.error('Domain purchase error:', error);
-      const message = error.message || 'Failed to purchase domain';
+      console.error('Domain purchase checkout error:', error);
+      const message = error.message || 'Failed to create checkout session';
       res.status(500).json({ message });
     }
   });

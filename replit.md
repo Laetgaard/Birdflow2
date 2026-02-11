@@ -100,7 +100,7 @@ Dual-mode shipping management supporting manual fixed pricing and live carrier r
 Comprehensive booking availability management for services including weekly schedules, blocked dates (with yearly recurring option), and active service periods. The system includes UI for managing availability and an interactive calendar for booking on published sites.
 
 ### Custom Domain Support
-Simplified custom domain connection via Vercel integration, allowing users to add CNAME or A records with status tracking.
+Simplified custom domain connection via Vercel integration, allowing users to add CNAME or A records with status tracking. Domain purchasing via Vercel Registrar API (`/v1/registrar/`) with Stripe Checkout payment flow: user searches domain → sees server-verified pricing → fills contact info → pays via Stripe Checkout → webhook triggers Vercel domain registration. Uses `domain_purchases` table to track purchase lifecycle (pending → paid → registering → completed/failed). Server-side price verification prevents client-side tampering.
 
 ### Payment Settings (Website-Owned Stripe)
 Website owners can connect their own Stripe accounts, with encrypted storage of credentials, key validation, and test/live mode detection.
