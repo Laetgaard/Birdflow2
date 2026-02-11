@@ -1254,6 +1254,10 @@ export default function BuilderPage() {
             <ElementOverlay
               containerRef={previewContainerRef}
               isPreview={false}
+              onComponentSelect={(componentId) => {
+                setSelectedComponentId(componentId);
+                setSidebarTab("properties");
+              }}
               onButtonEdit={(componentId, { text, element }) => {
                 // When user clicks "Rediger knap" badge, update buttonText prop
                 setSelectedComponentId(componentId);
