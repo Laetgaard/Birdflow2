@@ -126,6 +126,7 @@ export default function SectionInsertPoint({ index, onAddComponent, activeInsert
     <div
       className="relative w-full"
       style={{ height: 0, zIndex: 20 }}
+      data-section-insert-point
       onMouseEnter={() => onActivate(index)}
       onMouseLeave={() => {
         if (!isOpen) onActivate(null);
