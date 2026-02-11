@@ -23,6 +23,7 @@ interface ElementOverlayProps {
   onTextPropChange?: (componentId: string, propKey: string, newText: string) => void;
   onButtonEdit?: (componentId: string, buttonProps: { text: string; element: HTMLElement }) => void;
   onComponentSelect?: (componentId: string) => void;
+  onFieldEdit?: (componentId: string, field: string) => void;
 }
 
 const ELEMENT_SELECTORS = {
@@ -171,6 +172,7 @@ export default function ElementOverlay({
   onTextPropChange,
   onButtonEdit,
   onComponentSelect,
+  onFieldEdit,
 }: ElementOverlayProps) {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -452,6 +454,8 @@ export default function ElementOverlay({
       if (overlayRef.current?.contains(target)) return;
       // Don't intercept clicks on section insert points
       if (target.closest('[data-section-insert-point]')) return;
+      // Let clicks through to contentEditable elements (active inline editing)
+      if (target.closest('[contenteditable="true"]')) return;
 
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
 
@@ -471,8 +475,20 @@ export default function ElementOverlay({
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
       if (target.closest('[data-section-insert-point]')) return;
-      // Let EditableText components handle their own double-click editing
-      if (target.closest('[data-editable-field]')) return;
+
+      // For EditableText fields, directly trigger field editing via callback
+      const editableField = target.closest('[data-editable-field]') as HTMLElement | null;
+      if (editableField && onFieldEdit) {
+        const field = editableField.getAttribute('data-editable-field');
+        const componentEl = editableField.closest('[data-component-id]');
+        const componentId = componentEl?.getAttribute('data-component-id');
+        if (field && componentId) {
+          e.stopPropagation();
+          e.preventDefault();
+          onFieldEdit(componentId, field);
+          return;
+        }
+      }
 
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
 
@@ -489,7 +505,7 @@ export default function ElementOverlay({
       container.removeEventListener('click', handleContainerClick, true);
       container.removeEventListener('dblclick', handleContainerDblClick, true);
     };
-  }, [allDetectedElements, handleElementSelect, isEditing, containerRef, onComponentSelect]);
+  }, [allDetectedElements, handleElementSelect, isEditing, containerRef, onComponentSelect, onFieldEdit]);
 
   useEffect(() => {
     if (!containerRef.current) return;
