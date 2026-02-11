@@ -125,17 +125,18 @@ export default function SectionInsertPoint({ index, onAddComponent, activeInsert
   return (
     <div
       className="relative w-full"
-      style={{ height: "24px" }}
+      style={{ height: 0, zIndex: 20 }}
       onMouseEnter={() => onActivate(index)}
       onMouseLeave={() => {
         if (!isOpen) onActivate(null);
       }}
     >
-      {/* Clickable line area - full width, easy to click */}
+      {/* Invisible hover/click target spanning across sections */}
       <div
-        className="absolute top-1/2 left-0 right-0 -translate-y-1/2 cursor-pointer"
+        className="absolute left-0 right-0 cursor-pointer"
         style={{
-          height: "16px",
+          height: "20px",
+          top: "-10px",
           display: "flex",
           alignItems: "center",
         }}
@@ -154,8 +155,9 @@ export default function SectionInsertPoint({ index, onAddComponent, activeInsert
 
       {/* Plus button centered on the line */}
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+        className="absolute left-1/2 -translate-x-1/2"
         style={{
+          top: "-12px",
           opacity: isVisible ? 1 : 0,
           transition: "opacity 150ms ease",
           zIndex: 10,
