@@ -2135,6 +2135,30 @@ export async function registerRoutes(
           deploymentId: result.deploymentId,
         } as any);
 
+        // Sync connected custom domains to Vercel project
+        try {
+          const domains = await storage.getCustomDomains(req.params.id);
+          const activeDomains = domains.filter(d => d.status === 'active' || d.status === 'pending');
+          if (activeDomains.length > 0 && vercelToken) {
+            const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+            const vercelConfig = { token: vercelToken, teamId: process.env.VERCEL_TEAM_ID };
+            for (const domain of activeDomains) {
+              try {
+                const domainResult = await addCustomDomain(projectName, domain.domain, vercelConfig);
+                if (domainResult.success) {
+                  console.log(`[Publish] Custom domain ${domain.domain} added to Vercel project`);
+                } else {
+                  console.warn(`[Publish] Failed to add domain ${domain.domain}: ${domainResult.error}`);
+                }
+              } catch (domainErr) {
+                console.error(`[Publish] Error adding domain ${domain.domain}:`, domainErr);
+              }
+            }
+          }
+        } catch (domainErr) {
+          console.error(`[Publish] Error syncing custom domains:`, domainErr);
+        }
+
         // Send website published notification email
         try {
           const ownerProfile = await storage.getProfile(user.id);
