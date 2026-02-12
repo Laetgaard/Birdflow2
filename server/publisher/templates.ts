@@ -109,6 +109,8 @@ STRIPE_SECRET_KEY=your-stripe-secret-key
 export function generateBookingApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BIRDFLOW_API_URL = process.env.NEXT_PUBLIC_BIRDFLOW_API_URL || '';
@@ -272,6 +274,8 @@ export async function POST(request: NextRequest) {
 export function generateBookingServicesApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
@@ -361,6 +365,8 @@ export async function GET(request: NextRequest) {
 
 export function generateFormSubmissionApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -456,6 +462,8 @@ export async function POST(request: NextRequest) {
 
 export function generateAvailabilityApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -625,6 +633,8 @@ export async function GET(request: NextRequest) {
 export function generateSlotsApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
@@ -784,6 +794,8 @@ export async function GET(request: NextRequest) {
 export function generateCheckoutApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -926,6 +938,8 @@ export async function POST(request: NextRequest) {
 export function generateCheckoutValidateApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const WEBSITE_ID = '${websiteId}';
@@ -1067,6 +1081,8 @@ export async function POST(request: NextRequest) {
 
 export function generateCheckoutConfirmApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -1265,6 +1281,8 @@ export async function POST(request: NextRequest) {
 
 export function generateStripeWebhookApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -5760,6 +5778,8 @@ import ProductGrid from '@/components/ProductGrid';`;
   
   return `${componentsImport}
 
+export const dynamic = 'force-dynamic';
+
 const pageComponents = ${componentsJson};
 const sitePages = ${pagesJson};
 
@@ -5787,6 +5807,8 @@ export default function Page() {
 
 export function generateProductApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -7254,6 +7276,8 @@ export default function CheckoutPage() {
 export function generateOrderApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
@@ -7381,6 +7405,8 @@ export async function POST(request: NextRequest) {
 export function generateShippingMethodsApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+
+export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
