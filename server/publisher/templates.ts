@@ -36,17 +36,17 @@ export function generatePackageJson(siteName: string): string {
       start: 'next start',
     },
     dependencies: {
-      next: '^14.0.0',
-      react: '^18.0.0',
-      'react-dom': '^18.0.0',
-      '@supabase/supabase-js': '^2.0.0',
-      stripe: '^14.0.0',
+      next: '14.2.20',
+      react: '^18.2.0',
+      'react-dom': '^18.2.0',
+      '@supabase/supabase-js': '^2.45.0',
+      stripe: '^14.25.0',
     },
     devDependencies: {
-      typescript: '^5.0.0',
-      '@types/node': '^20.0.0',
-      '@types/react': '^18.0.0',
-      '@types/react-dom': '^18.0.0',
+      typescript: '^5.3.0',
+      '@types/node': '^20.11.0',
+      '@types/react': '^18.2.0',
+      '@types/react-dom': '^18.2.0',
     },
   }, null, 2);
 }
@@ -1265,7 +1265,6 @@ export async function POST(request: NextRequest) {
 
 export function generateStripeWebhookApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
-import { headers } from 'next/headers';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -1286,8 +1285,7 @@ export async function POST(request: NextRequest) {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     const body = await request.text();
-    const headersList = await headers();
-    const sig = headersList.get('stripe-signature') || '';
+    const sig = request.headers.get('stripe-signature') || '';
 
     let event;
     try {
