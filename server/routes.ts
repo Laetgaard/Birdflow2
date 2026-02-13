@@ -2129,24 +2129,25 @@ export async function registerRoutes(
       });
 
       if (result.success) {
-        await storage.updateWebsite(req.params.id, user.id, {
-          status: 'published',
-          deploymentUrl: result.deploymentUrl,
-          deploymentId: result.deploymentId,
-        } as any);
+        let finalDeploymentUrl = result.deploymentUrl;
 
         // Sync connected custom domains to Vercel project
         try {
           const domains = await storage.getCustomDomains(req.params.id);
-          const activeDomains = domains.filter(d => d.status === 'active' || d.status === 'pending');
+          const activeDomains = domains.filter(d => d.status === 'active');
           if (activeDomains.length > 0 && vercelToken) {
             const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
             const vercelConfig = { token: vercelToken, teamId: process.env.VERCEL_TEAM_ID };
+            let verifiedDomain: string | null = null;
             for (const domain of activeDomains) {
               try {
                 const domainResult = await addCustomDomain(projectName, domain.domain, vercelConfig);
                 if (domainResult.success) {
                   console.log(`[Publish] Custom domain ${domain.domain} added to Vercel project`);
+                  if (!verifiedDomain) verifiedDomain = domain.domain;
+                } else if (domainResult.error?.includes('already in use')) {
+                  console.log(`[Publish] Custom domain ${domain.domain} already on Vercel project`);
+                  if (!verifiedDomain) verifiedDomain = domain.domain;
                 } else {
                   console.warn(`[Publish] Failed to add domain ${domain.domain}: ${domainResult.error}`);
                 }
@@ -2154,20 +2155,30 @@ export async function registerRoutes(
                 console.error(`[Publish] Error adding domain ${domain.domain}:`, domainErr);
               }
             }
+            if (verifiedDomain) {
+              finalDeploymentUrl = `https://${verifiedDomain}`;
+              console.log(`[Publish] Using custom domain as deployment URL: ${finalDeploymentUrl}`);
+            }
           }
         } catch (domainErr) {
           console.error(`[Publish] Error syncing custom domains:`, domainErr);
         }
 
+        await storage.updateWebsite(req.params.id, user.id, {
+          status: 'published',
+          deploymentUrl: finalDeploymentUrl,
+          deploymentId: result.deploymentId,
+        } as any);
+
         // Send website published notification email
         try {
           const ownerProfile = await storage.getProfile(user.id);
-          if (ownerProfile?.email && result.deploymentUrl) {
+          if (ownerProfile?.email && finalDeploymentUrl) {
             await emailService.sendWebsitePublished(
               ownerProfile.email,
               req.params.id,
               website.name,
-              result.deploymentUrl
+              finalDeploymentUrl
             );
             console.log(`Website published email sent to ${ownerProfile.email}`);
           }
@@ -2177,7 +2188,7 @@ export async function registerRoutes(
 
         res.json({
           success: true,
-          deploymentUrl: result.deploymentUrl,
+          deploymentUrl: finalDeploymentUrl,
           message: stripeWarning ? `Website published successfully. Warning: ${stripeWarning}` : "Website published successfully",
           warning: stripeWarning,
         });
