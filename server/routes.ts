@@ -2113,6 +2113,19 @@ export async function registerRoutes(
       }
       console.log('[Publish] Using BirdFlow API URL:', birdflowApiUrl);
 
+      // Check for active custom domains to include in deployment
+      let activeCustomDomain: string | undefined;
+      try {
+        const customDomains = await storage.getCustomDomains(req.params.id);
+        const activeDomain = customDomains.find(d => d.status === 'active');
+        if (activeDomain) {
+          activeCustomDomain = activeDomain.domain;
+          console.log('[Publish] Including active custom domain:', activeCustomDomain);
+        }
+      } catch (domainErr) {
+        console.error('[Publish] Failed to fetch custom domains:', domainErr);
+      }
+
       const result = await publishWebsite({
         websiteId: req.params.id,
         siteName: website.name,
@@ -2125,25 +2138,31 @@ export async function registerRoutes(
         stripeWebhookSecret,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
+        customDomain: activeCustomDomain,
         birdflowApiUrl,
       });
 
       if (result.success) {
+        // If there's an active custom domain, preserve it as the deployment URL
+        const deploymentUrl = activeCustomDomain
+          ? `https://${activeCustomDomain}`
+          : result.deploymentUrl;
+
         await storage.updateWebsite(req.params.id, user.id, {
           status: 'published',
-          deploymentUrl: result.deploymentUrl,
+          deploymentUrl,
           deploymentId: result.deploymentId,
         } as any);
 
         // Send website published notification email
         try {
           const ownerProfile = await storage.getProfile(user.id);
-          if (ownerProfile?.email && result.deploymentUrl) {
+          if (ownerProfile?.email && deploymentUrl) {
             await emailService.sendWebsitePublished(
               ownerProfile.email,
               req.params.id,
               website.name,
-              result.deploymentUrl
+              deploymentUrl
             );
             console.log(`Website published email sent to ${ownerProfile.email}`);
           }
@@ -2153,7 +2172,7 @@ export async function registerRoutes(
 
         res.json({
           success: true,
-          deploymentUrl: result.deploymentUrl,
+          deploymentUrl,
           message: stripeWarning ? `Website published successfully. Warning: ${stripeWarning}` : "Website published successfully",
           warning: stripeWarning,
         });
@@ -3257,13 +3276,24 @@ export async function registerRoutes(
       const verifyResult = await verifyDomainConfig(projectName, domain.domain, vercelConfig);
       
       if (verifyResult.configured) {
-        await storage.updateCustomDomain(domain.id, req.params.id, { 
+        await storage.updateCustomDomain(domain.id, req.params.id, {
           status: 'active',
           errorMessage: null
         } as any);
-        
-        return res.json({ 
-          verified: true, 
+
+        // Update the website's deployment_url to the custom domain so hostname detection works
+        try {
+          const customDomainUrl = `https://${domain.domain}`;
+          await storage.updateWebsite(req.params.id, (req as any).user.id, {
+            deploymentUrl: customDomainUrl,
+          } as any);
+          console.log(`[Domains] Updated deployment_url to ${customDomainUrl} for website ${req.params.id}`);
+        } catch (updateErr) {
+          console.error(`[Domains] Failed to update deployment_url:`, updateErr);
+        }
+
+        return res.json({
+          verified: true,
           status: 'active',
           message: 'Domain is now active!'
         });

@@ -133,16 +133,33 @@ async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string
     .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
     .limit(1)
     .single();
-  
+
   if (exactMatch) {
     return exactMatch.id;
   }
-  
-  // Strategy 2: Slug-based lookup for recognized domain patterns only
+
+  // Strategy 2: Check custom_domains table
+  try {
+    const { data: domainMatch } = await supabase
+      .from('custom_domains')
+      .select('website_id')
+      .eq('domain', normalizedHost)
+      .eq('status', 'active')
+      .limit(1)
+      .single();
+
+    if (domainMatch?.website_id) {
+      return domainMatch.website_id;
+    }
+  } catch (e) {
+    // Continue to other strategies
+  }
+
+  // Strategy 3: Slug-based lookup for recognized domain patterns only
   // Only extract slug from known patterns to prevent cross-tenant routing
   const parts = normalizedHost.split('.');
   let slug: string | null = null;
-  
+
   // Pattern 1: slug.bird-flow.com (legacy subdomain pattern)
   if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
     slug = parts[0];
@@ -151,7 +168,7 @@ async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string
   else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
     slug = parts[0];
   }
-  
+
   if (slug) {
     const { data: slugMatch } = await supabase
       .from('websites')
@@ -159,12 +176,12 @@ async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string
       .eq('slug', slug)
       .limit(1)
       .single();
-    
+
     if (slugMatch) {
       return slugMatch.id;
     }
   }
-  
+
   // No match found - use build-time ID
   // This is safe because each deployed site has its own correct ID baked in
   console.log('No website match for host:', normalizedHost, 'using build-time ID');
@@ -1390,7 +1407,7 @@ export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ i
   const normalizedHost = hostname.replace(/^www\\./, '').split(':')[0];
   const urlToMatch = \`https://\${normalizedHost}\`;
   const urlWithWww = \`https://www.\${normalizedHost}\`;
-  
+
   // Strategy 1: Try exact deployment_url match (with and without www)
   const { data: exactMatch } = await supabase
     .from('websites')
@@ -1398,15 +1415,40 @@ export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ i
     .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
     .limit(1)
     .single();
-  
+
   if (exactMatch) {
     return exactMatch;
   }
-  
-  // Strategy 2: Slug-based lookup for recognized domain patterns only
+
+  // Strategy 2: Check custom_domains table for this hostname
+  try {
+    const { data: domainMatch } = await supabase
+      .from('custom_domains')
+      .select('website_id')
+      .eq('domain', normalizedHost)
+      .eq('status', 'active')
+      .limit(1)
+      .single();
+
+    if (domainMatch?.website_id) {
+      const { data: websiteData } = await supabase
+        .from('websites')
+        .select('id, name')
+        .eq('id', domainMatch.website_id)
+        .single();
+
+      if (websiteData) {
+        return websiteData;
+      }
+    }
+  } catch (e) {
+    // custom_domains table may not be accessible with anon key - continue to other strategies
+  }
+
+  // Strategy 3: Slug-based lookup for recognized domain patterns only
   const parts = normalizedHost.split('.');
   let slug: string | null = null;
-  
+
   // Pattern 1: slug.bird-flow.com (legacy subdomain pattern)
   if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
     slug = parts[0];
@@ -1415,7 +1457,7 @@ export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ i
   else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
     slug = parts[0];
   }
-  
+
   if (slug) {
     const { data: slugMatch } = await supabase
       .from('websites')
@@ -1423,12 +1465,12 @@ export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ i
       .eq('slug', slug)
       .limit(1)
       .single();
-    
+
     if (slugMatch) {
       return slugMatch;
     }
   }
-  
+
   console.log('No website found for host:', normalizedHost);
   return null;
 }
@@ -1496,13 +1538,20 @@ export function WebsiteProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function detectWebsite() {
       try {
         const hostname = window.location.hostname;
-        
+
         if (shouldDetectWebsite(hostname)) {
-          const website = await fetchWebsiteByDeploymentUrl(hostname);
-          if (website) {
+          // Add timeout to prevent hanging if Supabase is unreachable
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+          const website = await Promise.race([
+            fetchWebsiteByDeploymentUrl(hostname),
+            timeoutPromise,
+          ]);
+          if (website && !cancelled) {
             setWebsiteIdState(website.id);
             setWebsiteName(website.name);
             setRuntimeWebsiteId(website.id);
@@ -1511,11 +1560,15 @@ export function WebsiteProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         console.error('Failed to detect website:', error);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     detectWebsite();
+
+    return () => { cancelled = true; };
   }, []);
 
   return (
