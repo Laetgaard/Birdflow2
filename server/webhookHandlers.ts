@@ -100,12 +100,12 @@ export class WebhookHandlers {
               try {
                 await storage.updateDomainPurchase(domainPurchase.id, { status: 'registering' });
 
-                const vercelToken = process.env.VERCEL_TOKEN;
-                if (!vercelToken) {
-                  throw new Error('VERCEL_TOKEN not configured');
+                const registrarToken = process.env.VERCEL_REGISTRAR_TOKEN || process.env.VERCEL_TOKEN;
+                if (!registrarToken) {
+                  throw new Error('VERCEL_REGISTRAR_TOKEN not configured');
                 }
 
-                const vercelConfig = { token: vercelToken, teamId: process.env.VERCEL_TEAM_ID };
+                const vercelConfig = { token: registrarToken, teamId: process.env.VERCEL_TEAM_ID };
                 const contact = domainPurchase.contactInfo as DomainContactInfo;
 
                 const purchaseResult = await purchaseDomain(
