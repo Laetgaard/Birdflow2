@@ -3931,7 +3931,7 @@ function ComparisonTableSection({ props, styles }: { props: ComponentProps; styl
               <tr>
                 <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600 }}>Feature</th>
                 {tableColumns.map((col: any, i: number) => (
-                  <th key={i} style={{ padding: '16px', textAlign: 'center', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600, color: accentColor }}>{col}</th>
+                  <th key={col.id || i} style={{ padding: '16px', textAlign: 'center', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600, color: col.highlighted ? accentColor : 'inherit', backgroundColor: col.highlighted ? hexToRgba(accentColor, 0.05) : 'transparent' }}>{typeof col === 'string' ? col : (col.label || col.name || '')}</th>
                 ))}
               </tr>
             </thead>
