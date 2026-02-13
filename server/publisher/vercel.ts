@@ -41,10 +41,11 @@ export async function getOrCreateProject(
   if (res.ok) {
     const project = await res.json();
     
-    // Update project settings to ensure Node 20.x is used
+    // Update project settings to ensure Node 20.x is used and deployment protection is disabled
     const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
       method: 'PATCH',
       body: JSON.stringify({
+        ssoProtection: null,
         projectSettings: {
           ...(project.projectSettings || {}),
           nodeVersion: '20.x',
@@ -54,12 +55,12 @@ export async function getOrCreateProject(
     
     if (!patchRes.ok) {
       const errorText = await patchRes.text();
-      console.error('Failed to update project nodeVersion:', errorText);
-      // Continue anyway - the deployment might still work
+      console.error('Failed to update project settings:', errorText);
     } else {
       const updatedProject = await patchRes.json();
       const newNodeVersion = updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion;
       console.log('Updated project nodeVersion to:', newNodeVersion);
+      console.log('Deployment protection disabled (ssoProtection: null)');
       if (newNodeVersion !== '20.x') {
         console.warn('NodeVersion not updated to 20.x, deployment may fail');
       }
@@ -83,10 +84,11 @@ export async function getOrCreateProject(
   
   const project = await createRes.json();
   
-  // Update nodeVersion after creation
+  // Update nodeVersion and disable deployment protection after creation
   const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
     method: 'PATCH',
     body: JSON.stringify({
+      ssoProtection: null,
       projectSettings: {
         ...(project.projectSettings || {}),
         nodeVersion: '20.x',
@@ -95,10 +97,11 @@ export async function getOrCreateProject(
   });
   
   if (!patchRes.ok) {
-    console.warn('Failed to set nodeVersion on new project:', await patchRes.text());
+    console.warn('Failed to set project settings on new project:', await patchRes.text());
   } else {
     const updatedProject = await patchRes.json();
     console.log('Set nodeVersion on new project to:', updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion);
+    console.log('Deployment protection disabled on new project');
   }
   
   return project.id;
