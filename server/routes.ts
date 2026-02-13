@@ -3380,13 +3380,13 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
-        return res.status(400).json({ message: "Domain service is not configured. A Vercel token is required for domain registration. Please add VERCEL_TOKEN to your environment variables." });
+      const registrarToken = process.env.VERCEL_REGISTRAR_TOKEN || process.env.VERCEL_TOKEN;
+      if (!registrarToken) {
+        return res.status(400).json({ message: "Domain service is not configured. A Vercel token is required for domain registration. Please add VERCEL_REGISTRAR_TOKEN to your environment variables." });
       }
 
       const vercelConfig = {
-        token: vercelToken,
+        token: registrarToken,
         teamId: process.env.VERCEL_TEAM_ID,
       };
 
@@ -3429,12 +3429,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: "This domain is already registered in the system." });
       }
 
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
-        return res.status(400).json({ message: "Domain purchase requires a VERCEL_TOKEN. Please add it to your environment variables." });
+      const registrarToken = process.env.VERCEL_REGISTRAR_TOKEN || process.env.VERCEL_TOKEN;
+      if (!registrarToken) {
+        return res.status(400).json({ message: "Domain purchase requires a VERCEL_REGISTRAR_TOKEN. Please add it to your environment variables." });
       }
 
-      const vercelConfig = { token: vercelToken, teamId: process.env.VERCEL_TEAM_ID };
+      const vercelConfig = { token: registrarToken, teamId: process.env.VERCEL_TEAM_ID };
       const availabilityResult = await checkDomainAvailability(domainStr, vercelConfig);
       if (!availabilityResult.available) {
         return res.status(400).json({ message: "This domain is no longer available." });
