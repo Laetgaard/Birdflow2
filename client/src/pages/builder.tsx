@@ -1190,7 +1190,11 @@ export default function BuilderPage() {
           <main 
             ref={previewContainerRef}
             className="flex-1 bg-muted/50 p-6 overflow-auto flex justify-center relative isolate" 
-            onClick={() => setSelectedComponentId(null)}
+            onClick={(e) => {
+              const target = e.target as HTMLElement;
+              if (target.closest('[data-component-id]')) return;
+              setSelectedComponentId(null);
+            }}
             data-preview-area
           >
             <div 
