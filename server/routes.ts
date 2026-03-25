@@ -3555,7 +3555,7 @@ export async function registerRoutes(
         name,
         description: description || null,
         priceAmount: priceAmount ?? 0,
-        currency: currency || "USD",
+        currency: currency || "DKK",
         deliveryTime: deliveryTime || null,
         isActive: isActive ?? true,
         sortOrder: sortOrder ?? 0

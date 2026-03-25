@@ -1063,7 +1063,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
   };
 
   const formatPrice = (price: number | undefined | null) => {
-    if (price == null || isNaN(price)) return 'Price unavailable';
+    if (price == null || isNaN(price)) return 'Pris ikke tilgængelig';
     return `$${price.toFixed(2)}`;
   };
 
@@ -1072,9 +1072,9 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ShoppingBag className="w-5 h-5" />
-          Buy a Domain
+          Køb et domæne
         </CardTitle>
-        <CardDescription>Search for and register a new domain. Purchased domains are managed through Vercel and can be auto-connected to your website.</CardDescription>
+        <CardDescription>Søg efter og registrer et nyt domæne. Købte domæner administreres via Vercel og kan automatisk tilknyttes dit website.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-5">
@@ -1084,7 +1084,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Enter domain name (e.g. mybusiness)"
+                  placeholder="Indtast domænenavn (f.eks. minbutik)"
                   className="pl-9"
                   value={searchDomain}
                   onChange={(e) => setSearchDomain(e.target.value.replace(/\s/g, ''))}
@@ -1109,12 +1109,12 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                 data-testid="btn-search-domain"
               >
                 {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-1" />}
-                Search
+                Søg
               </Button>
             </div>
             {searchDomain.trim() && !searchDomain.includes('.') && (
               <p className="text-xs text-muted-foreground mt-1.5 ml-1">
-                Searching for: <span className="font-medium">{getFullDomain()}</span>
+                Søger efter: <span className="font-medium">{getFullDomain()}</span>
               </p>
             )}
           </div>
@@ -1131,10 +1131,10 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
               />
               <div>
                 <Label htmlFor="connectDomainToWebsite" className="text-sm font-medium cursor-pointer">
-                  Auto-connect to my website
+                  Tilslut automatisk til mit website
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Purchased domains will be automatically linked to your published website with DNS configured through Vercel. No manual setup needed.
+                  Købte domæner tilknyttes automatisk dit publicerede website med DNS konfigureret via Vercel. Ingen manuel opsætning nødvendig.
                 </p>
               </div>
             </div>
@@ -1144,7 +1144,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
           {isSearching && (
             <div className="flex items-center justify-center py-8 gap-3">
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Checking availability and pricing...</p>
+              <p className="text-sm text-muted-foreground">Checker tilgængelighed og pris...</p>
             </div>
           )}
 
@@ -1170,7 +1170,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                     <div>
                       <p className="font-semibold text-lg">{availability.domain}</p>
                       <p className={`text-sm ${availability.available ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
-                        {availability.available ? 'Available for registration' : 'This domain is taken'}
+                        {availability.available ? 'Tilgængeligt til registrering' : 'Dette domæne er optaget'}
                       </p>
                     </div>
                   </div>
@@ -1180,7 +1180,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                         <div className="text-right">
                           <p className="text-xl font-bold">{formatPrice(availability.purchasePrice)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {availability.renewalPrice !== undefined ? `Renewal: ${formatPrice(availability.renewalPrice)}/yr` : 'per year'}
+                            {availability.renewalPrice !== undefined ? `Fornyelse: ${formatPrice(availability.renewalPrice)}/år` : 'pr. år'}
                           </p>
                         </div>
                       )}
@@ -1192,7 +1192,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                         data-testid="btn-purchase-domain"
                       >
                         <ShoppingCart className="w-4 h-4 mr-2" />
-                        Buy Domain
+                        Køb domæne
                       </Button>
                     </div>
                   )}
@@ -1200,7 +1200,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                 {availability.available && connectToWebsite && isPublished && (
                   <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-800 flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
                     <CheckCircle className="w-3.5 h-3.5" />
-                    Will be auto-connected to your website after purchase
+                    Tilknyttes automatisk dit website efter køb
                   </div>
                 )}
               </div>
@@ -1208,7 +1208,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
               {availability.suggestions && availability.suggestions.length > 0 && (
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-2">
-                    {availability.available ? 'Also available:' : 'Try these alternatives:'}
+                    {availability.available ? 'Også tilgængeligt:' : 'Prøv disse alternativer:'}
                   </p>
                   <div className="space-y-2">
                     {availability.suggestions.map((suggestion) => (
@@ -1222,7 +1222,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                         </div>
                         <div className="flex items-center gap-3">
                           {suggestion.purchasePrice !== undefined && (
-                            <span className="text-sm font-semibold">{formatPrice(suggestion.purchasePrice)}<span className="text-muted-foreground font-normal">/yr</span></span>
+                            <span className="text-sm font-semibold">{formatPrice(suggestion.purchasePrice)}<span className="text-muted-foreground font-normal">/år</span></span>
                           )}
                           <Button
                             variant="outline"
@@ -1230,7 +1230,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                             onClick={() => startPurchase(suggestion.domain, suggestion.purchasePrice)}
                             disabled={isPurchasing}
                           >
-                            Buy
+                            Køb
                           </Button>
                         </div>
                       </div>
@@ -1241,7 +1241,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
 
               {!availability.available && (!availability.suggestions || availability.suggestions.length === 0) && (
                 <div className="text-center py-4">
-                  <p className="text-sm text-muted-foreground mb-2">No alternatives found. Try a different name or extension.</p>
+                  <p className="text-sm text-muted-foreground mb-2">Ingen alternativer fundet. Prøv et andet navn eller endelse.</p>
                   <div className="flex flex-wrap gap-2 justify-center">
                     {tldOptions.filter(t => t !== selectedTld).slice(0, 5).map(tld => (
                       <Button
@@ -1272,38 +1272,38 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="font-semibold text-base">Registration Details</h4>
+                  <h4 className="font-semibold text-base">Registreringsoplysninger</h4>
                   <p className="text-sm text-muted-foreground">
-                    Contact information required for <span className="font-medium">{selectedDomainToBuy}</span>
+                    Kontaktoplysninger krævet for <span className="font-medium">{selectedDomainToBuy}</span>
                     {selectedDomainPrice !== undefined && <> — {formatPrice(selectedDomainPrice)}</>}
                   </p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={cancelPurchase}>
-                  <XCircle className="w-4 h-4 mr-1" /> Cancel
+                  <XCircle className="w-4 h-4 mr-1" /> Annuller
                 </Button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs mb-1 block">First Name *</Label>
+                  <Label className="text-xs mb-1 block">Fornavn *</Label>
                   <Input
-                    placeholder="John"
+                    placeholder="Jens"
                     value={contactInfo.firstName}
                     onChange={(e) => updateContact('firstName', e.target.value)}
                     data-testid="input-contact-firstname"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Last Name *</Label>
+                  <Label className="text-xs mb-1 block">Efternavn *</Label>
                   <Input
-                    placeholder="Doe"
+                    placeholder="Hansen"
                     value={contactInfo.lastName}
                     onChange={(e) => updateContact('lastName', e.target.value)}
                     data-testid="input-contact-lastname"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Email *</Label>
+                  <Label className="text-xs mb-1 block">E-mail *</Label>
                   <Input
                     type="email"
                     placeholder="john@example.com"
@@ -1313,7 +1313,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                   />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Phone *</Label>
+                  <Label className="text-xs mb-1 block">Telefon *</Label>
                   <Input
                     placeholder="+45 12345678"
                     value={contactInfo.phone}
@@ -1322,43 +1322,43 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <Label className="text-xs mb-1 block">Address *</Label>
+                  <Label className="text-xs mb-1 block">Adresse *</Label>
                   <Input
-                    placeholder="Street address"
+                    placeholder="Vejnavn og husnummer"
                     value={contactInfo.address1}
                     onChange={(e) => updateContact('address1', e.target.value)}
                     data-testid="input-contact-address1"
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <Label className="text-xs mb-1 block">Address Line 2</Label>
+                  <Label className="text-xs mb-1 block">Adresse linje 2</Label>
                   <Input
-                    placeholder="Apartment, suite, etc. (optional)"
+                    placeholder="Lejlighed, etage osv. (valgfrit)"
                     value={contactInfo.address2}
                     onChange={(e) => updateContact('address2', e.target.value)}
                     data-testid="input-contact-address2"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">City *</Label>
+                  <Label className="text-xs mb-1 block">By *</Label>
                   <Input
-                    placeholder="Copenhagen"
+                    placeholder="København"
                     value={contactInfo.city}
                     onChange={(e) => updateContact('city', e.target.value)}
                     data-testid="input-contact-city"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">State / Region</Label>
+                  <Label className="text-xs mb-1 block">Region</Label>
                   <Input
-                    placeholder="Region (optional)"
+                    placeholder="Region (valgfrit)"
                     value={contactInfo.state}
                     onChange={(e) => updateContact('state', e.target.value)}
                     data-testid="input-contact-state"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">ZIP / Postal Code *</Label>
+                  <Label className="text-xs mb-1 block">Postnummer *</Label>
                   <Input
                     placeholder="1000"
                     value={contactInfo.zip}
@@ -1367,7 +1367,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                   />
                 </div>
                 <div>
-                  <Label className="text-xs mb-1 block">Country *</Label>
+                  <Label className="text-xs mb-1 block">Land *</Label>
                   <Input
                     placeholder="DK"
                     value={contactInfo.country}

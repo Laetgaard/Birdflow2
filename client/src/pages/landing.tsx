@@ -34,6 +34,19 @@ const stagger = {
 };
 
 /* ─── data ─── */
+const showcaseSites = [
+  { name: "Studio Klip", type: "Frisørsalon", gradient: "from-rose-500 to-pink-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Online booking", "Prisliste", "Galleri"] },
+  { name: "BalanceBody", type: "Yoga & Wellness", gradient: "from-emerald-500 to-teal-600", accent: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300", tags: ["Holdtilmelding", "Booking", "Webshop"] },
+  { name: "FitCoach Mia", type: "Personlig træner", gradient: "from-orange-500 to-amber-600", accent: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", tags: ["Booking", "Programmer", "Betaling"] },
+  { name: "Lyswerk", type: "Stearinlys", gradient: "from-amber-500 to-yellow-600", accent: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300", tags: ["Webshop", "Forsendelse", "Betaling"] },
+  { name: "Foto af Sara", type: "Fotograf", gradient: "from-violet-500 to-purple-600", accent: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", tags: ["Portfolio", "Booking", "Priser"] },
+  { name: "Hundesalon Vuf", type: "Hundefrisør", gradient: "from-cyan-500 to-blue-600", accent: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300", tags: ["Online booking", "Services", "Galleri"] },
+  { name: "Café Hygge", type: "Café & Bageri", gradient: "from-rose-500 to-red-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Menukort", "Catering", "Bestilling"] },
+  { name: "Klinik Sund", type: "Fysioterapi", gradient: "from-blue-500 to-indigo-600", accent: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", tags: ["Booking", "Behandlinger", "Kontakt"] },
+  { name: "Kreativ Studio", type: "Kunsthåndværk", gradient: "from-fuchsia-500 to-pink-600", accent: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300", tags: ["Webshop", "Kurser", "Galleri"] },
+  { name: "FixIt Henrik", type: "Handyman", gradient: "from-slate-600 to-gray-700", accent: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", tags: ["Booking", "Priser", "Anmeldelser"] },
+];
+
 const features = [
   { title: "Book kunder direkte", desc: "Dine kunder booker selv online. Du slipper for telefonopkald og mails frem og tilbage.", outcome: "Spar tid på booking", gradient: "from-blue-500 to-indigo-600", Icon: CalendarIcon },
   { title: "Sælg produkter online", desc: "Komplet webshop med produkter, varianter og automatisk lagerstyring. Klar til at sælge fra dag ét.", outcome: "Tjen penge mens du sover", gradient: "from-emerald-500 to-teal-600", Icon: CartIcon },
