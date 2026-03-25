@@ -25,6 +25,7 @@ interface ElementOverlayProps {
   onButtonEdit?: (componentId: string, buttonProps: { text: string; element: HTMLElement }) => void;
   onComponentSelect?: (componentId: string) => void;
   onFieldEdit?: (componentId: string, field: string) => void;
+  selectedComponentId?: string | null;
 }
 
 const ELEMENT_SELECTORS = {
@@ -175,6 +176,7 @@ export default function ElementOverlay({
   onButtonEdit,
   onComponentSelect,
   onFieldEdit,
+  selectedComponentId = null,
 }: ElementOverlayProps) {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -463,11 +465,44 @@ export default function ElementOverlay({
 
       if (resolved) {
         e.stopPropagation();
-        // Single click = select only (no text editing)
-        handleElementSelect(resolved, false);
-        // Also select the parent component so EditableText gets rendered
-        if (onComponentSelect && resolved.componentId) {
-          onComponentSelect(resolved.componentId);
+
+        const isAlreadySelected = selectedComponentId != null
+          && resolved.componentId === selectedComponentId;
+        const isEditable = resolved.type === 'text' || resolved.type === 'button';
+
+        if (isAlreadySelected && isEditable) {
+          // Component already selected — single click enters edit mode
+          // 1. Try data-editable-field (React EditableText)
+          const editableField = target.closest('[data-editable-field]') as HTMLElement | null;
+          if (editableField && onFieldEdit) {
+            const field = editableField.getAttribute('data-editable-field');
+            const componentEl = editableField.closest('[data-component-id]');
+            const componentId = componentEl?.getAttribute('data-component-id');
+            if (field && componentId) {
+              e.preventDefault();
+              onFieldEdit(componentId, field);
+              return;
+            }
+          }
+
+          // 2. Infer field name from element position
+          if (onFieldEdit) {
+            const inferredField = inferTextPropKey(resolved.element, resolved.componentId);
+            if (inferredField) {
+              e.preventDefault();
+              onFieldEdit(resolved.componentId, inferredField);
+              return;
+            }
+          }
+
+          // 3. Fallback: contentEditable overlay editing
+          handleElementSelect(resolved, true, e.clientX, e.clientY);
+        } else {
+          // First click on unselected component — select only
+          handleElementSelect(resolved, false);
+          if (onComponentSelect && resolved.componentId) {
+            onComponentSelect(resolved.componentId);
+          }
         }
       }
     };
@@ -519,7 +554,7 @@ export default function ElementOverlay({
       container.removeEventListener('click', handleContainerClick, true);
       container.removeEventListener('dblclick', handleContainerDblClick, true);
     };
-  }, [allDetectedElements, handleElementSelect, isEditing, isFieldEditing, containerRef, onComponentSelect, onFieldEdit]);
+  }, [allDetectedElements, handleElementSelect, isEditing, isFieldEditing, containerRef, onComponentSelect, onFieldEdit, selectedComponentId]);
 
   useEffect(() => {
     if (!containerRef.current) return;

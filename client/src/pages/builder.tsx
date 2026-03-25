@@ -1255,6 +1255,7 @@ export default function BuilderPage() {
               containerRef={previewContainerRef}
               isPreview={false}
               isFieldEditing={editingField !== null}
+              selectedComponentId={selectedComponentId}
               onComponentSelect={(componentId) => {
                 setSelectedComponentId(componentId);
                 setSidebarTab("properties");
