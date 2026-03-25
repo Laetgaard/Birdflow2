@@ -1,8 +1,8 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Star, Shield, Zap } from "lucide-react";
+import { ArrowRight, Check, Star, Shield, Zap, Menu, X } from "lucide-react";
 import { motion, useInView, useReducedMotion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import CountUp from "@/components/animated/CountUp";
 import HeroBuildDemo from "@/components/animated/HeroBuildDemo";
 import InteractiveProcessFlow from "@/components/animated/InteractiveProcessFlow";
@@ -21,6 +21,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 /* ─── animation presets ─── */
 const fadeUp = {
@@ -35,16 +36,16 @@ const stagger = {
 
 /* ─── data ─── */
 const showcaseSites = [
-  { name: "Studio Klip", type: "Frisørsalon", gradient: "from-rose-500 to-pink-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Online booking", "Prisliste", "Galleri"] },
-  { name: "BalanceBody", type: "Yoga & Wellness", gradient: "from-emerald-500 to-teal-600", accent: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300", tags: ["Holdtilmelding", "Booking", "Webshop"] },
-  { name: "FitCoach Mia", type: "Personlig træner", gradient: "from-orange-500 to-amber-600", accent: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", tags: ["Booking", "Programmer", "Betaling"] },
-  { name: "Lyswerk", type: "Stearinlys", gradient: "from-amber-500 to-yellow-600", accent: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300", tags: ["Webshop", "Forsendelse", "Betaling"] },
-  { name: "Foto af Sara", type: "Fotograf", gradient: "from-violet-500 to-purple-600", accent: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", tags: ["Portfolio", "Booking", "Priser"] },
-  { name: "Hundesalon Vuf", type: "Hundefrisør", gradient: "from-cyan-500 to-blue-600", accent: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300", tags: ["Online booking", "Services", "Galleri"] },
-  { name: "Café Hygge", type: "Café & Bageri", gradient: "from-rose-500 to-red-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Menukort", "Catering", "Bestilling"] },
-  { name: "Klinik Sund", type: "Fysioterapi", gradient: "from-blue-500 to-indigo-600", accent: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", tags: ["Booking", "Behandlinger", "Kontakt"] },
-  { name: "Kreativ Studio", type: "Kunsthåndværk", gradient: "from-fuchsia-500 to-pink-600", accent: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300", tags: ["Webshop", "Kurser", "Galleri"] },
-  { name: "FixIt Henrik", type: "Handyman", gradient: "from-slate-600 to-gray-700", accent: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", tags: ["Booking", "Priser", "Anmeldelser"] },
+  { name: "Studio Klip", type: "Frisørsalon", gradient: "from-rose-500 to-pink-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Online booking", "Prisliste", "Galleri"], layout: "booking" as const },
+  { name: "BalanceBody", type: "Yoga & Wellness", gradient: "from-emerald-500 to-teal-600", accent: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300", tags: ["Holdtilmelding", "Booking", "Webshop"], layout: "booking" as const },
+  { name: "FitCoach Mia", type: "Personlig træner", gradient: "from-orange-500 to-amber-600", accent: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", tags: ["Booking", "Programmer", "Betaling"], layout: "hero" as const },
+  { name: "Lyswerk", type: "Stearinlys", gradient: "from-amber-500 to-yellow-600", accent: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300", tags: ["Webshop", "Forsendelse", "Betaling"], layout: "shop" as const },
+  { name: "Foto af Sara", type: "Fotograf", gradient: "from-violet-500 to-purple-600", accent: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", tags: ["Portfolio", "Booking", "Priser"], layout: "gallery" as const },
+  { name: "Hundesalon Vuf", type: "Hundefrisør", gradient: "from-cyan-500 to-blue-600", accent: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300", tags: ["Online booking", "Services", "Galleri"], layout: "booking" as const },
+  { name: "Café Hygge", type: "Café & Bageri", gradient: "from-rose-500 to-red-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Menukort", "Catering", "Bestilling"], layout: "menu" as const },
+  { name: "Klinik Sund", type: "Fysioterapi", gradient: "from-blue-500 to-indigo-600", accent: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", tags: ["Booking", "Behandlinger", "Kontakt"], layout: "booking" as const },
+  { name: "Kreativ Studio", type: "Kunsthåndværk", gradient: "from-fuchsia-500 to-pink-600", accent: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300", tags: ["Webshop", "Kurser", "Galleri"], layout: "shop" as const },
+  { name: "FixIt Henrik", type: "Handyman", gradient: "from-slate-600 to-gray-700", accent: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", tags: ["Booking", "Priser", "Anmeldelser"], layout: "hero" as const },
 ];
 
 const features = [
@@ -112,10 +113,14 @@ function TiltCard({ children, className = "" }: { children: React.ReactNode; cla
 /* ═══════════════════════════════════════════════════════ */
 export default function LandingPage() {
   const [totalCreators, setTotalCreators] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     getTotalCreators().then(setTotalCreators);
   }, []);
+
+  const navLinks = [["#showcase", "Eksempler"], ["#how-it-works", "Sådan virker det"], ["#features", "Alt du får"], ["#pricing", "Pris"], ["#faq", "FAQ"]];
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-x-hidden scroll-smooth">
@@ -129,7 +134,7 @@ export default function LandingPage() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
-            {[["#showcase", "Eksempler"], ["#how-it-works", "Sådan virker det"], ["#features", "Alt du får"], ["#pricing", "Pris"], ["#faq", "FAQ"]].map(([href, label]) => (
+            {navLinks.map(([href, label]) => (
               <a key={href} href={href} className="relative py-1 hover:text-foreground transition-colors after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-indigo-500 after:transition-all hover:after:w-full">
                 {label}
               </a>
@@ -138,15 +143,56 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-3">
             <Link href="/auth?mode=signin">
-              <Button variant="ghost" size="sm" className="hover:bg-indigo-50 dark:hover:bg-indigo-950/30">Log ind</Button>
+              <Button variant="ghost" size="sm" className="hidden sm:inline-flex hover:bg-indigo-50 dark:hover:bg-indigo-950/30">Log ind</Button>
             </Link>
             <Link href="/auth?mode=signup">
-              <Button size="sm" className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all">
+              <Button size="sm" className="hidden sm:inline-flex bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all">
                 Start gratis
               </Button>
             </Link>
+            {/* Mobile hamburger */}
+            <button
+              className="md:hidden p-2 -mr-2 rounded-lg hover:bg-muted transition-colors"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle menu"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
           </div>
         </div>
+
+        {/* Mobile menu drawer */}
+        {mobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="md:hidden border-t bg-background/95 backdrop-blur-lg"
+          >
+            <nav className="flex flex-col p-4 gap-1">
+              {navLinks.map(([href, label]) => (
+                <a
+                  key={href}
+                  href={href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-4 py-3 rounded-lg text-sm font-medium text-foreground hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+                >
+                  {label}
+                </a>
+              ))}
+              <div className="border-t mt-2 pt-3 flex flex-col gap-2">
+                <Link href="/auth?mode=signin" onClick={() => setMobileMenuOpen(false)}>
+                  <Button variant="outline" className="w-full">Log ind</Button>
+                </Link>
+                <Link href="/auth?mode=signup" onClick={() => setMobileMenuOpen(false)}>
+                  <Button className="w-full bg-gradient-to-r from-indigo-500 to-purple-600">
+                    Start gratis <ArrowRight className="ml-2 w-4 h-4" />
+                  </Button>
+                </Link>
+              </div>
+            </nav>
+          </motion.div>
+        )}
       </header>
 
       <main className="flex-1">
@@ -213,7 +259,30 @@ export default function LandingPage() {
 
               {/* Right: Animated build demo — shows website being assembled */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15 }}>
-                <HeroBuildDemo />
+                {!isMobile ? (
+                  <HeroBuildDemo />
+                ) : (
+                  /* Simplified mobile hero visual — static preview instead of heavy animation */
+                  <div className="bg-card rounded-2xl border shadow-2xl shadow-indigo-500/10 overflow-hidden">
+                    <div className="bg-muted/50 px-3 py-2 flex items-center gap-1.5 border-b">
+                      <div className="w-2 h-2 rounded-full bg-red-400/60" />
+                      <div className="w-2 h-2 rounded-full bg-amber-400/60" />
+                      <div className="w-2 h-2 rounded-full bg-green-400/60" />
+                      <div className="ml-2 h-4 bg-muted rounded-full flex-1 max-w-[120px]" />
+                    </div>
+                    <div className="p-6 space-y-3">
+                      <div className="h-3 bg-gradient-to-r from-indigo-200 to-purple-200 dark:from-indigo-800 dark:to-purple-800 rounded w-3/4" />
+                      <div className="h-2 bg-muted rounded w-full" />
+                      <div className="h-2 bg-muted rounded w-5/6" />
+                      <div className="h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg w-2/5 mt-4" />
+                      <div className="grid grid-cols-3 gap-2 mt-4">
+                        {[1,2,3].map(i => (
+                          <div key={i} className="h-16 bg-muted/60 rounded-lg" />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </div>
           </div>
@@ -271,15 +340,17 @@ export default function LandingPage() {
             <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
               {showcaseSites.map((site, i) => (
                 <motion.div key={i} variants={fadeUp} whileHover={{ y: -5, transition: { duration: 0.2 } }} className="group bg-card rounded-2xl border overflow-hidden hover:shadow-xl hover:shadow-indigo-500/5 transition-shadow duration-300">
-                  <div className={`h-24 bg-gradient-to-br ${site.gradient} relative p-3 flex flex-col justify-between`}>
-                    <div className="flex items-center gap-1.5">
+                  <div className={`h-32 bg-gradient-to-br ${site.gradient} relative p-2.5 flex flex-col`}>
+                    {/* Browser chrome */}
+                    <div className="flex items-center gap-1.5 mb-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
                       <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
                       <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
+                      <div className="ml-2 h-3 bg-white/15 rounded-full flex-1" />
                     </div>
-                    <div>
-                      <div className="h-1.5 bg-white/30 rounded w-3/4 mb-1" />
-                      <div className="h-1 bg-white/20 rounded w-1/2" />
+                    {/* Wireframe preview per layout type */}
+                    <div className="flex-1 rounded bg-white/10 p-1.5 overflow-hidden">
+                      <ShowcaseWireframe layout={site.layout} />
                     </div>
                   </div>
                   <div className="p-3.5">
@@ -297,6 +368,9 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* Section divider */}
+        <div className="landing-section-divider w-full max-w-5xl mx-auto" />
+
         {/* ═══════════════ 3. HOW IT WORKS — Interactive Process Flow ═══════════════
             Replaced static SVG with interactive 4-step animated flow.
             Left side: step indicators with progress.
@@ -311,6 +385,9 @@ export default function LandingPage() {
             <InteractiveProcessFlow />
           </div>
         </section>
+
+        {/* Section divider */}
+        <div className="landing-section-divider w-full max-w-5xl mx-auto" />
 
         {/* ═══════════════ FEATURES ═══════════════ */}
         <section id="features" className="py-24 md:py-32 px-6 lg:px-12">
@@ -440,18 +517,24 @@ export default function LandingPage() {
 
             <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid md:grid-cols-3 gap-5">
               {testimonials.map((t, i) => (
-                <motion.div key={i} variants={fadeUp} whileHover={{ y: -4 }} className="bg-card rounded-2xl border p-6 transition-shadow duration-300 hover:shadow-lg hover:shadow-indigo-500/5">
-                  <div className="flex gap-0.5 mb-4">
-                    {[1,2,3,4,5].map(s => <Star key={s} className="w-4 h-4 fill-amber-400 text-amber-400" />)}
-                  </div>
-                  <p className="text-muted-foreground leading-relaxed mb-6 text-sm">&ldquo;{t.quote}&rdquo;</p>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${t.gradient} flex items-center justify-center text-white font-bold text-sm`}>{t.name.charAt(0)}</div>
-                    <div>
-                      <div className="font-semibold text-sm">{t.name}</div>
-                      <div className="text-xs text-muted-foreground">{t.role}</div>
+                <motion.div key={i} variants={fadeUp} whileHover={{ y: -4 }} className="bg-card rounded-2xl border p-6 transition-shadow duration-300 hover:shadow-lg hover:shadow-indigo-500/5 relative overflow-hidden">
+                  {/* Decorative quote mark */}
+                  <div className="absolute -top-2 -left-1 text-6xl font-serif text-indigo-100 dark:text-indigo-900/40 leading-none select-none">&ldquo;</div>
+                  <div className="relative z-10">
+                    <div className="flex gap-0.5 mb-4">
+                      {[1,2,3,4,5].map(s => <Star key={s} className="w-4 h-4 fill-amber-400 text-amber-400" />)}
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed mb-6 text-sm">&ldquo;{t.quote}&rdquo;</p>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${t.gradient} flex items-center justify-center text-white font-bold text-sm ring-2 ring-background`}>{t.name.charAt(0)}</div>
+                      <div>
+                        <div className="font-semibold text-sm">{t.name}</div>
+                        <div className="text-xs text-muted-foreground">{t.role}</div>
+                      </div>
                     </div>
                   </div>
+                  {/* Subtle gradient border effect */}
+                  <div className={`absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r ${t.gradient} opacity-40`} />
                 </motion.div>
               ))}
             </motion.div>
@@ -531,6 +614,71 @@ export default function LandingPage() {
   );
 }
 
+/* ─── Showcase wireframe mini-previews per site type ─── */
+function ShowcaseWireframe({ layout }: { layout: "booking" | "shop" | "gallery" | "hero" | "menu" }) {
+  const common = "bg-white/20 rounded-sm";
+  switch (layout) {
+    case "booking":
+      return (
+        <div className="flex flex-col gap-1 h-full">
+          <div className={`h-1.5 ${common} w-2/3`} />
+          <div className={`h-1 ${common} w-1/2 opacity-60`} />
+          <div className="flex gap-0.5 mt-auto">
+            {[1,2,3].map(i => <div key={i} className={`flex-1 h-6 ${common} opacity-40`} />)}
+          </div>
+          <div className={`h-4 bg-white/30 rounded-sm w-full mt-0.5`} />
+        </div>
+      );
+    case "shop":
+      return (
+        <div className="flex flex-col gap-1 h-full">
+          <div className={`h-1.5 ${common} w-1/2`} />
+          <div className="grid grid-cols-2 gap-0.5 flex-1">
+            {[1,2,3,4].map(i => (
+              <div key={i} className="flex flex-col gap-0.5">
+                <div className={`flex-1 ${common} opacity-30`} />
+                <div className={`h-1 ${common} opacity-50 w-3/4`} />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    case "gallery":
+      return (
+        <div className="flex flex-col gap-1 h-full">
+          <div className={`h-1.5 ${common} w-1/3 mx-auto`} />
+          <div className="grid grid-cols-3 gap-0.5 flex-1">
+            {[1,2,3,4,5,6].map(i => <div key={i} className={`${common} opacity-${20 + (i % 3) * 15}`} />)}
+          </div>
+        </div>
+      );
+    case "menu":
+      return (
+        <div className="flex flex-col gap-1 h-full">
+          <div className={`h-1.5 ${common} w-2/5 mx-auto`} />
+          <div className="flex flex-col gap-0.5 flex-1">
+            {[1,2,3,4].map(i => (
+              <div key={i} className="flex items-center gap-1">
+                <div className={`w-4 h-3 ${common} opacity-30 shrink-0`} />
+                <div className={`h-1 ${common} opacity-50 flex-1`} />
+                <div className={`h-1 ${common} opacity-40 w-3`} />
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    case "hero":
+    default:
+      return (
+        <div className="flex flex-col gap-1 h-full items-center justify-center">
+          <div className={`h-2 ${common} w-3/4`} />
+          <div className={`h-1 ${common} w-1/2 opacity-60`} />
+          <div className={`h-3.5 bg-white/30 rounded-sm w-2/5 mt-1`} />
+        </div>
+      );
+  }
+}
+
 /* ─── Feature card with animated SVG icon on hover ─── */
 function FeatureCard({ feature }: { feature: (typeof features)[0] }) {
   const [hovered, setHovered] = useState(false);
@@ -541,20 +689,18 @@ function FeatureCard({ feature }: { feature: (typeof features)[0] }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       whileHover={{ y: -5, transition: { duration: 0.2 } }}
-      className="bg-card p-5 rounded-2xl border hover:border-indigo-200 dark:hover:border-indigo-800 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300 group"
+      className="bg-card p-6 rounded-2xl border hover:border-indigo-200 dark:hover:border-indigo-800 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300 group"
     >
-      <div className="flex items-start gap-4">
-        <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center shrink-0 transition-transform duration-300 shadow-md group-hover:scale-110`}>
+      <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center shrink-0 transition-transform duration-300 shadow-lg group-hover:scale-110 mb-4`}>
+        <div className="w-8 h-8">
           <Icon animated={hovered} />
         </div>
-        <div className="min-w-0">
-          <h3 className="text-base font-bold mb-1">{feature.title}</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed mb-2.5">{feature.desc}</p>
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-            <Check className="w-3 h-3" />{feature.outcome}
-          </span>
-        </div>
       </div>
+      <h3 className="text-base font-bold mb-2">{feature.title}</h3>
+      <p className="text-sm text-muted-foreground leading-relaxed mb-3">{feature.desc}</p>
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 px-2.5 py-1 rounded-full">
+        <Check className="w-3 h-3" />{feature.outcome}
+      </span>
     </motion.div>
   );
 }

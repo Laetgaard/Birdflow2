@@ -451,99 +451,89 @@ export default function ElementOverlay({
 
     const handleContainerClick = (e: MouseEvent) => {
       if (isEditing || isFieldEditing) {
-        // When already editing text (overlay or React EditableText), let native click work
+        // Already editing — let native events work (cursor placement, text selection)
         return;
       }
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
-      // Don't intercept clicks on section insert points
       if (target.closest('[data-section-insert-point]')) return;
-      // Let clicks through to contentEditable elements (active inline editing)
       if (target.closest('[contenteditable="true"]')) return;
+
+      // If clicking inside an already-selected component, let React handle it.
+      // EditableText's onClick will call onEdit(field), and the section's onClick
+      // will re-select the component (harmless no-op). This avoids depending on
+      // resolveElementAtPoint's type detection for editing behavior.
+      if (selectedComponentId) {
+        const clickedComponent = target.closest('[data-component-id]');
+        const clickedComponentId = clickedComponent?.getAttribute('data-component-id');
+        if (clickedComponentId === selectedComponentId) {
+          return; // Let React bubble handle it
+        }
+      }
 
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
 
       if (resolved) {
+        // First click on unselected component: select only
         e.stopPropagation();
-
-        const isAlreadySelected = selectedComponentId != null
-          && resolved.componentId === selectedComponentId;
-        const isEditable = resolved.type === 'text' || resolved.type === 'button';
-
-        if (isAlreadySelected && isEditable) {
-          // Component already selected — single click enters edit mode
-          // 1. Try data-editable-field (React EditableText)
-          const editableField = target.closest('[data-editable-field]') as HTMLElement | null;
-          if (editableField && onFieldEdit) {
-            const field = editableField.getAttribute('data-editable-field');
-            const componentEl = editableField.closest('[data-component-id]');
-            const componentId = componentEl?.getAttribute('data-component-id');
-            if (field && componentId) {
-              e.preventDefault();
-              onFieldEdit(componentId, field);
-              return;
-            }
-          }
-
-          // 2. Infer field name from element position
-          if (onFieldEdit) {
-            const inferredField = inferTextPropKey(resolved.element, resolved.componentId);
-            if (inferredField) {
-              e.preventDefault();
-              onFieldEdit(resolved.componentId, inferredField);
-              return;
-            }
-          }
-
-          // 3. Fallback: contentEditable overlay editing
-          handleElementSelect(resolved, true, e.clientX, e.clientY);
-        } else {
-          // First click on unselected component — select only
-          handleElementSelect(resolved, false);
-          if (onComponentSelect && resolved.componentId) {
-            onComponentSelect(resolved.componentId);
-          }
+        handleElementSelect(resolved, false);
+        if (onComponentSelect && resolved.componentId) {
+          onComponentSelect(resolved.componentId);
         }
       }
     };
 
-    // Double-click enables text editing for text and buttons (Framer-like behavior)
+    // Double-click: enter editing from any state (even unselected components)
     const handleContainerDblClick = (e: MouseEvent) => {
+      if (isEditing || isFieldEditing) {
+        return; // Let native double-click work (word selection)
+      }
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
       if (target.closest('[data-section-insert-point]')) return;
 
-      // For EditableText fields (already rendered), directly trigger field editing
-      const editableField = target.closest('[data-editable-field]') as HTMLElement | null;
-      if (editableField && onFieldEdit) {
-        const field = editableField.getAttribute('data-editable-field');
-        const componentEl = editableField.closest('[data-component-id]');
-        const componentId = componentEl?.getAttribute('data-component-id');
-        if (field && componentId) {
-          e.stopPropagation();
-          e.preventDefault();
-          onFieldEdit(componentId, field);
+      // If inside already-selected component, let EditableText's handleDoubleClick fire
+      if (selectedComponentId) {
+        const clickedComponent = target.closest('[data-component-id]');
+        const clickedComponentId = clickedComponent?.getAttribute('data-component-id');
+        if (clickedComponentId === selectedComponentId) {
           return;
         }
       }
 
-      // For text/button elements that don't have data-editable-field yet
-      // (component not selected yet), infer the field and trigger editing
+      // Double-click on unselected component: select + try to enter editing
       const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
-      if (resolved && (resolved.type === 'text' || resolved.type === 'button') && onFieldEdit) {
-        const inferredField = inferTextPropKey(resolved.element, resolved.componentId);
-        if (inferredField) {
-          e.stopPropagation();
-          e.preventDefault();
-          onFieldEdit(resolved.componentId, inferredField);
-          return;
-        }
-      }
+      if (!resolved) return;
 
-      // Final fallback: use overlay's own contentEditable system
-      if (resolved && (resolved.type === 'text' || resolved.type === 'button')) {
+      // Select the component
+      if (onComponentSelect) onComponentSelect(resolved.componentId);
+
+      if (resolved.type === 'text' || resolved.type === 'button') {
+        // Try data-editable-field
+        const editableField = target.closest('[data-editable-field]') as HTMLElement | null;
+        if (editableField && onFieldEdit) {
+          const field = editableField.getAttribute('data-editable-field');
+          const componentEl = editableField.closest('[data-component-id]');
+          const componentId = componentEl?.getAttribute('data-component-id');
+          if (field && componentId) {
+            e.stopPropagation();
+            onFieldEdit(componentId, field);
+            return;
+          }
+        }
+
+        // Infer field name from element position
+        if (onFieldEdit) {
+          const inferredField = inferTextPropKey(resolved.element, resolved.componentId);
+          if (inferredField) {
+            e.stopPropagation();
+            onFieldEdit(resolved.componentId, inferredField);
+            return;
+          }
+        }
+
+        // Fallback: overlay contentEditable
         e.stopPropagation();
-        e.preventDefault();
         handleElementSelect(resolved, true, e.clientX, e.clientY);
       }
     };
