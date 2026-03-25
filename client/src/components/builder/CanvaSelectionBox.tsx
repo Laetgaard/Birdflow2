@@ -296,6 +296,7 @@ export default function CanvaSelectionBox({
                 height: handleSize,
                 cursor: handleCursors[position],
                 zIndex: 50,
+                pointerEvents: 'auto',
                 ...handleStyle,
               }}
               onMouseDown={(e) => handleMouseDown(e, position)}
@@ -328,6 +329,7 @@ export default function CanvaSelectionBox({
                   transform: 'translateX(-50%)',
                   cursor: isRotating ? 'grabbing' : 'grab',
                   zIndex: 50,
+                  pointerEvents: 'auto',
                 }}
                 onMouseDown={(e) => handleMouseDown(e, 'rotate')}
                 onTouchStart={(e) => handleTouchStart(e, 'rotate')}

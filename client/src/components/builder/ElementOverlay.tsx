@@ -740,7 +740,7 @@ export default function ElementOverlay({
             top: selectedDetected.rect.top,
             width: selectedDetected.rect.width,
             height: selectedDetected.rect.height,
-            pointerEvents: (isEditing || isFieldEditing) ? 'none' : 'auto',
+            pointerEvents: 'none',
           }}
           data-testid={`element-region-${selectedDetected.id}`}
           data-element-editing="true"
@@ -784,7 +784,7 @@ export default function ElementOverlay({
             }}
           >
             <Pencil className="w-3 h-3" />
-            Dobbeltklik for at redigere
+            Klik for at redigere
           </div>
         </div>
       )}
