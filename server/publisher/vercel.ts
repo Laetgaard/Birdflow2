@@ -554,7 +554,7 @@ export async function purchaseDomain(
     },
   };
 
-  const { ok, data } = await safeVercelFetch(
+  const { ok, data, status } = await safeVercelFetch(
     `/v1/registrar/domains/${encodeURIComponent(domain)}/buy`,
     config,
     {
@@ -564,16 +564,27 @@ export async function purchaseDomain(
   );
 
   if (!ok) {
-    const errorMsg = data?.error?.message || 'Failed to purchase domain';
-    if (errorMsg.includes('forbidden') || errorMsg.includes('unauthorized')) {
+    const errorMsg = data?.error?.message || data?.message || 'Failed to purchase domain';
+    const errorCode = data?.error?.code || data?.code || 'unknown';
+    console.error(`[Vercel Registrar] purchaseDomain FAILED for "${domain}":`, {
+      httpStatus: status,
+      errorCode,
+      errorMessage: errorMsg,
+      fullResponse: JSON.stringify(data),
+    });
+    if (errorMsg.includes('forbidden') || errorMsg.includes('unauthorized') || status === 403) {
       return { success: false, error: 'Domain purchase requires a Vercel account with billing enabled.' };
     }
     if (errorMsg.includes('already')) {
       return { success: false, error: 'This domain is already registered in your account.' };
     }
+    if (status === 400) {
+      return { success: false, error: `Invalid request: ${errorMsg}` };
+    }
     return { success: false, error: errorMsg };
   }
 
+  console.log(`[Vercel Registrar] purchaseDomain SUCCESS for "${domain}": orderId=${data.orderId}`);
   return {
     success: true,
     domain,

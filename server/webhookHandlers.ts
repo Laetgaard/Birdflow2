@@ -117,6 +117,7 @@ export class WebhookHandlers {
                 );
 
                 if (!purchaseResult.success) {
+                  console.error(`[Stripe Webhook] Vercel domain registration failed for "${domainPurchase.domain}":`, purchaseResult.error);
                   throw new Error(purchaseResult.error || 'Vercel domain registration failed');
                 }
 
