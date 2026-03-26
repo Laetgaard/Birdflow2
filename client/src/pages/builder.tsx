@@ -146,41 +146,6 @@ export default function BuilderPage() {
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const [propertiesPaddingTop, setPropertiesPaddingTop] = useState(0);
 
-  const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
-    if (historyDebounceRef.current) {
-      clearTimeout(historyDebounceRef.current);
-      historyDebounceRef.current = null;
-      setHasPendingEdit(false);
-      setHistory(prev => {
-        if (!prev || !builderState) return prev ? pushHistory(prev, newState, description) : createHistory(newState);
-        const withPending = pushHistory(prev, builderState, pendingHistoryDescriptionRef.current || 'Edit');
-        return pushHistory(withPending, newState, description);
-      });
-      setBuilderState(newState);
-    } else {
-      setBuilderState(newState);
-      setHistory(prev => prev ? pushHistory(prev, newState, description) : createHistory(newState));
-    }
-    scheduleAutoSave(newState);
-  }, [builderState, scheduleAutoSave]);
-
-  const debouncedHistoryPush = useCallback((newState: BuilderStateData, description: string, delay = 1000) => {
-    setBuilderState(newState);
-    pendingHistoryDescriptionRef.current = description;
-    setHasPendingEdit(true);
-
-    if (historyDebounceRef.current) {
-      clearTimeout(historyDebounceRef.current);
-    }
-
-    historyDebounceRef.current = setTimeout(() => {
-      setHistory(prev => prev ? pushHistory(prev, newState, pendingHistoryDescriptionRef.current) : createHistory(newState));
-      historyDebounceRef.current = null;
-      setHasPendingEdit(false);
-    }, delay);
-    scheduleAutoSave(newState);
-  }, [scheduleAutoSave]);
-
   const executeSave = useCallback(async (stateToSave: BuilderStateData): Promise<boolean> => {
     if (!session || !id) return false;
 
@@ -244,6 +209,41 @@ export default function BuilderPage() {
       saveState(stateToSave);
     }, 2000);
   }, [saveState]);
+
+  const updateStateWithHistory = useCallback((newState: BuilderStateData, description: string) => {
+    if (historyDebounceRef.current) {
+      clearTimeout(historyDebounceRef.current);
+      historyDebounceRef.current = null;
+      setHasPendingEdit(false);
+      setHistory(prev => {
+        if (!prev || !builderState) return prev ? pushHistory(prev, newState, description) : createHistory(newState);
+        const withPending = pushHistory(prev, builderState, pendingHistoryDescriptionRef.current || 'Edit');
+        return pushHistory(withPending, newState, description);
+      });
+      setBuilderState(newState);
+    } else {
+      setBuilderState(newState);
+      setHistory(prev => prev ? pushHistory(prev, newState, description) : createHistory(newState));
+    }
+    scheduleAutoSave(newState);
+  }, [builderState, scheduleAutoSave]);
+
+  const debouncedHistoryPush = useCallback((newState: BuilderStateData, description: string, delay = 1000) => {
+    setBuilderState(newState);
+    pendingHistoryDescriptionRef.current = description;
+    setHasPendingEdit(true);
+
+    if (historyDebounceRef.current) {
+      clearTimeout(historyDebounceRef.current);
+    }
+
+    historyDebounceRef.current = setTimeout(() => {
+      setHistory(prev => prev ? pushHistory(prev, newState, pendingHistoryDescriptionRef.current) : createHistory(newState));
+      historyDebounceRef.current = null;
+      setHasPendingEdit(false);
+    }, delay);
+    scheduleAutoSave(newState);
+  }, [scheduleAutoSave]);
 
   const flushPendingHistory = useCallback(() => {
     if (historyDebounceRef.current && builderState) {
