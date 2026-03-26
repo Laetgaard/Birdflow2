@@ -1158,44 +1158,4 @@ export const oauthStateTokens = pgTable("oauth_state_tokens", {
 
 export type OAuthStateToken = typeof oauthStateTokens.$inferSelect;
 
-// Domain purchases table (for Stripe checkout flow)
-export const domainPurchases = pgTable("domain_purchases", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  websiteId: varchar("website_id").notNull(),
-  userId: varchar("user_id").notNull(),
-  domain: text("domain").notNull(),
-  status: text("status").notNull().default("pending"),
-  priceCents: integer("price_cents").notNull(),
-  currency: text("currency").notNull().default("USD"),
-  years: integer("years").notNull().default(1),
-  stripeSessionId: text("stripe_session_id"),
-  stripePaymentIntentId: text("stripe_payment_intent_id"),
-  contactInfo: jsonb("contact_info").$type<{
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-    address1: string;
-    address2?: string;
-    city: string;
-    state?: string;
-    zip: string;
-    country: string;
-  }>().notNull(),
-  connectToWebsite: boolean("connect_to_website").notNull().default(false),
-  errorMessage: text("error_message"),
-  completedAt: timestamp("completed_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const insertDomainPurchaseSchema = createInsertSchema(domainPurchases).omit({
-  id: true,
-  completedAt: true,
-  createdAt: true,
-});
-
-export type InsertDomainPurchase = z.infer<typeof insertDomainPurchaseSchema>;
-export type DomainPurchase = typeof domainPurchases.$inferSelect;
-export type DomainPurchaseStatus = 'pending' | 'paid' | 'registering' | 'completed' | 'failed';
-
 export * from "./models/chat";

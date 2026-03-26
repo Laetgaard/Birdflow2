@@ -75,7 +75,6 @@ import {
   serviceBlockedDates, type ServiceBlockedDate, type InsertServiceBlockedDate,
   serviceDateRanges, type ServiceDateRange, type InsertServiceDateRange,
   supportTickets, type SupportTicket, type InsertSupportTicket,
-  domainPurchases, type DomainPurchase, type InsertDomainPurchase,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
   type AdminUserWithStats, type AdminWebsiteWithOwner,
@@ -331,12 +330,6 @@ export interface IStorage {
   getSupportTickets(): Promise<SupportTicket[]>;
   getUserTickets(userId: string): Promise<SupportTicket[]>;
   updateTicketStatus(ticketId: string, status: string): Promise<SupportTicket | undefined>;
-
-  // Domain purchase methods
-  createDomainPurchase(purchase: InsertDomainPurchase): Promise<DomainPurchase>;
-  getDomainPurchase(id: string): Promise<DomainPurchase | undefined>;
-  getDomainPurchaseByStripeSessionId(sessionId: string): Promise<DomainPurchase | undefined>;
-  updateDomainPurchase(id: string, data: Partial<DomainPurchase>): Promise<DomainPurchase | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2125,29 +2118,6 @@ export class DatabaseStorage implements IStorage {
     const result = await db.update(supportTickets)
       .set({ status, updatedAt: new Date() })
       .where(eq(supportTickets.id, ticketId))
-      .returning();
-    return result[0];
-  }
-
-  async createDomainPurchase(purchase: InsertDomainPurchase): Promise<DomainPurchase> {
-    const result = await db.insert(domainPurchases).values(purchase).returning();
-    return result[0];
-  }
-
-  async getDomainPurchase(id: string): Promise<DomainPurchase | undefined> {
-    const result = await db.select().from(domainPurchases).where(eq(domainPurchases.id, id));
-    return result[0];
-  }
-
-  async getDomainPurchaseByStripeSessionId(sessionId: string): Promise<DomainPurchase | undefined> {
-    const result = await db.select().from(domainPurchases).where(eq(domainPurchases.stripeSessionId, sessionId));
-    return result[0];
-  }
-
-  async updateDomainPurchase(id: string, data: Partial<DomainPurchase>): Promise<DomainPurchase | undefined> {
-    const result = await db.update(domainPurchases)
-      .set(data)
-      .where(eq(domainPurchases.id, id))
       .returning();
     return result[0];
   }

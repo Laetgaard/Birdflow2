@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { 
   Globe, ArrowLeft, Loader2, Settings, User, LogOut,
   ShoppingCart, Calendar, Mail, Users, Palette,
-  Package, Clock, CheckCircle, XCircle, AlertCircle,
+  Package, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle,
   Plus, Pencil, Trash2, DollarSign, Image, Upload,
   Link2, ExternalLink, Copy, RefreshCw, Truck, BarChart3, X,
   FileText, Send, UserPlus, ShoppingBag, FileInput, RotateCcw,
@@ -425,6 +425,13 @@ function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId: strin
 
   useEffect(() => {
     fetchDomains();
+  }, [fetchDomains]);
+
+  // Refresh domain list when a domain is purchased in DomainPurchaseCard
+  useEffect(() => {
+    const handler = () => fetchDomains();
+    window.addEventListener('domain-purchased', handler);
+    return () => window.removeEventListener('domain-purchased', handler);
   }, [fetchDomains]);
 
   useEffect(() => {
@@ -910,28 +917,9 @@ function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId: strin
 type DomainAvailability = {
   available: boolean;
   domain: string;
-  purchasePrice?: number;
-  renewalPrice?: number;
-  years?: number;
-  suggestions?: Array<{ domain: string; available: boolean; purchasePrice?: number; renewalPrice?: number }>;
-};
-
-type DomainContactInfo = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  address1: string;
-  address2: string;
-  city: string;
-  state: string;
-  zip: string;
-  country: string;
-};
-
-const EMPTY_CONTACT: DomainContactInfo = {
-  firstName: '', lastName: '', email: '', phone: '',
-  address1: '', address2: '', city: '', state: '', zip: '', country: 'DK',
+  price?: number;
+  period?: number;
+  suggestions?: Array<{ domain: string; available: boolean; price?: number }>;
 };
 
 function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId: string; accessToken: string; isPublished: boolean }) {
@@ -944,16 +932,23 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
   const [purchasingDomain, setPurchasingDomain] = useState<string | null>(null);
   const [connectToWebsite, setConnectToWebsite] = useState(true);
   const [purchaseComplete, setPurchaseComplete] = useState<{ domain: string; connected: boolean } | null>(null);
-  const [showContactForm, setShowContactForm] = useState(false);
-  const [selectedDomainToBuy, setSelectedDomainToBuy] = useState<string | null>(null);
-  const [selectedDomainPrice, setSelectedDomainPrice] = useState<number | undefined>();
-  const [contactInfo, setContactInfo] = useState<DomainContactInfo>(EMPTY_CONTACT);
+  const [configStatus, setConfigStatus] = useState<{ configured: boolean; canPurchase: boolean; error?: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/domains/config-status', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then(res => res.json())
+      .then(data => setConfigStatus(data))
+      .catch(() => setConfigStatus(null));
+  }, [accessToken]);
 
   const tldOptions = ['.com', '.net', '.org', '.io', '.co', '.dev', '.app', '.store', '.shop'];
 
   const getFullDomain = () => {
     const base = searchDomain.trim().toLowerCase().replace(/\s+/g, '');
     if (!base) return '';
+    // If user typed a full domain with TLD, use it as-is
     if (base.includes('.')) return base;
     return `${base}${selectedTld}`;
   };
@@ -965,7 +960,6 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
     setIsSearching(true);
     setAvailability(null);
     setPurchaseComplete(null);
-    setShowContactForm(false);
 
     try {
       const res = await fetch(
@@ -978,6 +972,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
           const data = await res.json();
           errorMsg = data.message || errorMsg;
         } catch {
+          // Response wasn't JSON
           if (res.status === 400) errorMsg = 'Invalid domain name. Please try a different name.';
           else if (res.status === 403) errorMsg = 'Not authorized to check domains.';
           else if (res.status >= 500) errorMsg = 'Server error. Please try again.';
@@ -997,25 +992,8 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
     }
   };
 
-  const startPurchase = (domain: string, price?: number) => {
-    setSelectedDomainToBuy(domain);
-    setSelectedDomainPrice(price);
-    setShowContactForm(true);
-  };
-
-  const cancelPurchase = () => {
-    setShowContactForm(false);
-    setSelectedDomainToBuy(null);
-    setSelectedDomainPrice(undefined);
-  };
-
-  const isContactValid = () => {
-    return contactInfo.firstName.trim() && contactInfo.lastName.trim() && contactInfo.email.trim() && contactInfo.phone.trim() && contactInfo.address1.trim() && contactInfo.city.trim() && contactInfo.zip.trim() && contactInfo.country.trim();
-  };
-
-  const handlePurchase = async () => {
-    if (isPurchasing || !selectedDomainToBuy || !isContactValid()) return;
-    const domain = selectedDomainToBuy;
+  const handlePurchase = async (domain: string) => {
+    if (isPurchasing) return; // Prevent double-click
     setIsPurchasing(true);
     setPurchasingDomain(domain);
     try {
@@ -1025,13 +1003,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({
-          domain,
-          connectToWebsite: connectToWebsite && isPublished,
-          contactInfo,
-          expectedPrice: selectedDomainPrice,
-          years: 1,
-        }),
+        body: JSON.stringify({ domain, connectToWebsite: connectToWebsite && isPublished }),
       });
       let data: any;
       try {
@@ -1040,30 +1012,32 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
         data = {};
       }
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to create checkout session. Please try again.');
+        const errorDetail = data.help ? `${data.message} ${data.help}` : data.message;
+        throw new Error(errorDetail || 'Failed to purchase domain. Please try again.');
       }
-      if (data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
-      } else {
-        throw new Error('No checkout URL received from server.');
-      }
+      setPurchaseComplete({ domain, connected: data.connected });
+      setAvailability(null);
+      setSearchDomain('');
+      toast({
+        title: data.alreadyOwned ? 'Domain Added!' : 'Domain Purchased!',
+        description: data.message || `${domain} has been registered successfully.`,
+      });
+      // Signal the DomainsCard to refresh its list
+      window.dispatchEvent(new CustomEvent('domain-purchased'));
     } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Purchase Failed',
-        description: error.message || 'Unable to start checkout. Please try again.',
+        description: error.message || 'Unable to complete domain purchase. Please try again.',
       });
+    } finally {
       setIsPurchasing(false);
       setPurchasingDomain(null);
     }
   };
 
-  const updateContact = (field: keyof DomainContactInfo, value: string) => {
-    setContactInfo(prev => ({ ...prev, [field]: value }));
-  };
-
   const formatPrice = (price: number | undefined | null) => {
-    if (price == null || isNaN(price)) return 'Pris ikke tilgængelig';
+    if (price == null || isNaN(price)) return 'Price unavailable';
     return `$${price.toFixed(2)}`;
   };
 
@@ -1072,19 +1046,32 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <ShoppingBag className="w-5 h-5" />
-          Køb et domæne
+          Buy a Domain
         </CardTitle>
-        <CardDescription>Søg efter og registrer et nyt domæne. Købte domæner administreres via Vercel og kan automatisk tilknyttes dit website.</CardDescription>
+        <CardDescription>Search for and register a new domain. Purchased domains are managed through Vercel and can be auto-connected to your website.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-5">
+          {/* Config warning */}
+          {configStatus && !configStatus.canPurchase && (
+            <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">Domain purchasing is not configured</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  {configStatus.error || 'Please ensure your Vercel account has billing enabled and the VERCEL_TOKEN has domain management permissions.'}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Search with TLD selector */}
           <div>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Indtast domænenavn (f.eks. minbutik)"
+                  placeholder="Enter domain name (e.g. mybusiness)"
                   className="pl-9"
                   value={searchDomain}
                   onChange={(e) => setSearchDomain(e.target.value.replace(/\s/g, ''))}
@@ -1109,12 +1096,12 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                 data-testid="btn-search-domain"
               >
                 {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-1" />}
-                Søg
+                Search
               </Button>
             </div>
             {searchDomain.trim() && !searchDomain.includes('.') && (
               <p className="text-xs text-muted-foreground mt-1.5 ml-1">
-                Søger efter: <span className="font-medium">{getFullDomain()}</span>
+                Searching for: <span className="font-medium">{getFullDomain()}</span>
               </p>
             )}
           </div>
@@ -1131,10 +1118,10 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
               />
               <div>
                 <Label htmlFor="connectDomainToWebsite" className="text-sm font-medium cursor-pointer">
-                  Tilslut automatisk til mit website
+                  Auto-connect to my website
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Købte domæner tilknyttes automatisk dit publicerede website med DNS konfigureret via Vercel. Ingen manuel opsætning nødvendig.
+                  Purchased domains will be automatically linked to your published website with DNS configured through Vercel. No manual setup needed.
                 </p>
               </div>
             </div>
@@ -1144,13 +1131,14 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
           {isSearching && (
             <div className="flex items-center justify-center py-8 gap-3">
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Checker tilgængelighed og pris...</p>
+              <p className="text-sm text-muted-foreground">Checking availability and pricing...</p>
             </div>
           )}
 
           {/* Results */}
-          {availability && !isSearching && !showContactForm && (
+          {availability && !isSearching && (
             <div className="space-y-3">
+              {/* Primary domain result */}
               <div className={`border-2 rounded-lg p-4 transition-colors ${
                 availability.available
                   ? 'border-green-300 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20'
@@ -1170,29 +1158,31 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                     <div>
                       <p className="font-semibold text-lg">{availability.domain}</p>
                       <p className={`text-sm ${availability.available ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}>
-                        {availability.available ? 'Tilgængeligt til registrering' : 'Dette domæne er optaget'}
+                        {availability.available ? 'Available for registration' : 'This domain is taken'}
                       </p>
                     </div>
                   </div>
                   {availability.available && (
                     <div className="flex items-center gap-3">
-                      {availability.purchasePrice !== undefined && (
+                      {availability.price !== undefined && (
                         <div className="text-right">
-                          <p className="text-xl font-bold">{formatPrice(availability.purchasePrice)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {availability.renewalPrice !== undefined ? `Fornyelse: ${formatPrice(availability.renewalPrice)}/år` : 'pr. år'}
-                          </p>
+                          <p className="text-xl font-bold">{formatPrice(availability.price)}</p>
+                          <p className="text-xs text-muted-foreground">per year</p>
                         </div>
                       )}
                       <Button
-                        onClick={() => startPurchase(availability.domain, availability.purchasePrice)}
+                        onClick={() => handlePurchase(availability.domain)}
                         disabled={isPurchasing}
                         size="lg"
                         className="min-w-[140px]"
                         data-testid="btn-purchase-domain"
                       >
-                        <ShoppingCart className="w-4 h-4 mr-2" />
-                        Køb domæne
+                        {purchasingDomain === availability.domain ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        ) : (
+                          <ShoppingCart className="w-4 h-4 mr-2" />
+                        )}
+                        Buy Domain
                       </Button>
                     </div>
                   )}
@@ -1200,15 +1190,16 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                 {availability.available && connectToWebsite && isPublished && (
                   <div className="mt-3 pt-3 border-t border-green-200 dark:border-green-800 flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
                     <CheckCircle className="w-3.5 h-3.5" />
-                    Tilknyttes automatisk dit website efter køb
+                    Will be auto-connected to your website after purchase
                   </div>
                 )}
               </div>
 
+              {/* Suggestions */}
               {availability.suggestions && availability.suggestions.length > 0 && (
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-2">
-                    {availability.available ? 'Også tilgængeligt:' : 'Prøv disse alternativer:'}
+                    {availability.available ? 'Also available:' : 'Try these alternatives:'}
                   </p>
                   <div className="space-y-2">
                     {availability.suggestions.map((suggestion) => (
@@ -1221,16 +1212,16 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                           <span className="font-medium">{suggestion.domain}</span>
                         </div>
                         <div className="flex items-center gap-3">
-                          {suggestion.purchasePrice !== undefined && (
-                            <span className="text-sm font-semibold">{formatPrice(suggestion.purchasePrice)}<span className="text-muted-foreground font-normal">/år</span></span>
+                          {suggestion.price !== undefined && (
+                            <span className="text-sm font-semibold">{formatPrice(suggestion.price)}<span className="text-muted-foreground font-normal">/yr</span></span>
                           )}
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => startPurchase(suggestion.domain, suggestion.purchasePrice)}
+                            onClick={() => handlePurchase(suggestion.domain)}
                             disabled={isPurchasing}
                           >
-                            Køb
+                            {purchasingDomain === suggestion.domain ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Buy'}
                           </Button>
                         </div>
                       </div>
@@ -1239,9 +1230,10 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                 </div>
               )}
 
+              {/* Search again */}
               {!availability.available && (!availability.suggestions || availability.suggestions.length === 0) && (
                 <div className="text-center py-4">
-                  <p className="text-sm text-muted-foreground mb-2">Ingen alternativer fundet. Prøv et andet navn eller endelse.</p>
+                  <p className="text-sm text-muted-foreground mb-2">No alternatives found. Try a different name or extension.</p>
                   <div className="flex flex-wrap gap-2 justify-center">
                     {tldOptions.filter(t => t !== selectedTld).slice(0, 5).map(tld => (
                       <Button
@@ -1252,6 +1244,7 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                           const base = searchDomain.trim().toLowerCase().split('.')[0];
                           setSearchDomain(base);
                           setSelectedTld(tld);
+                          // Trigger search with new TLD
                           setTimeout(() => {
                             setAvailability(null);
                             handleSearch();
@@ -1264,144 +1257,6 @@ function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { websiteId
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Contact Information Form */}
-          {showContactForm && selectedDomainToBuy && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-semibold text-base">Registreringsoplysninger</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Kontaktoplysninger krævet for <span className="font-medium">{selectedDomainToBuy}</span>
-                    {selectedDomainPrice !== undefined && <> — {formatPrice(selectedDomainPrice)}</>}
-                  </p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={cancelPurchase}>
-                  <XCircle className="w-4 h-4 mr-1" /> Annuller
-                </Button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs mb-1 block">Fornavn *</Label>
-                  <Input
-                    placeholder="Jens"
-                    value={contactInfo.firstName}
-                    onChange={(e) => updateContact('firstName', e.target.value)}
-                    data-testid="input-contact-firstname"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Efternavn *</Label>
-                  <Input
-                    placeholder="Hansen"
-                    value={contactInfo.lastName}
-                    onChange={(e) => updateContact('lastName', e.target.value)}
-                    data-testid="input-contact-lastname"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">E-mail *</Label>
-                  <Input
-                    type="email"
-                    placeholder="john@example.com"
-                    value={contactInfo.email}
-                    onChange={(e) => updateContact('email', e.target.value)}
-                    data-testid="input-contact-email"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Telefon *</Label>
-                  <Input
-                    placeholder="+45 12345678"
-                    value={contactInfo.phone}
-                    onChange={(e) => updateContact('phone', e.target.value)}
-                    data-testid="input-contact-phone"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <Label className="text-xs mb-1 block">Adresse *</Label>
-                  <Input
-                    placeholder="Vejnavn og husnummer"
-                    value={contactInfo.address1}
-                    onChange={(e) => updateContact('address1', e.target.value)}
-                    data-testid="input-contact-address1"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <Label className="text-xs mb-1 block">Adresse linje 2</Label>
-                  <Input
-                    placeholder="Lejlighed, etage osv. (valgfrit)"
-                    value={contactInfo.address2}
-                    onChange={(e) => updateContact('address2', e.target.value)}
-                    data-testid="input-contact-address2"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">By *</Label>
-                  <Input
-                    placeholder="København"
-                    value={contactInfo.city}
-                    onChange={(e) => updateContact('city', e.target.value)}
-                    data-testid="input-contact-city"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Region</Label>
-                  <Input
-                    placeholder="Region (valgfrit)"
-                    value={contactInfo.state}
-                    onChange={(e) => updateContact('state', e.target.value)}
-                    data-testid="input-contact-state"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Postnummer *</Label>
-                  <Input
-                    placeholder="1000"
-                    value={contactInfo.zip}
-                    onChange={(e) => updateContact('zip', e.target.value)}
-                    data-testid="input-contact-zip"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Land *</Label>
-                  <Input
-                    placeholder="DK"
-                    value={contactInfo.country}
-                    onChange={(e) => updateContact('country', e.target.value.toUpperCase().slice(0, 2))}
-                    maxLength={2}
-                    data-testid="input-contact-country"
-                  />
-                  <p className="text-[10px] text-muted-foreground mt-0.5">2-letter country code (e.g. DK, US, DE)</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <Button
-                  onClick={handlePurchase}
-                  disabled={isPurchasing || !isContactValid()}
-                  size="lg"
-                  className="min-w-[180px]"
-                  data-testid="btn-confirm-purchase"
-                >
-                  {isPurchasing ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    <ShoppingCart className="w-4 h-4 mr-2" />
-                  )}
-                  {isPurchasing ? 'Redirecting to checkout...' : `Pay & Register ${selectedDomainToBuy}`}
-                </Button>
-                <Button variant="outline" onClick={cancelPurchase} disabled={isPurchasing}>
-                  Back to Results
-                </Button>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                You will be redirected to a secure Stripe checkout page to complete payment. After payment, the domain will be automatically registered.
-              </p>
             </div>
           )}
 
@@ -2199,32 +2054,6 @@ export default function ManagePage() {
   const [website, setWebsite] = useState<Website | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("orders");
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const domainStatus = params.get('domain_status');
-    const domainName = params.get('domain');
-    const tab = params.get('tab');
-
-    if (tab === 'domain') {
-      setActiveTab('domain');
-    }
-
-    if (domainStatus === 'success' && domainName) {
-      toast({
-        title: 'Payment Successful!',
-        description: `Payment for ${domainName} received. Domain registration is being processed and will be ready shortly.`,
-      });
-      window.history.replaceState({}, '', window.location.pathname);
-    } else if (domainStatus === 'cancelled') {
-      toast({
-        variant: 'destructive',
-        title: 'Payment Cancelled',
-        description: 'Domain purchase was cancelled. No payment was made.',
-      });
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-  }, []);
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
