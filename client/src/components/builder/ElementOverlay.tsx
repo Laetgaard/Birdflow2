@@ -445,6 +445,14 @@ export default function ElementOverlay({
     }
   }, [selectElement, elementStyles, enableTextEditing, enableButtonTextEditing]);
 
+  // Clear element-level selection when field editing starts to avoid
+  // CanvaSelectionBox conflicting with EditableText's contentEditable
+  useEffect(() => {
+    if (isFieldEditing) {
+      deselectElement();
+    }
+  }, [isFieldEditing, deselectElement]);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
@@ -459,15 +467,23 @@ export default function ElementOverlay({
       if (target.closest('[data-section-insert-point]')) return;
       if (target.closest('[contenteditable="true"]')) return;
 
-      // If clicking inside an already-selected component, let React handle it.
-      // EditableText's onClick will call onEdit(field), and the section's onClick
-      // will re-select the component (harmless no-op). This avoids depending on
-      // resolveElementAtPoint's type detection for editing behavior.
+      // If clicking inside an already-selected component, proactively trigger
+      // field editing for editable text elements, then let React handle the rest.
       if (selectedComponentId) {
         const clickedComponent = target.closest('[data-component-id]');
         const clickedComponentId = clickedComponent?.getAttribute('data-component-id');
         if (clickedComponentId === selectedComponentId) {
-          return; // Let React bubble handle it
+          // Proactively trigger field editing for editable text elements
+          const editableField = target.closest('[data-editable-field]') as HTMLElement | null;
+          if (editableField && onFieldEdit) {
+            const field = editableField.getAttribute('data-editable-field');
+            if (field) {
+              onFieldEdit(clickedComponentId, field);
+              // Clear element-level selection to avoid CanvaSelectionBox conflict
+              deselectElement();
+            }
+          }
+          return; // Let React handle non-editable clicks
         }
       }
 
@@ -492,12 +508,34 @@ export default function ElementOverlay({
       if (overlayRef.current?.contains(target)) return;
       if (target.closest('[data-section-insert-point]')) return;
 
-      // If inside already-selected component, let EditableText's handleDoubleClick fire
+      // If inside already-selected component, try to enter field editing directly
       if (selectedComponentId) {
         const clickedComponent = target.closest('[data-component-id]');
         const clickedComponentId = clickedComponent?.getAttribute('data-component-id');
         if (clickedComponentId === selectedComponentId) {
-          return;
+          // Try data-editable-field first
+          const editableField = target.closest('[data-editable-field]') as HTMLElement | null;
+          if (editableField && onFieldEdit) {
+            const field = editableField.getAttribute('data-editable-field');
+            if (field) {
+              e.stopPropagation();
+              onFieldEdit(clickedComponentId, field);
+              deselectElement();
+              return;
+            }
+          }
+          // For non-editable-field elements, try inferring field from DOM position
+          const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
+          if (resolved && (resolved.type === 'text' || resolved.type === 'button') && onFieldEdit) {
+            const inferredField = inferTextPropKey(resolved.element, resolved.componentId);
+            if (inferredField) {
+              e.stopPropagation();
+              onFieldEdit(resolved.componentId, inferredField);
+              deselectElement();
+              return;
+            }
+          }
+          return; // Let React handle it
         }
       }
 
@@ -544,7 +582,7 @@ export default function ElementOverlay({
       container.removeEventListener('click', handleContainerClick, true);
       container.removeEventListener('dblclick', handleContainerDblClick, true);
     };
-  }, [allDetectedElements, handleElementSelect, isEditing, isFieldEditing, containerRef, onComponentSelect, onFieldEdit, selectedComponentId]);
+  }, [allDetectedElements, handleElementSelect, isEditing, isFieldEditing, containerRef, onComponentSelect, onFieldEdit, selectedComponentId, deselectElement, inferTextPropKey]);
 
   useEffect(() => {
     if (!containerRef.current) return;
