@@ -36,17 +36,17 @@ export function generatePackageJson(siteName: string): string {
       start: 'next start',
     },
     dependencies: {
-      next: '^14.0.0',
-      react: '^18.0.0',
-      'react-dom': '^18.0.0',
-      '@supabase/supabase-js': '^2.0.0',
-      stripe: '^14.0.0',
+      next: '14.2.20',
+      react: '^18.2.0',
+      'react-dom': '^18.2.0',
+      '@supabase/supabase-js': '^2.45.0',
+      stripe: '^14.25.0',
     },
     devDependencies: {
-      typescript: '^5.0.0',
-      '@types/node': '^20.0.0',
-      '@types/react': '^18.0.0',
-      '@types/react-dom': '^18.0.0',
+      typescript: '^5.3.0',
+      '@types/node': '^20.11.0',
+      '@types/react': '^18.2.0',
+      '@types/react-dom': '^18.2.0',
     },
   }, null, 2);
 }
@@ -109,6 +109,8 @@ STRIPE_SECRET_KEY=your-stripe-secret-key
 export function generateBookingApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BIRDFLOW_API_URL = process.env.NEXT_PUBLIC_BIRDFLOW_API_URL || '';
@@ -133,33 +135,16 @@ async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string
     .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
     .limit(1)
     .single();
-
+  
   if (exactMatch) {
     return exactMatch.id;
   }
-
-  // Strategy 2: Check custom_domains table
-  try {
-    const { data: domainMatch } = await supabase
-      .from('custom_domains')
-      .select('website_id')
-      .eq('domain', normalizedHost)
-      .eq('status', 'active')
-      .limit(1)
-      .single();
-
-    if (domainMatch?.website_id) {
-      return domainMatch.website_id;
-    }
-  } catch (e) {
-    // Continue to other strategies
-  }
-
-  // Strategy 3: Slug-based lookup for recognized domain patterns only
+  
+  // Strategy 2: Slug-based lookup for recognized domain patterns only
   // Only extract slug from known patterns to prevent cross-tenant routing
   const parts = normalizedHost.split('.');
   let slug: string | null = null;
-
+  
   // Pattern 1: slug.bird-flow.com (legacy subdomain pattern)
   if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
     slug = parts[0];
@@ -168,7 +153,7 @@ async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string
   else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
     slug = parts[0];
   }
-
+  
   if (slug) {
     const { data: slugMatch } = await supabase
       .from('websites')
@@ -176,12 +161,12 @@ async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string
       .eq('slug', slug)
       .limit(1)
       .single();
-
+    
     if (slugMatch) {
       return slugMatch.id;
     }
   }
-
+  
   // No match found - use build-time ID
   // This is safe because each deployed site has its own correct ID baked in
   console.log('No website match for host:', normalizedHost, 'using build-time ID');
@@ -289,6 +274,8 @@ export async function POST(request: NextRequest) {
 export function generateBookingServicesApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
@@ -378,6 +365,8 @@ export async function GET(request: NextRequest) {
 
 export function generateFormSubmissionApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -473,6 +462,8 @@ export async function POST(request: NextRequest) {
 
 export function generateAvailabilityApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -642,6 +633,8 @@ export async function GET(request: NextRequest) {
 export function generateSlotsApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
@@ -801,6 +794,8 @@ export async function GET(request: NextRequest) {
 export function generateCheckoutApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -943,6 +938,8 @@ export async function POST(request: NextRequest) {
 export function generateCheckoutValidateApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const WEBSITE_ID = '${websiteId}';
@@ -1084,6 +1081,8 @@ export async function POST(request: NextRequest) {
 
 export function generateCheckoutConfirmApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -1282,7 +1281,8 @@ export async function POST(request: NextRequest) {
 
 export function generateStripeWebhookApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
-import { headers } from 'next/headers';
+
+export const dynamic = 'force-dynamic';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -1303,8 +1303,7 @@ export async function POST(request: NextRequest) {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     const body = await request.text();
-    const headersList = await headers();
-    const sig = headersList.get('stripe-signature') || '';
+    const sig = request.headers.get('stripe-signature') || '';
 
     let event;
     try {
@@ -1407,7 +1406,7 @@ export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ i
   const normalizedHost = hostname.replace(/^www\\./, '').split(':')[0];
   const urlToMatch = \`https://\${normalizedHost}\`;
   const urlWithWww = \`https://www.\${normalizedHost}\`;
-
+  
   // Strategy 1: Try exact deployment_url match (with and without www)
   const { data: exactMatch } = await supabase
     .from('websites')
@@ -1415,40 +1414,15 @@ export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ i
     .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
     .limit(1)
     .single();
-
+  
   if (exactMatch) {
     return exactMatch;
   }
-
-  // Strategy 2: Check custom_domains table for this hostname
-  try {
-    const { data: domainMatch } = await supabase
-      .from('custom_domains')
-      .select('website_id')
-      .eq('domain', normalizedHost)
-      .eq('status', 'active')
-      .limit(1)
-      .single();
-
-    if (domainMatch?.website_id) {
-      const { data: websiteData } = await supabase
-        .from('websites')
-        .select('id, name')
-        .eq('id', domainMatch.website_id)
-        .single();
-
-      if (websiteData) {
-        return websiteData;
-      }
-    }
-  } catch (e) {
-    // custom_domains table may not be accessible with anon key - continue to other strategies
-  }
-
-  // Strategy 3: Slug-based lookup for recognized domain patterns only
+  
+  // Strategy 2: Slug-based lookup for recognized domain patterns only
   const parts = normalizedHost.split('.');
   let slug: string | null = null;
-
+  
   // Pattern 1: slug.bird-flow.com (legacy subdomain pattern)
   if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
     slug = parts[0];
@@ -1457,7 +1431,7 @@ export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ i
   else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
     slug = parts[0];
   }
-
+  
   if (slug) {
     const { data: slugMatch } = await supabase
       .from('websites')
@@ -1465,12 +1439,12 @@ export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ i
       .eq('slug', slug)
       .limit(1)
       .single();
-
+    
     if (slugMatch) {
       return slugMatch;
     }
   }
-
+  
   console.log('No website found for host:', normalizedHost);
   return null;
 }
@@ -1538,20 +1512,13 @@ export function WebsiteProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
-
     async function detectWebsite() {
       try {
         const hostname = window.location.hostname;
-
+        
         if (shouldDetectWebsite(hostname)) {
-          // Add timeout to prevent hanging if Supabase is unreachable
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
-          const website = await Promise.race([
-            fetchWebsiteByDeploymentUrl(hostname),
-            timeoutPromise,
-          ]);
-          if (website && !cancelled) {
+          const website = await fetchWebsiteByDeploymentUrl(hostname);
+          if (website) {
             setWebsiteIdState(website.id);
             setWebsiteName(website.name);
             setRuntimeWebsiteId(website.id);
@@ -1560,15 +1527,11 @@ export function WebsiteProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         console.error('Failed to detect website:', error);
       } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       }
     }
 
     detectWebsite();
-
-    return () => { cancelled = true; };
   }, []);
 
   return (
@@ -3968,7 +3931,7 @@ function ComparisonTableSection({ props, styles }: { props: ComponentProps; styl
               <tr>
                 <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600 }}>Feature</th>
                 {tableColumns.map((col: any, i: number) => (
-                  <th key={i} style={{ padding: '16px', textAlign: 'center', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600, color: accentColor }}>{col}</th>
+                  <th key={col.id || i} style={{ padding: '16px', textAlign: 'center', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600, color: col.highlighted ? accentColor : 'inherit', backgroundColor: col.highlighted ? hexToRgba(accentColor, 0.05) : 'transparent' }}>{typeof col === 'string' ? col : (col.label || col.name || '')}</th>
                 ))}
               </tr>
             </thead>
@@ -5815,6 +5778,8 @@ import ProductGrid from '@/components/ProductGrid';`;
   
   return `${componentsImport}
 
+export const dynamic = 'force-dynamic';
+
 const pageComponents = ${componentsJson};
 const sitePages = ${pagesJson};
 
@@ -5842,6 +5807,8 @@ export default function Page() {
 
 export function generateProductApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -7309,6 +7276,8 @@ export default function CheckoutPage() {
 export function generateOrderApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BUILD_TIME_WEBSITE_ID = '${websiteId}';
@@ -7436,6 +7405,8 @@ export async function POST(request: NextRequest) {
 export function generateShippingMethodsApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+
+export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';

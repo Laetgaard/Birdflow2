@@ -29,7 +29,7 @@ import {
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
+import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability } from "./publisher/vercel";
 import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { emailService } from "./email/service";
@@ -2113,19 +2113,6 @@ export async function registerRoutes(
       }
       console.log('[Publish] Using BirdFlow API URL:', birdflowApiUrl);
 
-      // Check for active custom domains to include in deployment
-      let activeCustomDomain: string | undefined;
-      try {
-        const customDomains = await storage.getCustomDomains(req.params.id);
-        const activeDomain = customDomains.find(d => d.status === 'active');
-        if (activeDomain) {
-          activeCustomDomain = activeDomain.domain;
-          console.log('[Publish] Including active custom domain:', activeCustomDomain);
-        }
-      } catch (domainErr) {
-        console.error('[Publish] Failed to fetch custom domains:', domainErr);
-      }
-
       const result = await publishWebsite({
         websiteId: req.params.id,
         siteName: website.name,
@@ -2138,31 +2125,60 @@ export async function registerRoutes(
         stripeWebhookSecret,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
-        customDomain: activeCustomDomain,
         birdflowApiUrl,
       });
 
       if (result.success) {
-        // If there's an active custom domain, preserve it as the deployment URL
-        const deploymentUrl = activeCustomDomain
-          ? `https://${activeCustomDomain}`
-          : result.deploymentUrl;
+        let finalDeploymentUrl = result.deploymentUrl;
+
+        // Sync connected custom domains to Vercel project
+        try {
+          const domains = await storage.getCustomDomains(req.params.id);
+          const activeDomains = domains.filter(d => d.status === 'active');
+          if (activeDomains.length > 0 && vercelToken) {
+            const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+            const vercelConfig = { token: vercelToken, teamId: process.env.VERCEL_TEAM_ID };
+            let verifiedDomain: string | null = null;
+            for (const domain of activeDomains) {
+              try {
+                const domainResult = await addCustomDomain(projectName, domain.domain, vercelConfig);
+                if (domainResult.success) {
+                  console.log(`[Publish] Custom domain ${domain.domain} added to Vercel project`);
+                  if (!verifiedDomain) verifiedDomain = domain.domain;
+                } else if (domainResult.error?.includes('already in use')) {
+                  console.log(`[Publish] Custom domain ${domain.domain} already on Vercel project`);
+                  if (!verifiedDomain) verifiedDomain = domain.domain;
+                } else {
+                  console.warn(`[Publish] Failed to add domain ${domain.domain}: ${domainResult.error}`);
+                }
+              } catch (domainErr) {
+                console.error(`[Publish] Error adding domain ${domain.domain}:`, domainErr);
+              }
+            }
+            if (verifiedDomain) {
+              finalDeploymentUrl = `https://${verifiedDomain}`;
+              console.log(`[Publish] Using custom domain as deployment URL: ${finalDeploymentUrl}`);
+            }
+          }
+        } catch (domainErr) {
+          console.error(`[Publish] Error syncing custom domains:`, domainErr);
+        }
 
         await storage.updateWebsite(req.params.id, user.id, {
           status: 'published',
-          deploymentUrl,
+          deploymentUrl: finalDeploymentUrl,
           deploymentId: result.deploymentId,
         } as any);
 
         // Send website published notification email
         try {
           const ownerProfile = await storage.getProfile(user.id);
-          if (ownerProfile?.email && deploymentUrl) {
+          if (ownerProfile?.email && finalDeploymentUrl) {
             await emailService.sendWebsitePublished(
               ownerProfile.email,
               req.params.id,
               website.name,
-              deploymentUrl
+              finalDeploymentUrl
             );
             console.log(`Website published email sent to ${ownerProfile.email}`);
           }
@@ -2172,7 +2188,7 @@ export async function registerRoutes(
 
         res.json({
           success: true,
-          deploymentUrl,
+          deploymentUrl: finalDeploymentUrl,
           message: stripeWarning ? `Website published successfully. Warning: ${stripeWarning}` : "Website published successfully",
           warning: stripeWarning,
         });
@@ -3276,24 +3292,13 @@ export async function registerRoutes(
       const verifyResult = await verifyDomainConfig(projectName, domain.domain, vercelConfig);
       
       if (verifyResult.configured) {
-        await storage.updateCustomDomain(domain.id, req.params.id, {
+        await storage.updateCustomDomain(domain.id, req.params.id, { 
           status: 'active',
           errorMessage: null
         } as any);
-
-        // Update the website's deployment_url to the custom domain so hostname detection works
-        try {
-          const customDomainUrl = `https://${domain.domain}`;
-          await storage.updateWebsite(req.params.id, (req as any).user.id, {
-            deploymentUrl: customDomainUrl,
-          } as any);
-          console.log(`[Domains] Updated deployment_url to ${customDomainUrl} for website ${req.params.id}`);
-        } catch (updateErr) {
-          console.error(`[Domains] Failed to update deployment_url:`, updateErr);
-        }
-
-        return res.json({
-          verified: true,
+        
+        return res.json({ 
+          verified: true, 
           status: 'active',
           message: 'Domain is now active!'
         });
@@ -3353,55 +3358,6 @@ export async function registerRoutes(
 
   // ============ DOMAIN PURCHASE ROUTES ============
 
-  // Pre-check: verify Vercel token works and has domain capabilities
-  app.get("/api/domains/config-status", requireAuth, async (req, res) => {
-    try {
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
-        return res.json({
-          configured: false,
-          canPurchase: false,
-          error: 'VERCEL_TOKEN is not set. Domain purchasing requires a Vercel API token.',
-        });
-      }
-
-      const vercelConfig = {
-        token: vercelToken,
-        teamId: process.env.VERCEL_TEAM_ID,
-      };
-
-      // Test the token by checking a known domain's availability
-      const { checkDomainAvailability: checkAvail } = await import('./publisher/vercel');
-      try {
-        await checkAvail('example.com', vercelConfig);
-        return res.json({
-          configured: true,
-          canPurchase: true,
-        });
-      } catch (err: any) {
-        const msg = err.message || '';
-        if (msg.includes('not properly configured') || msg.includes('forbidden') || msg.includes('unauthorized')) {
-          return res.json({
-            configured: true,
-            canPurchase: false,
-            error: 'Vercel token does not have domain management permissions. Ensure the token has the correct scopes and the Vercel account has billing enabled.',
-          });
-        }
-        return res.json({
-          configured: true,
-          canPurchase: true,
-        });
-      }
-    } catch (error: any) {
-      console.error('Domain config status check error:', error);
-      res.json({
-        configured: false,
-        canPurchase: false,
-        error: 'Failed to verify domain service configuration.',
-      });
-    }
-  });
-
   // Check domain availability and pricing
   app.get("/api/websites/:id/domains/check-availability", requireAuth, async (req, res) => {
     try {
@@ -3424,13 +3380,13 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
-        return res.status(400).json({ message: "Domain service is not configured. A Vercel token is required for domain registration. Please add VERCEL_TOKEN to your environment variables." });
+      const registrarToken = process.env.VERCEL_REGISTRAR_TOKEN || process.env.VERCEL_TOKEN;
+      if (!registrarToken) {
+        return res.status(400).json({ message: "Domain service is not configured. A Vercel token is required for domain registration. Please add VERCEL_REGISTRAR_TOKEN to your environment variables." });
       }
 
       const vercelConfig = {
-        token: vercelToken,
+        token: registrarToken,
         teamId: process.env.VERCEL_TEAM_ID,
       };
 
@@ -3443,10 +3399,10 @@ export async function registerRoutes(
     }
   });
 
-  // Purchase a domain and optionally connect it to the website
+  // Create Stripe Checkout session for domain purchase
   app.post("/api/websites/:id/domains/purchase", requireAuth, async (req, res) => {
     try {
-      const { domain, connectToWebsite } = req.body;
+      const { domain, connectToWebsite, contactInfo, expectedPrice, years } = req.body;
       if (!domain || typeof domain !== 'string') {
         return res.status(400).json({ message: "Domain name is required" });
       }
@@ -3454,6 +3410,10 @@ export async function registerRoutes(
       const domainStr = domain.trim().toLowerCase();
       if (!domainStr.includes('.') || domainStr.length < 4) {
         return res.status(400).json({ message: "Please enter a valid domain name" });
+      }
+
+      if (!contactInfo || !contactInfo.firstName || !contactInfo.lastName || !contactInfo.email || !contactInfo.phone || !contactInfo.address1 || !contactInfo.city || !contactInfo.country || !contactInfo.zip) {
+        return res.status(400).json({ message: "Contact information is required for domain registration. Please fill in all required fields." });
       }
 
       const website = await storage.getWebsite(req.params.id);
@@ -3464,91 +3424,92 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
-        return res.status(400).json({
-          message: "Domain purchase requires a VERCEL_TOKEN. Please add it to your environment variables.",
-          actionRequired: 'vercel_token',
-        });
-      }
-
-      const vercelConfig = {
-        token: vercelToken,
-        teamId: process.env.VERCEL_TEAM_ID,
-      };
-
-      // Check if domain is already in our database
       const existingDomain = await storage.getCustomDomainByDomain(domainStr);
       if (existingDomain) {
         return res.status(400).json({ message: "This domain is already registered in the system." });
       }
 
-      // Step 1: Purchase the domain through Vercel
-      const purchaseResult = await purchaseDomain(domainStr, vercelConfig);
-      if (!purchaseResult.success) {
-        const isBillingIssue = purchaseResult.error?.toLowerCase().includes('billing') ||
-          purchaseResult.error?.toLowerCase().includes('payment');
-        return res.status(400).json({
-          message: purchaseResult.error || "Failed to purchase domain",
-          actionRequired: isBillingIssue ? 'vercel_billing' : undefined,
-          help: isBillingIssue
-            ? 'Please add a payment method to your Vercel account at vercel.com/account/billing and ensure you are on a Pro or Enterprise plan.'
-            : undefined,
-        });
+      const registrarToken = process.env.VERCEL_REGISTRAR_TOKEN || process.env.VERCEL_TOKEN;
+      if (!registrarToken) {
+        return res.status(400).json({ message: "Domain purchase requires a VERCEL_REGISTRAR_TOKEN. Please add it to your environment variables." });
       }
 
-      // Determine DNS configuration (used for both connected and unconnected)
-      const domainParts = domainStr.split('.');
-      const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
-      const dnsType = isSubdomain ? 'CNAME' : 'A';
-      const dnsName = isSubdomain ? domainParts[0] : '@';
-      const dnsValue = isSubdomain ? 'cname.vercel-dns.com' : '76.76.21.21';
-
-      // Step 2: If connectToWebsite is true, also add it to the website's Vercel project
-      const shouldConnect = connectToWebsite && website.deploymentUrl;
-      let connectSuccess = false;
-      let projectName: string | undefined;
-
-      if (shouldConnect) {
-        projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-
-        try {
-          const addResult = await addCustomDomain(projectName, domainStr, vercelConfig);
-          connectSuccess = addResult.success;
-          if (!addResult.success) {
-            console.error('Failed to auto-connect domain to project:', addResult.error);
-          }
-        } catch (addErr: any) {
-          console.error('Failed to auto-connect domain to project:', addErr);
-        }
+      const vercelConfig = { token: registrarToken, teamId: process.env.VERCEL_TEAM_ID };
+      const availabilityResult = await checkDomainAvailability(domainStr, vercelConfig);
+      if (!availabilityResult.available) {
+        return res.status(400).json({ message: "This domain is no longer available." });
       }
 
-      // Step 3: Always create a domain record in our database
-      const customDomain = await storage.createCustomDomain({
+      const serverPrice = availabilityResult.purchasePrice;
+      if (!serverPrice || serverPrice <= 0) {
+        return res.status(400).json({ message: "Unable to determine domain price. Please try again." });
+      }
+
+      const priceCents = Math.round(serverPrice * 100);
+
+      const domainPurchase = await storage.createDomainPurchase({
         websiteId: req.params.id,
+        userId: (req as any).user.id,
         domain: domainStr,
-        status: connectSuccess ? 'verifying' : 'pending',
-        vercelProjectId: projectName || null,
-        dnsType,
-        dnsName,
-        dnsValue,
+        status: 'pending',
+        priceCents,
+        currency: 'USD',
+        years: years || 1,
+        contactInfo: {
+          firstName: contactInfo.firstName,
+          lastName: contactInfo.lastName,
+          email: contactInfo.email,
+          phone: contactInfo.phone,
+          address1: contactInfo.address1,
+          address2: contactInfo.address2 || undefined,
+          city: contactInfo.city,
+          state: contactInfo.state || undefined,
+          zip: contactInfo.zip,
+          country: contactInfo.country,
+        },
+        connectToWebsite: !!(connectToWebsite && website.deploymentUrl),
       });
 
-      res.status(201).json({
-        success: true,
-        purchased: true,
-        alreadyOwned: purchaseResult.alreadyOwned || false,
-        connected: connectSuccess,
-        domain: customDomain,
-        message: connectSuccess
-          ? "Domain purchased and connected! DNS will be configured automatically."
-          : purchaseResult.alreadyOwned
-            ? "Domain is already in your Vercel account and has been added to your website."
-            : "Domain purchased successfully! You can connect it to your website from the Custom Domains section.",
+      const stripe = await getUncachableStripeClient();
+
+      const origin = `${req.protocol}://${req.get('host')}`;
+
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `Domain Registration: ${domainStr}`,
+              description: `${years || 1}-year registration for ${domainStr}`,
+            },
+            unit_amount: priceCents,
+          },
+          quantity: 1,
+        }],
+        metadata: {
+          type: 'domain_purchase',
+          domainPurchaseId: domainPurchase.id,
+          domain: domainStr,
+          websiteId: req.params.id,
+        },
+        success_url: `${origin}/manage/${req.params.id}?tab=domain&domain_status=success&domain=${encodeURIComponent(domainStr)}`,
+        cancel_url: `${origin}/manage/${req.params.id}?tab=domain&domain_status=cancelled`,
+        customer_email: contactInfo.email,
+      });
+
+      await storage.updateDomainPurchase(domainPurchase.id, {
+        stripeSessionId: session.id,
+      });
+
+      res.json({
+        checkoutUrl: session.url,
+        sessionId: session.id,
       });
     } catch (error: any) {
-      console.error('Domain purchase error:', error);
-      const message = error.message || 'Failed to purchase domain';
+      console.error('Domain purchase checkout error:', error);
+      const message = error.message || 'Failed to create checkout session';
       res.status(500).json({ message });
     }
   });
@@ -3594,7 +3555,7 @@ export async function registerRoutes(
         name,
         description: description || null,
         priceAmount: priceAmount ?? 0,
-        currency: currency || "USD",
+        currency: currency || "DKK",
         deliveryTime: deliveryTime || null,
         isActive: isActive ?? true,
         sortOrder: sortOrder ?? 0

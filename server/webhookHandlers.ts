@@ -1,6 +1,7 @@
 import { getStripeSync } from './stripeClient';
 import { storage } from './storage';
 import { emailService } from './email/service';
+import { purchaseDomain, addCustomDomain, type DomainContactInfo } from './publisher/vercel';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -84,6 +85,82 @@ export class WebhookHandlers {
             }
           } else {
             console.log(`[Stripe Webhook] No order found for session ${sessionId}`);
+          }
+
+          if (session?.metadata?.type === 'domain_purchase' && session?.payment_status === 'paid') {
+            console.log(`[Stripe Webhook] Processing domain purchase for session ${sessionId}`);
+            const domainPurchase = await storage.getDomainPurchaseByStripeSessionId(sessionId);
+            if (domainPurchase && domainPurchase.status === 'pending') {
+              await storage.updateDomainPurchase(domainPurchase.id, {
+                status: 'paid',
+                stripePaymentIntentId: session.payment_intent || undefined,
+              });
+              console.log(`[Stripe Webhook] Domain purchase ${domainPurchase.id} marked as paid, starting registration...`);
+
+              try {
+                await storage.updateDomainPurchase(domainPurchase.id, { status: 'registering' });
+
+                const registrarToken = process.env.VERCEL_REGISTRAR_TOKEN || process.env.VERCEL_TOKEN;
+                if (!registrarToken) {
+                  throw new Error('VERCEL_REGISTRAR_TOKEN not configured');
+                }
+
+                const vercelConfig = { token: registrarToken, teamId: process.env.VERCEL_TEAM_ID };
+                const contact = domainPurchase.contactInfo as DomainContactInfo;
+
+                const purchaseResult = await purchaseDomain(
+                  domainPurchase.domain,
+                  vercelConfig,
+                  contact,
+                  domainPurchase.priceCents / 100,
+                  domainPurchase.years
+                );
+
+                if (!purchaseResult.success) {
+                  console.error(`[Stripe Webhook] Vercel domain registration failed for "${domainPurchase.domain}":`, purchaseResult.error);
+                  throw new Error(purchaseResult.error || 'Vercel domain registration failed');
+                }
+
+                console.log(`[Stripe Webhook] Domain ${domainPurchase.domain} registered successfully via Vercel`);
+
+                if (domainPurchase.connectToWebsite) {
+                  const website = await storage.getWebsite(domainPurchase.websiteId);
+                  if (website?.deploymentUrl) {
+                    const projectName = `site-${domainPurchase.websiteId}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                    try {
+                      await addCustomDomain(projectName, domainPurchase.domain, vercelConfig);
+                    } catch (addErr: any) {
+                      console.error('[Stripe Webhook] Failed to auto-connect domain:', addErr);
+                    }
+
+                    const domainParts = domainPurchase.domain.split('.');
+                    const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
+
+                    await storage.createCustomDomain({
+                      websiteId: domainPurchase.websiteId,
+                      domain: domainPurchase.domain,
+                      status: 'verifying',
+                      vercelProjectId: projectName,
+                      dnsType: isSubdomain ? 'CNAME' : 'A',
+                      dnsName: isSubdomain ? domainParts[0] : '@',
+                      dnsValue: isSubdomain ? 'cname.vercel-dns.com' : '76.76.21.21',
+                    });
+                  }
+                }
+
+                await storage.updateDomainPurchase(domainPurchase.id, {
+                  status: 'completed',
+                  completedAt: new Date(),
+                });
+                console.log(`[Stripe Webhook] Domain purchase ${domainPurchase.id} completed`);
+              } catch (regErr: any) {
+                console.error(`[Stripe Webhook] Domain registration failed:`, regErr);
+                await storage.updateDomainPurchase(domainPurchase.id, {
+                  status: 'failed',
+                  errorMessage: regErr.message || 'Domain registration failed after payment',
+                });
+              }
+            }
           }
         }
       }
