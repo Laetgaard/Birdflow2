@@ -457,7 +457,7 @@ export default function DIYPage() {
               asChild
               size="sm"
               className="hidden sm:inline-flex"
-              style={{ background: "var(--bf-ink)", color: "#FFFCF6" }}
+              style={{ background: "var(--bf-accent)", color: "#FFFCF6" }}
               data-testid="button-cta-header"
             >
               <Link href="/auth?mode=signup&plan=basic">Start gratis</Link>
@@ -512,7 +512,7 @@ export default function DIYPage() {
                 <Button
                   asChild
                   className="w-full"
-                  style={{ background: "var(--bf-ink)", color: "#FFFCF6" }}
+                  style={{ background: "var(--bf-accent)", color: "#FFFCF6" }}
                 >
                   <Link
                     href="/auth?mode=signup&plan=basic"
@@ -589,9 +589,9 @@ export default function DIYPage() {
                         size="lg"
                         className="h-14 px-8 text-base font-semibold rounded-full hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group"
                         style={{
-                          background: "var(--bf-ink)",
+                          background: "var(--bf-accent)",
                           color: "#FFFCF6",
-                          boxShadow: "0 18px 40px -16px rgba(21,22,27,0.45)",
+                          boxShadow: "0 18px 40px -16px rgba(0,82,255,0.45)",
                         }}
                         data-testid="button-diy-start-trial"
                       >
@@ -1111,9 +1111,9 @@ export default function DIYPage() {
                     size="lg"
                     className="h-14 px-8 text-base font-semibold rounded-full hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group w-full sm:w-auto"
                     style={{
-                      background: "var(--bf-ink)",
+                      background: "var(--bf-accent)",
                       color: "#FFFCF6",
-                      boxShadow: "0 18px 40px -16px rgba(21,22,27,0.45)",
+                      boxShadow: "0 18px 40px -16px rgba(0,82,255,0.45)",
                     }}
                     data-testid="button-diy-pricing-cta"
                   >
@@ -1254,9 +1254,9 @@ export default function DIYPage() {
               size="lg"
               className="h-14 px-10 text-base font-semibold rounded-full hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group"
               style={{
-                background: "var(--bf-ink)",
+                background: "var(--bf-accent)",
                 color: "#FFFCF6",
-                boxShadow: "0 18px 40px -16px rgba(21,22,27,0.45)",
+                boxShadow: "0 18px 40px -16px rgba(0,82,255,0.45)",
               }}
               data-testid="button-diy-final-cta"
             >

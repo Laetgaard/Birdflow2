@@ -241,7 +241,7 @@ export default function LandingPage() {
             <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex hover:bg-[color:var(--bf-cream)]" data-testid="button-signin">
               <Link href="/auth?mode=signin">Log ind</Link>
             </Button>
-            <Button asChild size="sm" className="hidden sm:inline-flex" style={{ background: "var(--bf-ink)", color: "#FFFCF6" }} data-testid="button-cta-header">
+            <Button asChild size="sm" className="hidden sm:inline-flex" style={{ background: "var(--bf-accent)", color: "#FFFCF6" }} data-testid="button-cta-header">
               <a href="#kontakt">Få en snak</a>
             </Button>
             <button
@@ -287,7 +287,7 @@ export default function LandingPage() {
                 <Button asChild variant="outline" className="w-full">
                   <Link href="/auth?mode=signin" onClick={() => setMobileMenuOpen(false)}>Log ind</Link>
                 </Button>
-                <Button asChild className="w-full" style={{ background: "var(--bf-ink)", color: "#FFFCF6" }}>
+                <Button asChild className="w-full" style={{ background: "var(--bf-accent)", color: "#FFFCF6" }}>
                   <a href="#kontakt" onClick={() => setMobileMenuOpen(false)}>
                     Få en snak <ArrowRight className="ml-2 w-4 h-4" />
                   </a>
@@ -347,7 +347,7 @@ export default function LandingPage() {
                         asChild
                         size="lg"
                         className="h-14 px-8 text-base font-semibold rounded-full hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group"
-                        style={{ background: "var(--bf-ink)", color: "#FFFCF6", boxShadow: "0 18px 40px -16px rgba(21,22,27,0.45)" }}
+                        style={{ background: "var(--bf-accent)", color: "#FFFCF6", boxShadow: "0 18px 40px -16px rgba(0,82,255,0.45)" }}
                         data-testid="button-cta-hero"
                       >
                         <a href="#kontakt">
@@ -386,19 +386,14 @@ export default function LandingPage() {
                   </div>
                 </motion.div>
 
-                {/* Right: iPhone mockup with floating chip */}
+                {/* Right: 3D psychology website with floating glass components */}
                 <motion.div
                   initial={reduceMotion ? false : { opacity: 0, y: 24 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.7, delay: 0.15 }}
-                  className="lg:col-span-5 hidden md:flex justify-center relative"
+                  className="lg:col-span-5 hidden md:flex justify-center items-center relative py-10"
                 >
-                  <IPhoneMockup />
-                  {/* floating accent chip */}
-                  <div className="absolute top-6 -left-4 lg:-left-2 bf-glass-chip rounded-full px-3.5 py-2 flex items-center gap-2 z-10">
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#16a34a" }} />
-                    <span className="text-[11px] font-semibold" style={{ color: "var(--bf-ink)" }}>Booking modtaget</span>
-                  </div>
+                  <Psychology3DHero />
                 </motion.div>
               </div>
             </div>
@@ -432,6 +427,72 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
+        </section>
+
+        {/* ═══════════════ 1.5 BOOKING & AUTO-SVAR ═══════════════ */}
+        <section id="booking-auto" className="relative" style={{ background: "#FFFCF6" }}>
+          <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 py-24 md:py-32">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+              {/* Left: copy */}
+              <ScrollReveal className="lg:col-span-7 order-2 lg:order-1">
+                <div className="bf-eyebrow mb-5">
+                  <span><span className="bf-eyebrow-num">02</span>Booking & auto-svar</span>
+                </div>
+                <h2 className="font-editorial text-4xl md:text-5xl lg:text-6xl leading-[1.05] tracking-tight mb-6" style={{ color: "var(--bf-ink)" }} data-testid="text-booking-headline">
+                  Klienten booker.<br/>
+                  <span style={{ color: "var(--bf-accent)" }}>Du sover videre.</span>
+                </h2>
+                <p className="text-lg leading-relaxed mb-8 max-w-xl" style={{ color: "var(--bf-ink-soft)" }}>
+                  Vi sætter en online kalender op, der passer til din arbejdsdag — med automatiske bekræftelser
+                  og påmindelser, så du aldrig mister en aftale eller skal jage en mail-tråd.
+                </p>
+
+                <ul className="space-y-4 mb-10">
+                  {[
+                    { Icon: CalendarCheck, title: "Online kalender 24/7", desc: "Klienter ser kun de tider, du har åbne — ingen dobbeltbookinger." },
+                    { Icon: Mail, title: "Automatisk bekræftelse", desc: "Brand-mail sendes med ét klik efter booking — med dato, tid og praktisk info." },
+                    { Icon: Zap, title: "Påmindelser før mødet", desc: "SMS eller e-mail dagen før. Færre udeblivelser, mere ro." },
+                  ].map(({ Icon, title, desc }) => (
+                    <li key={title} className="flex items-start gap-4" data-testid={`row-booking-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+                      <div className="w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center" style={{ background: "rgba(0,82,255,0.08)", border: "1px solid rgba(0,82,255,0.18)" }}>
+                        <Icon className="w-5 h-5" style={{ color: "var(--bf-accent)" }} />
+                      </div>
+                      <div>
+                        <p className="font-semibold mb-0.5" style={{ color: "var(--bf-ink)" }}>{title}</p>
+                        <p className="text-sm leading-relaxed" style={{ color: "var(--bf-ink-soft)" }}>{desc}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+
+                <Button
+                  asChild
+                  size="lg"
+                  className="h-13 px-7 text-base font-semibold rounded-full hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group"
+                  style={{ background: "var(--bf-accent)", color: "#FFFCF6", boxShadow: "0 18px 40px -16px rgba(0,82,255,0.45)" }}
+                  data-testid="button-cta-booking"
+                >
+                  <a href="#kontakt">
+                    Få det opsat for dig
+                    <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                  </a>
+                </Button>
+              </ScrollReveal>
+
+              {/* Right: phone mockup */}
+              <ScrollReveal delay={0.1} className="lg:col-span-5 flex justify-center order-1 lg:order-2 relative">
+                <IPhoneMockup />
+                <div className="absolute -top-2 -right-2 lg:right-0 bf-glass-chip rounded-2xl px-3.5 py-2.5 z-10">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#16a34a" }} />
+                    <span className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: "var(--bf-muted)" }}>Auto-svar</span>
+                  </div>
+                  <p className="text-[11px] font-bold" style={{ color: "var(--bf-ink)" }}>Sendt til klienten</p>
+                </div>
+              </ScrollReveal>
+            </div>
+          </div>
+          <div style={{ borderTop: "1px solid var(--bf-line)" }} />
         </section>
 
         {/* ═══════════════ 2. SÅDAN ARBEJDER VI — TIMELINE ═══════════════ */}
@@ -508,7 +569,7 @@ export default function LandingPage() {
                       </span>
                     ))}
                   </div>
-                  <Button asChild className="mt-8 rounded-full" style={{ background: "var(--bf-ink)", color: "#FFFCF6" }} data-testid="button-cta-process">
+                  <Button asChild className="mt-8 rounded-full" style={{ background: "var(--bf-accent)", color: "#FFFCF6" }} data-testid="button-cta-process">
                     <a href="#kontakt">
                       Start med en gratis snak <ArrowRight className="ml-2 w-4 h-4" />
                     </a>
@@ -774,6 +835,167 @@ export default function LandingPage() {
   );
 }
 
+/* ─── 3D Psychology website mockup with floating glassmorphism ─── */
+function Psychology3DHero() {
+  const reduce = useReducedMotion();
+  const float = (delay: number, y: number) => ({
+    animate: reduce ? { y: 0 } : { y: [0, -y, 0] },
+    transition: reduce
+      ? { duration: 0 }
+      : { duration: 6, delay, repeat: Infinity, ease: "easeInOut" as const },
+  });
+
+  return (
+    <div className="relative w-full max-w-[460px]" style={{ perspective: "1400px" }} aria-hidden="true">
+      {/* 3D website */}
+      <div
+        className="relative rounded-[26px] overflow-hidden"
+        style={{
+          transform: "rotateY(-14deg) rotateX(8deg) rotateZ(-1.5deg)",
+          transformStyle: "preserve-3d",
+          background: "white",
+          boxShadow:
+            "0 60px 120px -40px rgba(21,22,27,0.35), 0 30px 60px -30px rgba(0,82,255,0.18), inset 0 1px 0 rgba(255,255,255,0.8)",
+          border: "1px solid rgba(21,22,27,0.06)",
+        }}
+      >
+        {/* browser chrome */}
+        <div
+          className="flex items-center gap-1.5 px-4 py-2.5"
+          style={{ background: "#F5F1E6", borderBottom: "1px solid var(--bf-line)" }}
+        >
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#FF5F57" }} />
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#FEBC2E" }} />
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#28C840" }} />
+          <span className="ml-3 text-[10px] font-medium" style={{ color: "var(--bf-muted)" }}>
+            klinikfindro.dk
+          </span>
+        </div>
+
+        {/* top nav */}
+        <div className="flex items-center justify-between px-6 py-3 bg-white" style={{ borderBottom: "1px solid var(--bf-line)" }}>
+          <span className="font-editorial italic text-base" style={{ color: "var(--bf-ink)" }}>
+            Find Ro
+          </span>
+          <div className="flex items-center gap-3 text-[9px]" style={{ color: "var(--bf-ink-soft)" }}>
+            <span>Om mig</span>
+            <span>Forløb</span>
+            <span>Priser</span>
+            <span
+              className="px-2.5 py-1 rounded-full font-semibold"
+              style={{ background: "var(--bf-accent)", color: "#FFFCF6" }}
+            >
+              Book tid
+            </span>
+          </div>
+        </div>
+
+        {/* hero content */}
+        <div className="relative" style={{ background: "linear-gradient(160deg, #F4EEE0 0%, #FBF7EE 100%)" }}>
+          <div className="px-6 pt-8 pb-7">
+            <p className="text-[9px] uppercase tracking-[0.18em] mb-3 font-semibold" style={{ color: "var(--bf-muted)" }}>
+              Aut. psykolog · Aarhus C
+            </p>
+            <h3 className="font-editorial text-2xl leading-[1.05] mb-3" style={{ color: "var(--bf-ink)" }}>
+              En tryg ramme<br />til de svære samtaler.
+            </h3>
+            <p className="text-[10px] leading-relaxed mb-4 max-w-[80%]" style={{ color: "var(--bf-ink-soft)" }}>
+              Individuelle samtaler om angst, stress og livskriser — i et roligt klinikrum i centrum.
+            </p>
+            <div className="flex items-center gap-2">
+              <span
+                className="text-[10px] font-semibold px-3 py-1.5 rounded-full"
+                style={{ background: "var(--bf-ink)", color: "#FFFCF6" }}
+              >
+                Book online →
+              </span>
+              <span
+                className="text-[10px] px-3 py-1.5 rounded-full"
+                style={{ border: "1px solid var(--bf-line-strong)", color: "var(--bf-ink)" }}
+              >
+                Læs mere
+              </span>
+            </div>
+          </div>
+
+          {/* image strip */}
+          <div className="px-6 pb-6 grid grid-cols-3 gap-2">
+            <div className="aspect-[3/4] rounded-lg" style={{ background: "linear-gradient(160deg,#C9B8A0,#A48E76)" }} />
+            <div className="aspect-[3/4] rounded-lg" style={{ background: "linear-gradient(160deg,#E8D9BD,#C9B8A0)" }} />
+            <div className="aspect-[3/4] rounded-lg" style={{ background: "linear-gradient(160deg,#D4C4A8,#B89F84)" }} />
+          </div>
+        </div>
+      </div>
+
+      {/* floating glass: booking */}
+      <motion.div
+        {...float(0, 8)}
+        className="absolute -top-5 -left-8 lg:-left-10 bf-glass-chip rounded-2xl px-3.5 py-2.5 flex items-center gap-2.5 z-20"
+      >
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center"
+          style={{ background: "rgba(0,82,255,0.12)" }}
+        >
+          <CalendarCheck className="w-4 h-4" style={{ color: "var(--bf-accent)" }} />
+        </div>
+        <div>
+          <p className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: "var(--bf-muted)" }}>
+            Ny booking
+          </p>
+          <p className="text-[11px] font-bold" style={{ color: "var(--bf-ink)" }}>
+            Tor 24/4 · 13:00
+          </p>
+        </div>
+      </motion.div>
+
+      {/* floating glass: auto-reply */}
+      <motion.div
+        {...float(1.2, 10)}
+        className="absolute top-[34%] -right-8 lg:-right-10 bf-glass-chip rounded-2xl px-3.5 py-2.5 z-20"
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#16a34a" }} />
+          <p className="text-[9px] uppercase tracking-wider font-semibold" style={{ color: "var(--bf-muted)" }}>
+            Auto-svar
+          </p>
+        </div>
+        <p className="text-[11px] font-semibold leading-tight" style={{ color: "var(--bf-ink)" }}>
+          Bekræftelse sendt
+        </p>
+      </motion.div>
+
+      {/* floating glass: stat */}
+      <motion.div
+        {...float(2, 6)}
+        className="absolute -bottom-6 -left-4 bf-glass-chip rounded-2xl px-3.5 py-2.5 z-20"
+      >
+        <p className="text-[9px] uppercase tracking-wider font-semibold mb-0.5" style={{ color: "var(--bf-muted)" }}>
+          Klienter denne uge
+        </p>
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-editorial text-2xl leading-none" style={{ color: "var(--bf-ink)" }}>
+            14
+          </span>
+          <span className="text-[10px] font-bold" style={{ color: "#16a34a" }}>
+            +3
+          </span>
+        </div>
+      </motion.div>
+
+      {/* floating glass: pill */}
+      <motion.div
+        {...float(0.6, 7)}
+        className="absolute -bottom-3 -right-2 bf-glass-chip rounded-full px-3 py-2 flex items-center gap-1.5 z-20"
+      >
+        <Sparkles className="w-3.5 h-3.5" style={{ color: "var(--bf-accent)" }} />
+        <span className="text-[10px] font-semibold" style={{ color: "var(--bf-ink)" }}>
+          Live på 5 dage
+        </span>
+      </motion.div>
+    </div>
+  );
+}
+
 /* ─── iPhone Mockup showing "Booking bekræftet" ─── */
 function IPhoneMockup() {
   return (
@@ -921,7 +1143,7 @@ function ContactForm() {
         size="lg"
         disabled={status === "sending"}
         className="w-full h-13 py-3.5 text-base font-semibold rounded-full hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 disabled:opacity-60"
-        style={{ background: "var(--bf-ink)", color: "#FFFCF6", boxShadow: "0 18px 40px -16px rgba(21,22,27,0.45)" }}
+        style={{ background: "var(--bf-accent)", color: "#FFFCF6", boxShadow: "0 18px 40px -16px rgba(0,82,255,0.45)" }}
         data-testid="button-submit"
       >
         {status === "sending" ? "Sender..." : "Bliv kontaktet"}
