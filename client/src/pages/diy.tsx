@@ -429,10 +429,17 @@ export default function DIYPage() {
             ))}
             <Link
               href="/"
-              className="relative py-1 inline-flex items-center gap-1.5 transition-colors hover:text-[color:var(--bf-ink)]"
+              className="relative py-1 inline-flex items-center gap-1.5 transition-colors hover:text-[color:var(--bf-accent)]"
               data-testid="link-dfy"
             >
+              <Sparkles className="w-3.5 h-3.5" style={{ color: "var(--bf-terra)" }} />
               <span style={{ color: "var(--bf-ink)" }}>Done-For-You</span>
+              <span
+                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-bold"
+                style={{ background: "rgba(196,90,59,0.10)", color: "var(--bf-terra)" }}
+              >
+                DFY
+              </span>
             </Link>
           </nav>
 
