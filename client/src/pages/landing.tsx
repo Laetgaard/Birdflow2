@@ -184,6 +184,7 @@ function ScrollReveal({
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [creators, setCreators] = useState<number | null>(null);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     let mounted = true;
@@ -319,7 +320,7 @@ export default function LandingPage() {
 
                 {/* Left: editorial content card (refined glass) */}
                 <motion.div
-                  initial={{ opacity: 0, y: 16 }}
+                  initial={reduceMotion ? false : { opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.7, ease: [0.25, 0.1, 0.25, 1] }}
                   className="lg:col-span-7"
@@ -387,7 +388,7 @@ export default function LandingPage() {
 
                 {/* Right: iPhone mockup with floating chip */}
                 <motion.div
-                  initial={{ opacity: 0, y: 24 }}
+                  initial={reduceMotion ? false : { opacity: 0, y: 24 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.7, delay: 0.15 }}
                   className="lg:col-span-5 hidden md:flex justify-center relative"
