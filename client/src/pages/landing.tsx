@@ -1,124 +1,265 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowRight, Check, Shield, Zap, Menu, X, Edit3, CalendarCheck, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Check,
+  Shield,
+  Menu,
+  X,
+  Edit3,
+  CalendarCheck,
+  Sparkles,
+  Mail,
+  Clock,
+  Zap,
+  Quote,
+} from "lucide-react";
 import PsychologyClinicMockup from "@/components/animated/PsychologyClinicMockup";
-import { motion, useInView } from "framer-motion";
-import { useRef, useState } from "react";
+import { motion, useInView, useReducedMotion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { useIsMobile } from "@/hooks/use-mobile";
-
-/* ─── animation presets ─── */
-const fadeUp = {
-  initial: { opacity: 0, y: 24 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.5, ease: [0.25, 0.1, 0.25, 1] as number[] },
-};
-
-const stagger = {
-  animate: { transition: { staggerChildren: 0.08 } },
-};
+import { getTotalCreators } from "@/lib/stats";
 
 /* ─── data ─── */
 const highlights = [
-  { Icon: CalendarCheck, title: "Det automatiske hjerte", desc: "Booking og mailsystemer der kører selv. Klienter booker, bekræftelser sendes, påmindelser afsendes — helt automatisk.", gradient: "from-blue-500 to-blue-700" },
-  { Icon: Edit3, title: "Direkte Redigering", desc: "WYSIWYG-editor: du ser præcis hvad dine klienter ser. Ret tekst og billeder direkte i designet — ingen kode, ingen mystik.", gradient: "from-blue-600 to-indigo-600" },
-  { Icon: Shield, title: "Teknisk Sikkerhed", desc: "Domæne-opsætning og SSL-sikkerhed er inkluderet. Din side er beskyttet og professionel fra dag ét.", gradient: "from-indigo-500 to-blue-600" },
+  {
+    Icon: CalendarCheck,
+    title: "Booking, der kører selv",
+    desc: "Klienter booker døgnet rundt. Bekræftelser og påmindelser sendes automatisk — du sparer timer hver uge.",
+    bullets: ["Online kalender", "Auto-bekræftelser", "SMS & e-mail-påmindelser"],
+  },
+  {
+    Icon: Edit3,
+    title: "Direkte redigering",
+    desc: "WYSIWYG-editor: du retter tekst og billeder præcis hvor de står. Ingen kode, ingen kursus, ingen mystik.",
+    bullets: ["Klik-og-skriv", "Live preview", "Skift billeder med ét klik"],
+  },
+  {
+    Icon: Shield,
+    title: "Teknisk sikkerhed",
+    desc: "Domæne, SSL og hosting er sat op fra start. Din side er beskyttet, hurtig og professionel fra dag ét.",
+    bullets: ["Eget .dk-domæne", "SSL inkluderet", "Daglige backups"],
+  },
+  {
+    Icon: Mail,
+    title: "Brand-mails",
+    desc: "Ordre- og booking-mails sendes med dit eget logo og tone. Klienterne ser en gennemført oplevelse — ikke en standardskabelon.",
+    bullets: ["Dit logo & farver", "Dansk sprog", "Skabeloner du kan rette"],
+  },
 ];
 
 const dfySteps = [
-  { num: "01", title: "Vi lytter til din idé", desc: "Vi tager en snak om din klinik, dine klienter og dine ønsker til løsningen." },
-  { num: "02", title: "Vi designer din løsning", desc: "Vores team skaber et skræddersyet design, der passer til din brand og dine klienter." },
-  { num: "03", title: "Vi opsætter alt teknisk", desc: "Booking, automatiske mails, domæne og SSL — vi klarer alt det tekniske." },
-  { num: "04", title: "Du er live", desc: "Din klinik-løsning er klar til klienter. Vi er altid klar, hvis du har brug for hjælp." },
+  {
+    num: "01",
+    title: "Vi lytter til din idé",
+    desc: "En afslappet snak om din klinik, dine klienter og hvad du har brug for. Ingen salgssnak, ingen forpligtelser.",
+  },
+  {
+    num: "02",
+    title: "Vi designer din løsning",
+    desc: "Vores team skaber et skræddersyet design, der passer til dit brand og dine klienter. Du ser udkast undervejs.",
+  },
+  {
+    num: "03",
+    title: "Vi opsætter alt teknisk",
+    desc: "Booking, automatiske mails, domæne og SSL — vi klarer alt det tekniske, mens du fokuserer på dine klienter.",
+  },
+  {
+    num: "04",
+    title: "Du går live",
+    desc: "Din klinik-løsning er klar. Vi er stadig i nærheden, hvis du har brug for justeringer eller hjælp.",
+  },
+];
+
+const includedPills = [
+  "Hjemmeside",
+  "Online booking",
+  "Auto-mails",
+  "Domæne & SSL",
+  "Branding",
+];
+
+const outcomes = [
+  {
+    Icon: Clock,
+    before: "Manuel booking via mail",
+    after: "Klienter booker selv 24/7",
+  },
+  {
+    Icon: Mail,
+    before: "Glemte bekræftelser",
+    after: "Auto-mails sendes hver gang",
+  },
+  {
+    Icon: Zap,
+    before: "Tekniske bøvl & opdateringer",
+    after: "Vi holder alt opdateret",
+  },
 ];
 
 const faqs = [
-  { q: "Hvad har I brug for fra mig?", a: "Dine ønsker til design, tekst og indhold til din klinik. Vi sørger for resten — teknisk opsætning, design og optimering. Jo mere du kan fortælle om din klinik, jo bedre." },
-  { q: "Hvor lang tid tager det?", a: "Typisk 3-5 hverdage fra vores første snak til din løsning er live. Det kan gå hurtigere, hvis vi har alt materiale fra starten." },
-  { q: "Kan jeg selv ændre indholdet bagefter?", a: "Ja — din løsning har en nem WYSIWYG-editor, så du kan rette tekst og billeder direkte. Du ser præcis, hvad dine klienter ser." },
-  { q: "Hvad koster det?", a: "Vi tager en uforpligtende snak og giver dig et tilbud baseret på dine behov og ønsker. Udfyld formularen nedenfor, så kontakter vi dig hurtigt." },
-  { q: "Hvad er inkluderet i løsningen?", a: "Hjemmeside, online booking, automatiske bekræftelsesmails og påmindelser, domæne-opsætning og SSL-sikkerhed. Alt hvad din klinik behøver fra dag ét." },
-  { q: "Hvad sker der, hvis jeg har brug for hjælp bagefter?", a: "Vi er her. Du kan altid kontakte os, hvis du har spørgsmål eller ønsker ændringer i din løsning." },
+  {
+    q: "Hvad har I brug for fra mig?",
+    a: "Dine ønsker til design, tekst og indhold. Vi sørger for resten — teknisk opsætning, design og optimering. Jo mere du kan fortælle om din klinik, jo bedre.",
+  },
+  {
+    q: "Hvor lang tid tager det?",
+    a: "Typisk 3-5 hverdage fra vores første snak til din løsning er live. Det kan gå hurtigere, hvis vi har alt materiale fra starten.",
+  },
+  {
+    q: "Kan jeg selv ændre indholdet bagefter?",
+    a: "Ja — din løsning har en nem WYSIWYG-editor, så du kan rette tekst og billeder direkte. Du ser præcis, hvad dine klienter ser.",
+  },
+  {
+    q: "Hvad koster det?",
+    a: "Vi tager en uforpligtende snak og giver dig et tilbud baseret på dine behov og ønsker. Udfyld formularen, så kontakter vi dig hurtigt.",
+  },
+  {
+    q: "Hvad er inkluderet i løsningen?",
+    a: "Hjemmeside, online booking, automatiske bekræftelsesmails og påmindelser, domæne-opsætning og SSL-sikkerhed. Alt hvad din klinik behøver fra dag ét.",
+  },
+  {
+    q: "Hvad sker der, hvis jeg har brug for hjælp bagefter?",
+    a: "Vi er her. Du kan altid kontakte os, hvis du har spørgsmål eller ønsker ændringer i din løsning.",
+  },
+];
+
+const nextSteps = [
+  {
+    n: "01",
+    title: "Du sender beskeden",
+    desc: "Skriv kort om din klinik. Det tager under et minut.",
+  },
+  {
+    n: "02",
+    title: "Vi ringer inden 24 timer",
+    desc: "En kort, uforpligtende snak om dine ønsker.",
+  },
+  {
+    n: "03",
+    title: "Du får et tilbud",
+    desc: "Klart, gennemskueligt — uden binding.",
+  },
 ];
 
 /* ─── Scroll-triggered reveal ─── */
-function ScrollReveal({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
+function ScrollReveal({
+  children,
+  className = "",
+  delay = 0,
+  style,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+  style?: React.CSSProperties;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-60px" });
+  const reduce = useReducedMotion();
   return (
-    <motion.div ref={ref} initial={{ opacity: 0, y: 24 }} animate={isInView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.5, delay, ease: [0.25, 0.1, 0.25, 1] }} className={className}>
+    <motion.div
+      ref={ref}
+      initial={reduce ? false : { opacity: 0, y: 20 }}
+      animate={reduce ? { opacity: 1, y: 0 } : isInView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.55, delay, ease: [0.25, 0.1, 0.25, 1] }}
+      className={className}
+      style={style}
+    >
       {children}
     </motion.div>
   );
 }
 
-
 /* ═══════════════════════════════════════════════════════ */
-/*  LANDING PAGE                                          */
+/*  LANDING PAGE — BirdFlow Studio (DFY)                  */
 /* ═══════════════════════════════════════════════════════ */
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const isMobile = useIsMobile();
+  const [creators, setCreators] = useState<number | null>(null);
 
-  const navLinks = [["#saadan-virker-det", "Sådan virker det"], ["#fordele", "Fordele"], ["#kontakt", "Kontakt"]];
+  useEffect(() => {
+    let mounted = true;
+    getTotalCreators().then((c) => {
+      if (mounted) setCreators(c);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const navLinks: [string, string][] = [
+    ["#saadan-virker-det", "Sådan arbejder vi"],
+    ["#fordele", "Hvad du får"],
+    ["#kontakt", "Kontakt"],
+  ];
 
   return (
-    <div className="min-h-screen bg-background flex flex-col overflow-x-hidden scroll-smooth">
+    <div className="min-h-screen flex flex-col overflow-x-hidden scroll-smooth" style={{ background: "#FFFCF6", color: "var(--bf-ink)" }}>
 
       {/* ─── HEADER ─── */}
-      <header className="border-b sticky top-0 bg-background/80 backdrop-blur-md z-50">
+      <header className="sticky top-0 z-50" style={{ background: "rgba(255, 252, 246, 0.85)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--bf-line)" }}>
         <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 font-bold text-xl tracking-tight group">
-            <img src="/logo.png" alt="BirdFlow" className="w-8 h-8 transition-transform group-hover:scale-110" />
-            <span className="bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">BirdFlow</span>
+          <Link href="/" className="flex items-center gap-2.5 group" data-testid="link-logo">
+            <img src="/logo.png" alt="BirdFlow" className="w-8 h-8 transition-transform group-hover:scale-105" />
+            <div className="flex items-baseline gap-1.5 leading-none">
+              <span className="font-bold text-xl tracking-tight" style={{ color: "var(--bf-ink)" }}>BirdFlow</span>
+              <span className="font-editorial italic text-sm" style={{ color: "var(--bf-muted)" }}>Studio</span>
+            </div>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
+          <nav className="hidden md:flex items-center gap-8 text-sm font-medium" style={{ color: "var(--bf-muted)" }}>
             {navLinks.map(([href, label]) => (
-              <a key={href} href={href} className="relative py-1 hover:text-foreground transition-colors after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-[#0052FF] after:transition-all hover:after:w-full">
+              <a
+                key={href}
+                href={href}
+                className="relative py-1 transition-colors hover:text-[color:var(--bf-ink)] after:absolute after:bottom-0 after:left-0 after:h-px after:w-0 after:bg-[color:var(--bf-ink)] after:transition-all hover:after:w-full"
+              >
                 {label}
               </a>
             ))}
-            <Link href="/diy" className="relative py-1 inline-flex items-center gap-1.5 text-foreground hover:text-[#0052FF] transition-colors group">
-              <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
-              <span>Byg selv</span>
-              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-blue-50 text-[#0052FF] font-bold dark:bg-blue-950/40">DIY</span>
+            <Link
+              href="/diy"
+              className="relative py-1 inline-flex items-center gap-1.5 transition-colors hover:text-[color:var(--bf-accent)]"
+              data-testid="link-diy"
+            >
+              <Sparkles className="w-3.5 h-3.5" style={{ color: "var(--bf-accent)" }} />
+              <span style={{ color: "var(--bf-ink)" }}>Byg selv</span>
+              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-bold" style={{ background: "rgba(0,82,255,0.08)", color: "var(--bf-accent)" }}>DIY</span>
             </Link>
           </nav>
 
           <div className="flex items-center gap-3">
-            <Link href="/auth?mode=signin">
-              <Button variant="ghost" size="sm" className="hidden sm:inline-flex hover:bg-blue-50 dark:hover:bg-blue-950/30">Log ind</Button>
-            </Link>
-            <a href="#kontakt">
-              <Button size="sm" className="hidden sm:inline-flex bg-[#0052FF] hover:bg-blue-700 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all">
-                Få en uforpligtende snak
-              </Button>
-            </a>
-            {/* Mobile hamburger */}
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex hover:bg-[color:var(--bf-cream)]" data-testid="button-signin">
+              <Link href="/auth?mode=signin">Log ind</Link>
+            </Button>
+            <Button asChild size="sm" className="hidden sm:inline-flex" style={{ background: "var(--bf-ink)", color: "#FFFCF6" }} data-testid="button-cta-header">
+              <a href="#kontakt">Få en snak</a>
+            </Button>
             <button
-              className="md:hidden p-2 -mr-2 rounded-lg hover:bg-muted transition-colors"
+              className="md:hidden p-2 -mr-2 rounded-lg hover:bg-[color:var(--bf-cream)] transition-colors"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label="Toggle menu"
+              data-testid="button-mobile-menu"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
         </div>
 
-        {/* Mobile menu drawer */}
         {mobileMenuOpen && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="md:hidden border-t bg-background/95 backdrop-blur-lg"
+            className="md:hidden border-t"
+            style={{ borderColor: "var(--bf-line)", background: "#FFFCF6" }}
           >
             <nav className="flex flex-col p-4 gap-1">
               {navLinks.map(([href, label]) => (
@@ -126,24 +267,30 @@ export default function LandingPage() {
                   key={href}
                   href={href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="px-4 py-3 rounded-lg text-sm font-medium text-foreground hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
+                  className="px-4 py-3 rounded-lg text-sm font-medium hover:bg-[color:var(--bf-cream)] transition-colors"
+                  style={{ color: "var(--bf-ink)" }}
                 >
                   {label}
                 </a>
               ))}
-              <Link href="/diy" onClick={() => setMobileMenuOpen(false)} className="px-4 py-3 rounded-lg text-sm font-semibold text-foreground hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors inline-flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-[#0052FF]" />
+              <Link
+                href="/diy"
+                onClick={() => setMobileMenuOpen(false)}
+                className="px-4 py-3 rounded-lg text-sm font-semibold hover:bg-[color:var(--bf-cream)] transition-colors inline-flex items-center gap-2"
+                style={{ color: "var(--bf-ink)" }}
+              >
+                <Sparkles className="w-4 h-4" style={{ color: "var(--bf-accent)" }} />
                 Byg selv (DIY)
               </Link>
-              <div className="border-t mt-2 pt-3 flex flex-col gap-2">
-                <Link href="/auth?mode=signin" onClick={() => setMobileMenuOpen(false)}>
-                  <Button variant="outline" className="w-full">Log ind</Button>
-                </Link>
-                <a href="#kontakt" onClick={() => setMobileMenuOpen(false)}>
-                  <Button className="w-full bg-[#0052FF] hover:bg-blue-700 text-white">
-                    Få en uforpligtende snak <ArrowRight className="ml-2 w-4 h-4" />
-                  </Button>
-                </a>
+              <div className="border-t mt-2 pt-3 flex flex-col gap-2" style={{ borderColor: "var(--bf-line)" }}>
+                <Button asChild variant="outline" className="w-full">
+                  <Link href="/auth?mode=signin" onClick={() => setMobileMenuOpen(false)}>Log ind</Link>
+                </Button>
+                <Button asChild className="w-full" style={{ background: "var(--bf-ink)", color: "#FFFCF6" }}>
+                  <a href="#kontakt" onClick={() => setMobileMenuOpen(false)}>
+                    Få en snak <ArrowRight className="ml-2 w-4 h-4" />
+                  </a>
+                </Button>
               </div>
             </nav>
           </motion.div>
@@ -153,146 +300,361 @@ export default function LandingPage() {
       <main className="flex-1">
 
         {/* ═══════════════ 1. HERO ═══════════════ */}
-        <section className="relative py-20 md:py-28 lg:py-32 px-6 lg:px-12 overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-sky-50 via-blue-50/50 to-white dark:from-blue-950/20 dark:via-blue-950/10 pointer-events-none" />
-          <div className="absolute top-0 right-0 w-[700px] h-[700px] bg-gradient-to-bl from-blue-100/50 to-transparent dark:from-blue-900/15 rounded-full blur-3xl -translate-y-1/3 translate-x-1/4 pointer-events-none" />
+        <section className="relative bf-hero-bg bf-grain overflow-hidden">
+          <div className="relative z-10 px-6 lg:px-12 pt-16 md:pt-20 lg:pt-24 pb-20 md:pb-28">
+            <div className="w-full max-w-7xl mx-auto">
 
-          <div className="w-full max-w-7xl mx-auto relative z-10">
-            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-
-              {/* Left: Glassmorphism panel */}
-              <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
-                <div className="glass-panel rounded-3xl p-8 md:p-12 shadow-2xl shadow-blue-500/10">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.92 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.4, delay: 0.1 }}
-                    className="landing-badge-pulse-blue inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 dark:bg-blue-950/40 text-[#0052FF] dark:text-blue-300 text-sm font-medium mb-8 border border-blue-200/50 dark:border-blue-800/40"
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    Done For You — Klinik-løsning
-                  </motion.div>
-
-                  <h1 className="text-[2.5rem] sm:text-5xl md:text-[3.5rem] font-extrabold tracking-[-0.025em] leading-[1.1] mb-6 text-[#1E293B] dark:text-white">
-                    En komplet klinik-løsning –{" "}
-                    <span className="bg-gradient-to-r from-[#0052FF] to-blue-500 bg-clip-text text-transparent">
-                      klar til dine klienter.
-                    </span>
-                  </h1>
-
-                  <p className="text-lg md:text-xl text-slate-600 dark:text-slate-300 max-w-lg mb-10 leading-relaxed">
-                    Vi designer din komplette klinik-løsning med integreret booking og automatiserede mailsystemer. Vi håndterer hele opsætningen, så du kan fokusere 100% på dine klienter.
-                  </p>
-
-                  <div className="flex flex-wrap items-center gap-4">
-                    <a href="#kontakt">
-                      <Button size="lg" className="h-14 px-10 text-lg font-semibold bg-[#0052FF] hover:bg-blue-700 text-white shadow-xl shadow-blue-500/20 hover:shadow-blue-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow-blue">
-                        Få en uforpligtende snak
-                        <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                      </Button>
-                    </a>
-                    <Link href="/diy" className="group inline-flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:text-[#0052FF] dark:hover:text-blue-300 transition-colors">
-                      <Sparkles className="w-4 h-4 text-[#0052FF]" />
-                      <span className="border-b border-dashed border-slate-300 dark:border-slate-600 group-hover:border-[#0052FF] pb-0.5">
-                        Vil du selv bygge? Prøv gør-det-selv versionen
-                      </span>
-                      <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                    </Link>
-                  </div>
+              {/* Top stamp row */}
+              <div className="flex items-center justify-between mb-12 md:mb-16">
+                <div className="bf-stamp" data-testid="text-stamp">
+                  Est. 2026 · København
                 </div>
-              </motion.div>
+                <div className="hidden md:flex items-center gap-3 bf-stamp">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--bf-terra)" }} />
+                  Booking nu åbent for Q2
+                </div>
+              </div>
 
-              {/* Right: iPhone mockup */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.2 }}
-                className="hidden md:flex justify-center"
-              >
-                <IPhoneMockup />
-              </motion.div>
+              <div className="grid lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+
+                {/* Left: editorial content card (refined glass) */}
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.7, ease: [0.25, 0.1, 0.25, 1] }}
+                  className="lg:col-span-7"
+                >
+                  <div className="bf-glass p-8 md:p-12">
+                    <div className="bf-eyebrow mb-8" data-testid="text-eyebrow-hero">
+                      <span><span className="bf-eyebrow-num">01</span>Done For You · Klinik-løsning</span>
+                    </div>
+
+                    <h1 className="text-[2.4rem] sm:text-[3rem] md:text-[3.5rem] lg:text-[3.75rem] leading-[1.04] tracking-[-0.025em] mb-6" style={{ color: "var(--bf-ink)" }}>
+                      <span className="font-bold">En komplet klinik-løsning,</span>
+                      <br />
+                      <span className="font-editorial italic font-medium" style={{ color: "var(--bf-ink-soft)" }}>
+                        bygget af mennesker.
+                      </span>
+                    </h1>
+
+                    <p className="font-editorial text-lg md:text-xl leading-relaxed max-w-xl mb-8" style={{ color: "var(--bf-ink-soft)" }}>
+                      Vi designer, koder og lancerer din komplette klinik-løsning — med integreret booking, automatiske mails og dit eget domæne. Du møder dine klienter; vi tager teknikken.
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-4 mb-8">
+                      <Button
+                        asChild
+                        size="lg"
+                        className="h-14 px-8 text-base font-semibold rounded-full hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group"
+                        style={{ background: "var(--bf-ink)", color: "#FFFCF6", boxShadow: "0 18px 40px -16px rgba(21,22,27,0.45)" }}
+                        data-testid="button-cta-hero"
+                      >
+                        <a href="#kontakt">
+                          Få en uforpligtende snak
+                          <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                        </a>
+                      </Button>
+                      <a href="#saadan-virker-det" className="bf-dotted text-sm font-medium inline-flex items-center gap-1.5" style={{ color: "var(--bf-ink)" }} data-testid="link-process">
+                        Se hvordan vi arbejder
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+
+                    {/* Trust strip */}
+                    <div className="bf-rule mb-5" />
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs font-medium" style={{ color: "var(--bf-muted)" }}>
+                      {creators !== null && creators > 0 && (
+                        <span className="inline-flex items-center gap-1.5" data-testid="text-creators">
+                          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#16a34a" }} />
+                          <span style={{ color: "var(--bf-ink)" }}>{creators}+</span> aktive virksomheder
+                        </span>
+                      )}
+                      <span className="inline-flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} />
+                        Live på 5 dage
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} />
+                        Dansk team
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} />
+                        Inkl. domæne & SSL
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
+
+                {/* Right: iPhone mockup with floating chip */}
+                <motion.div
+                  initial={{ opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.7, delay: 0.15 }}
+                  className="lg:col-span-5 hidden md:flex justify-center relative"
+                >
+                  <IPhoneMockup />
+                  {/* floating accent chip */}
+                  <div className="absolute top-6 -left-4 lg:-left-2 bf-glass-chip rounded-full px-3.5 py-2 flex items-center gap-2 z-10">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#16a34a" }} />
+                    <span className="text-[11px] font-semibold" style={{ color: "var(--bf-ink)" }}>Booking modtaget</span>
+                  </div>
+                </motion.div>
+              </div>
             </div>
           </div>
-        </section>
 
-
-        {/* ═══════════════ BYGGET AF OS – EJET AF DIG ═══════════════ */}
-        <section id="saadan-virker-det" className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/80 to-transparent dark:from-slate-900/30">
-          <div className="w-full max-w-7xl mx-auto">
-            <ScrollReveal className="text-center mb-16">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Bygget af os – ejet af dig</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Vi bygger fundamentet, men du kan selv udvide med færdigdesignede byggeklodser — prislister, galleri, FAQ og meget mere.</p>
-            </ScrollReveal>
-
-            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-              {/* Left: Laptop mockup */}
-              <ScrollReveal>
-                <PsychologyClinicMockup />
-              </ScrollReveal>
-
-              {/* Right: 4-step DFY process */}
-              <div className="space-y-6">
-                {dfySteps.map((step, i) => (
-                  <ScrollReveal key={i} delay={i * 0.1}>
-                    <div className="flex gap-5 items-start">
-                      <div className="flex-shrink-0 w-12 h-12 rounded-2xl bg-[#0052FF] text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-blue-500/20">
-                        {step.num}
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-lg mb-1">{step.title}</h3>
-                        <p className="text-muted-foreground leading-relaxed">{step.desc}</p>
-                      </div>
-                    </div>
-                  </ScrollReveal>
-                ))}
-                <ScrollReveal delay={0.4}>
-                  <a href="#kontakt">
-                    <Button className="mt-4 bg-[#0052FF] hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20">
-                      Start med en gratis snak <ArrowRight className="ml-2 w-4 h-4" />
-                    </Button>
-                  </a>
+          {/* ═══════════════ STATS / TRUST BAND ═══════════════ */}
+          <div className="relative z-10" style={{ borderTop: "1px solid var(--bf-line)" }}>
+            <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 py-8 md:py-10">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-12">
+                <ScrollReveal className="flex items-baseline gap-4">
+                  <div className="font-editorial text-5xl md:text-6xl leading-none" style={{ color: "var(--bf-ink)" }} data-testid="text-stat-days">5</div>
+                  <div className="text-sm" style={{ color: "var(--bf-muted)" }}>
+                    <div className="font-semibold" style={{ color: "var(--bf-ink)" }}>hverdage til live</div>
+                    <div className="text-xs">fra første snak til lancering</div>
+                  </div>
+                </ScrollReveal>
+                <ScrollReveal delay={0.08} className="flex items-baseline gap-4 md:border-l md:pl-8" style={{ borderColor: "var(--bf-line)" }}>
+                  <div className="font-editorial text-5xl md:text-6xl leading-none" style={{ color: "var(--bf-ink)" }}>24<span className="text-2xl md:text-3xl align-top">t</span></div>
+                  <div className="text-sm" style={{ color: "var(--bf-muted)" }}>
+                    <div className="font-semibold" style={{ color: "var(--bf-ink)" }}>svartid</div>
+                    <div className="text-xs">på din henvendelse</div>
+                  </div>
+                </ScrollReveal>
+                <ScrollReveal delay={0.16} className="flex items-baseline gap-4 md:border-l md:pl-8" style={{ borderColor: "var(--bf-line)" }}>
+                  <div className="font-editorial text-5xl md:text-6xl leading-none" style={{ color: "var(--bf-ink)" }}>0<span className="text-2xl md:text-3xl align-top">kr</span></div>
+                  <div className="text-sm" style={{ color: "var(--bf-muted)" }}>
+                    <div className="font-semibold" style={{ color: "var(--bf-ink)" }}>skjulte gebyrer</div>
+                    <div className="text-xs">domæne, SSL, hosting inkluderet</div>
+                  </div>
                 </ScrollReveal>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Section divider */}
-        <div className="landing-section-divider w-full max-w-5xl mx-auto" />
+        {/* ═══════════════ 2. SÅDAN ARBEJDER VI — TIMELINE ═══════════════ */}
+        <section id="saadan-virker-det" className="bf-band-cream relative">
+          <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 py-24 md:py-32">
 
-        {/* ═══════════════ PRODUKT-HØJDEPUNKTER ═══════════════ */}
-        <section id="fordele" className="py-24 md:py-32 px-6 lg:px-12">
-          <div className="w-full max-w-6xl mx-auto">
-            <ScrollReveal className="text-center mb-16">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Alt inkluderet fra dag ét</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Tre kernefordele der gør din klinik-løsning til et professionelt fundament.</p>
+            <ScrollReveal className="max-w-2xl mb-16">
+              <div className="bf-eyebrow mb-5">
+                <span><span className="bf-eyebrow-num">02</span>Bygget af os — ejet af dig</span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1] mb-5" style={{ color: "var(--bf-ink)" }}>
+                <span className="font-bold">Fire skridt.</span>{" "}
+                <span className="font-editorial italic font-medium" style={{ color: "var(--bf-ink-soft)" }}>Ingen overraskelser.</span>
+              </h2>
+              <p className="font-editorial text-lg leading-relaxed" style={{ color: "var(--bf-ink-soft)" }}>
+                Vi bygger fundamentet, du kan udvide selv. Her er den proces, hvor du går fra første idé til en levende, kørende klinik-løsning.
+              </p>
             </ScrollReveal>
 
-            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid md:grid-cols-3 gap-6">
-              {highlights.map((h, i) => (
-                <HighlightCard key={i} highlight={h} />
-              ))}
-            </motion.div>
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-start">
+              {/* Left: mockup */}
+              <ScrollReveal>
+                <PsychologyClinicMockup />
+              </ScrollReveal>
+
+              {/* Right: timeline rail */}
+              <div className="relative">
+                <div className="bf-rail" aria-hidden="true" />
+
+                <div className="space-y-10">
+                  {dfySteps.map((step, i) => (
+                    <ScrollReveal key={i} delay={i * 0.08}>
+                      <div className="flex gap-6 items-start">
+                        <div
+                          className="relative z-10 flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center font-editorial italic text-base"
+                          style={{
+                            background: "#FFFCF6",
+                            border: "1px solid var(--bf-line-strong)",
+                            color: "var(--bf-ink)",
+                            boxShadow: "0 4px 14px -6px rgba(21,22,27,0.12)",
+                          }}
+                          data-testid={`text-step-num-${i}`}
+                        >
+                          {step.num}
+                        </div>
+                        <div className="flex-1 pt-1.5">
+                          <h3 className="text-xl font-semibold mb-2 tracking-tight" style={{ color: "var(--bf-ink)" }}>
+                            {step.title}
+                          </h3>
+                          <p className="leading-relaxed" style={{ color: "var(--bf-ink-soft)" }}>
+                            {step.desc}
+                          </p>
+                        </div>
+                      </div>
+                    </ScrollReveal>
+                  ))}
+                </div>
+
+                {/* Inkluderet pills */}
+                <ScrollReveal delay={0.4} className="mt-12 ml-[72px]">
+                  <div className="bf-eyebrow mb-4" style={{ color: "var(--bf-muted)" }}>
+                    <span>Inkluderet</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {includedPills.map((p) => (
+                      <span
+                        key={p}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                        style={{ background: "#FFFCF6", border: "1px solid var(--bf-line)", color: "var(--bf-ink)" }}
+                        data-testid={`pill-included-${p.toLowerCase().replace(/[^a-z0-9]/g, "-")}`}
+                      >
+                        <Check className="w-3 h-3" style={{ color: "var(--bf-accent)" }} />
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                  <Button asChild className="mt-8 rounded-full" style={{ background: "var(--bf-ink)", color: "#FFFCF6" }} data-testid="button-cta-process">
+                    <a href="#kontakt">
+                      Start med en gratis snak <ArrowRight className="ml-2 w-4 h-4" />
+                    </a>
+                  </Button>
+                </ScrollReveal>
+              </div>
+            </div>
           </div>
         </section>
 
+        {/* ═══════════════ 3. HIGHLIGHTS — 4-up ═══════════════ */}
+        <section id="fordele" className="relative" style={{ background: "#FFFCF6" }}>
+          <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 py-24 md:py-32">
 
-        {/* ═══════════════ FAQ ═══════════════ */}
-        <section id="faq" className="py-24 md:py-32 px-6 lg:px-12">
-          <div className="w-full max-w-3xl mx-auto">
+            <ScrollReveal className="max-w-2xl mb-16">
+              <div className="bf-eyebrow mb-5">
+                <span><span className="bf-eyebrow-num">03</span>Inkluderet i din pakke</span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1] mb-5" style={{ color: "var(--bf-ink)" }}>
+                <span className="font-bold">Alt, du behøver.</span>{" "}
+                <span className="font-editorial italic font-medium" style={{ color: "var(--bf-ink-soft)" }}>Intet du ikke gør.</span>
+              </h2>
+              <p className="font-editorial text-lg leading-relaxed" style={{ color: "var(--bf-ink-soft)" }}>
+                Fire kerneområder, der gør din klinik-løsning til et professionelt fundament fra dag ét.
+              </p>
+            </ScrollReveal>
+
+            <div className="grid sm:grid-cols-2 gap-5 md:gap-6">
+              {highlights.map((h, i) => (
+                <ScrollReveal key={i} delay={(i % 2) * 0.08}>
+                  <HighlightCard highlight={h} index={i} />
+                </ScrollReveal>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ═══════════════ 4. I PRAKSIS — outcome cards ═══════════════ */}
+        <section className="bf-band-cream relative bf-grain overflow-hidden">
+          <div className="relative z-10 w-full max-w-7xl mx-auto px-6 lg:px-12 py-24 md:py-32">
+
+            <ScrollReveal className="max-w-2xl mb-14">
+              <div className="bf-eyebrow mb-5">
+                <span><span className="bf-eyebrow-num">04</span>Sådan ser det ud i praksis</span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1]" style={{ color: "var(--bf-ink)" }}>
+                <span className="font-bold">Konkret forskel</span>{" "}
+                <span className="font-editorial italic font-medium" style={{ color: "var(--bf-ink-soft)" }}>på din hverdag.</span>
+              </h2>
+            </ScrollReveal>
+
+            <div className="grid md:grid-cols-3 gap-5 md:gap-6">
+              {outcomes.map(({ Icon, before, after }, i) => (
+                <ScrollReveal key={i} delay={i * 0.08}>
+                  <div className="bf-card p-7 md:p-8 h-full" data-testid={`card-outcome-${i}`}>
+                    <div
+                      className="w-11 h-11 rounded-xl flex items-center justify-center mb-6"
+                      style={{ background: "var(--bf-cream)", border: "1px solid var(--bf-line)" }}
+                    >
+                      <Icon className="w-5 h-5" style={{ color: "var(--bf-ink)" }} />
+                    </div>
+                    <div className="text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: "var(--bf-muted)" }}>
+                      Før
+                    </div>
+                    <p className="text-base mb-4 line-through decoration-1" style={{ color: "var(--bf-muted)" }}>
+                      {before}
+                    </p>
+                    <div className="bf-rule mb-4" />
+                    <div className="text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: "var(--bf-accent)" }}>
+                      Efter
+                    </div>
+                    <p className="font-editorial text-lg leading-snug" style={{ color: "var(--bf-ink)" }}>
+                      {after}
+                    </p>
+                  </div>
+                </ScrollReveal>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ═══════════════ 5. TESTIMONIAL ═══════════════ */}
+        <section className="relative" style={{ background: "#FFFCF6" }}>
+          <div className="w-full max-w-4xl mx-auto px-6 lg:px-12 py-20 md:py-28">
+            <ScrollReveal>
+              <div
+                className="relative rounded-[28px] p-10 md:p-14"
+                style={{
+                  background: "linear-gradient(180deg, #FFFCF6 0%, var(--bf-cream) 100%)",
+                  border: "1px solid var(--bf-line)",
+                  boxShadow: "0 30px 60px -30px rgba(21,22,27,0.12)",
+                }}
+              >
+                <Quote
+                  className="absolute top-8 left-8 w-10 h-10 opacity-15"
+                  style={{ color: "var(--bf-terra)" }}
+                  aria-hidden="true"
+                />
+                <blockquote className="font-editorial text-2xl md:text-3xl leading-[1.35] tracking-[-0.01em] mb-8 pl-2" style={{ color: "var(--bf-ink)" }} data-testid="text-testimonial-quote">
+                  "BirdFlow byggede min klinik-side på under en uge. Bookingen kører selv, og jeg har fået timer tilbage hver uge. Det føles som at have et lille team i ryggen."
+                </blockquote>
+                <div className="flex items-center gap-4">
+                  <div
+                    className="w-12 h-12 rounded-full flex items-center justify-center font-editorial italic text-lg"
+                    style={{ background: "var(--bf-sand)", color: "var(--bf-ink)" }}
+                  >
+                    H
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm" style={{ color: "var(--bf-ink)" }}>Helle Madsen</div>
+                    <div className="text-xs" style={{ color: "var(--bf-muted)" }}>Ejer · Klinik Find Ro, Aarhus</div>
+                  </div>
+                </div>
+              </div>
+            </ScrollReveal>
+          </div>
+        </section>
+
+        {/* ═══════════════ 6. FAQ ═══════════════ */}
+        <section id="faq" className="bf-band-cream">
+          <div className="w-full max-w-3xl mx-auto px-6 lg:px-12 py-24 md:py-32">
             <ScrollReveal className="text-center mb-14">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Har du spørgsmål?</h2>
-              <p className="text-lg text-muted-foreground">Her er svar på det mest stillede.</p>
+              <div className="bf-eyebrow mb-5 justify-center" style={{ display: "inline-flex" }}>
+                <span><span className="bf-eyebrow-num">05</span>Spørgsmål & svar</span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1]" style={{ color: "var(--bf-ink)" }}>
+                <span className="font-bold">Har du</span>{" "}
+                <span className="font-editorial italic font-medium" style={{ color: "var(--bf-ink-soft)" }}>spørgsmål?</span>
+              </h2>
             </ScrollReveal>
 
             <ScrollReveal delay={0.1}>
-              <Accordion type="single" collapsible className="space-y-2.5">
+              <Accordion type="single" collapsible className="space-y-3">
                 {faqs.map((faq, i) => (
-                  <AccordionItem key={i} value={`faq-${i}`} className="bg-card rounded-xl border px-5 hover:shadow-sm transition-shadow data-[state=open]:shadow-md data-[state=open]:border-blue-200 dark:data-[state=open]:border-blue-800">
-                    <AccordionTrigger className="text-left font-semibold text-[15px] hover:no-underline py-4 [&[data-state=open]]:text-[#0052FF] dark:[&[data-state=open]]:text-blue-300">
+                  <AccordionItem
+                    key={i}
+                    value={`faq-${i}`}
+                    className="rounded-xl px-5 transition-all"
+                    style={{ background: "#FFFCF6", border: "1px solid var(--bf-line)" }}
+                    data-testid={`faq-item-${i}`}
+                  >
+                    <AccordionTrigger className="text-left font-semibold text-[15px] hover:no-underline py-4" style={{ color: "var(--bf-ink)" }}>
                       {faq.q}
                     </AccordionTrigger>
-                    <AccordionContent className="text-muted-foreground text-sm pb-4 leading-relaxed">{faq.a}</AccordionContent>
+                    <AccordionContent className="text-sm pb-4 leading-relaxed" style={{ color: "var(--bf-ink-soft)" }}>
+                      {faq.a}
+                    </AccordionContent>
                   </AccordionItem>
                 ))}
               </Accordion>
@@ -300,38 +662,111 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ═══════════════ KONTAKT ═══════════════ */}
-        <section id="kontakt" className="py-24 md:py-32 px-6 lg:px-12 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-[#0052FF] to-blue-700 landing-gradient-bg" />
-          <div className="absolute top-0 left-0 w-[800px] h-[800px] bg-white/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 motion-safe:animate-pulse-slow" />
-          <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-blue-400/10 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 motion-safe:animate-pulse-slow" style={{ animationDelay: "2s" }} />
+        {/* ═══════════════ 7. KONTAKT — 2-col ═══════════════ */}
+        <section id="kontakt" className="relative overflow-hidden bf-grain" style={{ background: "linear-gradient(180deg, var(--bf-cream) 0%, #EFE7D7 100%)" }}>
+          <div className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full blur-3xl pointer-events-none" style={{ background: "rgba(196, 90, 59, 0.10)", transform: "translate(30%, -30%)" }} />
+          <div className="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full blur-3xl pointer-events-none" style={{ background: "rgba(0, 82, 255, 0.06)", transform: "translate(-30%, 30%)" }} />
 
-          <div className="w-full max-w-lg mx-auto relative z-10 text-center">
-            <ScrollReveal>
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white mb-4">
-                Lad os tage en uforpligtende snak om din idé
+          <div className="relative z-10 w-full max-w-6xl mx-auto px-6 lg:px-12 py-24 md:py-32">
+            <ScrollReveal className="max-w-2xl mb-14">
+              <div className="bf-eyebrow mb-5">
+                <span><span className="bf-eyebrow-num">06</span>Lad os tales ved</span>
+              </div>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1] mb-5" style={{ color: "var(--bf-ink)" }}>
+                <span className="font-bold">Tag en uforpligtende snak</span>{" "}
+                <span className="font-editorial italic font-medium" style={{ color: "var(--bf-ink-soft)" }}>om din idé.</span>
               </h2>
-              <p className="text-lg text-white/75 max-w-md mx-auto mb-10">
-                Udfyld formularen, så kontakter vi dig inden for én hverdag.
+              <p className="font-editorial text-lg leading-relaxed" style={{ color: "var(--bf-ink-soft)" }}>
+                Skriv kort om din klinik. Vi ringer inden for én hverdag og giver dig et tilbud — uden binding.
               </p>
-              <ContactForm />
             </ScrollReveal>
+
+            <div className="grid lg:grid-cols-12 gap-10 lg:gap-12 items-start">
+              {/* Left: form */}
+              <ScrollReveal className="lg:col-span-7">
+                <div
+                  className="rounded-[24px] p-7 md:p-10"
+                  style={{ background: "#FFFCF6", border: "1px solid var(--bf-line)", boxShadow: "0 30px 60px -30px rgba(21,22,27,0.15)" }}
+                >
+                  <ContactForm />
+                </div>
+              </ScrollReveal>
+
+              {/* Right: next steps */}
+              <ScrollReveal delay={0.1} className="lg:col-span-5">
+                <div className="bf-eyebrow mb-6">
+                  <span>Hvad sker der nu</span>
+                </div>
+                <div className="space-y-6">
+                  {nextSteps.map((s, i) => (
+                    <div key={i} className="flex gap-5 items-start" data-testid={`next-step-${i}`}>
+                      <div
+                        className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-editorial italic text-sm"
+                        style={{ background: "#FFFCF6", border: "1px solid var(--bf-line-strong)", color: "var(--bf-ink)" }}
+                      >
+                        {s.n}
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-base mb-1" style={{ color: "var(--bf-ink)" }}>{s.title}</h4>
+                        <p className="text-sm leading-relaxed" style={{ color: "var(--bf-ink-soft)" }}>{s.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="bf-rule my-8" />
+
+                <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium" style={{ color: "var(--bf-muted)" }}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} /> Ingen binding
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} /> Dansk team
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} /> Svar inden 24 timer
+                  </span>
+                </div>
+              </ScrollReveal>
+            </div>
           </div>
         </section>
       </main>
 
       {/* ─── FOOTER ─── */}
-      <footer className="py-8 border-t bg-background">
-        <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="BirdFlow" className="w-5 h-5 opacity-50" />
-            <p className="text-sm text-muted-foreground">&copy; 2026 BirdFlow. Alle rettigheder forbeholdes.</p>
+      <footer className="py-12" style={{ background: "#FFFCF6", borderTop: "1px solid var(--bf-line)" }}>
+        <div className="w-full max-w-7xl mx-auto px-6 lg:px-12">
+          <div className="grid md:grid-cols-2 gap-8 items-start mb-8">
+            <div>
+              <div className="flex items-center gap-2.5 mb-3">
+                <img src="/logo.png" alt="BirdFlow" className="w-7 h-7" />
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-bold text-lg" style={{ color: "var(--bf-ink)" }}>BirdFlow</span>
+                  <span className="font-editorial italic text-sm" style={{ color: "var(--bf-muted)" }}>Studio</span>
+                </div>
+              </div>
+              <p className="font-editorial text-base max-w-md leading-relaxed" style={{ color: "var(--bf-ink-soft)" }}>
+                Et lille dansk studie, der bygger komplette klinik-løsninger — så du kan fokusere på dine klienter.
+              </p>
+              <div className="bf-stamp mt-3">Est. 2026 · København</div>
+            </div>
+            <div className="flex md:justify-end items-start gap-8 text-sm" style={{ color: "var(--bf-muted)" }}>
+              <div className="flex flex-col gap-2">
+                <a href="#saadan-virker-det" className="hover:text-[color:var(--bf-ink)] transition-colors">Sådan arbejder vi</a>
+                <a href="#fordele" className="hover:text-[color:var(--bf-ink)] transition-colors">Hvad du får</a>
+                <a href="#faq" className="hover:text-[color:var(--bf-ink)] transition-colors">FAQ</a>
+              </div>
+              <div className="flex flex-col gap-2">
+                <a href="#kontakt" className="hover:text-[color:var(--bf-ink)] transition-colors">Kontakt</a>
+                <Link href="/privacy" className="hover:text-[color:var(--bf-ink)] transition-colors">Privatliv</Link>
+                <Link href="/terms" className="hover:text-[color:var(--bf-ink)] transition-colors">Vilkår</Link>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <a href="#kontakt" className="hover:text-foreground transition-colors">Kontakt</a>
-            <Link href="/privacy" className="hover:text-foreground transition-colors">Privatlivspolitik</Link>
-            <Link href="/terms" className="hover:text-foreground transition-colors">Vilkår</Link>
-          </div>
+          <div className="bf-rule mb-6" />
+          <p className="text-xs" style={{ color: "var(--bf-muted)" }}>
+            &copy; 2026 BirdFlow Studio. Alle rettigheder forbeholdes.
+          </p>
         </div>
       </footer>
     </div>
@@ -342,25 +777,20 @@ export default function LandingPage() {
 function IPhoneMockup() {
   return (
     <div className="relative w-[220px]">
-      {/* Phone frame */}
-      <div className="relative bg-slate-900 rounded-[36px] p-2 shadow-2xl shadow-blue-900/30 border-4 border-slate-800">
-        {/* Notch */}
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 bg-slate-900 rounded-full z-10" />
-        {/* Screen */}
+      <div className="relative rounded-[36px] p-2 border-4" style={{ background: "var(--bf-ink)", borderColor: "#0A0B10", boxShadow: "0 40px 80px -30px rgba(21,22,27,0.45)" }}>
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 rounded-full z-10" style={{ background: "var(--bf-ink)" }} />
         <div className="rounded-[28px] overflow-hidden bg-white" style={{ minHeight: 420 }}>
-          {/* Status bar */}
-          <div className="bg-[#0052FF] px-4 pt-6 pb-10 text-center">
-            <p className="text-white/80 text-xs font-medium">din-klinik.dk</p>
+          <div className="px-4 pt-6 pb-10 text-center" style={{ background: "var(--bf-ink)" }}>
+            <p className="text-[11px] font-medium" style={{ color: "rgba(255,252,246,0.7)" }}>din-klinik.dk</p>
           </div>
-          {/* Content card */}
           <div className="mx-3 -mt-6 bg-white rounded-2xl shadow-xl p-5 relative z-10">
             <div className="flex justify-center mb-4">
-              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
-                <Check className="w-7 h-7 text-green-500 stroke-[2.5]" />
+              <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: "rgba(22,163,74,0.12)" }}>
+                <Check className="w-7 h-7 stroke-[2.5]" style={{ color: "#16a34a" }} />
               </div>
             </div>
-            <h3 className="font-bold text-center text-slate-800 mb-1 text-base">Booking bekræftet!</h3>
-            <p className="text-xs text-center text-slate-500 mb-5">En bekræftelse er sendt til din mail</p>
+            <h3 className="font-bold text-center mb-1 text-base" style={{ color: "var(--bf-ink)" }}>Booking bekræftet!</h3>
+            <p className="text-xs text-center mb-5" style={{ color: "var(--bf-muted)" }}>En bekræftelse er sendt til din mail</p>
             <div className="space-y-2.5 text-xs">
               {[
                 { label: "Behandling", value: "Zoneterapi 60 min" },
@@ -368,43 +798,54 @@ function IPhoneMockup() {
                 { label: "Tid", value: "13:00 – 14:00" },
                 { label: "Klinik", value: "Din Klinik" },
               ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between items-center border-b border-slate-100 pb-2">
-                  <span className="text-slate-400">{label}</span>
-                  <span className="font-semibold text-slate-700">{value}</span>
+                <div key={label} className="flex justify-between items-center pb-2" style={{ borderBottom: "1px solid #F0EBE0" }}>
+                  <span style={{ color: "var(--bf-muted)" }}>{label}</span>
+                  <span className="font-semibold" style={{ color: "var(--bf-ink)" }}>{value}</span>
                 </div>
               ))}
             </div>
           </div>
-          {/* Bottom padding */}
           <div className="h-8" />
         </div>
-        {/* Home bar */}
         <div className="flex justify-center pt-1 pb-0.5">
-          <div className="w-24 h-1 bg-slate-600 rounded-full" />
+          <div className="w-24 h-1 rounded-full" style={{ background: "#3A3C46" }} />
         </div>
       </div>
     </div>
   );
 }
 
-/* ─── Product Highlight card ─── */
-function HighlightCard({ highlight }: { highlight: (typeof highlights)[0] }) {
+/* ─── Highlight card ─── */
+function HighlightCard({ highlight, index }: { highlight: (typeof highlights)[0]; index: number }) {
   const { Icon } = highlight;
   return (
-    <motion.div
-      variants={fadeUp}
-      whileHover={{ y: -5, transition: { duration: 0.2 } }}
-      className="bg-card rounded-2xl border hover:border-blue-200 dark:hover:border-blue-800 hover:shadow-xl hover:shadow-blue-500/8 transition-all duration-300 overflow-hidden"
-    >
-      <div className={`h-2 bg-gradient-to-r ${highlight.gradient}`} />
-      <div className="p-7">
-        <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${highlight.gradient} flex items-center justify-center mb-5 shadow-lg`}>
-          <Icon className="w-7 h-7 text-white" />
+    <div className="bf-card p-7 md:p-8 h-full flex flex-col" data-testid={`card-highlight-${index}`}>
+      <div className="flex items-start justify-between mb-6">
+        <div
+          className="w-12 h-12 rounded-xl flex items-center justify-center"
+          style={{ background: "var(--bf-cream)", border: "1px solid var(--bf-line)" }}
+        >
+          <Icon className="w-5 h-5" style={{ color: "var(--bf-ink)" }} />
         </div>
-        <h3 className="text-lg font-bold mb-3">{highlight.title}</h3>
-        <p className="text-muted-foreground leading-relaxed">{highlight.desc}</p>
+        <span className="font-editorial italic text-sm" style={{ color: "var(--bf-muted)" }}>
+          0{index + 1}
+        </span>
       </div>
-    </motion.div>
+      <h3 className="text-lg font-semibold mb-2 tracking-tight" style={{ color: "var(--bf-ink)" }}>
+        {highlight.title}
+      </h3>
+      <p className="text-sm leading-relaxed mb-5" style={{ color: "var(--bf-ink-soft)" }}>
+        {highlight.desc}
+      </p>
+      <ul className="mt-auto space-y-2 pt-5" style={{ borderTop: "1px solid var(--bf-line)" }}>
+        {highlight.bullets.map((b) => (
+          <li key={b} className="flex items-center gap-2.5 text-xs font-medium" style={{ color: "var(--bf-ink)" }}>
+            <Check className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--bf-accent)" }} />
+            {b}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -433,49 +874,60 @@ function ContactForm() {
 
   if (status === "success") {
     return (
-      <div className="glass-panel rounded-2xl p-8 text-center">
-        <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-          <Check className="w-7 h-7 text-green-500 stroke-[2.5]" />
+      <div className="text-center py-6">
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "rgba(22,163,74,0.12)" }}>
+          <Check className="w-7 h-7 stroke-[2.5]" style={{ color: "#16a34a" }} />
         </div>
-        <h3 className="text-xl font-bold text-white mb-2">Tak, {name}!</h3>
-        <p className="text-white/80">Vi kontakter dig inden for én hverdag.</p>
+        <h3 className="font-editorial text-2xl mb-2" style={{ color: "var(--bf-ink)" }} data-testid="text-form-success">Tak, {name}.</h3>
+        <p className="text-sm" style={{ color: "var(--bf-ink-soft)" }}>Vi kontakter dig inden for én hverdag.</p>
       </div>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="glass-panel rounded-2xl p-6 md:p-8 space-y-4 text-left">
+    <form onSubmit={handleSubmit} className="space-y-5" data-testid="form-contact">
       <div>
-        <label className="block text-sm font-medium text-white/90 mb-1.5">Navn</label>
+        <label htmlFor="contact-name" className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--bf-muted)" }}>Navn</label>
         <Input
+          id="contact-name"
           value={name}
-          onChange={e => setName(e.target.value)}
+          onChange={(e) => setName(e.target.value)}
           placeholder="Dit navn"
           required
-          className="bg-white/90 border-white/20 placeholder:text-slate-400 text-slate-800 focus-visible:ring-white/50"
+          className="h-12 bg-white"
+          style={{ borderColor: "var(--bf-line-strong)" }}
+          data-testid="input-name"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-white/90 mb-1.5">Telefon eller Email</label>
+        <label htmlFor="contact-info" className="block text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--bf-muted)" }}>Telefon eller e-mail</label>
         <Input
+          id="contact-info"
           value={contact}
-          onChange={e => setContact(e.target.value)}
+          onChange={(e) => setContact(e.target.value)}
           placeholder="Telefonnummer eller emailadresse"
           required
-          className="bg-white/90 border-white/20 placeholder:text-slate-400 text-slate-800 focus-visible:ring-white/50"
+          className="h-12 bg-white"
+          style={{ borderColor: "var(--bf-line-strong)" }}
+          data-testid="input-contact"
         />
       </div>
       {status === "error" && (
-        <p className="text-sm text-red-200">Noget gik galt — prøv igen eller skriv til os direkte.</p>
+        <p className="text-sm" style={{ color: "var(--bf-terra)" }}>Noget gik galt — prøv igen eller skriv til os direkte.</p>
       )}
       <Button
         type="submit"
         size="lg"
         disabled={status === "sending"}
-        className="w-full h-12 text-base font-semibold bg-white text-[#0052FF] hover:bg-blue-50 shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-60"
+        className="w-full h-13 py-3.5 text-base font-semibold rounded-full hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 disabled:opacity-60"
+        style={{ background: "var(--bf-ink)", color: "#FFFCF6", boxShadow: "0 18px 40px -16px rgba(21,22,27,0.45)" }}
+        data-testid="button-submit"
       >
         {status === "sending" ? "Sender..." : "Bliv kontaktet"}
       </Button>
+      <p className="text-xs text-center" style={{ color: "var(--bf-muted)" }}>
+        Vi læser og svarer alle henvendelser personligt.
+      </p>
     </form>
   );
 }
