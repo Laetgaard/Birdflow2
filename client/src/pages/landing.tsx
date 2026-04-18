@@ -1,27 +1,16 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Star, Shield, Zap, Menu, X } from "lucide-react";
-import { motion, useInView, useReducedMotion } from "framer-motion";
-import { useEffect, useRef, useState, lazy, Suspense } from "react";
+import { ArrowRight, Check, Star, Shield, Zap, Menu, X, Calendar, ShoppingCart, CreditCard } from "lucide-react";
+import { motion, useInView } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
 import CountUp from "@/components/animated/CountUp";
 import HeroBuildDemo from "@/components/animated/HeroBuildDemo";
 import InteractiveProcessFlow from "@/components/animated/InteractiveProcessFlow";
-import {
-  CalendarIcon,
-  CartIcon,
-  CardIcon,
-  AIWandIcon,
-  GlobeIcon,
-  EnvelopeIcon,
-} from "@/components/animated/FeatureIcons";
+import { CalendarIcon, CartIcon, CardIcon, AIWandIcon, GlobeIcon, EnvelopeIcon } from "@/components/animated/FeatureIcons";
 import { getTotalCreators } from "@/lib/stats";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
 
 /* ─── animation presets ─── */
 const fadeUp = {
@@ -57,11 +46,33 @@ const features = [
   { title: "Automatiske emails", desc: "Booking-bekræftelser, ordrekvitteringer og forsendelsesinfo sendes automatisk til dine kunder.", outcome: "Spar tid på kundeservice", gradient: "from-cyan-500 to-blue-600", Icon: EnvelopeIcon },
 ];
 
-const competitors = [
-  { name: "Shopify", focus: "E-commerce", desc: "Bygget til store webshops. Overkill og dyrt for en lille business.", price: "300+ kr/md", highlight: false },
-  { name: "Webflow", focus: "Design", desc: "For designere og udviklere. Kræver teknisk viden.", price: "150+ kr/md", highlight: false },
-  { name: "Framer", focus: "Landing pages", desc: "Flotte sider, men ingen booking eller webshop inkluderet.", price: "100+ kr/md", highlight: false },
-  { name: "BirdFlow", focus: "Small business starter kit", desc: "Hjemmeside + booking + webshop + betaling. Alt i én. Bygget til dig.", price: "69 kr/md", highlight: true },
+const instantSystems = [
+  { title: "Mail automation", desc: "Booking-bekræftelser, ordrekvitteringer og påmindelser sendes automatisk. Nul manuelle mails.", Icon: EnvelopeIcon, gradient: "from-cyan-500 to-blue-600" },
+  { title: "Ordreflow", desc: "Webshop med automatisk lagerstyring, betalingsbekræftelse og forsendelsesinfo til kunden.", Icon: CartIcon, gradient: "from-blue-500 to-indigo-600" },
+  { title: "Booking system", desc: "Kunderne booker selv online. Du ser din kalender fylde sig op — ingen telefonopkald.", Icon: CalendarIcon, gradient: "from-indigo-500 to-blue-700" },
+];
+
+const differentiators = [
+  { icon: Zap, title: "Klar til kunder på dag 1", desc: "Booking, webshop og betaling er aktiveret fra start — ikke noget du selv skal sætte op." },
+  { icon: Shield, title: "Ingen teknisk opsætning", desc: "Ingen plugins, ingen API-nøgler, ingen tredjepartsintegrationer. Det virker fra boksen." },
+  { icon: Star, title: "Alt i ét abonnement", desc: "69 kr/md dækker hjemmeside, booking, webshop, betaling og support. Ingen skjulte gebyrer." },
+  { icon: Check, title: "Vokser med din business", desc: "Op til 5 websites, ubegrænset booking og webshop. Ingen transaktionsgebyrer." },
+];
+
+const comparisonRows: { feature: string; birdflow: boolean | string; wix: boolean | string; shopify: boolean | string }[] = [
+  { feature: "AI-bygget hjemmeside",      birdflow: true,       wix: false,          shopify: false },
+  { feature: "Booking system inkluderet", birdflow: true,       wix: false,          shopify: false },
+  { feature: "Webshop inkluderet",        birdflow: true,       wix: "Tilkøb",       shopify: true  },
+  { feature: "Ingen transaktionsgebyr",   birdflow: true,       wix: false,          shopify: false },
+  { feature: "Klar på under 1 time",      birdflow: true,       wix: false,          shopify: false },
+  { feature: "Dansk support",             birdflow: true,       wix: false,          shopify: false },
+  { feature: "Pris",                      birdflow: "69 kr/md", wix: "150+ kr/md",   shopify: "300+ kr/md" },
+];
+
+interface PricingPlan { id: "diy" | "tailored"; badge?: string; name: string; tagline: string; price: string; priceSub: string; ctaText: string; ctaHref: string; highlight: boolean; features: string[]; note?: string; }
+const pricingPlans: PricingPlan[] = [
+  { id: "diy", name: "Gør Det Selv", tagline: "Du styrer det hele", price: "69", priceSub: "kr/md", ctaText: "Start gratis i 31 dage", ctaHref: "/auth?mode=signup", highlight: false, features: ["AI-bygget hjemmeside", "Booking system", "Komplet webshop", "Stripe betalinger", "Eget domæne + SSL", "Email notifikationer", "Analytics dashboard", "Op til 5 websites"], note: "Første 31 dage gratis. Intet kreditkort." },
+  { id: "tailored", badge: "Mest populære", name: "Skræddersyet", tagline: "Vi gør det for dig", price: "Tilpasset", priceSub: "+ 69 kr/md herefter", ctaText: "Book gratis konsultation", ctaHref: "/auth?mode=signup", highlight: true, features: ["Alt fra Gør Det Selv planen", "Personlig onboarding-session", "Vi bygger din hjemmeside for dig", "Custom design og branding", "Opsætning af booking og webshop", "Løbende prioriteret support", "Månedlig performance-gennemgang", "Dedikeret kontaktperson"], note: "Engangsgebyr for opsætning + 69 kr/md herefter." },
 ];
 
 const testimonials = [
@@ -74,7 +85,7 @@ const faqs = [
   { q: "Kræver det teknisk viden?", a: "Nej. BirdFlow er bygget til folk uden teknisk baggrund. Beskriv din business til vores AI, og den bygger din side. Du kan tilpasse alt med klik — ingen kode nødvendigt." },
   { q: "Kan jeg virkelig starte på 24 timer?", a: "Ja. De fleste af vores brugere har en færdig hjemmeside med booking eller webshop klar inden for et par timer. Publicering tager ét klik." },
   { q: "Hvordan modtager jeg betalinger?", a: "Du forbinder din Stripe-konto (gratis at oprette), og kunder kan betale med kreditkort, Apple Pay og Google Pay. Pengene går direkte til din konto." },
-  { q: "Hvad koster det?", a: "69 kr/md — alt inkluderet. Du starter med 31 dages gratis prøveperiode uden kreditkort. Opsig når som helst." },
+  { q: "Hvad koster det?", a: "BirdFlow starter ved 69 kr/md — alt inkluderet med 31 dages gratis prøveperiode. Vil du have os til at bygge siden for dig, tilbyder vi også en skræddersyet løsning med personlig opsætning mod engangsgebyr + 69 kr/md herefter. Book en gratis konsultation for at høre mere." },
   { q: "Kan min business vokse med BirdFlow?", a: "Absolut. Du kan have op til 5 websites med 50 sider hver, komplet webshop, booking system, og analytics. BirdFlow vokser med dig." },
   { q: "Hvad gør BirdFlow anderledes end Shopify eller Wix?", a: "Shopify er bygget til store webshops. Wix er en generel website builder. BirdFlow er bygget specifikt til små virksomheder der vil i gang hurtigt — med booking, webshop og betaling i én pakke, uden teknisk bøvl." },
 ];
@@ -90,23 +101,6 @@ function ScrollReveal({ children, className = "", delay = 0 }: { children: React
   );
 }
 
-/* ─── 3D tilt card for comparison highlight ─── */
-function TiltCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [transform, setTransform] = useState("");
-  const handleMouse = (e: React.MouseEvent) => {
-    if (!ref.current) return;
-    const r = ref.current.getBoundingClientRect();
-    const x = (e.clientX - r.left) / r.width - 0.5;
-    const y = (e.clientY - r.top) / r.height - 0.5;
-    setTransform(`perspective(600px) rotateY(${x * 8}deg) rotateX(${-y * 8}deg) scale(1.02)`);
-  };
-  return (
-    <div ref={ref} onMouseMove={handleMouse} onMouseLeave={() => setTransform("")} className={className} style={{ transform, transition: "transform 0.25s ease" }}>
-      {children}
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════════════════ */
 /*  LANDING PAGE                                          */
@@ -130,12 +124,12 @@ export default function LandingPage() {
         <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-bold text-xl tracking-tight group">
             <img src="/logo.png" alt="BirdFlow" className="w-8 h-8 transition-transform group-hover:scale-110" />
-            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">BirdFlow</span>
+            <span className="bg-gradient-to-r from-blue-700 to-blue-600 bg-clip-text text-transparent">BirdFlow</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
             {navLinks.map(([href, label]) => (
-              <a key={href} href={href} className="relative py-1 hover:text-foreground transition-colors after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-indigo-500 after:transition-all hover:after:w-full">
+              <a key={href} href={href} className="relative py-1 hover:text-foreground transition-colors after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-blue-600 after:transition-all hover:after:w-full">
                 {label}
               </a>
             ))}
@@ -143,10 +137,10 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-3">
             <Link href="/auth?mode=signin">
-              <Button variant="ghost" size="sm" className="hidden sm:inline-flex hover:bg-indigo-50 dark:hover:bg-indigo-950/30">Log ind</Button>
+              <Button variant="ghost" size="sm" className="hidden sm:inline-flex hover:bg-blue-50 dark:hover:bg-blue-950/30">Log ind</Button>
             </Link>
             <Link href="/auth?mode=signup">
-              <Button size="sm" className="hidden sm:inline-flex bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all">
+              <Button size="sm" className="hidden sm:inline-flex bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/25 hover:shadow-blue-600/40 transition-all">
                 Start gratis
               </Button>
             </Link>
@@ -175,7 +169,7 @@ export default function LandingPage() {
                   key={href}
                   href={href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="px-4 py-3 rounded-lg text-sm font-medium text-foreground hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+                  className="px-4 py-3 rounded-lg text-sm font-medium text-foreground hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
                 >
                   {label}
                 </a>
@@ -185,7 +179,7 @@ export default function LandingPage() {
                   <Button variant="outline" className="w-full">Log ind</Button>
                 </Link>
                 <Link href="/auth?mode=signup" onClick={() => setMobileMenuOpen(false)}>
-                  <Button className="w-full bg-gradient-to-r from-indigo-500 to-purple-600">
+                  <Button className="w-full bg-blue-600 hover:bg-blue-700">
                     Start gratis <ArrowRight className="ml-2 w-4 h-4" />
                   </Button>
                 </Link>
@@ -197,14 +191,10 @@ export default function LandingPage() {
 
       <main className="flex-1">
 
-        {/* ═══════════════ 1. HERO ═══════════════
-            Removed "Det bare virker". Added animated build demo
-            showing website being assembled step-by-step.
-            Two-column: copy left, interactive demo right. */}
+        {/* ═══════════════ 1. HERO ═══════════════ */}
         <section className="relative py-20 md:py-28 lg:py-32 px-6 lg:px-12 overflow-hidden">
-          {/* Subtle background gradient — not a particle effect, just clean depth */}
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/60 via-purple-50/30 to-transparent dark:from-indigo-950/15 dark:via-purple-950/8 pointer-events-none" />
-          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-bl from-indigo-100/40 to-transparent dark:from-indigo-900/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-50/60 via-blue-50/20 to-transparent dark:from-blue-950/15 dark:via-blue-950/5 pointer-events-none" />
+          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-bl from-blue-100/40 to-transparent dark:from-blue-900/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none" />
 
           <div className="w-full max-w-7xl mx-auto relative z-10">
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
@@ -212,44 +202,55 @@ export default function LandingPage() {
               {/* Left: Copy */}
               <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }} className="text-center lg:text-left">
 
-                {/* Badge with subtle pulse */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.92 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.4, delay: 0.1 }}
-                  className="landing-badge-pulse inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 text-sm font-medium mb-8 border border-indigo-200/50 dark:border-indigo-800/40"
-                >
-                  <Zap className="w-3.5 h-3.5" />
-                  AI-powered business starter kit
-                </motion.div>
+                {/* Building blocks pills — snap in with spring physics */}
+                <div className="flex items-center justify-center lg:justify-start gap-2 mb-7 flex-wrap">
+                  {[
+                    { icon: Calendar, label: "Booking", delay: 0.3, color: "bg-blue-500" },
+                    { icon: ShoppingCart, label: "Webshop", delay: 0.45, color: "bg-indigo-500" },
+                    { icon: CreditCard, label: "Betaling", delay: 0.6, color: "bg-cyan-500" },
+                    { icon: Check, label: "Live!", delay: 0.75, color: "bg-green-500" },
+                  ].map(({ icon: Icon, label, delay, color }) => (
+                    <motion.div
+                      key={label}
+                      initial={{ opacity: 0, scale: 0.6, y: -10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ delay, type: "spring", stiffness: 420, damping: 16 }}
+                      className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white shadow-md", color)}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {label}
+                    </motion.div>
+                  ))}
+                </div>
 
-                {/* Headline — tighter tracking, larger weight contrast */}
                 <h1 className="text-[2.75rem] sm:text-5xl md:text-6xl lg:text-[4.25rem] font-extrabold tracking-[-0.025em] leading-[1.08] mb-6">
-                  Start din business
-                  <span className="block bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 bg-clip-text text-transparent mt-1 landing-gradient-text">
-                    på 24 timer.
+                  Få dit produkt eller
+                  <span className="block bg-gradient-to-r from-blue-700 via-blue-600 to-cyan-500 bg-clip-text text-transparent mt-1 landing-gradient-text">
+                    din klinik online — nemt.
                   </span>
                 </h1>
 
-                {/* Subheadline — simplified, no "Det bare virker" */}
                 <p className="text-lg md:text-xl text-muted-foreground max-w-lg mx-auto lg:mx-0 mb-10 leading-relaxed">
-                  Hjemmeside, booking, webshop og betaling — klar på én dag. Ingen kode. Ingen tech-stress.
+                  BirdFlow samler website, booking og webshop i ét system. Ingen kode. Ingen teknisk bøvl. Du er klar til kunder i dag.
                 </p>
 
-                {/* CTA */}
                 <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-8">
                   <Link href="/auth?mode=signup">
-                    <Button size="lg" className="h-14 px-10 text-lg font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-xl shadow-indigo-500/20 hover:shadow-indigo-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow">
-                      Start gratis — det tager 2 minutter
+                    <Button size="lg" className="h-14 px-10 text-lg font-semibold bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-600/20 hover:shadow-blue-600/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow-blue">
+                      Prøv gratis i 31 dage
                       <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
                     </Button>
                   </Link>
+                  <a href="#pricing">
+                    <Button size="lg" variant="outline" className="h-14 px-10 text-lg font-semibold border-2 hover:border-blue-600 hover:text-blue-600 transition-all duration-200">
+                      Se skræddersyet løsning
+                    </Button>
+                  </a>
                 </div>
 
-                {/* Trust badges — sequential fade-in */}
                 <div className="flex flex-wrap items-center justify-center lg:justify-start gap-5 text-sm text-muted-foreground">
                   {["Intet kreditkort", "31 dages gratis", "Online på 24 timer"].map((text, i) => (
-                    <motion.div key={text} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 + i * 0.12, duration: 0.35 }} className="flex items-center gap-1.5">
+                    <motion.div key={text} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.9 + i * 0.12, duration: 0.35 }} className="flex items-center gap-1.5">
                       <Check className="w-3.5 h-3.5 text-green-500" />
                       <span>{text}</span>
                     </motion.div>
@@ -257,13 +258,12 @@ export default function LandingPage() {
                 </div>
               </motion.div>
 
-              {/* Right: Animated build demo — shows website being assembled */}
+              {/* Right: Animated build demo */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15 }}>
                 {!isMobile ? (
                   <HeroBuildDemo />
                 ) : (
-                  /* Simplified mobile hero visual — static preview instead of heavy animation */
-                  <div className="bg-card rounded-2xl border shadow-2xl shadow-indigo-500/10 overflow-hidden">
+                  <div className="bg-card rounded-2xl border shadow-2xl shadow-blue-600/10 overflow-hidden">
                     <div className="bg-muted/50 px-3 py-2 flex items-center gap-1.5 border-b">
                       <div className="w-2 h-2 rounded-full bg-red-400/60" />
                       <div className="w-2 h-2 rounded-full bg-amber-400/60" />
@@ -271,14 +271,12 @@ export default function LandingPage() {
                       <div className="ml-2 h-4 bg-muted rounded-full flex-1 max-w-[120px]" />
                     </div>
                     <div className="p-6 space-y-3">
-                      <div className="h-3 bg-gradient-to-r from-indigo-200 to-purple-200 dark:from-indigo-800 dark:to-purple-800 rounded w-3/4" />
+                      <div className="h-3 bg-gradient-to-r from-blue-200 to-blue-300 dark:from-blue-800 dark:to-blue-700 rounded w-3/4" />
                       <div className="h-2 bg-muted rounded w-full" />
                       <div className="h-2 bg-muted rounded w-5/6" />
-                      <div className="h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg w-2/5 mt-4" />
+                      <div className="h-8 bg-blue-600 rounded-lg w-2/5 mt-4" />
                       <div className="grid grid-cols-3 gap-2 mt-4">
-                        {[1,2,3].map(i => (
-                          <div key={i} className="h-16 bg-muted/60 rounded-lg" />
-                        ))}
+                        {[1,2,3].map(i => <div key={i} className="h-16 bg-muted/60 rounded-lg" />)}
                       </div>
                     </div>
                   </div>
@@ -319,13 +317,28 @@ export default function LandingPage() {
                     { icon: Star, text: "Dansk support" },
                   ].map(({ icon: Icon, text }) => (
                     <div key={text} className="flex items-center gap-1.5">
-                      <Icon className="w-3.5 h-3.5 text-indigo-500" />
+                      <Icon className="w-3.5 h-3.5 text-blue-600" />
                       <span>{text}</span>
                     </div>
                   ))}
                 </div>
               </div>
             </ScrollReveal>
+          </div>
+        </section>
+
+        {/* ═══════════════ 2-CLICK PROOF ═══════════════ */}
+        <section className="py-20 md:py-24 px-6 lg:px-12 bg-gradient-to-b from-blue-50/40 to-transparent dark:from-blue-950/10">
+          <div className="w-full max-w-5xl mx-auto">
+            <ScrollReveal className="text-center mb-12">
+              <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-3">Tre systemer. Klar på to klik.</h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Ingen opsætning. Ingen integration. Du aktiverer — det kører.</p>
+            </ScrollReveal>
+            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-3 gap-5">
+              {instantSystems.map((sys, i) => (
+                <InstantSystemCard key={i} system={sys} />
+              ))}
+            </motion.div>
           </div>
         </section>
 
@@ -339,7 +352,7 @@ export default function LandingPage() {
 
             <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
               {showcaseSites.map((site, i) => (
-                <motion.div key={i} variants={fadeUp} whileHover={{ y: -5, transition: { duration: 0.2 } }} className="group bg-card rounded-2xl border overflow-hidden hover:shadow-xl hover:shadow-indigo-500/5 transition-shadow duration-300">
+                <motion.div key={i} variants={fadeUp} whileHover={{ y: -5, transition: { duration: 0.2 } }} className="group bg-card rounded-2xl border overflow-hidden hover:shadow-xl hover:shadow-blue-600/5 transition-shadow duration-300">
                   <div className={`h-32 bg-gradient-to-br ${site.gradient} relative p-2.5 flex flex-col`}>
                     {/* Browser chrome */}
                     <div className="flex items-center gap-1.5 mb-2">
@@ -405,104 +418,89 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ═══════════════ COMPETITIVE POSITIONING ═══════════════ */}
+        {/* ═══════════════ TRUST / DIFFERENTIATION ═══════════════ */}
         <section id="comparison" className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/60 to-transparent dark:from-slate-900/20">
           <div className="w-full max-w-5xl mx-auto">
             <ScrollReveal className="text-center mb-14">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">BirdFlow er ikke en website builder.</h2>
-              <p className="text-lg text-muted-foreground max-w-3xl mx-auto">Det er et starter kit til din lille business. Her er forskellen.</p>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">
+                Vi giver dig ikke bare et website.
+                <span className="block text-blue-600 dark:text-blue-400 mt-1">Vi giver dig et fungerende forretningssystem.</span>
+              </h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Wix og Shopify sælger dig byggeklodser. BirdFlow sætter det hele op for dig.</p>
             </ScrollReveal>
 
-            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {competitors.map((comp, i) =>
-                comp.highlight ? (
-                  <motion.div key={i} variants={fadeUp}>
-                    <TiltCard className="rounded-2xl p-6 border-2 border-indigo-500 bg-gradient-to-b from-indigo-50 to-purple-50 dark:from-indigo-950/40 dark:to-purple-950/30 shadow-xl shadow-indigo-500/10 landing-birdflow-glow h-full">
-                      <div className="mb-4">
-                        <h3 className="text-lg font-bold text-indigo-700 dark:text-indigo-300">{comp.name}</h3>
-                        <span className="text-xs font-semibold uppercase tracking-wider text-indigo-500">{comp.focus}</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed mb-4">{comp.desc}</p>
-                      <div className="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 mb-4">{comp.price}</div>
-                      <Link href="/auth?mode=signup">
-                        <Button size="sm" className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg">
-                          Start gratis <ArrowRight className="ml-1.5 w-4 h-4" />
-                        </Button>
-                      </Link>
-                    </TiltCard>
-                  </motion.div>
-                ) : (
-                  <motion.div key={i} variants={fadeUp} className="rounded-2xl p-6 border bg-card hover:border-muted-foreground/20 transition-colors">
-                    <div className="mb-4">
-                      <h3 className="text-lg font-bold">{comp.name}</h3>
-                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{comp.focus}</span>
+            <div className="grid lg:grid-cols-2 gap-8 items-start">
+              {/* Left: differentiators */}
+              <ScrollReveal className="space-y-4">
+                {differentiators.map((d, i) => (
+                  <div key={i} className="flex gap-4 p-4 rounded-xl bg-card border hover:border-blue-200 dark:hover:border-blue-800 transition-colors">
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950/40 flex items-center justify-center shrink-0">
+                      <d.icon className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                     </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed mb-4">{comp.desc}</p>
-                    <div className="text-2xl font-extrabold text-muted-foreground">{comp.price}</div>
-                  </motion.div>
-                )
-              )}
-            </motion.div>
+                    <div>
+                      <h3 className="font-bold text-sm mb-1">{d.title}</h3>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{d.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </ScrollReveal>
+
+              {/* Right: comparison table */}
+              <ScrollReveal delay={0.1}>
+                <div className="rounded-2xl border overflow-hidden shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/40">
+                        <th className="text-left p-3 font-medium text-muted-foreground">Funktion</th>
+                        <th className="p-3 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 font-bold text-center">BirdFlow</th>
+                        <th className="p-3 font-medium text-muted-foreground text-center">Wix</th>
+                        <th className="p-3 font-medium text-muted-foreground text-center">Shopify</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparisonRows.map((row, i) => (
+                        <tr key={i} className={`border-b last:border-0 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                          <td className="p-3 text-sm">{row.feature}</td>
+                          <td className="p-3 text-center bg-blue-50/50 dark:bg-blue-950/10">
+                            {row.birdflow === true ? <Check className="w-4 h-4 text-green-500 mx-auto" /> : row.birdflow === false ? <span className="text-muted-foreground/40 text-lg leading-none">×</span> : <span className="text-xs font-semibold text-blue-600">{row.birdflow}</span>}
+                          </td>
+                          <td className="p-3 text-center">
+                            {row.wix === true ? <Check className="w-4 h-4 text-green-500 mx-auto" /> : row.wix === false ? <span className="text-muted-foreground/40 text-lg leading-none">×</span> : <span className="text-xs font-medium text-amber-600">{row.wix}</span>}
+                          </td>
+                          <td className="p-3 text-center">
+                            {row.shopify === true ? <Check className="w-4 h-4 text-green-500 mx-auto" /> : row.shopify === false ? <span className="text-muted-foreground/40 text-lg leading-none">×</span> : <span className="text-xs font-medium">{row.shopify}</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </ScrollReveal>
+            </div>
           </div>
         </section>
 
-        {/* ═══════════════ 4. PRICING — Premium single-plan ═══════════════
-            Redesigned with better shadows, spacing, "Mest populære"
-            badge, hover effects, trust indicators near CTA. */}
+        {/* ═══════════════ PRICING — Two-tier ═══════════════ */}
         <section id="pricing" className="py-24 md:py-32 px-6 lg:px-12">
-          <div className="w-full max-w-lg mx-auto">
+          <div className="w-full max-w-4xl mx-auto">
             <ScrollReveal className="text-center mb-12">
               <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Simpel pris. Alt inkluderet.</h2>
-              <p className="text-lg text-muted-foreground">Ét abonnement. Start gratis i 31 dage.</p>
+              <p className="text-lg text-muted-foreground">Vælg den løsning der passer til dig.</p>
             </ScrollReveal>
 
-            <ScrollReveal delay={0.1}>
-              <div className="relative">
-                {/* "Mest populære" floating badge */}
-                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-10">
-                  <div className="px-4 py-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold shadow-lg shadow-indigo-500/30 flex items-center gap-1.5">
-                    <Star className="w-3 h-3 fill-white" />
-                    Mest populære
-                  </div>
-                </div>
+            <div className="grid md:grid-cols-2 gap-6 md:gap-8 items-start">
+              {pricingPlans.map((plan, i) => (
+                <ScrollReveal key={plan.id} delay={i * 0.1}>
+                  <PricingCard plan={plan} />
+                </ScrollReveal>
+              ))}
+            </div>
 
-                <div className="bg-card rounded-3xl border-2 border-indigo-500/70 shadow-2xl shadow-indigo-500/8 overflow-hidden hover:shadow-indigo-500/15 transition-shadow duration-500 landing-birdflow-glow">
-                  {/* Header ribbon with shimmer */}
-                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 py-4 text-center relative overflow-hidden">
-                    <span className="relative z-10 text-white/90 text-sm font-semibold uppercase tracking-wider">BirdFlow Basis</span>
-                    <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)] landing-shimmer" />
-                  </div>
-
-                  <div className="p-8 md:p-10">
-                    {/* Price */}
-                    <div className="text-center mb-8">
-                      <div className="flex items-baseline justify-center gap-1">
-                        <span className="text-6xl font-extrabold tracking-tight">69</span>
-                        <span className="text-xl font-bold text-muted-foreground">kr/md</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-2">Første 31 dage koster ingenting</p>
-                    </div>
-
-                    {/* CTA button */}
-                    <Link href="/auth?mode=signup">
-                      <Button size="lg" className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-xl shadow-indigo-500/20 hover:shadow-indigo-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow">
-                        Start din gratis prøveperiode
-                        <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                      </Button>
-                    </Link>
-
-                    {/* Trust indicators right under CTA */}
-                    <div className="flex items-center justify-center gap-4 mt-4 text-[11px] text-muted-foreground">
-                      <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> Intet kreditkort</span>
-                      <span className="flex items-center gap-1"><Check className="w-3 h-3" /> Opsig når som helst</span>
-                    </div>
-
-                    {/* Feature checklist with animated checkmarks */}
-                    <div className="border-t mt-8 pt-8">
-                      <PricingChecklist />
-                    </div>
-                  </div>
-                </div>
+            <ScrollReveal delay={0.2}>
+              <div className="flex flex-wrap items-center justify-center gap-6 mt-8 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Intet kreditkort</span>
+                <span className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-green-500" /> Opsig når som helst</span>
+                <span className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5" /> Dansk support</span>
               </div>
             </ScrollReveal>
           </div>
@@ -517,9 +515,9 @@ export default function LandingPage() {
 
             <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid md:grid-cols-3 gap-5">
               {testimonials.map((t, i) => (
-                <motion.div key={i} variants={fadeUp} whileHover={{ y: -4 }} className="bg-card rounded-2xl border p-6 transition-shadow duration-300 hover:shadow-lg hover:shadow-indigo-500/5 relative overflow-hidden">
+                <motion.div key={i} variants={fadeUp} whileHover={{ y: -4 }} className="bg-card rounded-2xl border p-6 transition-shadow duration-300 hover:shadow-lg hover:shadow-blue-600/5 relative overflow-hidden">
                   {/* Decorative quote mark */}
-                  <div className="absolute -top-2 -left-1 text-6xl font-serif text-indigo-100 dark:text-indigo-900/40 leading-none select-none">&ldquo;</div>
+                  <div className="absolute -top-2 -left-1 text-6xl font-serif text-blue-100 dark:text-blue-900/40 leading-none select-none">&ldquo;</div>
                   <div className="relative z-10">
                     <div className="flex gap-0.5 mb-4">
                       {[1,2,3,4,5].map(s => <Star key={s} className="w-4 h-4 fill-amber-400 text-amber-400" />)}
@@ -552,8 +550,8 @@ export default function LandingPage() {
             <ScrollReveal delay={0.1}>
               <Accordion type="single" collapsible className="space-y-2.5">
                 {faqs.map((faq, i) => (
-                  <AccordionItem key={i} value={`faq-${i}`} className="bg-card rounded-xl border px-5 hover:shadow-sm transition-shadow data-[state=open]:shadow-md data-[state=open]:border-indigo-200 dark:data-[state=open]:border-indigo-800">
-                    <AccordionTrigger className="text-left font-semibold text-[15px] hover:no-underline py-4 [&[data-state=open]]:text-indigo-700 dark:[&[data-state=open]]:text-indigo-300">
+                  <AccordionItem key={i} value={`faq-${i}`} className="bg-card rounded-xl border px-5 hover:shadow-sm transition-shadow data-[state=open]:shadow-md data-[state=open]:border-blue-200 dark:data-[state=open]:border-blue-800">
+                    <AccordionTrigger className="text-left font-semibold text-[15px] hover:no-underline py-4 [&[data-state=open]]:text-blue-700 dark:[&[data-state=open]]:text-blue-300">
                       {faq.q}
                     </AccordionTrigger>
                     <AccordionContent className="text-muted-foreground text-sm pb-4 leading-relaxed">{faq.a}</AccordionContent>
@@ -568,10 +566,9 @@ export default function LandingPage() {
             Subtle gradient background with flowing shape,
             large CTA, and trust indicators below. */}
         <section className="py-24 md:py-32 px-6 lg:px-12 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-700 landing-gradient-bg" />
-          {/* Flowing ambient shape */}
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-700 via-blue-600 to-blue-800 landing-gradient-bg" />
           <div className="absolute top-0 left-0 w-[800px] h-[800px] bg-white/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 motion-safe:animate-pulse-slow" />
-          <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-purple-400/10 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 motion-safe:animate-pulse-slow" style={{ animationDelay: "2s" }} />
+          <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-blue-400/10 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 motion-safe:animate-pulse-slow" style={{ animationDelay: "2s" }} />
 
           <div className="w-full max-w-3xl mx-auto relative z-10 text-center">
             <ScrollReveal>
@@ -583,7 +580,7 @@ export default function LandingPage() {
               </p>
               <Link href="/auth?mode=signup">
                 <Button size="lg" variant="secondary" className="h-14 px-10 text-lg font-semibold shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group">
-                  Start din business gratis
+                  Prøv gratis i 31 dage
                   <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </Button>
               </Link>
@@ -689,7 +686,7 @@ function FeatureCard({ feature }: { feature: (typeof features)[0] }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       whileHover={{ y: -5, transition: { duration: 0.2 } }}
-      className="bg-card p-6 rounded-2xl border hover:border-indigo-200 dark:hover:border-indigo-800 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300 group"
+      className="bg-card p-6 rounded-2xl border hover:border-blue-200 dark:hover:border-blue-800 hover:shadow-lg hover:shadow-blue-600/5 transition-all duration-300 group"
     >
       <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center shrink-0 transition-transform duration-300 shadow-lg group-hover:scale-110 mb-4`}>
         <div className="w-8 h-8">
@@ -698,7 +695,7 @@ function FeatureCard({ feature }: { feature: (typeof features)[0] }) {
       </div>
       <h3 className="text-base font-bold mb-2">{feature.title}</h3>
       <p className="text-sm text-muted-foreground leading-relaxed mb-3">{feature.desc}</p>
-      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 px-2.5 py-1 rounded-full">
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-full">
         <Check className="w-3 h-3" />{feature.outcome}
       </span>
     </motion.div>
@@ -706,10 +703,9 @@ function FeatureCard({ feature }: { feature: (typeof features)[0] }) {
 }
 
 /* ─── Pricing checklist with scroll-triggered spring checkmarks ─── */
-function PricingChecklist() {
+function PricingChecklist({ items, highlightFirst = false }: { items: string[]; highlightFirst?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-20px" });
-  const items = ["Hjemmeside med AI builder", "Booking system", "Komplet webshop", "Stripe betalinger", "Eget domæne + SSL", "Email notifikationer", "Analytics dashboard", "Op til 5 websites"];
   return (
     <div ref={ref} className="grid sm:grid-cols-2 gap-3 text-left">
       {items.map((item, i) => (
@@ -717,9 +713,91 @@ function PricingChecklist() {
           <motion.div initial={{ scale: 0 }} animate={isInView ? { scale: 1 } : {}} transition={{ delay: i * 0.05 + 0.08, type: "spring", stiffness: 400, damping: 15 }}>
             <Check className="w-4 h-4 text-green-500 shrink-0" />
           </motion.div>
-          <span className="text-sm">{item}</span>
+          <span className={cn("text-sm", highlightFirst && i === 0 ? "text-blue-600 dark:text-blue-400 font-medium" : "")}>{item}</span>
         </motion.div>
       ))}
+    </div>
+  );
+}
+
+/* ─── Instant system card for 2-click proof section ─── */
+function InstantSystemCard({ system }: { system: typeof instantSystems[0] }) {
+  const [hovered, setHovered] = useState(false);
+  const { Icon } = system;
+  return (
+    <motion.div
+      variants={fadeUp}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      whileHover={{ y: -5, transition: { duration: 0.2 } }}
+      className="bg-card rounded-2xl border border-t-4 border-blue-600 hover:shadow-lg hover:shadow-blue-500/8 transition-all duration-300 p-6 group"
+    >
+      <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${system.gradient} flex items-center justify-center shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300 mb-4`}>
+        <div className="w-8 h-8"><Icon animated={hovered} /></div>
+      </div>
+      <h3 className="text-base font-bold mb-2">{system.title}</h3>
+      <p className="text-sm text-muted-foreground leading-relaxed mb-4">{system.desc}</p>
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 px-2.5 py-1 rounded-full">
+        <Check className="w-3 h-3" />Klar med det samme
+      </span>
+    </motion.div>
+  );
+}
+
+/* ─── Two-tier pricing card ─── */
+function PricingCard({ plan }: { plan: PricingPlan }) {
+  const isHighlight = plan.highlight;
+  return (
+    <div className="relative">
+      {plan.badge && (
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-10">
+          <div className="px-4 py-1.5 rounded-full bg-blue-600 text-white text-xs font-bold shadow-lg shadow-blue-600/30 flex items-center gap-1.5">
+            <Star className="w-3 h-3 fill-white" />{plan.badge}
+          </div>
+        </div>
+      )}
+      <div className={cn(
+        "bg-card rounded-3xl overflow-hidden transition-shadow duration-500",
+        isHighlight
+          ? "border-2 border-blue-600 shadow-2xl shadow-blue-600/10 landing-birdflow-glow-blue"
+          : "border-2 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
+      )}>
+        <div className={cn("py-4 text-center relative overflow-hidden", isHighlight ? "bg-blue-600" : "bg-slate-50 dark:bg-slate-800/60 border-b")}>
+          <span className={cn("relative z-10 text-sm font-semibold uppercase tracking-wider", isHighlight ? "text-white/90" : "text-muted-foreground")}>{plan.name}</span>
+          {isHighlight && <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)] landing-shimmer-blue" />}
+        </div>
+        <div className="p-8">
+          <p className="text-center text-sm text-muted-foreground mb-4">{plan.tagline}</p>
+          <div className="text-center mb-2">
+            <div className="flex items-baseline justify-center gap-1">
+              {plan.id === "tailored" ? (
+                <span className="text-4xl font-extrabold tracking-tight">{plan.price}</span>
+              ) : (
+                <>
+                  <span className="text-6xl font-extrabold tracking-tight">{plan.price}</span>
+                  <span className="text-xl font-bold text-muted-foreground">{plan.priceSub}</span>
+                </>
+              )}
+            </div>
+            {plan.id === "tailored" && <p className="text-sm text-muted-foreground mt-1">{plan.priceSub}</p>}
+          </div>
+          {plan.note && <p className="text-xs text-center text-muted-foreground mb-6">{plan.note}</p>}
+          <Link href={plan.ctaHref}>
+            <Button size="lg" className={cn(
+              "w-full h-12 text-base font-semibold transition-all duration-200 group",
+              isHighlight
+                ? "bg-blue-600 hover:bg-blue-700 text-white shadow-xl shadow-blue-600/20 hover:shadow-blue-600/35 hover:scale-[1.02] active:scale-[0.98] landing-cta-glow-blue"
+                : "border-2 border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20 bg-transparent"
+            )}>
+              {plan.ctaText}
+              <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </Button>
+          </Link>
+          <div className="border-t mt-6 pt-6">
+            <PricingChecklist items={plan.features} highlightFirst={plan.id === "tailored"} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
