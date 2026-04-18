@@ -349,6 +349,14 @@
   opacity: 1;
 }
 
+/* Glassmorphism panel utility */
+.glass-panel {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
 /* Subtle noise texture for sections */
 .landing-noise {
   position: relative;
