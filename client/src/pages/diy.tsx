@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,15 @@ import {
   Menu,
   X,
   Zap,
+  Edit3,
+  CalendarCheck,
+  ShoppingCart,
+  Globe,
+  BarChart3,
+  Mail,
+  Users,
 } from "lucide-react";
+import { getTotalCreators } from "@/lib/stats";
 
 /* ─────────── data ─────────── */
 const personas = [
@@ -54,6 +62,49 @@ const personas = [
     gradient: "from-emerald-500 to-teal-500",
     soft: "from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20",
     accent: "text-emerald-600 dark:text-emerald-400",
+  },
+];
+
+const highlights = [
+  {
+    Icon: Wand2,
+    title: "AI-arkitekt på dansk",
+    desc: "Beskriv din virksomhed på dansk — AI'en designer komplet sidestruktur, farver, typografi og indhold. Du justerer bagefter.",
+  },
+  {
+    Icon: Edit3,
+    title: "Direkte redigering",
+    desc: "Klik på en tekst og skriv. Træk i sektioner. Skift farver med ét klik. Du ser præcis hvad dine besøgende ser.",
+  },
+  {
+    Icon: CalendarCheck,
+    title: "Booking inkluderet",
+    desc: "Online booking, kalender, bekræftelser og påmindelser. Klar fra dag ét — ingen ekstra plugins eller integrationer.",
+  },
+  {
+    Icon: ShoppingCart,
+    title: "Webshop med Stripe",
+    desc: "Sælg produkter med varianter, lager, fragt og betaling. Stripe Connect, GLS/PostNord/UPS — alt med dansk moms.",
+  },
+  {
+    Icon: Globe,
+    title: "Eget .dk-domæne",
+    desc: "Køb dit domæne direkte i platformen eller forbind et eksisterende. SSL, DNS og hosting sættes op automatisk.",
+  },
+  {
+    Icon: BarChart3,
+    title: "Analytics uden cookies",
+    desc: "GDPR-venlig analytics med besøgstal, konverteringer og webshop-data — uden cookie-pop-ups eller bannerkrav.",
+  },
+  {
+    Icon: Mail,
+    title: "Automatiske mails",
+    desc: "Ordrebekræftelser, booking-mails og påmindelser sendes automatisk med dit eget brand og logo.",
+  },
+  {
+    Icon: Sparkles,
+    title: "AI-assistent altid klar",
+    desc: "Sidder du fast? AI-assistenten kan bygge sektioner, foreslå design og finpudse tekster mens du arbejder.",
   },
 ];
 
@@ -298,6 +349,17 @@ function DIYBuilderMockup() {
 /* ─── DIY page ─── */
 export default function DIYPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [creators, setCreators] = useState<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    getTotalCreators().then((c) => {
+      if (mounted) setCreators(c);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-x-hidden scroll-smooth">
@@ -417,7 +479,7 @@ export default function DIYPage() {
                   en eftermiddag — fra <span className="font-bold text-foreground">69 kr./md.</span>
                 </p>
 
-                <div className="flex flex-wrap items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3">
                   <Button
                     asChild
                     size="lg"
@@ -425,19 +487,33 @@ export default function DIYPage() {
                     data-testid="button-diy-start-trial"
                   >
                     <Link href="/auth?mode=signup&plan=basic">
-                      Start gratis i 31 dage
+                      Start gratis
                       <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
                     </Link>
                   </Button>
-                  <Link href="/" className="text-sm font-semibold text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-300 inline-flex items-center gap-1.5 group">
-                    <span className="border-b border-dashed border-slate-300 dark:border-slate-600 group-hover:border-indigo-500 pb-0.5">
-                      Foretrækker du Done-For-You?
-                    </span>
-                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                  </Link>
+                  <Button
+                    asChild
+                    size="lg"
+                    variant="outline"
+                    className="h-14 px-7 text-lg font-semibold border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    data-testid="button-diy-see-pricing"
+                  >
+                    <a href="#priser">Se priser</a>
+                  </Button>
                 </div>
 
-                <div className="mt-8 flex items-center gap-5 text-xs text-muted-foreground">
+                {/* Social proof */}
+                {creators !== null && creators > 0 && (
+                  <div className="mt-6 inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-white/60 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/40 backdrop-blur-sm" data-testid="diy-social-proof">
+                    <Users className="w-4 h-4 text-indigo-500" />
+                    <span className="text-sm text-slate-700 dark:text-slate-200">
+                      <span className="font-bold text-foreground" data-testid="text-creator-count">{creators.toLocaleString("da-DK")}</span>{" "}
+                      danskere bygger allerede med BirdFlow
+                    </span>
+                  </div>
+                )}
+
+                <div className="mt-6 flex items-center gap-5 text-xs text-muted-foreground">
                   <div className="flex items-center gap-1.5">
                     <Check className="w-4 h-4 text-emerald-500" />
                     Ingen kreditkort først
@@ -450,6 +526,15 @@ export default function DIYPage() {
                     <Check className="w-4 h-4 text-emerald-500" />
                     Dansk support
                   </div>
+                </div>
+
+                <div className="mt-5">
+                  <Link href="/" className="text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 inline-flex items-center gap-1.5 group">
+                    <span className="border-b border-dashed border-slate-300 dark:border-slate-600 group-hover:border-indigo-500 pb-0.5">
+                      Foretrækker du Done-For-You?
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                  </Link>
                 </div>
               </motion.div>
 
@@ -520,6 +605,55 @@ export default function DIYPage() {
                         </li>
                       ))}
                     </ul>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* FEATURE HIGHLIGHTS */}
+        <section className="py-24 md:py-32 px-6 lg:px-12">
+          <div className="w-full max-w-7xl mx-auto">
+            <div className="text-center mb-14 max-w-3xl mx-auto">
+              <motion.h2
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}
+                className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4"
+              >
+                Alt det du behøver — i én pakke
+              </motion.h2>
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                className="text-lg text-muted-foreground"
+              >
+                Ingen plugins, ingen abonnementer ovenpå. Det hele er bygget ind.
+              </motion.p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {highlights.map((h, i) => {
+                const { Icon } = h;
+                return (
+                  <motion.div
+                    key={h.title}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-60px" }}
+                    transition={{ duration: 0.4, delay: (i % 4) * 0.08 }}
+                    className="group relative rounded-2xl p-6 bg-card border border-slate-200/60 dark:border-slate-700/40 hover:border-indigo-300/60 dark:hover:border-indigo-700/40 hover:shadow-xl hover:shadow-indigo-500/5 hover:-translate-y-1 transition-all duration-300"
+                    data-testid={`card-highlight-${i}`}
+                  >
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center mb-4 shadow-md shadow-indigo-500/20 group-hover:scale-110 transition-transform">
+                      <Icon className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="font-bold text-base mb-2">{h.title}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{h.desc}</p>
                   </motion.div>
                 );
               })}
