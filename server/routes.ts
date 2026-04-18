@@ -6242,5 +6242,29 @@ export async function registerRoutes(
     }
   });
 
+  /* ─── Contact form endpoint ─── */
+  app.post("/api/contact", async (req, res) => {
+    const { name, contact } = req.body || {};
+    if (!name?.trim() || !contact?.trim()) {
+      return res.status(400).json({ error: "Navn og kontaktinfo er påkrævet" });
+    }
+    const adminEmail = process.env.CONTACT_EMAIL || process.env.RESEND_FROM_EMAIL;
+    if (adminEmail && process.env.RESEND_API_KEY) {
+      try {
+        const { Resend } = await import("resend");
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: "BirdFlow <noreply@bird-flow.app>",
+          to: adminEmail,
+          subject: `Ny henvendelse fra ${name.trim()}`,
+          html: `<p><strong>Navn:</strong> ${name.trim()}</p><p><strong>Kontakt:</strong> ${contact.trim()}</p>`,
+        });
+      } catch (e) {
+        console.error("Contact email failed:", e);
+      }
+    }
+    res.json({ ok: true });
+  });
+
   return httpServer;
 }

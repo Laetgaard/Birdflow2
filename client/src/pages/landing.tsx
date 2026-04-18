@@ -1,20 +1,9 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Check, Star, Shield, Zap, Menu, X } from "lucide-react";
-import { motion, useInView, useReducedMotion } from "framer-motion";
-import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import CountUp from "@/components/animated/CountUp";
-import HeroBuildDemo from "@/components/animated/HeroBuildDemo";
-import InteractiveProcessFlow from "@/components/animated/InteractiveProcessFlow";
-import {
-  CalendarIcon,
-  CartIcon,
-  CardIcon,
-  AIWandIcon,
-  GlobeIcon,
-  EnvelopeIcon,
-} from "@/components/animated/FeatureIcons";
-import { getTotalCreators } from "@/lib/stats";
+import { Input } from "@/components/ui/input";
+import { ArrowRight, Check, Star, Shield, Zap, Menu, X, Edit3, CalendarCheck } from "lucide-react";
+import { motion, useInView } from "framer-motion";
+import { useRef, useState } from "react";
 import {
   Accordion,
   AccordionContent,
@@ -48,35 +37,32 @@ const showcaseSites = [
   { name: "FixIt Henrik", type: "Handyman", gradient: "from-slate-600 to-gray-700", accent: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", tags: ["Booking", "Priser", "Anmeldelser"], layout: "hero" as const },
 ];
 
-const features = [
-  { title: "Book kunder direkte", desc: "Dine kunder booker selv online. Du slipper for telefonopkald og mails frem og tilbage.", outcome: "Spar tid på booking", gradient: "from-blue-500 to-indigo-600", Icon: CalendarIcon },
-  { title: "Sælg produkter online", desc: "Komplet webshop med produkter, varianter og automatisk lagerstyring. Klar til at sælge fra dag ét.", outcome: "Tjen penge mens du sover", gradient: "from-emerald-500 to-teal-600", Icon: CartIcon },
-  { title: "Modtag betalinger", desc: "Stripe-betaling med kreditkort, Apple Pay og Google Pay. Pengene går direkte til din konto.", outcome: "Få betalt med det samme", gradient: "from-indigo-500 to-violet-600", Icon: CardIcon },
-  { title: "AI bygger for dig", desc: "Beskriv hvad du vil have. Vores AI skaber din side. Ingen teknisk viden nødvendig.", outcome: "Ingen kode nødvendigt", gradient: "from-purple-500 to-fuchsia-600", Icon: AIWandIcon },
-  { title: "Dit eget domæne", desc: "Brug dit eget domænenavn med gratis SSL. Din business ser professionel ud fra dag ét.", outcome: "Se professionel ud", gradient: "from-rose-500 to-pink-600", Icon: GlobeIcon },
-  { title: "Automatiske emails", desc: "Booking-bekræftelser, ordrekvitteringer og forsendelsesinfo sendes automatisk til dine kunder.", outcome: "Spar tid på kundeservice", gradient: "from-cyan-500 to-blue-600", Icon: EnvelopeIcon },
+const highlights = [
+  { Icon: CalendarCheck, title: "Det automatiske hjerte", desc: "Booking og mailsystemer der kører selv. Klienter booker, bekræftelser sendes, påmindelser afsendes — helt automatisk.", gradient: "from-blue-500 to-blue-700" },
+  { Icon: Edit3, title: "Direkte Redigering", desc: "WYSIWYG-editor: du ser præcis hvad dine klienter ser. Ret tekst og billeder direkte i designet — ingen kode, ingen mystik.", gradient: "from-blue-600 to-indigo-600" },
+  { Icon: Shield, title: "Teknisk Sikkerhed", desc: "Domæne-opsætning og SSL-sikkerhed er inkluderet. Din side er beskyttet og professionel fra dag ét.", gradient: "from-indigo-500 to-blue-600" },
 ];
 
-const competitors = [
-  { name: "Shopify", focus: "E-commerce", desc: "Bygget til store webshops. Overkill og dyrt for en lille business.", price: "300+ kr/md", highlight: false },
-  { name: "Webflow", focus: "Design", desc: "For designere og udviklere. Kræver teknisk viden.", price: "150+ kr/md", highlight: false },
-  { name: "Framer", focus: "Landing pages", desc: "Flotte sider, men ingen booking eller webshop inkluderet.", price: "100+ kr/md", highlight: false },
-  { name: "BirdFlow", focus: "Small business starter kit", desc: "Hjemmeside + booking + webshop + betaling. Alt i én. Bygget til dig.", price: "69 kr/md", highlight: true },
+const dfySteps = [
+  { num: "01", title: "Vi lytter til din idé", desc: "Vi tager en snak om din klinik, dine klienter og dine ønsker til løsningen." },
+  { num: "02", title: "Vi designer din løsning", desc: "Vores team skaber et skræddersyet design, der passer til din brand og dine klienter." },
+  { num: "03", title: "Vi opsætter alt teknisk", desc: "Booking, automatiske mails, domæne og SSL — vi klarer alt det tekniske." },
+  { num: "04", title: "Du er live", desc: "Din klinik-løsning er klar til klienter. Vi er altid klar, hvis du har brug for hjælp." },
 ];
 
 const testimonials = [
-  { quote: "Jeg havde min booking-side klar på en eftermiddag. Mine kunder booker selv nu, og jeg spilder ikke tid på telefonopkald.", name: "Mette L.", role: "Frisør, København", gradient: "from-rose-400 to-pink-500" },
-  { quote: "Jeg solgte mine første produkter online 2 dage efter jeg startede. Ingen tech-viden nødvendig — det var sindssygt nemt.", name: "Jonas K.", role: "Håndlavet smykker, Aarhus", gradient: "from-indigo-400 to-purple-500" },
-  { quote: "Endelig en platform der ikke kræver en udvikler. Min kliniks hjemmeside er professionel, og patienterne kan booke selv.", name: "Sarah M.", role: "Fysioterapeut, Odense", gradient: "from-emerald-400 to-teal-500" },
+  { quote: "De byggede hele min kliniks løsning — booking, automatiske mails og hjemmeside. Jeg behøvede slet ikke gøre noget teknisk selv.", name: "Mette L.", role: "Fysioterapeut, København", gradient: "from-rose-400 to-pink-500" },
+  { quote: "Inden for en uge var min klinik online med fungerende booking. Klienterne elsker det, og jeg bruger ikke mere tid på administration.", name: "Jonas K.", role: "Kiropraktor, Aarhus", gradient: "from-blue-400 to-blue-600" },
+  { quote: "Professionel klinik-løsning uden at jeg skulle forstå noget teknik. Patienterne booker selv, og bekræftelserne sendes automatisk.", name: "Sarah M.", role: "Psykolog, Odense", gradient: "from-emerald-400 to-teal-500" },
 ];
 
 const faqs = [
-  { q: "Kræver det teknisk viden?", a: "Nej. BirdFlow er bygget til folk uden teknisk baggrund. Beskriv din business til vores AI, og den bygger din side. Du kan tilpasse alt med klik — ingen kode nødvendigt." },
-  { q: "Kan jeg virkelig starte på 24 timer?", a: "Ja. De fleste af vores brugere har en færdig hjemmeside med booking eller webshop klar inden for et par timer. Publicering tager ét klik." },
-  { q: "Hvordan modtager jeg betalinger?", a: "Du forbinder din Stripe-konto (gratis at oprette), og kunder kan betale med kreditkort, Apple Pay og Google Pay. Pengene går direkte til din konto." },
-  { q: "Hvad koster det?", a: "69 kr/md — alt inkluderet. Du starter med 31 dages gratis prøveperiode uden kreditkort. Opsig når som helst." },
-  { q: "Kan min business vokse med BirdFlow?", a: "Absolut. Du kan have op til 5 websites med 50 sider hver, komplet webshop, booking system, og analytics. BirdFlow vokser med dig." },
-  { q: "Hvad gør BirdFlow anderledes end Shopify eller Wix?", a: "Shopify er bygget til store webshops. Wix er en generel website builder. BirdFlow er bygget specifikt til små virksomheder der vil i gang hurtigt — med booking, webshop og betaling i én pakke, uden teknisk bøvl." },
+  { q: "Hvad har I brug for fra mig?", a: "Dine ønsker til design, tekst og indhold til din klinik. Vi sørger for resten — teknisk opsætning, design og optimering. Jo mere du kan fortælle om din klinik, jo bedre." },
+  { q: "Hvor lang tid tager det?", a: "Typisk 3-5 hverdage fra vores første snak til din løsning er live. Det kan gå hurtigere, hvis vi har alt materiale fra starten." },
+  { q: "Kan jeg selv ændre indholdet bagefter?", a: "Ja — din løsning har en nem WYSIWYG-editor, så du kan rette tekst og billeder direkte. Du ser præcis, hvad dine klienter ser." },
+  { q: "Hvad koster det?", a: "Vi tager en uforpligtende snak og giver dig et tilbud baseret på dine behov og ønsker. Udfyld formularen nedenfor, så kontakter vi dig hurtigt." },
+  { q: "Hvad er inkluderet i løsningen?", a: "Hjemmeside, online booking, automatiske bekræftelsesmails og påmindelser, domæne-opsætning og SSL-sikkerhed. Alt hvad din klinik behøver fra dag ét." },
+  { q: "Hvad sker der, hvis jeg har brug for hjælp bagefter?", a: "Vi er her. Du kan altid kontakte os, hvis du har spørgsmål eller ønsker ændringer i din løsning." },
 ];
 
 /* ─── Scroll-triggered reveal ─── */
@@ -90,37 +76,15 @@ function ScrollReveal({ children, className = "", delay = 0 }: { children: React
   );
 }
 
-/* ─── 3D tilt card for comparison highlight ─── */
-function TiltCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [transform, setTransform] = useState("");
-  const handleMouse = (e: React.MouseEvent) => {
-    if (!ref.current) return;
-    const r = ref.current.getBoundingClientRect();
-    const x = (e.clientX - r.left) / r.width - 0.5;
-    const y = (e.clientY - r.top) / r.height - 0.5;
-    setTransform(`perspective(600px) rotateY(${x * 8}deg) rotateX(${-y * 8}deg) scale(1.02)`);
-  };
-  return (
-    <div ref={ref} onMouseMove={handleMouse} onMouseLeave={() => setTransform("")} className={className} style={{ transform, transition: "transform 0.25s ease" }}>
-      {children}
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════════════════ */
 /*  LANDING PAGE                                          */
 /* ═══════════════════════════════════════════════════════ */
 export default function LandingPage() {
-  const [totalCreators, setTotalCreators] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  useEffect(() => {
-    getTotalCreators().then(setTotalCreators);
-  }, []);
-
-  const navLinks = [["#showcase", "Eksempler"], ["#how-it-works", "Sådan virker det"], ["#features", "Alt du får"], ["#pricing", "Pris"], ["#faq", "FAQ"]];
+  const navLinks = [["#showcase", "Eksempler"], ["#saadan-virker-det", "Sådan virker det"], ["#fordele", "Fordele"], ["#kontakt", "Kontakt"]];
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-x-hidden scroll-smooth">
@@ -130,12 +94,12 @@ export default function LandingPage() {
         <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-bold text-xl tracking-tight group">
             <img src="/logo.png" alt="BirdFlow" className="w-8 h-8 transition-transform group-hover:scale-110" />
-            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">BirdFlow</span>
+            <span className="bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">BirdFlow</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
             {navLinks.map(([href, label]) => (
-              <a key={href} href={href} className="relative py-1 hover:text-foreground transition-colors after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-indigo-500 after:transition-all hover:after:w-full">
+              <a key={href} href={href} className="relative py-1 hover:text-foreground transition-colors after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-[#0052FF] after:transition-all hover:after:w-full">
                 {label}
               </a>
             ))}
@@ -143,13 +107,13 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-3">
             <Link href="/auth?mode=signin">
-              <Button variant="ghost" size="sm" className="hidden sm:inline-flex hover:bg-indigo-50 dark:hover:bg-indigo-950/30">Log ind</Button>
+              <Button variant="ghost" size="sm" className="hidden sm:inline-flex hover:bg-blue-50 dark:hover:bg-blue-950/30">Log ind</Button>
             </Link>
-            <Link href="/auth?mode=signup">
-              <Button size="sm" className="hidden sm:inline-flex bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all">
-                Start gratis
+            <a href="#kontakt">
+              <Button size="sm" className="hidden sm:inline-flex bg-[#0052FF] hover:bg-blue-700 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all">
+                Få en uforpligtende snak
               </Button>
-            </Link>
+            </a>
             {/* Mobile hamburger */}
             <button
               className="md:hidden p-2 -mr-2 rounded-lg hover:bg-muted transition-colors"
@@ -175,7 +139,7 @@ export default function LandingPage() {
                   key={href}
                   href={href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="px-4 py-3 rounded-lg text-sm font-medium text-foreground hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+                  className="px-4 py-3 rounded-lg text-sm font-medium text-foreground hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
                 >
                   {label}
                 </a>
@@ -184,11 +148,11 @@ export default function LandingPage() {
                 <Link href="/auth?mode=signin" onClick={() => setMobileMenuOpen(false)}>
                   <Button variant="outline" className="w-full">Log ind</Button>
                 </Link>
-                <Link href="/auth?mode=signup" onClick={() => setMobileMenuOpen(false)}>
-                  <Button className="w-full bg-gradient-to-r from-indigo-500 to-purple-600">
-                    Start gratis <ArrowRight className="ml-2 w-4 h-4" />
+                <a href="#kontakt" onClick={() => setMobileMenuOpen(false)}>
+                  <Button className="w-full bg-[#0052FF] hover:bg-blue-700 text-white">
+                    Få en uforpligtende snak <ArrowRight className="ml-2 w-4 h-4" />
                   </Button>
-                </Link>
+                </a>
               </div>
             </nav>
           </motion.div>
@@ -197,144 +161,67 @@ export default function LandingPage() {
 
       <main className="flex-1">
 
-        {/* ═══════════════ 1. HERO ═══════════════
-            Removed "Det bare virker". Added animated build demo
-            showing website being assembled step-by-step.
-            Two-column: copy left, interactive demo right. */}
+        {/* ═══════════════ 1. HERO ═══════════════ */}
         <section className="relative py-20 md:py-28 lg:py-32 px-6 lg:px-12 overflow-hidden">
-          {/* Subtle background gradient — not a particle effect, just clean depth */}
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/60 via-purple-50/30 to-transparent dark:from-indigo-950/15 dark:via-purple-950/8 pointer-events-none" />
-          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-bl from-indigo-100/40 to-transparent dark:from-indigo-900/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-br from-sky-50 via-blue-50/50 to-white dark:from-blue-950/20 dark:via-blue-950/10 pointer-events-none" />
+          <div className="absolute top-0 right-0 w-[700px] h-[700px] bg-gradient-to-bl from-blue-100/50 to-transparent dark:from-blue-900/15 rounded-full blur-3xl -translate-y-1/3 translate-x-1/4 pointer-events-none" />
 
           <div className="w-full max-w-7xl mx-auto relative z-10">
-            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
 
-              {/* Left: Copy */}
-              <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }} className="text-center lg:text-left">
+              {/* Left: Glassmorphism panel */}
+              <motion.div initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
+                <div className="glass-panel rounded-3xl p-8 md:p-12 shadow-2xl shadow-blue-500/10">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.92 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.4, delay: 0.1 }}
+                    className="landing-badge-pulse-blue inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 dark:bg-blue-950/40 text-[#0052FF] dark:text-blue-300 text-sm font-medium mb-8 border border-blue-200/50 dark:border-blue-800/40"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    Done For You — Klinik-løsning
+                  </motion.div>
 
-                {/* Badge with subtle pulse */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.92 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.4, delay: 0.1 }}
-                  className="landing-badge-pulse inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 text-sm font-medium mb-8 border border-indigo-200/50 dark:border-indigo-800/40"
-                >
-                  <Zap className="w-3.5 h-3.5" />
-                  AI-powered business starter kit
-                </motion.div>
+                  <h1 className="text-[2.5rem] sm:text-5xl md:text-[3.5rem] font-extrabold tracking-[-0.025em] leading-[1.1] mb-6 text-[#1E293B] dark:text-white">
+                    En komplet klinik-løsning –{" "}
+                    <span className="bg-gradient-to-r from-[#0052FF] to-blue-500 bg-clip-text text-transparent">
+                      klar til dine klienter.
+                    </span>
+                  </h1>
 
-                {/* Headline — tighter tracking, larger weight contrast */}
-                <h1 className="text-[2.75rem] sm:text-5xl md:text-6xl lg:text-[4.25rem] font-extrabold tracking-[-0.025em] leading-[1.08] mb-6">
-                  Start din business
-                  <span className="block bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 bg-clip-text text-transparent mt-1 landing-gradient-text">
-                    på 24 timer.
-                  </span>
-                </h1>
+                  <p className="text-lg md:text-xl text-slate-600 dark:text-slate-300 max-w-lg mb-10 leading-relaxed">
+                    Vi designer din komplette klinik-løsning med integreret booking og automatiserede mailsystemer. Vi håndterer hele opsætningen, så du kan fokusere 100% på dine klienter.
+                  </p>
 
-                {/* Subheadline — simplified, no "Det bare virker" */}
-                <p className="text-lg md:text-xl text-muted-foreground max-w-lg mx-auto lg:mx-0 mb-10 leading-relaxed">
-                  Hjemmeside, booking, webshop og betaling — klar på én dag. Ingen kode. Ingen tech-stress.
-                </p>
-
-                {/* CTA */}
-                <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-8">
-                  <Link href="/auth?mode=signup">
-                    <Button size="lg" className="h-14 px-10 text-lg font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-xl shadow-indigo-500/20 hover:shadow-indigo-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow">
-                      Start gratis — det tager 2 minutter
+                  <a href="#kontakt">
+                    <Button size="lg" className="h-14 px-10 text-lg font-semibold bg-[#0052FF] hover:bg-blue-700 text-white shadow-xl shadow-blue-500/20 hover:shadow-blue-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow-blue">
+                      Få en uforpligtende snak
                       <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
                     </Button>
-                  </Link>
-                </div>
-
-                {/* Trust badges — sequential fade-in */}
-                <div className="flex flex-wrap items-center justify-center lg:justify-start gap-5 text-sm text-muted-foreground">
-                  {["Intet kreditkort", "31 dages gratis", "Online på 24 timer"].map((text, i) => (
-                    <motion.div key={text} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 + i * 0.12, duration: 0.35 }} className="flex items-center gap-1.5">
-                      <Check className="w-3.5 h-3.5 text-green-500" />
-                      <span>{text}</span>
-                    </motion.div>
-                  ))}
+                  </a>
                 </div>
               </motion.div>
 
-              {/* Right: Animated build demo — shows website being assembled */}
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15 }}>
-                {!isMobile ? (
-                  <HeroBuildDemo />
-                ) : (
-                  /* Simplified mobile hero visual — static preview instead of heavy animation */
-                  <div className="bg-card rounded-2xl border shadow-2xl shadow-indigo-500/10 overflow-hidden">
-                    <div className="bg-muted/50 px-3 py-2 flex items-center gap-1.5 border-b">
-                      <div className="w-2 h-2 rounded-full bg-red-400/60" />
-                      <div className="w-2 h-2 rounded-full bg-amber-400/60" />
-                      <div className="w-2 h-2 rounded-full bg-green-400/60" />
-                      <div className="ml-2 h-4 bg-muted rounded-full flex-1 max-w-[120px]" />
-                    </div>
-                    <div className="p-6 space-y-3">
-                      <div className="h-3 bg-gradient-to-r from-indigo-200 to-purple-200 dark:from-indigo-800 dark:to-purple-800 rounded w-3/4" />
-                      <div className="h-2 bg-muted rounded w-full" />
-                      <div className="h-2 bg-muted rounded w-5/6" />
-                      <div className="h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg w-2/5 mt-4" />
-                      <div className="grid grid-cols-3 gap-2 mt-4">
-                        {[1,2,3].map(i => (
-                          <div key={i} className="h-16 bg-muted/60 rounded-lg" />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
+              {/* Right: iPhone mockup */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                className="hidden md:flex justify-center"
+              >
+                <IPhoneMockup />
               </motion.div>
             </div>
           </div>
         </section>
 
-        {/* ═══════════════ 2. SOCIAL PROOF STRIP ═══════════════
-            Replaced industry tags with social proof bar:
-            avatar stack + counter + trust badges. */}
-        <section className="py-10 px-6 lg:px-12 border-y bg-slate-50/50 dark:bg-slate-900/30">
-          <div className="w-full max-w-5xl mx-auto">
-            <ScrollReveal>
-              <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-10">
-                {/* Avatar stack + counter */}
-                <div className="flex items-center gap-3">
-                  <div className="flex -space-x-2.5">
-                    {["from-rose-400 to-pink-500", "from-indigo-400 to-purple-500", "from-emerald-400 to-teal-500", "from-amber-400 to-orange-500", "from-cyan-400 to-blue-500"].map((g, i) => (
-                      <div key={i} className={`w-9 h-9 rounded-full bg-gradient-to-br ${g} border-[2.5px] border-background ring-1 ring-white/10`} />
-                    ))}
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-bold text-foreground"><CountUp end={totalCreators} />+</span>
-                    <span className="text-muted-foreground ml-1">virksomheder bruger BirdFlow</span>
-                  </div>
-                </div>
-
-                {/* Divider */}
-                <div className="hidden md:block w-px h-8 bg-border" />
-
-                {/* Trust badges */}
-                <div className="flex items-center gap-5 text-xs text-muted-foreground">
-                  {[
-                    { icon: Shield, text: "GDPR-compliant" },
-                    { icon: Zap, text: "99.9% uptime" },
-                    { icon: Star, text: "Dansk support" },
-                  ].map(({ icon: Icon, text }) => (
-                    <div key={text} className="flex items-center gap-1.5">
-                      <Icon className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>{text}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </ScrollReveal>
-          </div>
-        </section>
 
         {/* ═══════════════ SHOWCASE ═══════════════ */}
         <section id="showcase" className="py-24 md:py-32 px-6 lg:px-12">
           <div className="w-full max-w-7xl mx-auto">
             <ScrollReveal className="text-center mb-16">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Se hvad andre har bygget</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Rigtige businesses. Rigtige kunder. Startet på under 24 timer.</p>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Se hvad vi har bygget for andre</h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Rigtige klinikker. Rigtige klienter. Klar på få dage.</p>
             </ScrollReveal>
 
             <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -371,142 +258,66 @@ export default function LandingPage() {
         {/* Section divider */}
         <div className="landing-section-divider w-full max-w-5xl mx-auto" />
 
-        {/* ═══════════════ 3. HOW IT WORKS — Interactive Process Flow ═══════════════
-            Replaced static SVG with interactive 4-step animated flow.
-            Left side: step indicators with progress.
-            Right side: live preview showing each build phase. */}
-        <section id="how-it-works" className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/80 to-transparent dark:from-slate-900/30">
-          <div className="w-full max-w-6xl mx-auto">
+        {/* ═══════════════ BYGGET AF OS – EJET AF DIG ═══════════════ */}
+        <section id="saadan-virker-det" className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/80 to-transparent dark:from-slate-900/30">
+          <div className="w-full max-w-7xl mx-auto">
             <ScrollReveal className="text-center mb-16">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Fra idé til live side. Automatisk.</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Se hvordan AI bygger din hjemmeside trin for trin.</p>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Bygget af os – ejet af dig</h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Vi bygger fundamentet, men du kan selv udvide med færdigdesignede byggeklodser — prislister, galleri, FAQ og meget mere.</p>
             </ScrollReveal>
 
-            <InteractiveProcessFlow />
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+              {/* Left: Laptop mockup */}
+              <ScrollReveal>
+                <LaptopMockup />
+              </ScrollReveal>
+
+              {/* Right: 4-step DFY process */}
+              <div className="space-y-6">
+                {dfySteps.map((step, i) => (
+                  <ScrollReveal key={i} delay={i * 0.1}>
+                    <div className="flex gap-5 items-start">
+                      <div className="flex-shrink-0 w-12 h-12 rounded-2xl bg-[#0052FF] text-white flex items-center justify-center text-sm font-bold shadow-lg shadow-blue-500/20">
+                        {step.num}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg mb-1">{step.title}</h3>
+                        <p className="text-muted-foreground leading-relaxed">{step.desc}</p>
+                      </div>
+                    </div>
+                  </ScrollReveal>
+                ))}
+                <ScrollReveal delay={0.4}>
+                  <a href="#kontakt">
+                    <Button className="mt-4 bg-[#0052FF] hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20">
+                      Start med en gratis snak <ArrowRight className="ml-2 w-4 h-4" />
+                    </Button>
+                  </a>
+                </ScrollReveal>
+              </div>
+            </div>
           </div>
         </section>
 
         {/* Section divider */}
         <div className="landing-section-divider w-full max-w-5xl mx-auto" />
 
-        {/* ═══════════════ FEATURES ═══════════════ */}
-        <section id="features" className="py-24 md:py-32 px-6 lg:px-12">
+        {/* ═══════════════ PRODUKT-HØJDEPUNKTER ═══════════════ */}
+        <section id="fordele" className="py-24 md:py-32 px-6 lg:px-12">
           <div className="w-full max-w-6xl mx-auto">
             <ScrollReveal className="text-center mb-16">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Alt hvad din business behøver. I én pakke.</h2>
-              <p className="text-lg text-muted-foreground max-w-3xl mx-auto">Slut med at betale for 5 forskellige tools. BirdFlow giver dig det hele.</p>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Alt inkluderet fra dag ét</h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Tre kernefordele der gør din klinik-løsning til et professionelt fundament.</p>
             </ScrollReveal>
 
-            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {features.map((f, i) => (
-                <FeatureCard key={i} feature={f} />
+            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid md:grid-cols-3 gap-6">
+              {highlights.map((h, i) => (
+                <HighlightCard key={i} highlight={h} />
               ))}
             </motion.div>
           </div>
         </section>
 
-        {/* ═══════════════ COMPETITIVE POSITIONING ═══════════════ */}
-        <section id="comparison" className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/60 to-transparent dark:from-slate-900/20">
-          <div className="w-full max-w-5xl mx-auto">
-            <ScrollReveal className="text-center mb-14">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">BirdFlow er ikke en website builder.</h2>
-              <p className="text-lg text-muted-foreground max-w-3xl mx-auto">Det er et starter kit til din lille business. Her er forskellen.</p>
-            </ScrollReveal>
-
-            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {competitors.map((comp, i) =>
-                comp.highlight ? (
-                  <motion.div key={i} variants={fadeUp}>
-                    <TiltCard className="rounded-2xl p-6 border-2 border-indigo-500 bg-gradient-to-b from-indigo-50 to-purple-50 dark:from-indigo-950/40 dark:to-purple-950/30 shadow-xl shadow-indigo-500/10 landing-birdflow-glow h-full">
-                      <div className="mb-4">
-                        <h3 className="text-lg font-bold text-indigo-700 dark:text-indigo-300">{comp.name}</h3>
-                        <span className="text-xs font-semibold uppercase tracking-wider text-indigo-500">{comp.focus}</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground leading-relaxed mb-4">{comp.desc}</p>
-                      <div className="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 mb-4">{comp.price}</div>
-                      <Link href="/auth?mode=signup">
-                        <Button size="sm" className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg">
-                          Start gratis <ArrowRight className="ml-1.5 w-4 h-4" />
-                        </Button>
-                      </Link>
-                    </TiltCard>
-                  </motion.div>
-                ) : (
-                  <motion.div key={i} variants={fadeUp} className="rounded-2xl p-6 border bg-card hover:border-muted-foreground/20 transition-colors">
-                    <div className="mb-4">
-                      <h3 className="text-lg font-bold">{comp.name}</h3>
-                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{comp.focus}</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed mb-4">{comp.desc}</p>
-                    <div className="text-2xl font-extrabold text-muted-foreground">{comp.price}</div>
-                  </motion.div>
-                )
-              )}
-            </motion.div>
-          </div>
-        </section>
-
-        {/* ═══════════════ 4. PRICING — Premium single-plan ═══════════════
-            Redesigned with better shadows, spacing, "Mest populære"
-            badge, hover effects, trust indicators near CTA. */}
-        <section id="pricing" className="py-24 md:py-32 px-6 lg:px-12">
-          <div className="w-full max-w-lg mx-auto">
-            <ScrollReveal className="text-center mb-12">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Simpel pris. Alt inkluderet.</h2>
-              <p className="text-lg text-muted-foreground">Ét abonnement. Start gratis i 31 dage.</p>
-            </ScrollReveal>
-
-            <ScrollReveal delay={0.1}>
-              <div className="relative">
-                {/* "Mest populære" floating badge */}
-                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-10">
-                  <div className="px-4 py-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold shadow-lg shadow-indigo-500/30 flex items-center gap-1.5">
-                    <Star className="w-3 h-3 fill-white" />
-                    Mest populære
-                  </div>
-                </div>
-
-                <div className="bg-card rounded-3xl border-2 border-indigo-500/70 shadow-2xl shadow-indigo-500/8 overflow-hidden hover:shadow-indigo-500/15 transition-shadow duration-500 landing-birdflow-glow">
-                  {/* Header ribbon with shimmer */}
-                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 py-4 text-center relative overflow-hidden">
-                    <span className="relative z-10 text-white/90 text-sm font-semibold uppercase tracking-wider">BirdFlow Basis</span>
-                    <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)] landing-shimmer" />
-                  </div>
-
-                  <div className="p-8 md:p-10">
-                    {/* Price */}
-                    <div className="text-center mb-8">
-                      <div className="flex items-baseline justify-center gap-1">
-                        <span className="text-6xl font-extrabold tracking-tight">69</span>
-                        <span className="text-xl font-bold text-muted-foreground">kr/md</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-2">Første 31 dage koster ingenting</p>
-                    </div>
-
-                    {/* CTA button */}
-                    <Link href="/auth?mode=signup">
-                      <Button size="lg" className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-xl shadow-indigo-500/20 hover:shadow-indigo-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow">
-                        Start din gratis prøveperiode
-                        <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                      </Button>
-                    </Link>
-
-                    {/* Trust indicators right under CTA */}
-                    <div className="flex items-center justify-center gap-4 mt-4 text-[11px] text-muted-foreground">
-                      <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> Intet kreditkort</span>
-                      <span className="flex items-center gap-1"><Check className="w-3 h-3" /> Opsig når som helst</span>
-                    </div>
-
-                    {/* Feature checklist with animated checkmarks */}
-                    <div className="border-t mt-8 pt-8">
-                      <PricingChecklist />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </ScrollReveal>
-          </div>
-        </section>
 
         {/* ═══════════════ TESTIMONIALS ═══════════════ */}
         <section className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/50 to-transparent dark:from-slate-900/20">
@@ -552,8 +363,8 @@ export default function LandingPage() {
             <ScrollReveal delay={0.1}>
               <Accordion type="single" collapsible className="space-y-2.5">
                 {faqs.map((faq, i) => (
-                  <AccordionItem key={i} value={`faq-${i}`} className="bg-card rounded-xl border px-5 hover:shadow-sm transition-shadow data-[state=open]:shadow-md data-[state=open]:border-indigo-200 dark:data-[state=open]:border-indigo-800">
-                    <AccordionTrigger className="text-left font-semibold text-[15px] hover:no-underline py-4 [&[data-state=open]]:text-indigo-700 dark:[&[data-state=open]]:text-indigo-300">
+                  <AccordionItem key={i} value={`faq-${i}`} className="bg-card rounded-xl border px-5 hover:shadow-sm transition-shadow data-[state=open]:shadow-md data-[state=open]:border-blue-200 dark:data-[state=open]:border-blue-800">
+                    <AccordionTrigger className="text-left font-semibold text-[15px] hover:no-underline py-4 [&[data-state=open]]:text-[#0052FF] dark:[&[data-state=open]]:text-blue-300">
                       {faq.q}
                     </AccordionTrigger>
                     <AccordionContent className="text-muted-foreground text-sm pb-4 leading-relaxed">{faq.a}</AccordionContent>
@@ -564,34 +375,21 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ═══════════════ FINAL CTA ═══════════════
-            Subtle gradient background with flowing shape,
-            large CTA, and trust indicators below. */}
-        <section className="py-24 md:py-32 px-6 lg:px-12 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-700 landing-gradient-bg" />
-          {/* Flowing ambient shape */}
+        {/* ═══════════════ KONTAKT ═══════════════ */}
+        <section id="kontakt" className="py-24 md:py-32 px-6 lg:px-12 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#0052FF] to-blue-700 landing-gradient-bg" />
           <div className="absolute top-0 left-0 w-[800px] h-[800px] bg-white/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 motion-safe:animate-pulse-slow" />
-          <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-purple-400/10 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 motion-safe:animate-pulse-slow" style={{ animationDelay: "2s" }} />
+          <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-blue-400/10 rounded-full blur-3xl translate-x-1/3 translate-y-1/3 motion-safe:animate-pulse-slow" style={{ animationDelay: "2s" }} />
 
-          <div className="w-full max-w-3xl mx-auto relative z-10 text-center">
+          <div className="w-full max-w-lg mx-auto relative z-10 text-center">
             <ScrollReveal>
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white mb-5">
-                Din business venter.<br />Start i dag.
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-white mb-4">
+                Lad os tage en uforpligtende snak om din idé
               </h2>
-              <p className="text-lg text-white/75 max-w-xl mx-auto mb-10">
-                Hjemmeside, booking, webshop og betaling — alt klar på under 24 timer.
+              <p className="text-lg text-white/75 max-w-md mx-auto mb-10">
+                Udfyld formularen, så kontakter vi dig inden for én hverdag.
               </p>
-              <Link href="/auth?mode=signup">
-                <Button size="lg" variant="secondary" className="h-14 px-10 text-lg font-semibold shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group">
-                  Start din business gratis
-                  <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </Link>
-              <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-white/60 mt-8">
-                <span className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Intet kreditkort</span>
-                <span className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" /> 31 dages gratis prøve</span>
-                <span className="flex items-center gap-1.5"><Star className="w-3.5 h-3.5" /> Support på dansk</span>
-              </div>
+              <ContactForm />
             </ScrollReveal>
           </div>
         </section>
@@ -602,11 +400,12 @@ export default function LandingPage() {
         <div className="w-full max-w-7xl mx-auto px-6 lg:px-12 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="BirdFlow" className="w-5 h-5 opacity-50" />
-            <p className="text-sm text-muted-foreground">&copy; 2026 BirdFlow. All rights reserved.</p>
+            <p className="text-sm text-muted-foreground">&copy; 2026 BirdFlow. Alle rettigheder forbeholdes.</p>
           </div>
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
-            <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
-            <Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+            <a href="#kontakt" className="hover:text-foreground transition-colors">Kontakt</a>
+            <Link href="/privacy" className="hover:text-foreground transition-colors">Privatlivspolitik</Link>
+            <Link href="/terms" className="hover:text-foreground transition-colors">Vilkår</Link>
           </div>
         </div>
       </footer>
@@ -679,47 +478,204 @@ function ShowcaseWireframe({ layout }: { layout: "booking" | "shop" | "gallery" 
   }
 }
 
-/* ─── Feature card with animated SVG icon on hover ─── */
-function FeatureCard({ feature }: { feature: (typeof features)[0] }) {
-  const [hovered, setHovered] = useState(false);
-  const { Icon } = feature;
+/* ─── iPhone Mockup showing "Booking bekræftet" ─── */
+function IPhoneMockup() {
+  return (
+    <div className="relative w-[220px]">
+      {/* Phone frame */}
+      <div className="relative bg-slate-900 rounded-[36px] p-2 shadow-2xl shadow-blue-900/30 border-4 border-slate-800">
+        {/* Notch */}
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 bg-slate-900 rounded-full z-10" />
+        {/* Screen */}
+        <div className="rounded-[28px] overflow-hidden bg-white" style={{ minHeight: 420 }}>
+          {/* Status bar */}
+          <div className="bg-[#0052FF] px-4 pt-6 pb-10 text-center">
+            <p className="text-white/80 text-xs font-medium">din-klinik.dk</p>
+          </div>
+          {/* Content card */}
+          <div className="mx-3 -mt-6 bg-white rounded-2xl shadow-xl p-5 relative z-10">
+            <div className="flex justify-center mb-4">
+              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="w-7 h-7 text-green-500 stroke-[2.5]" />
+              </div>
+            </div>
+            <h3 className="font-bold text-center text-slate-800 mb-1 text-base">Booking bekræftet!</h3>
+            <p className="text-xs text-center text-slate-500 mb-5">En bekræftelse er sendt til din mail</p>
+            <div className="space-y-2.5 text-xs">
+              {[
+                { label: "Behandling", value: "Zoneterapi 60 min" },
+                { label: "Dato", value: "Torsdag 24. april" },
+                { label: "Tid", value: "13:00 – 14:00" },
+                { label: "Klinik", value: "Din Klinik" },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex justify-between items-center border-b border-slate-100 pb-2">
+                  <span className="text-slate-400">{label}</span>
+                  <span className="font-semibold text-slate-700">{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Bottom padding */}
+          <div className="h-8" />
+        </div>
+        {/* Home bar */}
+        <div className="flex justify-center pt-1 pb-0.5">
+          <div className="w-24 h-1 bg-slate-600 rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Laptop mockup with floating module cards ─── */
+function LaptopMockup() {
+  const modules = [
+    { label: "📅 Booking", delay: 0 },
+    { label: "📋 Prisliste", delay: 0.5 },
+    { label: "🖼 Galleri", delay: 1 },
+    { label: "❓ FAQ", delay: 1.5 },
+  ];
+  return (
+    <div className="relative flex justify-center items-center py-8">
+      {/* Floating module cards */}
+      {modules.map((m, i) => (
+        <motion.div
+          key={m.label}
+          className="absolute z-20 bg-white rounded-xl shadow-lg border px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap pointer-events-none"
+          style={{
+            top: i < 2 ? "-16px" : "auto",
+            bottom: i >= 2 ? "-16px" : "auto",
+            left: i % 2 === 0 ? "0px" : "auto",
+            right: i % 2 === 1 ? "0px" : "auto",
+          }}
+          animate={{ y: [0, -6, 0] }}
+          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: m.delay }}
+        >
+          {m.label}
+        </motion.div>
+      ))}
+
+      {/* Browser/laptop frame */}
+      <div className="w-full max-w-sm bg-card rounded-2xl border shadow-2xl shadow-blue-500/10 overflow-hidden">
+        <div className="bg-muted/60 px-3 py-2 flex items-center gap-1.5 border-b">
+          <div className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
+          <div className="w-2.5 h-2.5 rounded-full bg-amber-400/70" />
+          <div className="w-2.5 h-2.5 rounded-full bg-green-400/70" />
+          <div className="ml-3 flex-1 h-5 bg-muted rounded-full max-w-[160px] flex items-center px-3">
+            <span className="text-[9px] text-muted-foreground truncate">din-klinik.dk</span>
+          </div>
+        </div>
+        <div className="p-5 space-y-3 bg-gradient-to-b from-blue-50/40 to-white">
+          <div className="h-4 bg-[#0052FF]/10 rounded w-2/3" />
+          <div className="h-3 bg-muted rounded w-full" />
+          <div className="h-3 bg-muted rounded w-4/5" />
+          <div className="h-9 bg-[#0052FF] rounded-lg w-2/5 mt-2" />
+          <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="rounded-lg bg-blue-50 border border-blue-100 p-2 space-y-1.5">
+                <div className="h-2 bg-blue-200/60 rounded w-3/4" />
+                <div className="h-1.5 bg-muted rounded w-full" />
+                <div className="h-1.5 bg-muted rounded w-2/3" />
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Keyboard simulation */}
+        <div className="bg-muted/30 h-6 border-t" />
+      </div>
+    </div>
+  );
+}
+
+/* ─── Product Highlight card ─── */
+function HighlightCard({ highlight }: { highlight: (typeof highlights)[0] }) {
+  const { Icon } = highlight;
   return (
     <motion.div
       variants={fadeUp}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       whileHover={{ y: -5, transition: { duration: 0.2 } }}
-      className="bg-card p-6 rounded-2xl border hover:border-indigo-200 dark:hover:border-indigo-800 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300 group"
+      className="bg-card rounded-2xl border hover:border-blue-200 dark:hover:border-blue-800 hover:shadow-xl hover:shadow-blue-500/8 transition-all duration-300 overflow-hidden"
     >
-      <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center shrink-0 transition-transform duration-300 shadow-lg group-hover:scale-110 mb-4`}>
-        <div className="w-8 h-8">
-          <Icon animated={hovered} />
+      <div className={`h-2 bg-gradient-to-r ${highlight.gradient}`} />
+      <div className="p-7">
+        <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${highlight.gradient} flex items-center justify-center mb-5 shadow-lg`}>
+          <Icon className="w-7 h-7 text-white" />
         </div>
+        <h3 className="text-lg font-bold mb-3">{highlight.title}</h3>
+        <p className="text-muted-foreground leading-relaxed">{highlight.desc}</p>
       </div>
-      <h3 className="text-base font-bold mb-2">{feature.title}</h3>
-      <p className="text-sm text-muted-foreground leading-relaxed mb-3">{feature.desc}</p>
-      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 px-2.5 py-1 rounded-full">
-        <Check className="w-3 h-3" />{feature.outcome}
-      </span>
     </motion.div>
   );
 }
 
-/* ─── Pricing checklist with scroll-triggered spring checkmarks ─── */
-function PricingChecklist() {
-  const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-20px" });
-  const items = ["Hjemmeside med AI builder", "Booking system", "Komplet webshop", "Stripe betalinger", "Eget domæne + SSL", "Email notifikationer", "Analytics dashboard", "Op til 5 websites"];
+/* ─── Contact form ─── */
+function ContactForm() {
+  const [name, setName] = useState("");
+  const [contact, setContact] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!name.trim() || !contact.trim()) return;
+    setStatus("sending");
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), contact: contact.trim() }),
+      });
+      if (!res.ok) throw new Error("failed");
+      setStatus("success");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  if (status === "success") {
+    return (
+      <div className="glass-panel rounded-2xl p-8 text-center">
+        <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+          <Check className="w-7 h-7 text-green-500 stroke-[2.5]" />
+        </div>
+        <h3 className="text-xl font-bold text-white mb-2">Tak, {name}!</h3>
+        <p className="text-white/80">Vi kontakter dig inden for én hverdag.</p>
+      </div>
+    );
+  }
+
   return (
-    <div ref={ref} className="grid sm:grid-cols-2 gap-3 text-left">
-      {items.map((item, i) => (
-        <motion.div key={i} initial={{ opacity: 0, x: -8 }} animate={isInView ? { opacity: 1, x: 0 } : {}} transition={{ delay: i * 0.05, duration: 0.3 }} className="flex items-center gap-2.5">
-          <motion.div initial={{ scale: 0 }} animate={isInView ? { scale: 1 } : {}} transition={{ delay: i * 0.05 + 0.08, type: "spring", stiffness: 400, damping: 15 }}>
-            <Check className="w-4 h-4 text-green-500 shrink-0" />
-          </motion.div>
-          <span className="text-sm">{item}</span>
-        </motion.div>
-      ))}
-    </div>
+    <form onSubmit={handleSubmit} className="glass-panel rounded-2xl p-6 md:p-8 space-y-4 text-left">
+      <div>
+        <label className="block text-sm font-medium text-white/90 mb-1.5">Navn</label>
+        <Input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Dit navn"
+          required
+          className="bg-white/90 border-white/20 placeholder:text-slate-400 text-slate-800 focus-visible:ring-white/50"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-white/90 mb-1.5">Telefon eller Email</label>
+        <Input
+          value={contact}
+          onChange={e => setContact(e.target.value)}
+          placeholder="Telefonnummer eller emailadresse"
+          required
+          className="bg-white/90 border-white/20 placeholder:text-slate-400 text-slate-800 focus-visible:ring-white/50"
+        />
+      </div>
+      {status === "error" && (
+        <p className="text-sm text-red-200">Noget gik galt — prøv igen eller skriv til os direkte.</p>
+      )}
+      <Button
+        type="submit"
+        size="lg"
+        disabled={status === "sending"}
+        className="w-full h-12 text-base font-semibold bg-white text-[#0052FF] hover:bg-blue-50 shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-60"
+      >
+        {status === "sending" ? "Sender..." : "Bliv kontaktet"}
+      </Button>
+    </form>
   );
 }
