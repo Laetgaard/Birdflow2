@@ -7,6 +7,7 @@ import { AuthProvider } from "@/lib/auth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 import LandingPage from "@/pages/landing";
+import DIYPage from "@/pages/diy";
 import AuthPage from "@/pages/auth";
 import AuthCallback from "@/pages/auth-callback";
 import CheckEmail from "@/pages/check-email";
@@ -32,6 +33,7 @@ function Router() {
     <Switch>
       {/* Public routes */}
       <Route path="/" component={LandingPage} />
+      <Route path="/diy" component={DIYPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/terms" component={TermsPage} />

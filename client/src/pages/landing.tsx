@@ -1,7 +1,8 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowRight, Check, Star, Shield, Zap, Menu, X, Edit3, CalendarCheck } from "lucide-react";
+import { ArrowRight, Check, Shield, Zap, Menu, X, Edit3, CalendarCheck, Sparkles } from "lucide-react";
+import PsychologyClinicMockup from "@/components/animated/PsychologyClinicMockup";
 import { motion, useInView } from "framer-motion";
 import { useRef, useState } from "react";
 import {
@@ -24,19 +25,6 @@ const stagger = {
 };
 
 /* ─── data ─── */
-const showcaseSites = [
-  { name: "Studio Klip", type: "Frisørsalon", gradient: "from-rose-500 to-pink-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Online booking", "Prisliste", "Galleri"], layout: "booking" as const },
-  { name: "BalanceBody", type: "Yoga & Wellness", gradient: "from-emerald-500 to-teal-600", accent: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300", tags: ["Holdtilmelding", "Booking", "Webshop"], layout: "booking" as const },
-  { name: "FitCoach Mia", type: "Personlig træner", gradient: "from-orange-500 to-amber-600", accent: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", tags: ["Booking", "Programmer", "Betaling"], layout: "hero" as const },
-  { name: "Lyswerk", type: "Stearinlys", gradient: "from-amber-500 to-yellow-600", accent: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300", tags: ["Webshop", "Forsendelse", "Betaling"], layout: "shop" as const },
-  { name: "Foto af Sara", type: "Fotograf", gradient: "from-violet-500 to-purple-600", accent: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", tags: ["Portfolio", "Booking", "Priser"], layout: "gallery" as const },
-  { name: "Hundesalon Vuf", type: "Hundefrisør", gradient: "from-cyan-500 to-blue-600", accent: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300", tags: ["Online booking", "Services", "Galleri"], layout: "booking" as const },
-  { name: "Café Hygge", type: "Café & Bageri", gradient: "from-rose-500 to-red-600", accent: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300", tags: ["Menukort", "Catering", "Bestilling"], layout: "menu" as const },
-  { name: "Klinik Sund", type: "Fysioterapi", gradient: "from-blue-500 to-indigo-600", accent: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300", tags: ["Booking", "Behandlinger", "Kontakt"], layout: "booking" as const },
-  { name: "Kreativ Studio", type: "Kunsthåndværk", gradient: "from-fuchsia-500 to-pink-600", accent: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-300", tags: ["Webshop", "Kurser", "Galleri"], layout: "shop" as const },
-  { name: "FixIt Henrik", type: "Handyman", gradient: "from-slate-600 to-gray-700", accent: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300", tags: ["Booking", "Priser", "Anmeldelser"], layout: "hero" as const },
-];
-
 const highlights = [
   { Icon: CalendarCheck, title: "Det automatiske hjerte", desc: "Booking og mailsystemer der kører selv. Klienter booker, bekræftelser sendes, påmindelser afsendes — helt automatisk.", gradient: "from-blue-500 to-blue-700" },
   { Icon: Edit3, title: "Direkte Redigering", desc: "WYSIWYG-editor: du ser præcis hvad dine klienter ser. Ret tekst og billeder direkte i designet — ingen kode, ingen mystik.", gradient: "from-blue-600 to-indigo-600" },
@@ -48,12 +36,6 @@ const dfySteps = [
   { num: "02", title: "Vi designer din løsning", desc: "Vores team skaber et skræddersyet design, der passer til din brand og dine klienter." },
   { num: "03", title: "Vi opsætter alt teknisk", desc: "Booking, automatiske mails, domæne og SSL — vi klarer alt det tekniske." },
   { num: "04", title: "Du er live", desc: "Din klinik-løsning er klar til klienter. Vi er altid klar, hvis du har brug for hjælp." },
-];
-
-const testimonials = [
-  { quote: "De byggede hele min kliniks løsning — booking, automatiske mails og hjemmeside. Jeg behøvede slet ikke gøre noget teknisk selv.", name: "Mette L.", role: "Fysioterapeut, København", gradient: "from-rose-400 to-pink-500" },
-  { quote: "Inden for en uge var min klinik online med fungerende booking. Klienterne elsker det, og jeg bruger ikke mere tid på administration.", name: "Jonas K.", role: "Kiropraktor, Aarhus", gradient: "from-blue-400 to-blue-600" },
-  { quote: "Professionel klinik-løsning uden at jeg skulle forstå noget teknik. Patienterne booker selv, og bekræftelserne sendes automatisk.", name: "Sarah M.", role: "Psykolog, Odense", gradient: "from-emerald-400 to-teal-500" },
 ];
 
 const faqs = [
@@ -84,7 +66,7 @@ export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  const navLinks = [["#showcase", "Eksempler"], ["#saadan-virker-det", "Sådan virker det"], ["#fordele", "Fordele"], ["#kontakt", "Kontakt"]];
+  const navLinks = [["#saadan-virker-det", "Sådan virker det"], ["#fordele", "Fordele"], ["#kontakt", "Kontakt"]];
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-x-hidden scroll-smooth">
@@ -103,6 +85,11 @@ export default function LandingPage() {
                 {label}
               </a>
             ))}
+            <Link href="/diy" className="relative py-1 inline-flex items-center gap-1.5 text-foreground hover:text-[#0052FF] transition-colors group">
+              <Sparkles className="w-3.5 h-3.5 text-[#0052FF]" />
+              <span>Byg selv</span>
+              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-blue-50 text-[#0052FF] font-bold dark:bg-blue-950/40">DIY</span>
+            </Link>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -144,6 +131,10 @@ export default function LandingPage() {
                   {label}
                 </a>
               ))}
+              <Link href="/diy" onClick={() => setMobileMenuOpen(false)} className="px-4 py-3 rounded-lg text-sm font-semibold text-foreground hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors inline-flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#0052FF]" />
+                Byg selv (DIY)
+              </Link>
               <div className="border-t mt-2 pt-3 flex flex-col gap-2">
                 <Link href="/auth?mode=signin" onClick={() => setMobileMenuOpen(false)}>
                   <Button variant="outline" className="w-full">Log ind</Button>
@@ -193,12 +184,21 @@ export default function LandingPage() {
                     Vi designer din komplette klinik-løsning med integreret booking og automatiserede mailsystemer. Vi håndterer hele opsætningen, så du kan fokusere 100% på dine klienter.
                   </p>
 
-                  <a href="#kontakt">
-                    <Button size="lg" className="h-14 px-10 text-lg font-semibold bg-[#0052FF] hover:bg-blue-700 text-white shadow-xl shadow-blue-500/20 hover:shadow-blue-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow-blue">
-                      Få en uforpligtende snak
-                      <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                    </Button>
-                  </a>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <a href="#kontakt">
+                      <Button size="lg" className="h-14 px-10 text-lg font-semibold bg-[#0052FF] hover:bg-blue-700 text-white shadow-xl shadow-blue-500/20 hover:shadow-blue-500/35 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group landing-cta-glow-blue">
+                        Få en uforpligtende snak
+                        <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                      </Button>
+                    </a>
+                    <Link href="/diy" className="group inline-flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:text-[#0052FF] dark:hover:text-blue-300 transition-colors">
+                      <Sparkles className="w-4 h-4 text-[#0052FF]" />
+                      <span className="border-b border-dashed border-slate-300 dark:border-slate-600 group-hover:border-[#0052FF] pb-0.5">
+                        Vil du selv bygge? Prøv gør-det-selv versionen
+                      </span>
+                      <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                    </Link>
+                  </div>
                 </div>
               </motion.div>
 
@@ -216,48 +216,6 @@ export default function LandingPage() {
         </section>
 
 
-        {/* ═══════════════ SHOWCASE ═══════════════ */}
-        <section id="showcase" className="py-24 md:py-32 px-6 lg:px-12">
-          <div className="w-full max-w-7xl mx-auto">
-            <ScrollReveal className="text-center mb-16">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Se hvad vi har bygget for andre</h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">Rigtige klinikker. Rigtige klienter. Klar på få dage.</p>
-            </ScrollReveal>
-
-            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              {showcaseSites.map((site, i) => (
-                <motion.div key={i} variants={fadeUp} whileHover={{ y: -5, transition: { duration: 0.2 } }} className="group bg-card rounded-2xl border overflow-hidden hover:shadow-xl hover:shadow-indigo-500/5 transition-shadow duration-300">
-                  <div className={`h-32 bg-gradient-to-br ${site.gradient} relative p-2.5 flex flex-col`}>
-                    {/* Browser chrome */}
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                      <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                      <div className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                      <div className="ml-2 h-3 bg-white/15 rounded-full flex-1" />
-                    </div>
-                    {/* Wireframe preview per layout type */}
-                    <div className="flex-1 rounded bg-white/10 p-1.5 overflow-hidden">
-                      <ShowcaseWireframe layout={site.layout} />
-                    </div>
-                  </div>
-                  <div className="p-3.5">
-                    <h3 className="font-bold text-sm mb-1">{site.name}</h3>
-                    <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${site.accent} mb-2.5`}>{site.type}</span>
-                    <div className="flex flex-wrap gap-1">
-                      {site.tags.map((tag, j) => (
-                        <span key={j} className="text-[9px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </motion.div>
-          </div>
-        </section>
-
-        {/* Section divider */}
-        <div className="landing-section-divider w-full max-w-5xl mx-auto" />
-
         {/* ═══════════════ BYGGET AF OS – EJET AF DIG ═══════════════ */}
         <section id="saadan-virker-det" className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/80 to-transparent dark:from-slate-900/30">
           <div className="w-full max-w-7xl mx-auto">
@@ -269,7 +227,7 @@ export default function LandingPage() {
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
               {/* Left: Laptop mockup */}
               <ScrollReveal>
-                <LaptopMockup />
+                <PsychologyClinicMockup />
               </ScrollReveal>
 
               {/* Right: 4-step DFY process */}
@@ -318,39 +276,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-
-        {/* ═══════════════ TESTIMONIALS ═══════════════ */}
-        <section className="py-24 md:py-32 px-6 lg:px-12 bg-gradient-to-b from-slate-50/50 to-transparent dark:from-slate-900/20">
-          <div className="w-full max-w-6xl mx-auto">
-            <ScrollReveal className="text-center mb-14">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight mb-4">Det siger vores brugere</h2>
-            </ScrollReveal>
-
-            <motion.div variants={stagger} initial="initial" whileInView="animate" viewport={{ once: true }} className="grid md:grid-cols-3 gap-5">
-              {testimonials.map((t, i) => (
-                <motion.div key={i} variants={fadeUp} whileHover={{ y: -4 }} className="bg-card rounded-2xl border p-6 transition-shadow duration-300 hover:shadow-lg hover:shadow-indigo-500/5 relative overflow-hidden">
-                  {/* Decorative quote mark */}
-                  <div className="absolute -top-2 -left-1 text-6xl font-serif text-indigo-100 dark:text-indigo-900/40 leading-none select-none">&ldquo;</div>
-                  <div className="relative z-10">
-                    <div className="flex gap-0.5 mb-4">
-                      {[1,2,3,4,5].map(s => <Star key={s} className="w-4 h-4 fill-amber-400 text-amber-400" />)}
-                    </div>
-                    <p className="text-muted-foreground leading-relaxed mb-6 text-sm">&ldquo;{t.quote}&rdquo;</p>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${t.gradient} flex items-center justify-center text-white font-bold text-sm ring-2 ring-background`}>{t.name.charAt(0)}</div>
-                      <div>
-                        <div className="font-semibold text-sm">{t.name}</div>
-                        <div className="text-xs text-muted-foreground">{t.role}</div>
-                      </div>
-                    </div>
-                  </div>
-                  {/* Subtle gradient border effect */}
-                  <div className={`absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r ${t.gradient} opacity-40`} />
-                </motion.div>
-              ))}
-            </motion.div>
-          </div>
-        </section>
 
         {/* ═══════════════ FAQ ═══════════════ */}
         <section id="faq" className="py-24 md:py-32 px-6 lg:px-12">
@@ -413,71 +338,6 @@ export default function LandingPage() {
   );
 }
 
-/* ─── Showcase wireframe mini-previews per site type ─── */
-function ShowcaseWireframe({ layout }: { layout: "booking" | "shop" | "gallery" | "hero" | "menu" }) {
-  const common = "bg-white/20 rounded-sm";
-  switch (layout) {
-    case "booking":
-      return (
-        <div className="flex flex-col gap-1 h-full">
-          <div className={`h-1.5 ${common} w-2/3`} />
-          <div className={`h-1 ${common} w-1/2 opacity-60`} />
-          <div className="flex gap-0.5 mt-auto">
-            {[1,2,3].map(i => <div key={i} className={`flex-1 h-6 ${common} opacity-40`} />)}
-          </div>
-          <div className={`h-4 bg-white/30 rounded-sm w-full mt-0.5`} />
-        </div>
-      );
-    case "shop":
-      return (
-        <div className="flex flex-col gap-1 h-full">
-          <div className={`h-1.5 ${common} w-1/2`} />
-          <div className="grid grid-cols-2 gap-0.5 flex-1">
-            {[1,2,3,4].map(i => (
-              <div key={i} className="flex flex-col gap-0.5">
-                <div className={`flex-1 ${common} opacity-30`} />
-                <div className={`h-1 ${common} opacity-50 w-3/4`} />
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    case "gallery":
-      return (
-        <div className="flex flex-col gap-1 h-full">
-          <div className={`h-1.5 ${common} w-1/3 mx-auto`} />
-          <div className="grid grid-cols-3 gap-0.5 flex-1">
-            {[1,2,3,4,5,6].map(i => <div key={i} className={`${common} opacity-${20 + (i % 3) * 15}`} />)}
-          </div>
-        </div>
-      );
-    case "menu":
-      return (
-        <div className="flex flex-col gap-1 h-full">
-          <div className={`h-1.5 ${common} w-2/5 mx-auto`} />
-          <div className="flex flex-col gap-0.5 flex-1">
-            {[1,2,3,4].map(i => (
-              <div key={i} className="flex items-center gap-1">
-                <div className={`w-4 h-3 ${common} opacity-30 shrink-0`} />
-                <div className={`h-1 ${common} opacity-50 flex-1`} />
-                <div className={`h-1 ${common} opacity-40 w-3`} />
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    case "hero":
-    default:
-      return (
-        <div className="flex flex-col gap-1 h-full items-center justify-center">
-          <div className={`h-2 ${common} w-3/4`} />
-          <div className={`h-1 ${common} w-1/2 opacity-60`} />
-          <div className={`h-3.5 bg-white/30 rounded-sm w-2/5 mt-1`} />
-        </div>
-      );
-  }
-}
-
 /* ─── iPhone Mockup showing "Booking bekræftet" ─── */
 function IPhoneMockup() {
   return (
@@ -522,66 +382,6 @@ function IPhoneMockup() {
         <div className="flex justify-center pt-1 pb-0.5">
           <div className="w-24 h-1 bg-slate-600 rounded-full" />
         </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Laptop mockup with floating module cards ─── */
-function LaptopMockup() {
-  const modules = [
-    { label: "📅 Booking", delay: 0 },
-    { label: "📋 Prisliste", delay: 0.5 },
-    { label: "🖼 Galleri", delay: 1 },
-    { label: "❓ FAQ", delay: 1.5 },
-  ];
-  return (
-    <div className="relative flex justify-center items-center py-8">
-      {/* Floating module cards */}
-      {modules.map((m, i) => (
-        <motion.div
-          key={m.label}
-          className="absolute z-20 bg-white rounded-xl shadow-lg border px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap pointer-events-none"
-          style={{
-            top: i < 2 ? "-16px" : "auto",
-            bottom: i >= 2 ? "-16px" : "auto",
-            left: i % 2 === 0 ? "0px" : "auto",
-            right: i % 2 === 1 ? "0px" : "auto",
-          }}
-          animate={{ y: [0, -6, 0] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: m.delay }}
-        >
-          {m.label}
-        </motion.div>
-      ))}
-
-      {/* Browser/laptop frame */}
-      <div className="w-full max-w-sm bg-card rounded-2xl border shadow-2xl shadow-blue-500/10 overflow-hidden">
-        <div className="bg-muted/60 px-3 py-2 flex items-center gap-1.5 border-b">
-          <div className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
-          <div className="w-2.5 h-2.5 rounded-full bg-amber-400/70" />
-          <div className="w-2.5 h-2.5 rounded-full bg-green-400/70" />
-          <div className="ml-3 flex-1 h-5 bg-muted rounded-full max-w-[160px] flex items-center px-3">
-            <span className="text-[9px] text-muted-foreground truncate">din-klinik.dk</span>
-          </div>
-        </div>
-        <div className="p-5 space-y-3 bg-gradient-to-b from-blue-50/40 to-white">
-          <div className="h-4 bg-[#0052FF]/10 rounded w-2/3" />
-          <div className="h-3 bg-muted rounded w-full" />
-          <div className="h-3 bg-muted rounded w-4/5" />
-          <div className="h-9 bg-[#0052FF] rounded-lg w-2/5 mt-2" />
-          <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="rounded-lg bg-blue-50 border border-blue-100 p-2 space-y-1.5">
-                <div className="h-2 bg-blue-200/60 rounded w-3/4" />
-                <div className="h-1.5 bg-muted rounded w-full" />
-                <div className="h-1.5 bg-muted rounded w-2/3" />
-              </div>
-            ))}
-          </div>
-        </div>
-        {/* Keyboard simulation */}
-        <div className="bg-muted/30 h-6 border-t" />
       </div>
     </div>
   );
