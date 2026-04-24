@@ -416,15 +416,25 @@ export default function DIYPage() {
             className="hidden md:flex items-center gap-8 text-sm font-medium"
             style={{ color: "var(--bf-muted)" }}
           >
-            {navLinks.map(([href, label]) => (
-              <a
-                key={href}
-                href={href}
-                className="relative py-1 transition-colors hover:text-[color:var(--bf-ink)] after:absolute after:bottom-0 after:left-0 after:h-px after:w-0 after:bg-[color:var(--bf-ink)] after:transition-all hover:after:w-full"
-              >
-                {label}
-              </a>
-            ))}
+            {navLinks.map(([href, label]) =>
+              href.startsWith("#") ? (
+                <a
+                  key={href}
+                  href={href}
+                  className="relative py-1 transition-colors hover:text-[color:var(--bf-ink)] after:absolute after:bottom-0 after:left-0 after:h-px after:w-0 after:bg-[color:var(--bf-ink)] after:transition-all hover:after:w-full"
+                >
+                  {label}
+                </a>
+              ) : (
+                <Link
+                  key={href}
+                  href={href}
+                  className="relative py-1 transition-colors hover:text-[color:var(--bf-ink)] after:absolute after:bottom-0 after:left-0 after:h-px after:w-0 after:bg-[color:var(--bf-ink)] after:transition-all hover:after:w-full"
+                >
+                  {label}
+                </Link>
+              )
+            )}
           </nav>
 
           <div className="flex items-center gap-3">
@@ -465,17 +475,29 @@ export default function DIYPage() {
             style={{ borderColor: "var(--bf-line)", background: "#FFFCF6" }}
           >
             <nav className="flex flex-col p-4 gap-1">
-              {navLinks.map(([href, label]) => (
-                <a
-                  key={href}
-                  href={href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="px-4 py-3 rounded-lg text-sm font-medium hover:bg-[color:var(--bf-cream)] transition-colors"
-                  style={{ color: "var(--bf-ink)" }}
-                >
-                  {label}
-                </a>
-              ))}
+              {navLinks.map(([href, label]) =>
+                href.startsWith("#") ? (
+                  <a
+                    key={href}
+                    href={href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="px-4 py-3 rounded-lg text-sm font-medium hover:bg-[color:var(--bf-cream)] transition-colors"
+                    style={{ color: "var(--bf-ink)" }}
+                  >
+                    {label}
+                  </a>
+                ) : (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="px-4 py-3 rounded-lg text-sm font-medium hover:bg-[color:var(--bf-cream)] transition-colors"
+                    style={{ color: "var(--bf-ink)" }}
+                  >
+                    {label}
+                  </Link>
+                )
+              )}
               <div
                 className="border-t mt-2 pt-3 flex flex-col gap-2"
                 style={{ borderColor: "var(--bf-line)" }}
