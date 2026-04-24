@@ -377,10 +377,8 @@ export default function DIYPage() {
   }, []);
 
   const navLinks: Array<[string, string]> = [
-    ["#hvordan", "Sådan virker det"],
-    ["#fordele", "Hvad du får"],
+    ["/", "Hjem"],
     ["#priser", "Pris"],
-    ["#faq", "FAQ"],
   ];
 
   return (
@@ -427,20 +425,6 @@ export default function DIYPage() {
                 {label}
               </a>
             ))}
-            <Link
-              href="/dfy"
-              className="relative py-1 inline-flex items-center gap-1.5 transition-colors hover:text-[color:var(--bf-accent)]"
-              data-testid="link-dfy"
-            >
-              <Sparkles className="w-3.5 h-3.5" style={{ color: "var(--bf-terra)" }} />
-              <span style={{ color: "var(--bf-ink)" }}>Done-For-You</span>
-              <span
-                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-bold"
-                style={{ background: "rgba(196,90,59,0.10)", color: "var(--bf-terra)" }}
-              >
-                DFY
-              </span>
-            </Link>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -492,14 +476,6 @@ export default function DIYPage() {
                   {label}
                 </a>
               ))}
-              <Link
-                href="/dfy"
-                onClick={() => setMobileMenuOpen(false)}
-                className="px-4 py-3 rounded-lg text-sm font-semibold hover:bg-[color:var(--bf-cream)] transition-colors"
-                style={{ color: "var(--bf-ink)" }}
-              >
-                Done-For-You
-              </Link>
               <div
                 className="border-t mt-2 pt-3 flex flex-col gap-2"
                 style={{ borderColor: "var(--bf-line)" }}
