@@ -309,7 +309,7 @@ function DIYBuilderMockup() {
         </div>
       </motion.div>
 
-      {/* Floating chip: AI suggestion */}
+      {/* Floating chip: section suggestion */}
       <motion.div
         initial={reduce ? false : { opacity: 0, y: -10, scale: 0.85 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
