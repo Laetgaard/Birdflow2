@@ -32,7 +32,8 @@ function Router() {
   return (
     <Switch>
       {/* Public routes */}
-      <Route path="/" component={LandingPage} />
+      <Route path="/" component={DIYPage} />
+      <Route path="/dfy" component={LandingPage} />
       <Route path="/diy" component={DIYPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/privacy" component={PrivacyPage} />

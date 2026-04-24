@@ -428,7 +428,7 @@ export default function DIYPage() {
               </a>
             ))}
             <Link
-              href="/"
+              href="/dfy"
               className="relative py-1 inline-flex items-center gap-1.5 transition-colors hover:text-[color:var(--bf-accent)]"
               data-testid="link-dfy"
             >
@@ -493,7 +493,7 @@ export default function DIYPage() {
                 </a>
               ))}
               <Link
-                href="/"
+                href="/dfy"
                 onClick={() => setMobileMenuOpen(false)}
                 className="px-4 py-3 rounded-lg text-sm font-semibold hover:bg-[color:var(--bf-cream)] transition-colors"
                 style={{ color: "var(--bf-ink)" }}
@@ -648,7 +648,7 @@ export default function DIYPage() {
 
                     <div className="mt-6">
                       <Link
-                        href="/"
+                        href="/dfy"
                         className="bf-dotted text-sm font-medium inline-flex items-center gap-1.5"
                         style={{ color: "var(--bf-muted)" }}
                         data-testid="link-dfy-alt"
@@ -1340,7 +1340,7 @@ export default function DIYPage() {
               </div>
               <div className="flex flex-col gap-2">
                 <Link
-                  href="/"
+                  href="/dfy"
                   className="hover:text-[color:var(--bf-ink)] transition-colors"
                 >
                   Done-For-You

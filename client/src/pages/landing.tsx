@@ -227,7 +227,7 @@ export default function LandingPage() {
               </a>
             ))}
             <Link
-              href="/diy"
+              href="/"
               className="relative py-1 inline-flex items-center gap-1.5 transition-colors hover:text-[color:var(--bf-accent)]"
               data-testid="link-diy"
             >
@@ -275,7 +275,7 @@ export default function LandingPage() {
                 </a>
               ))}
               <Link
-                href="/diy"
+                href="/"
                 onClick={() => setMobileMenuOpen(false)}
                 className="px-4 py-3 rounded-lg text-sm font-semibold hover:bg-[color:var(--bf-cream)] transition-colors inline-flex items-center gap-2"
                 style={{ color: "var(--bf-ink)" }}
