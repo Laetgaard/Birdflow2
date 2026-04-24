@@ -34,57 +34,57 @@ import { getTotalCreators } from "@/lib/stats";
 const personas = [
   {
     Icon: Lightbulb,
-    badge: "Iværksætteren",
-    title: "Du har en idé",
-    desc: "Fra første tanke til levende hjemmeside. Beskriv din vision på dansk — AI'en skitserer struktur, sider og design, som du kan justere på sekunder.",
-    bullets: ["AI-genereret struktur", "Færdige sektioner & blokke", "Domæne i samme flow"],
+    badge: "Nyopstartet",
+    title: "Du vil i gang",
+    desc: "Ingen teknisk erfaring? Ingen problem. Vælg en skabelon, tilpas tekst og billeder, og gå live samme dag. Alt det tekniske — domæne, SSL og hosting — er ordnet på forhånd.",
+    bullets: ["Færdige skabeloner klar til brug", "Ingen kode eller teknisk viden", "Live samme dag"],
     accentVar: "var(--bf-accent)",
   },
   {
     Icon: ShoppingBag,
     badge: "Den selvstændige",
     title: "Du sælger et produkt",
-    desc: "Webshop, betaling, lager og fragt. Alt sammen klar fra start — Stripe Connect, GLS/PostNord/UPS-fragt og automatiske ordrebekræftelser.",
-    bullets: ["Stripe Connect betaling", "Live fragt-priser", "Automatiske mails"],
+    desc: "Webshop, betaling, lager og fragt — klar fra start. Sæt produkter op med varianter, tilslut Stripe og modtag ordrer med det samme. Automatiske ordrebekræftelser sendes til dine kunder.",
+    bullets: ["Stripe Connect betaling", "Live fragt-priser (GLS, PostNord, UPS)", "Automatiske ordrebekræftelser"],
     accentVar: "var(--bf-terra)",
   },
   {
     Icon: Stethoscope,
     badge: "Behandleren",
-    title: "Du driver en klinik",
-    desc: "Online booking, kalender og bekræftelser kører automatisk. Klienter booker, du arbejder. Færre administrative timer, flere klienter.",
-    bullets: ["Booking-system inkluderet", "Auto-bekræftelser & påmindelser", "Kalender-integration"],
+    title: "Du tilbyder behandlinger",
+    desc: "Online booking og automatiske bekræftelser kører, mens du arbejder. Klienter booker selv den tid de vil — du slipper for telefonkald og manuelle aftaler.",
+    bullets: ["Online booking inkluderet", "Auto-bekræftelser & påmindelser", "Din kalender på nettet"],
     accentVar: "var(--bf-ink)",
   },
 ];
 
 const highlights = [
-  { Icon: Wand2, title: "AI-arkitekt på dansk", desc: "Beskriv din virksomhed på dansk — AI'en designer komplet sidestruktur, farver, typografi og indhold. Du justerer bagefter." },
+  { Icon: Wand2, title: "Klar-til-brug skabeloner", desc: "Vælg en skabelon der passer til din branche — hjemmeside, webshop eller booking. Tilpas farver, logo og tekst. Klar på ingen tid." },
   { Icon: Edit3, title: "Direkte redigering", desc: "Klik på en tekst og skriv. Træk i sektioner. Skift farver med ét klik. Du ser præcis hvad dine besøgende ser." },
   { Icon: CalendarCheck, title: "Booking inkluderet", desc: "Online booking, kalender, bekræftelser og påmindelser. Klar fra dag ét — ingen ekstra plugins eller integrationer." },
   { Icon: ShoppingCart, title: "Webshop med Stripe", desc: "Sælg produkter med varianter, lager, fragt og betaling. Stripe Connect, GLS/PostNord/UPS — alt med dansk moms." },
   { Icon: Globe, title: "Eget .dk-domæne", desc: "Køb dit domæne direkte i platformen eller forbind et eksisterende. SSL, DNS og hosting sættes op automatisk." },
   { Icon: BarChart3, title: "Analytics uden cookies", desc: "GDPR-venlig analytics med besøgstal, konverteringer og webshop-data — uden cookie-pop-ups eller bannerkrav." },
   { Icon: Mail, title: "Automatiske mails", desc: "Ordrebekræftelser, booking-mails og påmindelser sendes automatisk med dit eget brand og logo." },
-  { Icon: Sparkles, title: "AI-assistent altid klar", desc: "Sidder du fast? AI-assistenten kan bygge sektioner, foreslå design og finpudse tekster mens du arbejder." },
+  { Icon: Sparkles, title: "Dansk support", desc: "Sidder du fast? Vores danske support-team hjælper dig videre — via chat eller telefon. På dansk, på hverdage." },
 ];
 
 const steps = [
-  { num: "01", title: "Beskriv din virksomhed", desc: "Fortæl AI'en hvem du er og hvad du sælger. På få sekunder genereres et komplet design med dit eget farve- og typografi-system." },
+  { num: "01", title: "Vælg en skabelon", desc: "Vælg en af vores færdige skabeloner — hjemmeside, webshop eller booking-side. Alle er professionelt designet og klar til at tilpasse." },
   { num: "02", title: "Træk, klik og tilpas", desc: "Direkte redigering på siden — klik på en tekst og skriv. Træk i sektioner, byt farver, tilføj booking eller webshop med ét klik." },
   { num: "03", title: "Udgiv på dit eget domæne", desc: "Køb dit .dk-domæne i samme flow eller forbind et eksisterende. SSL, hosting og analytics er allerede sat op." },
 ];
 
 const faqs = [
-  { q: "Skal jeg kunne kode?", a: "Nej. Hele BirdFlow er bygget visuelt — du peger, klikker og skriver. AI'en hjælper hvis du går i stå." },
-  { q: "Hvad koster det?", a: "69 kr./md. for alt: hjemmeside, AI-bygger, booking, webshop, analytics og e-mails. 31 dages gratis prøveperiode — du kan opsige når som helst." },
+  { q: "Skal jeg kunne kode?", a: "Nej. Hele BirdFlow er bygget visuelt — du peger, klikker og skriver. Vores support hjælper dig, hvis du går i stå." },
+  { q: "Hvad koster det?", a: "69 kr./md. for alt: hjemmeside, booking, webshop, analytics og e-mails. 31 dages gratis prøveperiode — du kan opsige når som helst." },
   { q: "Kan jeg bruge mit eget domæne?", a: "Ja. Køb et nyt .dk-domæne direkte i platformen, eller forbind et du allerede har. SSL og DNS sættes automatisk op." },
   { q: "Hvad sker der efter de 31 dage?", a: "Hvis du vil fortsætte, opkræves de 69 kr./md. automatisk. Vil du ikke fortsætte, opsiger du bare i indstillingerne — ingen binding." },
   { q: "Kan jeg skifte til Done-For-You senere?", a: "Selvfølgelig. Vil du have os til at overtage opsætningen, kontakter du os bare — vi tager udgangspunkt i det du allerede har bygget." },
 ];
 
 const includedPills = [
-  "AI-bygger",
+  "Skabeloner",
   "Booking",
   "Webshop",
   "Stripe Connect",
@@ -328,7 +328,7 @@ function DIYBuilderMockup() {
           <Sparkles className="w-3.5 h-3.5" style={{ color: "var(--bf-accent)" }} />
         </div>
         <div className="text-[10px] font-semibold leading-tight" style={{ color: "var(--bf-ink)" }}>
-          AI foreslår: Tilføj
+          Tilføj ny
           <br />
           <span style={{ color: "var(--bf-accent)" }}>prisliste-sektion</span>
         </div>
@@ -563,13 +563,13 @@ export default function DIYPage() {
                       className="text-[2.4rem] sm:text-[3rem] md:text-[3.5rem] lg:text-[3.75rem] leading-[1.04] tracking-[-0.025em] mb-6"
                       style={{ color: "var(--bf-ink)" }}
                     >
-                      <span className="font-bold">Byg din hjemmeside selv,</span>
+                      <span className="font-bold">Din hjemmeside online,</span>
                       <br />
                       <span
                         className="font-editorial italic font-medium"
                         style={{ color: "var(--bf-ink-soft)" }}
                       >
-                        med en AI der forstår dansk.
+                        nemt, hurtigt og til én fast pris.
                       </span>
                     </h1>
 
@@ -983,7 +983,7 @@ export default function DIYPage() {
               {/* Right: outcome callouts */}
               <div className="lg:col-span-5 space-y-5">
                 {[
-                  { Icon: Wand2, title: "AI-genereret start", desc: "AI'en bygger fundamentet på sekunder, så du kan komme i gang." },
+                  { Icon: Wand2, title: "Klar-til-brug skabelon", desc: "Vælg en skabelon der passer til dig — og tilpas den direkte. Intet blank lærred." },
                   { Icon: MousePointerClick, title: "Direkte redigering", desc: "Klik på en tekst, skriv. Træk i sektioner. Du ser præcis det dine besøgende ser." },
                   { Icon: Rocket, title: "Live samme dag", desc: "Køb dit .dk-domæne i samme flow eller forbind et eksisterende — SSL og hosting følger med." },
                 ].map(({ Icon, title, desc }, i) => (
@@ -1077,13 +1077,13 @@ export default function DIYPage() {
                   className="font-editorial mb-8"
                   style={{ color: "var(--bf-ink-soft)" }}
                 >
-                  AI-bygger · booking · webshop · analytics · e-mails · domæne-køb
+                  Skabeloner · booking · webshop · analytics · e-mails · domæne-køb
                 </p>
 
                 <div className="grid sm:grid-cols-2 gap-2.5 max-w-md mx-auto mb-9 text-left">
                   {[
                     "Ubegrænsede sider",
-                    "AI-arkitekt & assistent",
+                    "Skabelon-bibliotek",
                     "Stripe Connect",
                     "Online booking",
                     "Live fragt-priser",
@@ -1302,7 +1302,7 @@ export default function DIYPage() {
                 className="font-editorial text-base max-w-md leading-relaxed"
                 style={{ color: "var(--bf-ink-soft)" }}
               >
-                AI-bygger til dig der vil bygge selv — på dansk, med booking, webshop og .dk-domæne i én pakke.
+                Website-bygger til dig der vil klare det selv — på dansk, med booking, webshop og .dk-domæne i én pakke.
               </p>
               <div className="bf-stamp mt-3">Est. 2026 · København</div>
             </div>
