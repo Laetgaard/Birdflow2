@@ -539,6 +539,8 @@ export type ComponentStyles = {
   dividerStyle?: string;
   dividerThickness?: string;
   dividerWidth?: string;
+  // Header glassmorphism
+  glassmorphism?: boolean | string;
 };
 
 export type BuilderComponentData = {

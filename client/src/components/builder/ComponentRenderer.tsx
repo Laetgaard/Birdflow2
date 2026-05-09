@@ -1264,7 +1264,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const scrollBehavior = ((styles.scrollBehavior as string) || 'static') as 'static' | 'sticky' | 'show-on-scroll-up';
   const scrolledBackgroundColor = (styles.scrolledBackgroundColor as string) || styles.backgroundColor || '#ffffff';
   const hoverColor = (styles.hoverColor as string) || globalStyles?.primaryColor || '#6366f1';
-  const useGlass = (styles as any).glassmorphism === true || (styles as any).glassmorphism === 'true';
+  const useGlass = styles.glassmorphism === true || styles.glassmorphism === 'true';
   const currentPath = isPreview ? (typeof window !== 'undefined' ? window.location.pathname : '/') : '/';
 
   useEffect(() => {
@@ -2351,15 +2351,27 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
                   </div>
                 )}
                 {/* Plan name */}
-                <p style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: isHighlighted ? 0.8 : 0.55, marginBottom: '12px' }}>{item.title}</p>
+                {canEdit ? (
+                  <EditableText value={item.title || ''} field={`items.${index}.title`} isEditing={editingField === `items.${index}.title`} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: isHighlighted ? 0.8 : 0.55, marginBottom: '12px', display: 'block' }} as="p" isPreview={isPreview} />
+                ) : (
+                  <p style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: isHighlighted ? 0.8 : 0.55, marginBottom: '12px' }}>{item.title}</p>
+                )}
                 {/* Price */}
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '48px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.03em' }}>{price}</span>
+                  {canEdit ? (
+                    <EditableText value={String(item.price || item.description || '')} field={`items.${index}.price`} isEditing={editingField === `items.${index}.price`} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: '48px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.03em', display: 'inline-block' }} as="span" isPreview={isPreview} />
+                  ) : (
+                    <span style={{ fontSize: '48px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.03em' }}>{price}</span>
+                  )}
                   {period && <span style={{ fontSize: '14px', opacity: 0.6, paddingBottom: '8px' }}>{period}</span>}
                 </div>
                 {/* Description */}
                 {item.description && price && item.description !== price && (
-                  <p style={{ fontSize: '14px', opacity: 0.65, marginBottom: '24px', lineHeight: 1.6 }}>{item.description}</p>
+                  canEdit ? (
+                    <EditableText value={item.description || ''} field={`items.${index}.description`} isEditing={editingField === `items.${index}.description`} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: '14px', opacity: 0.65, marginBottom: '24px', lineHeight: 1.6, display: 'block' }} as="p" isPreview={isPreview} />
+                  ) : (
+                    <p style={{ fontSize: '14px', opacity: 0.65, marginBottom: '24px', lineHeight: 1.6 }}>{item.description}</p>
+                  )
                 )}
                 {/* Divider */}
                 <div style={{ height: '1px', backgroundColor: isHighlighted ? 'rgba(255,255,255,0.2)' : hexToRgba(accentColor, 0.1), margin: '20px 0' }} />
@@ -2380,15 +2392,21 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
                   )}
                 </div>
                 {/* CTA button */}
-                <a href={isPreview ? ctaLink : '#'} style={{
-                  display: 'block', textAlign: 'center', padding: '14px 24px', borderRadius: '12px', fontWeight: 700, fontSize: '15px', textDecoration: 'none', letterSpacing: '0.01em',
-                  backgroundColor: isHighlighted ? '#fff' : buttonColor,
-                  color: isHighlighted ? accentColor : buttonTextColor,
-                  transition: 'opacity 0.2s',
-                }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.88'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
-                >{cta}</a>
+                {canEdit ? (
+                  <div style={{ display: 'block', textAlign: 'center', padding: '14px 24px', borderRadius: '12px', fontWeight: 700, fontSize: '15px', letterSpacing: '0.01em', backgroundColor: isHighlighted ? '#fff' : buttonColor, color: isHighlighted ? accentColor : buttonTextColor }}>
+                    <EditableText value={cta} field={`items.${index}.ctaText`} isEditing={editingField === `items.${index}.ctaText`} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', color: 'inherit' }} as="span" isPreview={isPreview} />
+                  </div>
+                ) : (
+                  <a href={isPreview ? ctaLink : '#'} style={{
+                    display: 'block', textAlign: 'center', padding: '14px 24px', borderRadius: '12px', fontWeight: 700, fontSize: '15px', textDecoration: 'none', letterSpacing: '0.01em',
+                    backgroundColor: isHighlighted ? '#fff' : buttonColor,
+                    color: isHighlighted ? accentColor : buttonTextColor,
+                    transition: 'opacity 0.2s',
+                  }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.88'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
+                  >{cta}</a>
+                )}
               </div>
             );
           })}
@@ -2611,18 +2629,42 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
   }
   const textareaFields = formFields.filter(f => f.type === 'textarea');
 
+  const getFieldIcon = (field: typeof formFields[number]) => {
+    const label = (field.label || '').toLowerCase();
+    if (field.type === 'email' || label.includes('email')) return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+    );
+    if (label.includes('phone') || label.includes('tel')) return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.77 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 8.91a16 16 0 0 0 6 6l.96-.96a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+    );
+    if (label.includes('name') || label.includes('company')) return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+    );
+    if (label.includes('subject') || label.includes('topic')) return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+    );
+    return (
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    );
+  };
+
   const renderInput = (field: typeof formFields[number]) => (
     <div key={field.id}>
       <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px', letterSpacing: '0.01em', opacity: 0.75 }}>
         {field.label}{field.required && <span style={{ color: accentColor, marginLeft: '2px' }}>*</span>}
       </label>
-      <input
-        type={field.type === 'email' ? 'email' : 'text'}
-        placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
-        style={inputStyle}
-        onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
-        onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
-      />
+      <div style={{ position: 'relative' }}>
+        <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', opacity: 0.4, pointerEvents: 'none', display: 'flex', alignItems: 'center', color: 'inherit' }}>
+          {getFieldIcon(field)}
+        </span>
+        <input
+          type={field.type === 'email' ? 'email' : 'text'}
+          placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
+          style={{ ...inputStyle, paddingLeft: '40px' }}
+          onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
+          onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
+        />
+      </div>
     </div>
   );
 
