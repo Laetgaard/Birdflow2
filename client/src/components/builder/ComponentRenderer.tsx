@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { BuilderComponentData, ComponentProps, ComponentStyles, StyledText } from '@shared/componentRegistry';
+import type { BuilderComponentData, ComponentProps, ComponentStyles, StyledText, StatItem } from '@shared/componentRegistry';
 import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
 import BookingWidget from './BookingWidget';
 import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
@@ -179,6 +179,7 @@ function HoverButton({
   style,
   isPreview,
   type = 'button',
+  disabled,
 }: { 
   children: React.ReactNode; 
   backgroundColor: string; 
@@ -189,6 +190,7 @@ function HoverButton({
   style?: React.CSSProperties;
   isPreview?: boolean;
   type?: 'button' | 'submit';
+  disabled?: boolean;
 }) {
   const [isHovered, setIsHovered] = useState(false);
   
@@ -227,8 +229,9 @@ function HoverButton({
   return (
     <button
       type={type}
+      disabled={disabled}
       onClick={onClick}
-      onMouseEnter={() => setIsHovered(true)}
+      onMouseEnter={() => !disabled && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={buttonStyle}
     >
@@ -738,7 +741,8 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const images = props.images || [];
   const [currentIndex, setCurrentIndex] = useState(0);
-  const aspectRatio = (styles as any).aspectRatio || '16/9';
+  const aspectRatio = styles.aspectRatio || '16/9';
+  const captions = props.captions || [];
 
   const prev = (e: React.MouseEvent) => { e.stopPropagation(); setCurrentIndex(i => (i - 1 + images.length) % images.length); };
   const next = (e: React.MouseEvent) => { e.stopPropagation(); setCurrentIndex(i => (i + 1) % images.length); };
@@ -768,15 +772,26 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
 
   if (images.length === 0) return null;
   const current = parseImageValue(images[currentIndex]);
+  const caption = captions[currentIndex] || '';
 
   return (
     <section style={baseStyle} onClick={onClick}>
+      <style>{`
+        @keyframes slider-fade { from { opacity: 0; transform: scale(1.02); } to { opacity: 1; transform: scale(1); } }
+      `}</style>
       <div style={{ position: 'relative', width: '100%', maxWidth: '1200px', margin: '0 auto', borderRadius: styles.borderRadius || '16px', overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
         <div style={{ width: '100%', aspectRatio, position: 'relative', backgroundColor: '#0a0a0a' }}>
-          {current.crop
-            ? <CroppedImage image={current} alt={`Slide ${currentIndex+1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            : <img src={current.url} alt={`Slide ${currentIndex+1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-          {images.length > 1 && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' }} />}
+          <div key={currentIndex} style={{ position: 'absolute', inset: 0, animation: 'slider-fade 0.45s ease forwards' }}>
+            {current.crop
+              ? <CroppedImage image={current} alt={`Slide ${currentIndex+1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              : <img src={current.url} alt={`Slide ${currentIndex+1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+          </div>
+          {images.length > 1 && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 50%)', zIndex: 1 }} />}
+          {caption && (
+            <div style={{ position: 'absolute', bottom: images.length > 1 ? '52px' : '20px', left: 0, right: 0, textAlign: 'center', zIndex: 2, padding: '0 48px' }}>
+              <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.88)', fontStyle: 'italic', textShadow: '0 1px 4px rgba(0,0,0,0.4)', display: 'inline-block', maxWidth: '600px' }}>{caption}</span>
+            </div>
+          )}
           {images.length > 1 && (
             <>
               <button onClick={prev} aria-label="Previous" style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: 'rgba(0,0,0,0.38)', border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
@@ -887,7 +902,7 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
   const buttonHoverColor = styles.buttonHoverColor || '#e5e7eb';
   const buttonTextColor = getContrastColor(buttonColor);
   const accentColor = resolveAccentColor(styles, globalStyles);
-  const useGradient = (styles as any).useGradient === true || (styles as any).useGradient === 'true';
+  const useGradient = styles.useGradient === true || styles.useGradient === 'true';
   const bgStyle: React.CSSProperties = useGradient
     ? { background: `linear-gradient(135deg, ${accentColor} 0%, ${hexToRgba(accentColor, 0.7)} 100%)`, color: getContrastColor(accentColor) }
     : {};
@@ -943,7 +958,7 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
   const bodyFontSize = styles.bodyFontSize || '17px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
   const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0, isPreview);
-  const useNumbered = (styles as any).layout === 'numbered';
+  const useNumbered = props.layout === 'numbered';
 
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
@@ -1014,7 +1029,7 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
   const bodyFontSize = styles.bodyFontSize || '17px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
   const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0, isPreview);
-  const showStars = (styles as any).showStars !== false && (styles as any).showStars !== 'false';
+  const showStars = styles.showStars !== false && styles.showStars !== 'false';
 
   const bgLuminance = (() => {
     const bg = styles.backgroundColor || '#ffffff';
@@ -1494,9 +1509,9 @@ function FooterComponent({ props, styles, isSelected, onClick, isPreview, onText
   const fontFamily = resolveFontFamily(styles, globalStyles);
   const accentColor = resolveAccentColor(styles, globalStyles);
   const navItems = props.items?.map(i => ({ title: i.title, href: i.description || '#' })) || [];
-  const columns: Array<{ heading: string; links: Array<{ label: string; href: string }> }> = (props as any).columns || [];
-  const copyright = (props as any).copyright || `© ${new Date().getFullYear()} ${props.title || 'Company'}. All rights reserved.`;
-  const socialLinks: Array<{ platform: string; url: string }> = (props as any).socialLinks || [];
+  const columns: Array<{ heading: string; links: Array<{ label: string; href: string }> }> = props.footerColumns || [];
+  const copyright = props.copyright || `© ${new Date().getFullYear()} ${props.title || 'Company'}. All rights reserved.`;
+  const socialLinks: Array<{ platform: string; url: string }> = props.socialLinks || [];
 
   const SocialIcon = ({ platform }: { platform: string }) => {
     const icons: Record<string, React.ReactNode> = {
@@ -1768,8 +1783,6 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
             {products.map((product, idx) => {
               const productUrl = `/product/${product.id}?website=${websiteId}`;
               const accentCol = resolveAccentColor(styles, globalStyles);
-              const isNew = idx === 0;
-              const isSale = parseFloat(product.price) > 0 && idx === 1;
               const cardContent = (
                 <>
                   <div className="product-image-wrapper" style={{ position: 'relative' }}>
@@ -1778,17 +1791,6 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
                     ) : (
                       <div className="placeholder" style={{ background: `linear-gradient(135deg, ${hexToRgba(accentCol, 0.06)} 0%, ${hexToRgba(accentCol, 0.12)} 100%)` }}>
                         <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={accentCol} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                      </div>
-                    )}
-                    {/* Badge overlay */}
-                    {isNew && (
-                      <div style={{ position: 'absolute', top: '10px', left: '10px', backgroundColor: accentCol, color: getContrastColor(accentCol), fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '3px 8px', borderRadius: '999px', boxShadow: `0 2px 8px ${hexToRgba(accentCol, 0.35)}` }}>
-                        Ny
-                      </div>
-                    )}
-                    {isSale && (
-                      <div style={{ position: 'absolute', top: '10px', left: '10px', backgroundColor: '#ef4444', color: '#fff', fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '3px 8px', borderRadius: '999px', boxShadow: '0 2px 8px rgba(239,68,68,0.35)' }}>
-                        Tilbud
                       </div>
                     )}
                     {/* Hover overlay */}
@@ -1835,14 +1837,14 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
 function ProductDetailDesigner({ props, styles, isSelected, onClick, isPreview, websiteId }: ComponentRenderProps & { websiteId?: string }) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const layout = props.layout || 'side-by-side';
-  const accentColor = (props as any).accentColor || '#7c3aed';
+  const accentColor = props.accentColor || '#7c3aed';
   const accentLight = accentColor + '15';
-  const showReviews = (props as any).showReviews !== false;
-  const showRelated = (props as any).showRelated !== false;
-  const showTrustBadges = (props as any).showTrustBadges !== false;
-  const showAccordion = (props as any).showAccordion !== false;
-  const buttonStyle = (props as any).buttonStyle || 'filled';
-  const imageStyle = (props as any).imageStyle || 'rounded';
+  const showReviews = props.showReviews !== false;
+  const showRelated = props.showRelated !== false;
+  const showTrustBadges = props.showTrustBadges !== false;
+  const showAccordion = props.showAccordion !== false;
+  const buttonStyle = props.buttonStyle || 'filled';
+  const imageStyle = props.imageStyle || 'rounded';
 
   const imgRadius = imageStyle === 'rounded' ? '16px' : imageStyle === 'square' ? '0' : '0';
   const btnStyles: React.CSSProperties = buttonStyle === 'filled'
@@ -1875,6 +1877,15 @@ function ProductDetailDesigner({ props, styles, isSelected, onClick, isPreview, 
             <line x1="7" y1="7" x2="7.01" y2="7"/>
           </svg>
           Product Page Design Preview
+        </div>
+
+        {/* Breadcrumb */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', opacity: 0.5, marginBottom: '20px', flexWrap: 'wrap' }}>
+          <span style={{ cursor: 'default' }}>Home</span>
+          <span style={{ opacity: 0.5 }}>›</span>
+          <span style={{ cursor: 'default' }}>Products</span>
+          <span style={{ opacity: 0.5 }}>›</span>
+          <span style={{ opacity: 1, fontWeight: 600 }}>Sample Product</span>
         </div>
 
         {/* Main Product Layout */}
@@ -1923,7 +1934,7 @@ function ProductDetailDesigner({ props, styles, isSelected, onClick, isPreview, 
           {/* Product Info */}
           <div style={{ padding: layout === 'stacked' ? '0' : '0 8px' }}>
             <p style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.5, fontWeight: 500, marginBottom: '8px' }}>
-              Category
+              Category · Brand
             </p>
             <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '12px', lineHeight: 1.2 }}>
               Sample Product Name
@@ -1954,14 +1965,40 @@ function ProductDetailDesigner({ props, styles, isSelected, onClick, isPreview, 
               This is a sample product description. Customize the layout, colors, and which sections appear on your product pages.
             </p>
 
+            {/* Color Variant Selector */}
+            <div style={{ marginBottom: '16px' }}>
+              <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', opacity: 0.7 }}>Color: <span style={{ fontWeight: 700, opacity: 1 }}>Midnight Black</span></p>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {['#1a1a1a', '#ef4444', '#3b82f6', '#f5f5f0'].map((color, i) => (
+                  <div key={i} style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: color, border: i === 0 ? `2px solid ${accentColor}` : '2px solid transparent', boxShadow: i === 0 ? `0 0 0 2px white, 0 0 0 4px ${accentColor}` : '0 0 0 1px rgba(0,0,0,0.12)', cursor: 'default', flexShrink: 0 }} />
+                ))}
+              </div>
+            </div>
+
+            {/* Size Variant Selector */}
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px', opacity: 0.7 }}>Size: <span style={{ fontWeight: 700, opacity: 1 }}>M</span></p>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((size, i) => (
+                  <div key={i} style={{
+                    padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'default',
+                    border: size === 'M' ? `2px solid ${accentColor}` : '1.5px solid #e2e8f0',
+                    backgroundColor: size === 'M' ? hexToRgba(accentColor, 0.08) : 'transparent',
+                    color: size === 'M' ? accentColor : 'inherit',
+                    opacity: size === 'XXL' ? 0.35 : 1,
+                  }}>{size}</div>
+                ))}
+              </div>
+            </div>
+
             {/* Stock indicator */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '16px' }}>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }} />
               <span style={{ fontSize: '13px', fontWeight: 500, color: '#10b981' }}>In Stock</span>
             </div>
 
-            {/* Quantity + Add to Cart */}
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+            {/* Sticky Add-to-Cart area */}
+            <div style={{ position: 'sticky', bottom: '16px', zIndex: 10, display: 'flex', gap: '10px', marginBottom: '20px', backgroundColor: 'transparent' }}>
               <div style={{
                 display: 'flex', alignItems: 'center', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden',
               }}>
@@ -2163,6 +2200,8 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
   const bodyFontSize = styles.bodyFontSize || '17px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
   const { containerRef, getItemStyle } = useStaggerAnimation(items.length, isPreview);
+  const [isAnnual, setIsAnnual] = useState(false);
+  const showToggle = props.showToggle === true;
 
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
@@ -2179,20 +2218,43 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
         )}
         {props.subtitle && (
           canEdit ? (
-            <EditableText value={props.subtitle} field="subtitle" isEditing={editingField === 'subtitle'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: bodyFontSize, opacity: 0.65, marginBottom: '52px', display: 'block', lineHeight: 1.65 }} as="p" isPreview={isPreview} />
+            <EditableText value={props.subtitle} field="subtitle" isEditing={editingField === 'subtitle'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: bodyFontSize, opacity: 0.65, marginBottom: showToggle ? '28px' : '52px', display: 'block', lineHeight: 1.65 }} as="p" isPreview={isPreview} />
           ) : (
-            <p style={{ fontSize: bodyFontSize, opacity: 0.65, marginBottom: '52px', lineHeight: 1.65 }}>{props.subtitle}</p>
+            <p style={{ fontSize: bodyFontSize, opacity: 0.65, marginBottom: showToggle ? '28px' : '52px', lineHeight: 1.65 }}>{props.subtitle}</p>
           )
         )}
-        {!props.subtitle && <div style={{ marginBottom: props.title ? '48px' : '0' }} />}
+        {/* Billing period toggle */}
+        {showToggle && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '44px' }}>
+            <span style={{ fontSize: '14px', fontWeight: 600, opacity: isAnnual ? 0.5 : 1, transition: 'opacity 0.2s' }}>Monthly</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsAnnual(a => !a); }}
+              style={{ width: '48px', height: '26px', borderRadius: '999px', border: 'none', cursor: 'pointer', position: 'relative', backgroundColor: isAnnual ? accentColor : hexToRgba(accentColor, 0.2), transition: 'background-color 0.25s', flexShrink: 0 }}
+            >
+              <div style={{ position: 'absolute', top: '3px', left: isAnnual ? '25px' : '3px', width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.2)', transition: 'left 0.25s cubic-bezier(0.16,1,0.3,1)' }} />
+            </button>
+            <span style={{ fontSize: '14px', fontWeight: 600, opacity: isAnnual ? 1 : 0.5, transition: 'opacity 0.2s' }}>
+              Annual
+              <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 700, color: '#10b981', backgroundColor: '#ecfdf5', padding: '2px 7px', borderRadius: '999px' }}>Save 20%</span>
+            </span>
+          </div>
+        )}
+        {!props.subtitle && !showToggle && <div style={{ marginBottom: props.title ? '48px' : '0' }} />}
         <div ref={containerRef} style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(items.length, 3) || 1}, 1fr)`, gap: '20px', alignItems: 'stretch' }}>
           {items.map((item, index) => {
-            const isHighlighted = (item as any).highlighted === true || (item as any).highlighted === 'true';
-            const price = (item as any).price || item.description || '';
-            const period = (item as any).period || '/mo';
-            const features: string[] = (item as any).features || [];
-            const cta = (item as any).ctaText || props.buttonText || 'Get started';
-            const ctaLink = (item as any).ctaLink || props.buttonLink || '#';
+            const isHighlighted = item.highlighted === true;
+            const rawPrice = String(item.price || item.description || '');
+            const annualPrice = showToggle && isAnnual
+              ? (() => {
+                  const n = parseFloat(rawPrice.replace(/[^0-9.]/g, ''));
+                  return isNaN(n) ? rawPrice : rawPrice.replace(/[\d.]+/, String(Math.round(n * 0.8)));
+                })()
+              : rawPrice;
+            const price = annualPrice;
+            const period = showToggle ? (isAnnual ? '/year' : '/mo') : (item.period || '/mo');
+            const features: string[] = item.features || [];
+            const cta = item.ctaText || props.buttonText || 'Get started';
+            const ctaLink = item.ctaLink || props.buttonLink || '#';
             return (
               <div key={item.id || index} style={{
                 padding: '36px 32px',
@@ -2201,7 +2263,7 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
                 display: 'flex',
                 flexDirection: 'column',
                 textAlign: 'left',
-                backgroundColor: isHighlighted ? accentColor : ((styles as any).cardBackground || hexToRgba(accentColor, 0.04)),
+                backgroundColor: isHighlighted ? accentColor : (styles.cardBackground || hexToRgba(accentColor, 0.04)),
                 border: isHighlighted ? 'none' : `1px solid ${hexToRgba(accentColor, 0.1)}`,
                 boxShadow: isHighlighted ? `0 20px 60px ${hexToRgba(accentColor, 0.3)}` : '0 2px 12px rgba(0,0,0,0.05)',
                 color: isHighlighted ? getContrastColor(accentColor) : styles.textColor,
@@ -2333,9 +2395,65 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
   );
 }
 
+function useCountUp(target: number, duration: number, active: boolean) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const start = Date.now();
+    const end = start + duration;
+    const tick = () => {
+      const now = Date.now();
+      const progress = Math.min((now - start) / duration, 1);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.round(ease * target));
+      if (now < end) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [active, target, duration]);
+  return count;
+}
+
+function StatCard({ stat, index, accentColor, canEdit, editingField, onEditField, onTextChange, isPreview }: {
+  stat: StatItem; index: number; accentColor: string; canEdit: boolean;
+  editingField?: string | null; onEditField?: (field: string | null) => void;
+  onTextChange?: (field: string, value: string) => void; isPreview: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(!isPreview);
+  useEffect(() => {
+    if (!isPreview) return;
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) { setActive(true); obs.disconnect(); } }, { threshold: 0.4 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [isPreview]);
+  const numericTarget = parseFloat(String(stat.value || '0').replace(/[^0-9.]/g, '')) || 0;
+  const isNumeric = !isNaN(numericTarget) && numericTarget > 0;
+  const displayed = isPreview && isNumeric ? useCountUp(numericTarget, 1600, active) : null;
+  return (
+    <div ref={ref} style={{ padding: '28px 20px', borderRadius: '20px', backgroundColor: hexToRgba(accentColor, 0.04), border: `1px solid ${hexToRgba(accentColor, 0.08)}`, textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '40px', height: '3px', borderRadius: '0 0 3px 3px', backgroundColor: accentColor, opacity: 0.7 }} />
+      {stat.suffix && <div style={{ fontSize: '22px', marginBottom: '8px' }}>{stat.suffix.includes('%') ? '📊' : '⚡'}</div>}
+      {canEdit ? (
+        <EditableText value={String(stat.value || '')} field={`stats.${index}.value`} isEditing={editingField === `stats.${index}.value`} onEdit={onEditField!} onChange={onTextChange!} style={{ fontSize: '52px', fontWeight: 800, marginBottom: '6px', display: 'block', lineHeight: 1, letterSpacing: '-0.03em', color: accentColor }} as="div" isPreview={isPreview} />
+      ) : (
+        <div style={{ fontSize: '52px', fontWeight: 800, marginBottom: '6px', lineHeight: 1, letterSpacing: '-0.03em', color: accentColor }}>
+          {stat.prefix}{displayed !== null ? displayed : stat.value}{stat.suffix}
+        </div>
+      )}
+      {canEdit ? (
+        <EditableText value={stat.label || ''} field={`stats.${index}.label`} isEditing={editingField === `stats.${index}.label`} onEdit={onEditField!} onChange={onTextChange!} style={{ fontSize: '14px', opacity: 0.6, display: 'block', lineHeight: 1.4, fontWeight: 500 }} as="div" isPreview={isPreview} />
+      ) : (
+        <div style={{ fontSize: '14px', opacity: 0.6, lineHeight: 1.4, fontWeight: 500 }}>{stat.label}</div>
+      )}
+    </div>
+  );
+}
+
 function StatsCounterComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
-  const stats = (props as any).stats || [];
+  const stats = props.stats || [];
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = resolveFontFamily(styles, globalStyles);
   const accentColor = resolveAccentColor(styles, globalStyles);
@@ -2348,55 +2466,21 @@ function StatsCounterComponent({ props, styles, isSelected, onClick, isPreview, 
       <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
         {props.title && (
           canEdit ? (
-            <EditableText
-              value={props.title}
-              field="title"
-              isEditing={editingField === 'title'}
-              onEdit={onEditField}
-              onChange={onTextChange}
-              style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', display: 'block' }}
-              as="h2"
-              isPreview={isPreview}
-            />
+            <EditableText value={props.title} field="title" isEditing={editingField === 'title'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', display: 'block' }} as="h2" isPreview={isPreview} />
           ) : (
             <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px' }}>{props.title}</h2>
           )
         )}
         {props.subtitle && (
           canEdit ? (
-            <EditableText
-              value={props.subtitle}
-              field="subtitle"
-              isEditing={editingField === 'subtitle'}
-              onEdit={onEditField}
-              onChange={onTextChange}
-              style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '48px', display: 'block' }}
-              as="p"
-              isPreview={isPreview}
-            />
+            <EditableText value={props.subtitle} field="subtitle" isEditing={editingField === 'subtitle'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '48px', display: 'block' }} as="p" isPreview={isPreview} />
           ) : (
             <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '48px' }}>{props.subtitle}</p>
           )
         )}
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(160px, 1fr))`, gap: '24px' }}>
-          {stats.map((stat: any, index: number) => (
-            <div key={stat.id || index} style={{ padding: '28px 20px', borderRadius: '20px', backgroundColor: hexToRgba(accentColor, 0.04), border: `1px solid ${hexToRgba(accentColor, 0.08)}`, textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-              {/* Accent top bar */}
-              <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '40px', height: '3px', borderRadius: '0 0 3px 3px', backgroundColor: accentColor, opacity: 0.7 }} />
-              {stat.icon && <div style={{ fontSize: '24px', marginBottom: '10px' }}>{stat.icon}</div>}
-              {canEdit ? (
-                <EditableText value={String(stat.value || '')} field={`stats.${index}.value`} isEditing={editingField === `stats.${index}.value`} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: '52px', fontWeight: 800, marginBottom: '6px', display: 'block', lineHeight: 1, letterSpacing: '-0.03em', color: accentColor }} as="div" isPreview={isPreview} />
-              ) : (
-                <div style={{ fontSize: '52px', fontWeight: 800, marginBottom: '6px', lineHeight: 1, letterSpacing: '-0.03em', color: accentColor }}>
-                  {stat.prefix}{stat.value}{stat.suffix}
-                </div>
-              )}
-              {canEdit ? (
-                <EditableText value={stat.label || ''} field={`stats.${index}.label`} isEditing={editingField === `stats.${index}.label`} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: '14px', opacity: 0.6, display: 'block', lineHeight: 1.4, fontWeight: 500 }} as="div" isPreview={isPreview} />
-              ) : (
-                <div style={{ fontSize: '14px', opacity: 0.6, lineHeight: 1.4, fontWeight: 500 }}>{stat.label}</div>
-              )}
-            </div>
+          {stats.map((stat, index) => (
+            <StatCard key={stat.id || index} stat={stat} index={index} accentColor={accentColor} canEdit={!!canEdit} editingField={editingField} onEditField={onEditField} onTextChange={onTextChange} isPreview={isPreview} />
           ))}
         </div>
       </div>
@@ -2406,10 +2490,10 @@ function StatsCounterComponent({ props, styles, isSelected, onClick, isPreview, 
 
 function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
-  const formFields = (props as any).formFields || [
-    { id: '1', label: 'Name', type: 'text', required: true },
-    { id: '2', label: 'Email', type: 'email', required: true },
-    { id: '3', label: 'Message', type: 'textarea', required: true },
+  const formFields = props.formFields || [
+    { id: '1', label: 'Name', type: 'text' as const, required: true },
+    { id: '2', label: 'Email', type: 'email' as const, required: true },
+    { id: '3', label: 'Message', type: 'textarea' as const, required: true },
   ];
   const accentColor = resolveAccentColor(styles, globalStyles);
   const canEdit = !isPreview && onTextChange && onEditField;
@@ -2417,76 +2501,107 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
   const titleFontSize = styles.titleFontSize || '32px';
   const bodyFontSize = styles.bodyFontSize || '16px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
-  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isPreview) return;
+    setIsSubmitting(true);
+    setTimeout(() => { setIsSubmitting(false); setSubmitted(true); setTimeout(() => setSubmitted(false), 3000); }, 1200);
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '13px 16px', borderRadius: '12px',
+    border: `1.5px solid ${hexToRgba(accentColor, 0.15)}`, fontFamily, fontSize: '15px',
+    backgroundColor: hexToRgba(accentColor, 0.03), color: 'inherit',
+    outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s', boxSizing: 'border-box',
+  };
+
+  const shortFields = formFields.filter(f => f.type !== 'textarea');
+  const pairs: Array<[typeof formFields[number], typeof formFields[number] | null]> = [];
+  for (let i = 0; i < shortFields.length; i += 2) {
+    pairs.push([shortFields[i], shortFields[i + 1] || null]);
+  }
+  const textareaFields = formFields.filter(f => f.type === 'textarea');
+
+  const renderInput = (field: typeof formFields[number]) => (
+    <div key={field.id}>
+      <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px', letterSpacing: '0.01em', opacity: 0.75 }}>
+        {field.label}{field.required && <span style={{ color: accentColor, marginLeft: '2px' }}>*</span>}
+      </label>
+      <input
+        type={field.type === 'email' ? 'email' : 'text'}
+        placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
+        style={inputStyle}
+        onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
+        onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
+      />
+    </div>
+  );
+
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
-      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+      <div style={{ maxWidth: '680px', margin: '0 auto' }}>
         {props.title && (
           canEdit ? (
-            <EditableText
-              value={props.title}
-              field="title"
-              isEditing={editingField === 'title'}
-              onEdit={onEditField}
-              onChange={onTextChange}
-              style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center', display: 'block' }}
-              as="h2"
-              isPreview={isPreview}
-            />
+            <EditableText value={props.title} field="title" isEditing={editingField === 'title'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center', display: 'block' }} as="h2" isPreview={isPreview} />
           ) : (
             <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center' }}>{props.title}</h2>
           )
         )}
         {props.description && (
           canEdit ? (
-            <EditableText
-              value={props.description}
-              field="description"
-              isEditing={editingField === 'description'}
-              onEdit={onEditField}
-              onChange={onTextChange}
-              style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', textAlign: props.alignment || 'center', display: 'block' }}
-              as="p"
-              isPreview={isPreview}
-            />
+            <EditableText value={props.description} field="description" isEditing={editingField === 'description'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', textAlign: props.alignment || 'center', display: 'block' }} as="p" isPreview={isPreview} />
           ) : (
             <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', textAlign: props.alignment || 'center' }}>{props.description}</p>
           )
         )}
-        <form style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} onSubmit={e => e.preventDefault()}>
-          {formFields.map((field: any) => (
-            <div key={field.id}>
-              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px', letterSpacing: '0.01em', opacity: 0.75 }}>
-                {field.label}{field.required && <span style={{ color: accentColor, marginLeft: '2px' }}>*</span>}
-              </label>
-              {field.type === 'textarea' ? (
+        {submitted ? (
+          <div style={{ textAlign: 'center', padding: '40px 24px', borderRadius: '16px', backgroundColor: '#ecfdf5', border: '1px solid #86efac' }}>
+            <div style={{ fontSize: '36px', marginBottom: '12px' }}>✓</div>
+            <p style={{ fontWeight: 700, color: '#166534', fontSize: '18px', marginBottom: '4px' }}>Message sent!</p>
+            <p style={{ color: '#166534', opacity: 0.75, fontSize: '14px' }}>We'll get back to you shortly.</p>
+          </div>
+        ) : (
+          <form style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} onSubmit={handleSubmit}>
+            {/* Two-column layout for short fields */}
+            {pairs.map(([a, b], pi) => (
+              <div key={pi} style={{ display: 'grid', gridTemplateColumns: b ? '1fr 1fr' : '1fr', gap: '16px' }}>
+                {renderInput(a)}
+                {b && renderInput(b)}
+              </div>
+            ))}
+            {/* Textarea fields go full width */}
+            {textareaFields.map(field => (
+              <div key={field.id}>
+                <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px', letterSpacing: '0.01em', opacity: 0.75 }}>
+                  {field.label}{field.required && <span style={{ color: accentColor, marginLeft: '2px' }}>*</span>}
+                </label>
                 <textarea
                   placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
-                  style={{ width: '100%', padding: '13px 16px', borderRadius: '12px', border: `1.5px solid ${hexToRgba(accentColor, 0.15)}`, resize: 'vertical', minHeight: '130px', fontFamily, fontSize: '15px', backgroundColor: hexToRgba(accentColor, 0.03), color: 'inherit', outline: 'none', transition: 'border-color 0.2s', lineHeight: 1.6, boxSizing: 'border-box' }}
+                  style={{ ...inputStyle, resize: 'vertical', minHeight: '130px', lineHeight: 1.6 }}
                   onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
                   onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
                 />
-              ) : (
-                <input
-                  type={field.type}
-                  placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
-                  style={{ width: '100%', padding: '13px 16px', borderRadius: '12px', border: `1.5px solid ${hexToRgba(accentColor, 0.15)}`, fontFamily, fontSize: '15px', backgroundColor: hexToRgba(accentColor, 0.03), color: 'inherit', outline: 'none', transition: 'border-color 0.2s', boxSizing: 'border-box' }}
-                  onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
-                />
-              )}
-            </div>
-          ))}
-          {canEdit ? (
-            <div style={{ padding: '15px 28px', backgroundColor: accentColor, color: getContrastColor(accentColor), borderRadius: '12px', fontWeight: 700, textAlign: 'center', fontSize: '15px', letterSpacing: '0.01em' }}>
-              <EditableText value={props.buttonText || 'Send message'} field="buttonText" isEditing={editingField === 'buttonText'} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', color: 'inherit' }} as="span" isPreview={isPreview} />
-            </div>
-          ) : (
-            <HoverButton type="submit" backgroundColor={accentColor} hoverBackgroundColor={hexToRgba(accentColor, 0.85)} textColor={getContrastColor(accentColor)} isPreview={isPreview} style={{ padding: '15px 28px', fontSize: '15px', fontWeight: 700, letterSpacing: '0.01em', width: '100%', borderRadius: '12px' }}>
-              {props.buttonText || 'Send message'}
-            </HoverButton>
-          )}
-        </form>
+              </div>
+            ))}
+            {canEdit ? (
+              <div style={{ padding: '15px 28px', backgroundColor: accentColor, color: getContrastColor(accentColor), borderRadius: '12px', fontWeight: 700, textAlign: 'center', fontSize: '15px', letterSpacing: '0.01em' }}>
+                <EditableText value={props.buttonText || 'Send message'} field="buttonText" isEditing={editingField === 'buttonText'} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', color: 'inherit' }} as="span" isPreview={isPreview} />
+              </div>
+            ) : (
+              <HoverButton type="submit" disabled={isSubmitting} backgroundColor={accentColor} hoverBackgroundColor={hexToRgba(accentColor, 0.85)} textColor={getContrastColor(accentColor)} isPreview={isPreview} style={{ padding: '15px 28px', fontSize: '15px', fontWeight: 700, letterSpacing: '0.01em', width: '100%', borderRadius: '12px', opacity: isSubmitting ? 0.8 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                {isSubmitting ? (
+                  <>
+                    <svg style={{ animation: 'spin 0.8s linear infinite' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    Sending...
+                  </>
+                ) : (props.buttonText || 'Send message')}
+              </HoverButton>
+            )}
+          </form>
+        )}
       </div>
     </section>
   );
@@ -2494,7 +2609,7 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
 
 function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
-  const videoUrl = (props as any).videoUrl || '';
+  const videoUrl = props.videoUrl || '';
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
   const titleFontSize = styles.titleFontSize || '32px';
@@ -2581,10 +2696,10 @@ function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, on
 
 function DividerComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
-  const dividerStyle = props.style || (styles as any).dividerStyle || 'solid';
-  const accentColor = (styles as any).accentColor || styles.textColor || '#e2e8f0';
-  const thickness = (styles as any).dividerThickness || '1px';
-  const widthProp = (styles as any).dividerWidth || 'full';
+  const dividerStyle = props.style || styles.dividerStyle || 'solid';
+  const accentColor = styles.accentColor || styles.textColor || '#e2e8f0';
+  const thickness = styles.dividerThickness || '1px';
+  const widthProp = styles.dividerWidth || 'full';
   const maxWidth = widthProp === 'narrow' ? '200px' : widthProp === 'medium' ? '480px' : '100%';
   const label = props.badge || '';
 
@@ -2674,13 +2789,13 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
 
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
-  const buttonColor = (styles as any).buttonColor || accentColor;
+  const buttonColor = styles.buttonColor || accentColor;
   const buttonHoverColor = styles.buttonHoverColor || hexToRgba(buttonColor, 0.85);
   const buttonTextColor = getContrastColor(buttonColor);
   const fontFamily = resolveFontFamily(styles, globalStyles);
-  const privacyNote = (props as any).privacyNote || '';
-  const socialProof = (props as any).socialProof || '';
-  const isStacked = (styles as any).layout === 'stacked';
+  const privacyNote = props.privacyNote || '';
+  const socialProof = props.socialProof || '';
+  const isStacked = props.layout === 'stacked';
 
   const inputField = !submitted && (
     <form onSubmit={handleSubmit} data-testid="newsletter-form" style={{ display: 'flex', flexDirection: isStacked ? 'column' : 'row', gap: '10px', maxWidth: isStacked ? '440px' : '540px', margin: '0 auto', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -2702,7 +2817,7 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
   );
 
   return (
-    <section style={{ backgroundColor: styles.backgroundColor || '#f8f9fa', padding: styles.padding || '72px 24px', color: textColor, cursor: isPreview ? 'default' : 'pointer', outline: !isPreview && (styles as any).isSelected ? '3px solid #3b82f6' : 'none', fontFamily }} onClick={onClick}>
+    <section style={{ backgroundColor: styles.backgroundColor || '#f8f9fa', padding: styles.padding || '72px 24px', color: textColor, cursor: isPreview ? 'default' : 'pointer', fontFamily }} onClick={onClick}>
       <div style={{ maxWidth: '620px', margin: '0 auto', textAlign: 'center' }}>
         {props.eyebrow && (
           <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>

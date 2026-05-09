@@ -349,6 +349,11 @@ export type ComponentItem = {
   content?: string;
   values?: string[];
   highlighted?: boolean;
+  // Pricing plan extras
+  period?: string;
+  features?: string[];
+  ctaText?: string;
+  ctaLink?: string;
 };
 
 export type FormField = {
@@ -451,6 +456,17 @@ export type ComponentProps = {
   accentColor?: string;
   buttonStyle?: string;
   imageStyle?: string;
+  // Pricing table props
+  showToggle?: boolean;
+  // Footer props (complex objects stored as props)
+  footerColumns?: Array<{ heading: string; links: Array<{ label: string; href: string }> }>;
+  copyright?: string;
+  socialLinks?: Array<{ platform: string; url: string }>;
+  // Newsletter props
+  privacyNote?: string;
+  socialProof?: string;
+  // Image slider props
+  captions?: string[];
 };
 
 export type ComponentStyles = {
@@ -506,6 +522,18 @@ export type ComponentStyles = {
   scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
   scrolledBackgroundColor?: string;
   hoverColor?: string;
+  // Image slider
+  aspectRatio?: string;
+  // CTA gradient
+  useGradient?: boolean | string;
+  // Testimonials
+  showStars?: boolean | string;
+  // Pricing card background
+  cardBackground?: string;
+  // Divider styles
+  dividerStyle?: string;
+  dividerThickness?: string;
+  dividerWidth?: string;
 };
 
 export type BuilderComponentData = {
