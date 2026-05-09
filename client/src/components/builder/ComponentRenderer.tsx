@@ -2182,6 +2182,7 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const br = styles.borderRadius || '12px';
+  const captions: string[] = props.captions || [];
 
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
@@ -2225,12 +2226,15 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
               >
-                <img src={image} alt="" loading="lazy" style={{ width: '100%', display: 'block', borderRadius: br, transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)', transform: hoveredIndex === index ? 'scale(1.03)' : 'scale(1)' }} />
-                {hoveredIndex === index && isPreview && (
-                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: br }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                <img src={image} alt={captions[index] || ''} loading="lazy" style={{ width: '100%', display: 'block', borderRadius: br, transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)', transform: hoveredIndex === index ? 'scale(1.03)' : 'scale(1)' }} />
+                {hoveredIndex === index && (
+                  <div style={{ position: 'absolute', inset: 0, background: captions[index] ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: br, transition: 'background 0.25s' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: captions[index] ? '10px' : 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
                     </div>
+                    {captions[index] && (
+                      <p style={{ color: '#fff', fontSize: '13px', fontWeight: 600, textAlign: 'center', padding: '0 12px', margin: 0, textShadow: '0 1px 3px rgba(0,0,0,0.4)', lineHeight: 1.4 }}>{captions[index]}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -2245,12 +2249,15 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
               >
-                <img src={image} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: br, transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)', transform: hoveredIndex === index ? 'scale(1.06)' : 'scale(1)' }} />
-                {hoveredIndex === index && isPreview && (
-                  <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: br }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                <img src={image} alt={captions[index] || ''} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: br, transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)', transform: hoveredIndex === index ? 'scale(1.06)' : 'scale(1)' }} />
+                {hoveredIndex === index && (
+                  <div style={{ position: 'absolute', inset: 0, background: captions[index] ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: br, transition: 'background 0.25s' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: captions[index] ? '10px' : 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
                     </div>
+                    {captions[index] && (
+                      <p style={{ color: '#fff', fontSize: '13px', fontWeight: 600, textAlign: 'center', padding: '0 12px', margin: 0, textShadow: '0 1px 3px rgba(0,0,0,0.4)', lineHeight: 1.4 }}>{captions[index]}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -2660,9 +2667,10 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
         <input
           type={field.type === 'email' ? 'email' : 'text'}
           placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
-          style={{ ...inputStyle, paddingLeft: '40px' }}
-          onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
-          onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
+          style={{ ...inputStyle, paddingLeft: '40px', pointerEvents: isPreview ? 'auto' : 'none' }}
+          onFocus={isPreview ? (e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }) : undefined}
+          onBlur={isPreview ? (e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }) : undefined}
+          readOnly={!isPreview}
         />
       </div>
     </div>
@@ -2689,9 +2697,10 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
           </label>
           <textarea
             placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
-            style={{ ...inputStyle, resize: 'vertical', minHeight: '130px', lineHeight: 1.6 }}
-            onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
-            onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
+            style={{ ...inputStyle, resize: isPreview ? 'vertical' : 'none', minHeight: '130px', lineHeight: 1.6, pointerEvents: isPreview ? 'auto' : 'none' }}
+            onFocus={isPreview ? (e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }) : undefined}
+            onBlur={isPreview ? (e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }) : undefined}
+            readOnly={!isPreview}
           />
         </div>
       ))}
@@ -2849,7 +2858,7 @@ function DividerComponent({ props, styles, isSelected, onClick, isPreview }: Com
   const accentColor = styles.accentColor || styles.textColor || '#e2e8f0';
   const thickness = styles.dividerThickness || '1px';
   const widthProp = styles.dividerWidth || 'full';
-  const maxWidth = widthProp === 'narrow' ? '200px' : widthProp === 'medium' ? '480px' : '100%';
+  const maxWidth = widthProp === 'narrow' ? '200px' : widthProp === 'medium' ? '480px' : widthProp === 'full' ? '100%' : (widthProp || '100%');
   const label = props.badge || '';
 
   const renderDivider = () => {
@@ -2951,12 +2960,13 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
       <input
         type="email"
         value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        onChange={isPreview ? (e) => setEmail(e.target.value) : undefined}
         placeholder={props.placeholder || 'Your email address'}
-        style={{ flex: isStacked ? '1 1 auto' : '1 1 220px', padding: '14px 18px', fontSize: '15px', border: `1.5px solid ${hexToRgba(accentColor, 0.18)}`, borderRadius: '12px', outline: 'none', fontFamily, backgroundColor: hexToRgba(accentColor, 0.04), color: textColor, transition: 'border-color 0.2s', minWidth: '180px', width: isStacked ? '100%' : 'auto' }}
-        onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
-        onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.18); e.currentTarget.style.boxShadow = 'none'; }}
-        disabled={isSubmitting}
+        style={{ flex: isStacked ? '1 1 auto' : '1 1 220px', padding: '14px 18px', fontSize: '15px', border: `1.5px solid ${hexToRgba(accentColor, 0.18)}`, borderRadius: '12px', outline: 'none', fontFamily, backgroundColor: hexToRgba(accentColor, 0.04), color: textColor, transition: 'border-color 0.2s', minWidth: '180px', width: isStacked ? '100%' : 'auto', pointerEvents: isPreview ? 'auto' : 'none' }}
+        onFocus={isPreview ? (e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }) : undefined}
+        onBlur={isPreview ? (e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.18); e.currentTarget.style.boxShadow = 'none'; }) : undefined}
+        disabled={isSubmitting || !isPreview}
+        readOnly={!isPreview}
         data-testid="input-newsletter-email"
       />
       <HoverButton type="submit" backgroundColor={buttonColor} hoverBackgroundColor={buttonHoverColor} textColor={buttonTextColor} style={{ padding: '14px 28px', fontSize: '15px', fontWeight: 700, opacity: isSubmitting ? 0.7 : 1, borderRadius: '12px', width: isStacked ? '100%' : 'auto', letterSpacing: '0.01em' }}>

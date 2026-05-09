@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Calendar, Clock, User, Mail, Phone, FileText, CheckCircle, ArrowRight, ArrowLeft, Sparkles, Play, X, Star, Shield, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
 
-const DANISH_WEEKDAYS = ['Ma', 'Ti', 'On', 'To', 'Fr', 'Lø', 'Sø'];
-const DANISH_MONTHS = ['Januar', 'Februar', 'Marts', 'April', 'Maj', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'December'];
+const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 function MiniCalendar({ selectedDate, onSelect, accentColor, accentLight, disabled }: {
   selectedDate: string;
@@ -49,7 +49,7 @@ function MiniCalendar({ selectedDate, onSelect, accentColor, accentLight, disabl
           <ChevronLeft size={16} />
         </button>
         <span style={{ fontWeight: 700, fontSize: '14px', color: '#1e293b' }}>
-          {DANISH_MONTHS[viewMonth]} {viewYear}
+          {MONTHS[viewMonth]} {viewYear}
         </span>
         <button type="button" onClick={e => { e.stopPropagation(); nextMonth(); }} disabled={disabled}
           style={{ background: 'none', border: 'none', cursor: disabled ? 'default' : 'pointer', padding: '4px 8px', borderRadius: '8px', color: '#64748b', display: 'flex', alignItems: 'center' }}>
@@ -58,7 +58,7 @@ function MiniCalendar({ selectedDate, onSelect, accentColor, accentLight, disabl
       </div>
       {/* Weekday headers */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '4px' }}>
-        {DANISH_WEEKDAYS.map(d => (
+        {WEEKDAYS.map((d: string) => (
           <div key={d} style={{ textAlign: 'center', fontSize: '11px', fontWeight: 600, color: '#94a3b8', padding: '2px 0' }}>{d}</div>
         ))}
       </div>
