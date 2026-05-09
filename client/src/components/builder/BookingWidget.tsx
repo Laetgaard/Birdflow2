@@ -710,7 +710,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
 
                     <div>
                       <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
-                        Vælg dato
+                        Select date
                       </label>
                       <div style={{ backgroundColor: '#f8fafc', borderRadius: '14px', padding: '14px 12px', border: `1.5px solid ${selectedDate ? accentColor : '#e2e8f0'}`, transition: 'border-color 0.2s' }}>
                         <MiniCalendar
@@ -731,11 +731,11 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
 
                     <div>
                       <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
-                        Vælg tidspunkt
+                        Select time
                       </label>
                       {/* AM slots */}
                       <div style={{ marginBottom: '8px' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Formiddag</div>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Morning</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                           {timeSlots.filter(t => parseInt(t) < 12).map((time) => (
                             <button
@@ -764,7 +764,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                       </div>
                       {/* PM slots */}
                       <div>
-                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Eftermiddag</div>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Afternoon</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                           {timeSlots.filter(t => parseInt(t) >= 12).map((time) => (
                             <button

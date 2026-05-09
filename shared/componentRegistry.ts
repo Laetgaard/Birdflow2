@@ -370,6 +370,7 @@ export type StatItem = {
   label: string;
   prefix?: string;
   suffix?: string;
+  icon?: string;
 };
 
 export type PricingItem = ComponentItem & {

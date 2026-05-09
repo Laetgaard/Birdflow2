@@ -250,6 +250,10 @@ type Product = {
   imageUrl?: string;
   status: string;
   category?: string;
+  compareAtPrice?: string;
+  trackInventory?: boolean;
+  stockCount?: number;
+  isNew?: boolean;
 };
 
 type LogoItem = {
@@ -1118,7 +1122,7 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
   );
 }
 
-function NavLink({ href, children, textColor, hoverColor, isPreview, onClick, style, disableHover }: { 
+function NavLink({ href, children, textColor, hoverColor, isPreview, onClick, style, disableHover, isActive }: { 
   href: string; 
   children: React.ReactNode; 
   textColor: string; 
@@ -1127,9 +1131,11 @@ function NavLink({ href, children, textColor, hoverColor, isPreview, onClick, st
   onClick?: (e: React.MouseEvent) => void;
   style?: React.CSSProperties;
   disableHover?: boolean;
+  isActive?: boolean;
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const showHover = !disableHover && isHovered;
+  const active = isActive || showHover;
   return (
     <a
       href={isPreview ? href : '#'}
@@ -1137,13 +1143,29 @@ function NavLink({ href, children, textColor, hoverColor, isPreview, onClick, st
       onMouseEnter={() => !disableHover && setIsHovered(true)}
       onMouseLeave={() => !disableHover && setIsHovered(false)}
       style={{
-        color: showHover ? hoverColor : textColor,
+        color: active ? hoverColor : textColor,
         textDecoration: 'none',
         transition: disableHover ? 'none' : 'color 0.2s ease',
+        position: 'relative',
+        paddingBottom: '4px',
         ...style,
       }}
     >
       {children}
+      {/* Active/hover underline indicator */}
+      <span style={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: '2px',
+        borderRadius: '2px',
+        backgroundColor: hoverColor,
+        transform: `scaleX(${active ? 1 : 0})`,
+        transformOrigin: 'left',
+        transition: 'transform 0.2s ease',
+        display: 'block',
+      }} />
     </a>
   );
 }
@@ -1242,6 +1264,8 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const scrollBehavior = ((styles.scrollBehavior as string) || 'static') as 'static' | 'sticky' | 'show-on-scroll-up';
   const scrolledBackgroundColor = (styles.scrolledBackgroundColor as string) || styles.backgroundColor || '#ffffff';
   const hoverColor = (styles.hoverColor as string) || globalStyles?.primaryColor || '#6366f1';
+  const useGlass = (styles as any).glassmorphism === true || (styles as any).glassmorphism === 'true';
+  const currentPath = isPreview ? (typeof window !== 'undefined' ? window.location.pathname : '/') : '/';
 
   useEffect(() => {
     const checkMobile = () => setWindowIsMobile(window.innerWidth < 768);
@@ -1319,8 +1343,17 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
     }
   });
   
+  const getGlassStyle = (): React.CSSProperties => {
+    if (!useGlass) return {};
+    return {
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
+      backgroundColor: isScrolled ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.75)',
+    };
+  };
+
   const getHeaderStyle = (): React.CSSProperties => {
-    const headerBaseStyle = { ...baseStyle, fontFamily };
+    const headerBaseStyle = { ...baseStyle, fontFamily, ...getGlassStyle() };
     const shouldBeTransparent = isTransparent && !isScrolled;
     
     // Overlay mode: header floats over content with absolute positioning
@@ -1441,18 +1474,22 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
           </div>
         
         {!isMobile && (
-          <nav style={{ display: 'flex', gap: '24px' }} onClick={handleNavClick}>
-            {navItems.map(item => (
-              <NavLink 
-                key={item.id} 
-                href={item.href} 
-                textColor={styles.textColor || '#1a1a1a'}
-                hoverColor={hoverColor}
-                isPreview={isPreview}
-              >
-                {item.title}
-              </NavLink>
-            ))}
+          <nav style={{ display: 'flex', gap: '32px', alignItems: 'center' }} onClick={handleNavClick}>
+            {navItems.map(item => {
+              const isActive = isPreview && currentPath === item.href;
+              return (
+                <NavLink 
+                  key={item.id} 
+                  href={item.href} 
+                  textColor={styles.textColor || '#1a1a1a'}
+                  hoverColor={hoverColor}
+                  isPreview={isPreview}
+                  isActive={isActive}
+                >
+                  {item.title}
+                </NavLink>
+              );
+            })}
           </nav>
         )}
 
@@ -1466,37 +1503,46 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
         )}
       </div>
 
-      {isMobile && mobileMenuOpen && (
+      {isMobile && (
         <nav
           style={{
             position: 'absolute',
             top: '100%',
             left: 0,
             right: 0,
-            backgroundColor: styles.backgroundColor || '#ffffff',
-            padding: '16px 24px',
+            backgroundColor: useGlass ? 'rgba(255,255,255,0.9)' : (styles.backgroundColor || '#ffffff'),
+            backdropFilter: useGlass ? 'blur(12px)' : undefined,
+            WebkitBackdropFilter: useGlass ? 'blur(12px)' : undefined,
+            padding: mobileMenuOpen ? '16px 24px' : '0 24px',
             display: 'flex',
             flexDirection: 'column',
             gap: '16px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            boxShadow: mobileMenuOpen ? '0 8px 24px rgba(0,0,0,0.12)' : 'none',
             zIndex: 1000,
+            overflow: 'hidden',
+            maxHeight: mobileMenuOpen ? '420px' : '0px',
+            transition: 'max-height 0.32s cubic-bezier(0.4, 0, 0.2, 1), padding 0.32s ease, box-shadow 0.32s ease',
           }}
           onClick={handleNavClick}
           data-testid="mobile-menu"
         >
-          {navItems.map(item => (
-            <NavLink
-              key={item.id}
-              href={item.href}
-              onClick={handleMobileNavClick}
-              textColor={styles.textColor || '#1a1a1a'}
-              hoverColor={hoverColor}
-              isPreview={isPreview}
-              style={{ padding: '8px 0', fontSize: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)' }}
-            >
-              {item.title}
-            </NavLink>
-          ))}
+          {navItems.map((item, i) => {
+            const isActive = isPreview && currentPath === item.href;
+            return (
+              <NavLink
+                key={item.id}
+                href={item.href}
+                onClick={handleMobileNavClick}
+                textColor={styles.textColor || '#1a1a1a'}
+                hoverColor={hoverColor}
+                isPreview={isPreview}
+                isActive={isActive}
+                style={{ padding: '10px 0', fontSize: '16px', borderBottom: i < navItems.length - 1 ? '1px solid rgba(0,0,0,0.07)' : 'none', fontWeight: isActive ? 700 : 500 }}
+              >
+                {item.title}
+              </NavLink>
+            );
+          })}
         </nav>
       )}
     </header>
@@ -1786,12 +1832,11 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
               const cardContent = (
                 <>
                   {(() => {
-                    const variants = (product as any).variants as Array<{ price: string; compareAtPrice?: string }> | undefined;
-                    const compareAtPrice = (product as any).compareAtPrice as string | undefined;
+                    const compareAtPrice = product.compareAtPrice;
                     const hasDiscount = compareAtPrice && parseFloat(compareAtPrice) > parseFloat(product.price);
                     const discountPct = hasDiscount ? Math.round((1 - parseFloat(product.price) / parseFloat(compareAtPrice!)) * 100) : 0;
-                    const inStock = (product as any).trackInventory !== true || ((product as any).stockCount ?? 1) > 0;
-                    const isNew = (product as any).isNew as boolean | undefined;
+                    const inStock = product.trackInventory !== true || (product.stockCount ?? 1) > 0;
+                    const isNew = product.isNew;
                     return (
                       <>
                         <div className="product-image-wrapper" style={{ position: 'relative' }}>
@@ -2464,7 +2509,12 @@ function StatCard({ stat, index, accentColor, canEdit, editingField, onEditField
   return (
     <div ref={ref} style={{ padding: '28px 20px', borderRadius: '20px', backgroundColor: hexToRgba(accentColor, 0.04), border: `1px solid ${hexToRgba(accentColor, 0.08)}`, textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '40px', height: '3px', borderRadius: '0 0 3px 3px', backgroundColor: accentColor, opacity: 0.7 }} />
-      {stat.suffix && <div style={{ fontSize: '22px', marginBottom: '8px' }}>{stat.suffix.includes('%') ? '📊' : '⚡'}</div>}
+      {/* Optional icon */}
+      {stat.icon ? (
+        <div style={{ fontSize: '26px', marginBottom: '10px', lineHeight: 1 }}>{stat.icon}</div>
+      ) : stat.suffix && (
+        <div style={{ fontSize: '22px', marginBottom: '8px' }}>{stat.suffix.includes('%') ? '📊' : '⚡'}</div>
+      )}
       {canEdit ? (
         <EditableText value={String(stat.value || '')} field={`stats.${index}.value`} isEditing={editingField === `stats.${index}.value`} onEdit={onEditField!} onChange={onTextChange!} style={{ fontSize: '52px', fontWeight: 800, marginBottom: '6px', display: 'block', lineHeight: 1, letterSpacing: '-0.03em', color: accentColor }} as="div" isPreview={isPreview} />
       ) : (
@@ -2508,9 +2558,15 @@ function StatsCounterComponent({ props, styles, isSelected, onClick, isPreview, 
             <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '48px' }}>{props.subtitle}</p>
           )
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(160px, 1fr))`, gap: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(160px, 1fr))`, gap: '24px', position: 'relative' }}>
           {stats.map((stat, index) => (
-            <StatCard key={stat.id || index} stat={stat} index={index} accentColor={accentColor} canEdit={!!canEdit} editingField={editingField} onEditField={onEditField} onTextChange={onTextChange} isPreview={isPreview} />
+            <div key={stat.id || index} style={{ position: 'relative' }}>
+              {/* Vertical separator between stat cards on desktop */}
+              {index > 0 && (
+                <div style={{ position: 'absolute', left: '-12px', top: '20%', bottom: '20%', width: '1px', backgroundColor: hexToRgba(accentColor, 0.12), display: 'block' }} />
+              )}
+              <StatCard stat={stat} index={index} accentColor={accentColor} canEdit={!!canEdit} editingField={editingField} onEditField={onEditField} onTextChange={onTextChange} isPreview={isPreview} />
+            </div>
           ))}
         </div>
       </div>
