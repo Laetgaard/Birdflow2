@@ -628,8 +628,10 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
     <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: isSplit ? 'left' : (props.alignment || 'center') as React.CSSProperties['textAlign'] }}>
       {props.eyebrow && (
         <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.75, marginBottom: '20px', padding: '6px 16px', borderRadius: '999px', border: `1px solid ${isSplit ? hexToRgba(styles.textColor || '#1a1a1a', 0.2) : 'rgba(255,255,255,0.25)'}`, backgroundColor: isSplit ? hexToRgba(styles.textColor || '#1a1a1a', 0.05) : 'rgba(255,255,255,0.1)', color: styles.textColor || (isSplit ? '#1a1a1a' : '#fff') }}>
-          <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: buttonColor, display: 'inline-block' }} />
-          {props.eyebrow}
+          <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: buttonColor, display: 'inline-block', flexShrink: 0 }} />
+          {canEdit ? (
+            <EditableText value={props.eyebrow} field="eyebrow" isEditing={editingField === 'eyebrow'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' }} as="span" isPreview={isPreview} />
+          ) : props.eyebrow}
         </div>
       )}
       {titleText && (
