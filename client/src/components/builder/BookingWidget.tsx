@@ -4,6 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Calendar, Clock, User, Mail, Phone, FileText, CheckCircle, ArrowRight, ArrowLeft, Sparkles, Play, X, Star, Shield, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
 
+function hexToRgba(hex: string, alpha: number): string {
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!r) return `rgba(124,58,237,${alpha})`;
+  return `rgba(${parseInt(r[1], 16)},${parseInt(r[2], 16)},${parseInt(r[3], 16)},${alpha})`;
+}
+
 const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -113,6 +119,9 @@ type Props = {
     backgroundColor?: string;
     textColor?: string;
     padding?: string;
+    accentColor?: string;
+    buttonColor?: string;
+    accentLight?: string;
   };
   props: {
     title?: string;
@@ -233,8 +242,8 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
 
   const bgColor = styles.backgroundColor || '#f8fafc';
   const textColor = styles.textColor || '#1e293b';
-  const accentColor = '#7c3aed';
-  const accentLight = '#ede9fe';
+  const accentColor = styles.accentColor || styles.buttonColor || '#7c3aed';
+  const accentLight = styles.accentLight || hexToRgba(accentColor, 0.12);
 
   const stepLabels = ['Service', 'Schedule', 'Details'];
 
