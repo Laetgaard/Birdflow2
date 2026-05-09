@@ -960,9 +960,11 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
       <div style={{ maxWidth: '1080px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
         {props.eyebrow && (
-          <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>
-            {props.eyebrow}
-          </div>
+          canEdit ? (
+            <EditableText value={props.eyebrow} field="eyebrow" isEditing={editingField === 'eyebrow'} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }} as="div" isPreview={isPreview} />
+          ) : (
+            <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          )
         )}
         {canEdit ? (
           <EditableText value={props.title || ''} field="title" isEditing={editingField === 'title'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', display: 'block', lineHeight: 1.15, letterSpacing: '-0.025em' }} as="h2" isPreview={isPreview} />
@@ -2289,7 +2291,11 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
       <div style={{ maxWidth: '1100px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
         {props.eyebrow && (
-          <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          canEdit ? (
+            <EditableText value={props.eyebrow} field="eyebrow" isEditing={editingField === 'eyebrow'} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }} as="div" isPreview={isPreview} />
+          ) : (
+            <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          )
         )}
         {props.title && (
           canEdit ? (
@@ -2305,13 +2311,13 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
             <p style={{ fontSize: bodyFontSize, opacity: 0.65, marginBottom: showToggle ? '28px' : '52px', lineHeight: 1.65 }}>{props.subtitle}</p>
           )
         )}
-        {/* Billing period toggle */}
+        {/* Billing period toggle — only interactive in preview */}
         {showToggle && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '44px' }}>
             <span style={{ fontSize: '14px', fontWeight: 600, opacity: isAnnual ? 0.5 : 1, transition: 'opacity 0.2s' }}>Monthly</span>
             <button
-              onClick={(e) => { e.stopPropagation(); setIsAnnual(a => !a); }}
-              style={{ width: '48px', height: '26px', borderRadius: '999px', border: 'none', cursor: 'pointer', position: 'relative', backgroundColor: isAnnual ? accentColor : hexToRgba(accentColor, 0.2), transition: 'background-color 0.25s', flexShrink: 0 }}
+              onClick={isPreview ? (e) => { e.stopPropagation(); setIsAnnual(a => !a); } : undefined}
+              style={{ width: '48px', height: '26px', borderRadius: '999px', border: 'none', cursor: isPreview ? 'pointer' : 'default', position: 'relative', backgroundColor: isAnnual ? accentColor : hexToRgba(accentColor, 0.2), transition: 'background-color 0.25s', flexShrink: 0 }}
             >
               <div style={{ position: 'absolute', top: '3px', left: isAnnual ? '25px' : '3px', width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.2)', transition: 'left 0.25s cubic-bezier(0.16,1,0.3,1)' }} />
             </button>
@@ -2439,7 +2445,11 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
       <div style={{ maxWidth: '760px', margin: '0 auto' }}>
         {props.eyebrow && (
-          <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          canEdit ? (
+            <EditableText value={props.eyebrow} field="eyebrow" isEditing={editingField === 'eyebrow'} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }} as="div" isPreview={isPreview} />
+          ) : (
+            <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          )
         )}
         {props.title && (
           canEdit ? (
@@ -2948,6 +2958,7 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
     setTimeout(() => { setSubmitted(true); setIsSubmitting(false); }, 900);
   };
 
+  const canEdit = !isPreview && onTextChange && onEditField;
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const buttonColor = styles.buttonColor || accentColor;
@@ -2982,7 +2993,11 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
     <section style={{ backgroundColor: styles.backgroundColor || '#f8f9fa', padding: styles.padding || '72px 24px', color: textColor, cursor: isPreview ? 'default' : 'pointer', fontFamily }} onClick={onClick}>
       <div style={{ maxWidth: '620px', margin: '0 auto', textAlign: 'center' }}>
         {props.eyebrow && (
-          <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          canEdit ? (
+            <EditableText value={props.eyebrow} field="eyebrow" isEditing={editingField === 'eyebrow'} onEdit={onEditField || (() => {})} onChange={onTextChange || (() => {})} style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }} as="div" isPreview={isPreview} />
+          ) : (
+            <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          )
         )}
         {props.title && (
           <EditableText value={props.title} field="title" isEditing={editingField === 'title'} onEdit={onEditField || (() => {})} onChange={onTextChange || (() => {})} style={{ fontSize: styles.titleFontSize || '34px', fontWeight: 800, marginBottom: '12px', display: 'block', color: textColor, lineHeight: 1.15, letterSpacing: '-0.025em' }} as="h2" isPreview={isPreview} />
