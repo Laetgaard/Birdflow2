@@ -401,7 +401,7 @@ export type ComponentProps = {
   imageHeight?: string;
   videoUrl?: string;
   videoProvider?: 'youtube' | 'vimeo' | 'custom';
-  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right' | 'vertical' | 'horizontal' | 'grid-2' | 'grid-3' | 'grid-4' | 'side-by-side' | 'stacked' | 'gallery-focus' | 'numbered';
+  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right' | 'vertical' | 'horizontal' | 'grid-2' | 'grid-3' | 'grid-4' | 'side-by-side' | 'stacked' | 'gallery-focus' | 'numbered' | 'centered' | 'split-left' | 'split-right' | 'minimal' | 'bold' | 'video-bg';
   badge?: string;
   eyebrow?: string;
   secondaryButtonText?: string;
@@ -588,8 +588,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'buttonLink', label: 'Button Link', type: 'text', group: 'content' },
       { key: 'secondaryButtonText', label: 'Secondary Button Text', type: 'text', group: 'content' },
       { key: 'secondaryButtonLink', label: 'Secondary Button URL', type: 'text', group: 'content' },
-      { key: 'imageUrl', label: 'Background Image', type: 'image', group: 'content' },
-      { key: 'alignment', label: 'Alignment', type: 'select', group: 'content', options: ['left', 'center', 'right'] },
+      { key: 'layout', label: 'Layout Variant', type: 'select', group: 'content', options: ['centered', 'split-left', 'split-right', 'minimal', 'bold', 'video-bg'] },
+      { key: 'imageUrl', label: 'Image (background or split panel)', type: 'image', group: 'content' },
+      { key: 'alignment', label: 'Text Alignment', type: 'select', group: 'content', options: ['left', 'center', 'right'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'backgroundOpacity', label: 'Background Opacity', type: 'range', group: 'style', min: 0, max: 100, step: 5, unit: '%' },
       { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },

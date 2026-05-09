@@ -619,121 +619,107 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
     ...backgroundImage,
   };
   
+  const layout = props.layout || 'centered';
+  const isSplit = layout === 'split-left' || layout === 'split-right';
+  const imageOnLeft = layout === 'split-left';
+
+  // Shared text content block — reused by both layouts
+  const heroTextBlock = (
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: isSplit ? 'left' : (props.alignment || 'center') as React.CSSProperties['textAlign'] }}>
+      {props.eyebrow && (
+        <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.75, marginBottom: '20px', padding: '6px 16px', borderRadius: '999px', border: `1px solid ${isSplit ? hexToRgba(styles.textColor || '#1a1a1a', 0.2) : 'rgba(255,255,255,0.25)'}`, backgroundColor: isSplit ? hexToRgba(styles.textColor || '#1a1a1a', 0.05) : 'rgba(255,255,255,0.1)', color: styles.textColor || (isSplit ? '#1a1a1a' : '#fff') }}>
+          <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: buttonColor, display: 'inline-block' }} />
+          {props.eyebrow}
+        </div>
+      )}
+      {titleText && (
+        canEdit ? (
+          <EditableText value={titleText} field="styledTitle" isEditing={editingField === 'styledTitle'} onEdit={onEditField} onChange={(field, text) => { const current = props.styledTitle as StyledText || {}; onTextChange!(field, { ...current, text }); }} style={{ ...titleStyle, display: 'block', textAlign: isSplit ? 'left' : undefined }} as="h1" isPreview={isPreview} />
+        ) : (
+          <h1 style={{ ...titleStyle, textAlign: isSplit ? 'left' : undefined }}>{titleText}</h1>
+        )
+      )}
+      {subtitleText && (
+        canEdit ? (
+          <EditableText value={subtitleText} field="styledSubtitle" isEditing={editingField === 'styledSubtitle'} onEdit={onEditField} onChange={(field, text) => { const current = props.styledSubtitle as StyledText || {}; onTextChange!(field, { ...current, text }); }} style={{ ...subtitleStyle, display: 'block', textAlign: isSplit ? 'left' : undefined }} as="p" isPreview={isPreview} />
+        ) : (
+          <p style={{ ...subtitleStyle, textAlign: isSplit ? 'left' : undefined }}>{subtitleText}</p>
+        )
+      )}
+      {descriptionText && (
+        canEdit ? (
+          <EditableText value={descriptionText} field="styledDescription" isEditing={editingField === 'styledDescription'} onEdit={onEditField} onChange={(field, text) => { const current = props.styledDescription as StyledText || {}; onTextChange!(field, { ...current, text }); }} style={{ ...descriptionStyle, display: 'block', margin: isSplit ? '0 0 32px' : '0 auto 32px', textAlign: isSplit ? 'left' : undefined }} as="p" isPreview={isPreview} />
+        ) : (
+          <p style={{ ...descriptionStyle, margin: isSplit ? '0 0 32px' : '0 auto 32px', textAlign: isSplit ? 'left' : undefined }}>{descriptionText}</p>
+        )
+      )}
+      <div style={{ display: 'flex', gap: '12px', justifyContent: isSplit ? 'flex-start' : (props.alignment === 'left' ? 'flex-start' : props.alignment === 'right' ? 'flex-end' : 'center'), flexWrap: 'wrap' }}>
+        {props.buttonText && (
+          <HoverButton backgroundColor={buttonColor} hoverBackgroundColor={buttonHoverColor} textColor={buttonTextColor} href={props.buttonLink} isPreview={isPreview} onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('buttonText'); } : undefined} style={{ padding: '16px 36px', fontSize: '16px', fontWeight: 700, borderRadius: '12px', letterSpacing: '0.01em' }}>
+            {canEdit && editingField === 'buttonText' ? (
+              <span ref={(el) => { if (el && editingField === 'buttonText') el.focus(); }} contentEditable suppressContentEditableWarning onBlur={(e) => { onTextChange!('buttonText', e.currentTarget.innerText); onEditField!(null); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onTextChange!('buttonText', e.currentTarget.innerText); onEditField!(null); } if (e.key === 'Escape') { e.currentTarget.innerText = props.buttonText || ''; onEditField!(null); } }} style={{ outline: '2px solid #3b82f6', outlineOffset: '2px', borderRadius: '4px' }}>{props.buttonText}</span>
+            ) : props.buttonText}
+          </HoverButton>
+        )}
+        {props.secondaryButtonText && (
+          <a href={isPreview ? (props.secondaryButtonLink || '#') : '#'} style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '12px', border: isSplit ? `2px solid ${hexToRgba(styles.textColor || '#1a1a1a', 0.3)}` : '2px solid rgba(255,255,255,0.35)', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', transition: 'background-color 0.2s', letterSpacing: '0.01em' }}
+            onMouseEnter={isPreview ? (e => { (e.currentTarget as HTMLAnchorElement).style.backgroundColor = isSplit ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)'; }) : undefined}
+            onMouseLeave={isPreview ? (e => { (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'transparent'; }) : undefined}
+            onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('secondaryButtonText'); } : undefined}
+          >
+            {canEdit && editingField === 'secondaryButtonText' ? (
+              <span ref={(el) => { if (el && editingField === 'secondaryButtonText') el.focus(); }} contentEditable suppressContentEditableWarning onBlur={(e) => { onTextChange!('secondaryButtonText', e.currentTarget.innerText); onEditField!(null); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onTextChange!('secondaryButtonText', e.currentTarget.innerText); onEditField!(null); } if (e.key === 'Escape') { e.currentTarget.innerText = props.secondaryButtonText || ''; onEditField!(null); } }} style={{ outline: '2px solid #3b82f6', outlineOffset: '2px', borderRadius: '4px' }}>{props.secondaryButtonText}</span>
+            ) : props.secondaryButtonText}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+
+  // Split layout: 50/50 columns, image with gradient overlay
+  if (isSplit) {
+    const splitBg = styles.backgroundColor || '#ffffff';
+    const imgUrl = imageValue?.url || '';
+    return (
+      <section style={{ ...heroStyle, backgroundColor: splitBg, backgroundImage: 'none' }} onClick={onClick}>
+        <div style={{ display: 'flex', flexDirection: imageOnLeft ? 'row' : 'row-reverse', minHeight: '560px' }}>
+          {/* Image panel */}
+          <div style={{ flex: '0 0 50%', position: 'relative', overflow: 'hidden', minHeight: '400px' }}>
+            {imgUrl ? (
+              imageValue?.crop ? (
+                <CroppedImage image={imageValue} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }} />
+              ) : (
+                <img src={imgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }} />
+              )
+            ) : (
+              <div style={{ width: '100%', height: '100%', position: 'absolute', inset: 0, backgroundColor: hexToRgba(buttonColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke={hexToRgba(buttonColor, 0.4)} strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </div>
+            )}
+            {/* Soft directional gradient overlay blending into text panel */}
+            <div style={{ position: 'absolute', inset: 0, background: imageOnLeft ? `linear-gradient(to right, transparent 55%, ${splitBg} 100%)` : `linear-gradient(to left, transparent 55%, ${splitBg} 100%)`, zIndex: 1 }} />
+          </div>
+          {/* Text panel */}
+          <div style={{ flex: '0 0 50%', display: 'flex', alignItems: 'center', padding: '64px 48px', backgroundColor: splitBg, color: styles.textColor || '#1a1a1a', position: 'relative', zIndex: 2 }}>
+            {heroTextBlock}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Default centered / overlay layout
   return (
     <section style={heroStyle} onClick={onClick}>
       {imageValue?.crop && imageValue.url && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
-          <CroppedImage 
-            image={imageValue} 
-            alt="" 
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
+          <CroppedImage image={imageValue} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
       )}
       {/* Color overlay - sits on top of the background image */}
       <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 2 }}>
-        {props.eyebrow && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.75, marginBottom: '20px', padding: '6px 16px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.25)', backgroundColor: 'rgba(255,255,255,0.1)', color: styles.textColor || '#fff' }}>
-            <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: 'currentColor', opacity: 0.8, display: 'inline-block' }} />
-            {props.eyebrow}
-          </div>
-        )}
-        {titleText && (
-          canEdit ? (
-            <EditableText
-              value={titleText}
-              field="styledTitle"
-              isEditing={editingField === 'styledTitle'}
-              onEdit={onEditField}
-              onChange={(field, text) => {
-                const current = props.styledTitle as StyledText || {};
-                onTextChange!(field, { ...current, text });
-              }}
-              style={{ ...titleStyle, display: 'block' }}
-              as="h1"
-              isPreview={isPreview}
-            />
-          ) : (
-            <h1 style={titleStyle}>{titleText}</h1>
-          )
-        )}
-        {subtitleText && (
-          canEdit ? (
-            <EditableText
-              value={subtitleText}
-              field="styledSubtitle"
-              isEditing={editingField === 'styledSubtitle'}
-              onEdit={onEditField}
-              onChange={(field, text) => {
-                const current = props.styledSubtitle as StyledText || {};
-                onTextChange!(field, { ...current, text });
-              }}
-              style={{ ...subtitleStyle, display: 'block' }}
-              as="p"
-              isPreview={isPreview}
-            />
-          ) : (
-            <p style={subtitleStyle}>{subtitleText}</p>
-          )
-        )}
-        {descriptionText && (
-          canEdit ? (
-            <EditableText
-              value={descriptionText}
-              field="styledDescription"
-              isEditing={editingField === 'styledDescription'}
-              onEdit={onEditField}
-              onChange={(field, text) => {
-                const current = props.styledDescription as StyledText || {};
-                onTextChange!(field, { ...current, text });
-              }}
-              style={{ ...descriptionStyle, display: 'block' }}
-              as="p"
-              isPreview={isPreview}
-            />
-          ) : (
-            <p style={descriptionStyle}>{descriptionText}</p>
-          )
-        )}
-        <div style={{ display: 'flex', gap: '12px', justifyContent: props.alignment === 'left' ? 'flex-start' : props.alignment === 'right' ? 'flex-end' : 'center', flexWrap: 'wrap' }}>
-          {props.buttonText && (
-            <HoverButton
-              backgroundColor={buttonColor}
-              hoverBackgroundColor={buttonHoverColor}
-              textColor={buttonTextColor}
-              href={props.buttonLink}
-              isPreview={isPreview}
-              onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('buttonText'); } : undefined}
-              style={{ padding: '16px 36px', fontSize: '16px', fontWeight: 700, borderRadius: '12px', letterSpacing: '0.01em' }}
-            >
-              {canEdit && editingField === 'buttonText' ? (
-                <span
-                  ref={(el) => { if (el && editingField === 'buttonText') el.focus(); }}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onBlur={(e) => { onTextChange!('buttonText', e.currentTarget.innerText); onEditField!(null); }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); onTextChange!('buttonText', e.currentTarget.innerText); onEditField!(null); }
-                    if (e.key === 'Escape') { e.currentTarget.innerText = props.buttonText || ''; onEditField!(null); }
-                  }}
-                  style={{ outline: '2px solid #3b82f6', outlineOffset: '2px', borderRadius: '4px' }}
-                >{props.buttonText}</span>
-              ) : props.buttonText}
-            </HoverButton>
-          )}
-          {props.secondaryButtonText && (
-            <a href={isPreview ? (props.secondaryButtonLink || '#') : '#'} style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '12px', border: '2px solid rgba(255,255,255,0.35)', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', transition: 'background-color 0.2s', letterSpacing: '0.01em' }}
-              onMouseEnter={isPreview ? (e => { (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'rgba(255,255,255,0.1)'; }) : undefined}
-              onMouseLeave={isPreview ? (e => { (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'transparent'; }) : undefined}
-              onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('secondaryButtonText'); } : undefined}
-            >
-              {canEdit && editingField === 'secondaryButtonText' ? (
-                <span ref={(el) => { if (el && editingField === 'secondaryButtonText') el.focus(); }} contentEditable suppressContentEditableWarning onBlur={(e) => { onTextChange!('secondaryButtonText', e.currentTarget.innerText); onEditField!(null); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onTextChange!('secondaryButtonText', e.currentTarget.innerText); onEditField!(null); } if (e.key === 'Escape') { e.currentTarget.innerText = props.secondaryButtonText || ''; onEditField!(null); } }} style={{ outline: '2px solid #3b82f6', outlineOffset: '2px', borderRadius: '4px' }}>{props.secondaryButtonText}</span>
-              ) : props.secondaryButtonText}
-            </a>
-          )}
-        </div>
+      <div style={{ maxWidth: '800px', margin: '0 auto', position: 'relative', zIndex: 2 }}>
+        {heroTextBlock}
       </div>
     </section>
   );
