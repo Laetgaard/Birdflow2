@@ -724,10 +724,13 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
           )}
           {props.secondaryButtonText && (
             <a href={isPreview ? (props.secondaryButtonLink || '#') : '#'} style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '12px', border: '2px solid rgba(255,255,255,0.35)', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', transition: 'background-color 0.2s', letterSpacing: '0.01em' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'rgba(255,255,255,0.1)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'transparent'; }}
+              onMouseEnter={isPreview ? (e => { (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'rgba(255,255,255,0.1)'; }) : undefined}
+              onMouseLeave={isPreview ? (e => { (e.currentTarget as HTMLAnchorElement).style.backgroundColor = 'transparent'; }) : undefined}
+              onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('secondaryButtonText'); } : undefined}
             >
-              {props.secondaryButtonText}
+              {canEdit && editingField === 'secondaryButtonText' ? (
+                <span ref={(el) => { if (el && editingField === 'secondaryButtonText') el.focus(); }} contentEditable suppressContentEditableWarning onBlur={(e) => { onTextChange!('secondaryButtonText', e.currentTarget.innerText); onEditField!(null); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onTextChange!('secondaryButtonText', e.currentTarget.innerText); onEditField!(null); } if (e.key === 'Escape') { e.currentTarget.innerText = props.secondaryButtonText || ''; onEditField!(null); } }} style={{ outline: '2px solid #3b82f6', outlineOffset: '2px', borderRadius: '4px' }}>{props.secondaryButtonText}</span>
+              ) : props.secondaryButtonText}
             </a>
           )}
         </div>
@@ -935,8 +938,12 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
             </HoverButton>
           )}
           {props.secondaryButtonText && (
-            <a href={isPreview ? (props.secondaryButtonLink || '#') : '#'} style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '10px', border: `2px solid ${useGradient ? 'rgba(255,255,255,0.5)' : hexToRgba(buttonColor, 0.35)}`, color: useGradient ? '#fff' : buttonColor, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s ease' }}>
-              {props.secondaryButtonText}
+            <a href={isPreview ? (props.secondaryButtonLink || '#') : '#'} style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '10px', border: `2px solid ${useGradient ? 'rgba(255,255,255,0.5)' : hexToRgba(buttonColor, 0.35)}`, color: useGradient ? '#fff' : buttonColor, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s ease' }}
+              onClick={canEdit ? (e) => { e.stopPropagation(); onEditField!('secondaryButtonText'); } : undefined}
+            >
+              {canEdit && editingField === 'secondaryButtonText' ? (
+                <span ref={(el) => { if (el && editingField === 'secondaryButtonText') el.focus(); }} contentEditable suppressContentEditableWarning onBlur={(e) => { onTextChange!('secondaryButtonText', e.currentTarget.innerText); onEditField!(null); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onTextChange!('secondaryButtonText', e.currentTarget.innerText); onEditField!(null); } if (e.key === 'Escape') { e.currentTarget.innerText = props.secondaryButtonText || ''; onEditField!(null); } }} style={{ outline: '2px solid #3b82f6', outlineOffset: '2px', borderRadius: '4px' }}>{props.secondaryButtonText}</span>
+              ) : props.secondaryButtonText}
             </a>
           )}
         </div>
