@@ -1042,7 +1042,11 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
       <div style={{ maxWidth: '1080px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
         {props.eyebrow && (
-          <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          canEdit ? (
+            <EditableText value={props.eyebrow} field="eyebrow" isEditing={editingField === 'eyebrow'} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }} as="div" isPreview={isPreview} />
+          ) : (
+            <div style={{ display: 'inline-block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: accentColor, marginBottom: '12px', padding: '4px 12px', borderRadius: '999px', backgroundColor: hexToRgba(accentColor, 0.09) }}>{props.eyebrow}</div>
+          )
         )}
         {canEdit ? (
           <EditableText value={props.title || ''} field="title" isEditing={editingField === 'title'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: titleFontSize, fontWeight, marginBottom: '12px', display: 'block', lineHeight: 1.15, letterSpacing: '-0.025em' }} as="h2" isPreview={isPreview} />
@@ -1057,7 +1061,9 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
           )
         )}
         {!props.subtitle && <div style={{ marginBottom: '48px' }} />}
-        <div ref={containerRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', textAlign: 'left' }}>
+        {/* Mobile horizontal scroll on smaller screens via inline style tag */}
+        <style>{`.testimonials-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; text-align: left; } @media (max-width: 640px) { .testimonials-grid { display: flex; flex-direction: row; overflow-x: auto; scroll-snap-type: x mandatory; gap: 16px; padding-bottom: 12px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; } .testimonials-grid > * { flex: 0 0 85vw; scroll-snap-align: start; max-width: 340px; } }`}</style>
+        <div ref={containerRef} className="testimonials-grid">
           {props.items?.map((item, index) => (
             <div key={item.id} style={{
               padding: '32px',
@@ -1400,8 +1406,9 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
           right: 0,
           zIndex: 1000,
           backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
-          transition: 'background-color 0.3s ease',
-          boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+          transition: 'background-color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease',
+          boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.08)' : 'none',
+          borderBottom: isScrolled ? '1px solid rgba(0,0,0,0.07)' : '1px solid transparent',
         };
       }
       return { ...headerBaseStyle, position: 'relative' };
@@ -1414,8 +1421,9 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
         top: 0,
         zIndex: 1000,
         backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
-        transition: 'background-color 0.3s ease',
-        boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+        transition: 'background-color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease',
+        boxShadow: isScrolled ? '0 2px 10px rgba(0,0,0,0.08)' : 'none',
+        borderBottom: isScrolled ? '1px solid rgba(0,0,0,0.07)' : '1px solid transparent',
       };
     }
     
@@ -1426,10 +1434,11 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
         top: 0,
         zIndex: 1000,
         backgroundColor: shouldBeTransparent ? 'transparent' : scrolledBackgroundColor,
-        transition: 'background-color 0.3s ease, transform 0.3s ease, margin-bottom 0.3s ease',
+        transition: 'background-color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease, transform 0.3s ease, margin-bottom 0.3s ease',
         transform: isHeaderVisible ? 'translateY(0)' : `translateY(-${headerHeight}px)`,
         marginBottom: isHeaderVisible ? 0 : -headerHeight,
-        boxShadow: isScrolled && isHeaderVisible ? '0 2px 10px rgba(0,0,0,0.1)' : 'none',
+        boxShadow: isScrolled && isHeaderVisible ? '0 2px 10px rgba(0,0,0,0.08)' : 'none',
+        borderBottom: isScrolled && isHeaderVisible ? '1px solid rgba(0,0,0,0.07)' : '1px solid transparent',
       };
     }
     
