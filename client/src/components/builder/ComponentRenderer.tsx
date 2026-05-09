@@ -731,11 +731,6 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
             </a>
           )}
         </div>
-        {props.eyebrow && !canEdit && (
-          <div style={{ marginTop: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '13px', opacity: 0.55, letterSpacing: '0.03em' }}>
-            {props.eyebrow}
-          </div>
-        )}
       </div>
     </section>
   );
@@ -2833,14 +2828,15 @@ function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, on
             />
           </div>
         ) : (
-          <div style={{ aspectRatio: '16/9', backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: styles.borderRadius || '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', border: '2px dashed rgba(0,0,0,0.12)', maxWidth: '860px', margin: '0 auto' }}>
+          <div style={{ aspectRatio: '16/9', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: styles.borderRadius || '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', border: '2px dashed rgba(0,0,0,0.12)', maxWidth: '860px', margin: '0 auto' }}>
             <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {/* Camera icon */}
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.35 }}>
-                <polygon points="5 3 19 12 5 21 5 3"/>
+                <path d="M23 7 16 12 23 17V7z"/><rect width="15" height="14" x="1" y="5" rx="2" ry="2"/>
               </svg>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <p style={{ fontSize: '15px', fontWeight: 600, opacity: 0.45, margin: '0 0 4px' }}>No video URL set</p>
+              <p style={{ fontSize: '15px', fontWeight: 600, opacity: 0.45, margin: '0 0 4px' }}>Add a video URL in settings</p>
               <p style={{ fontSize: '13px', opacity: 0.3, margin: 0 }}>Add a YouTube or Vimeo link in the properties panel</p>
             </div>
           </div>
@@ -2904,7 +2900,7 @@ function SpacerComponent({ props, styles, isSelected, onClick, isPreview }: Comp
   const height = props.height || styles.minHeight || '60px';
 
   if (isPreview) {
-    return <section style={{ height, backgroundColor: styles.backgroundColor || 'transparent' }} />;
+    return <section style={{ height, backgroundColor: 'transparent' }} />;
   }
 
   return (
