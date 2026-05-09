@@ -467,6 +467,10 @@ export type ComponentProps = {
   socialProof?: string;
   // Image slider props
   captions?: string[];
+  // Pricing table props
+  popularBadge?: string;
+  // Video embed props
+  fullWidth?: boolean;
 };
 
 export type ComponentStyles = {

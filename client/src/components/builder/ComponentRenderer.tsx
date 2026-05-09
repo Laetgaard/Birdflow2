@@ -1785,35 +1785,64 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
               const accentCol = resolveAccentColor(styles, globalStyles);
               const cardContent = (
                 <>
-                  <div className="product-image-wrapper" style={{ position: 'relative' }}>
-                    {product.imageUrl ? (
-                      <img src={product.imageUrl} alt={product.name} loading="lazy" />
-                    ) : (
-                      <div className="placeholder" style={{ background: `linear-gradient(135deg, ${hexToRgba(accentCol, 0.06)} 0%, ${hexToRgba(accentCol, 0.12)} 100%)` }}>
-                        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={accentCol} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                      </div>
-                    )}
-                    {/* Hover overlay */}
-                    <div className="product-hover-overlay" style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background-color 0.25s ease', opacity: 0 }}>
-                      <div style={{ backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: '50%', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="product-info">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                      <div style={{ flex: 1 }}>
-                        <h3 className="product-name">{product.name}</h3>
-                        {product.category && <p className="product-category">{product.category}</p>}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px' }}>
-                      <p className="product-price" style={{ color: accentCol }}>{formatCurrency(parseFloat(product.price), product.currency)}</p>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: hexToRgba(accentCol, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={accentCol} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                      </div>
-                    </div>
-                  </div>
+                  {(() => {
+                    const variants = (product as any).variants as Array<{ price: string; compareAtPrice?: string }> | undefined;
+                    const compareAtPrice = (product as any).compareAtPrice as string | undefined;
+                    const hasDiscount = compareAtPrice && parseFloat(compareAtPrice) > parseFloat(product.price);
+                    const discountPct = hasDiscount ? Math.round((1 - parseFloat(product.price) / parseFloat(compareAtPrice!)) * 100) : 0;
+                    const inStock = (product as any).trackInventory !== true || ((product as any).stockCount ?? 1) > 0;
+                    const isNew = (product as any).isNew as boolean | undefined;
+                    return (
+                      <>
+                        <div className="product-image-wrapper" style={{ position: 'relative' }}>
+                          {product.imageUrl ? (
+                            <img src={product.imageUrl} alt={product.name} loading="lazy" />
+                          ) : (
+                            <div className="placeholder" style={{ background: `linear-gradient(135deg, ${hexToRgba(accentCol, 0.06)} 0%, ${hexToRgba(accentCol, 0.12)} 100%)` }}>
+                              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={accentCol} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                            </div>
+                          )}
+                          {/* Badges */}
+                          <div style={{ position: 'absolute', top: '10px', left: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {!inStock && (
+                              <span style={{ backgroundColor: '#1a1a1a', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '3px 8px', borderRadius: '6px' }}>Out of stock</span>
+                            )}
+                            {isNew && inStock && (
+                              <span style={{ backgroundColor: accentCol, color: getContrastColor(accentCol), fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '3px 8px', borderRadius: '6px' }}>New</span>
+                            )}
+                            {hasDiscount && inStock && (
+                              <span style={{ backgroundColor: '#ef4444', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', padding: '3px 8px', borderRadius: '6px' }}>-{discountPct}%</span>
+                            )}
+                          </div>
+                          {/* Hover overlay */}
+                          <div className="product-hover-overlay" style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0)', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background-color 0.25s ease', opacity: 0 }}>
+                            <div style={{ backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: '50%', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}>
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="product-info">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                            <div style={{ flex: 1 }}>
+                              <h3 className="product-name" style={{ opacity: inStock ? 1 : 0.5 }}>{product.name}</h3>
+                              {product.category && <p className="product-category">{product.category}</p>}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                              <p className="product-price" style={{ color: hasDiscount ? '#ef4444' : accentCol }}>{formatCurrency(parseFloat(product.price), product.currency)}</p>
+                              {hasDiscount && (
+                                <span style={{ fontSize: '12px', textDecoration: 'line-through', opacity: 0.4 }}>{formatCurrency(parseFloat(compareAtPrice!), product.currency)}</span>
+                              )}
+                            </div>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: inStock ? hexToRgba(accentCol, 0.1) : 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inStock ? accentCol : '#999'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </>
               );
               
@@ -2273,7 +2302,7 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
                 {/* Popular badge */}
                 {isHighlighted && (
                   <div style={{ position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#fff', color: accentColor, fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '5px 14px', borderRadius: '999px', boxShadow: `0 4px 16px ${hexToRgba(accentColor, 0.25)}`, whiteSpace: 'nowrap' }}>
-                    ✦ Mest populær
+                    ✦ {props.popularBadge || 'Most popular'}
                   </div>
                 )}
                 {/* Plan name */}
@@ -2430,7 +2459,8 @@ function StatCard({ stat, index, accentColor, canEdit, editingField, onEditField
   }, [isPreview]);
   const numericTarget = parseFloat(String(stat.value || '0').replace(/[^0-9.]/g, '')) || 0;
   const isNumeric = !isNaN(numericTarget) && numericTarget > 0;
-  const displayed = isPreview && isNumeric ? useCountUp(numericTarget, 1600, active) : null;
+  const countUpValue = useCountUp(numericTarget, 1600, active && isPreview && isNumeric);
+  const displayed = isPreview && isNumeric ? countUpValue : null;
   return (
     <div ref={ref} style={{ padding: '28px 20px', borderRadius: '20px', backgroundColor: hexToRgba(accentColor, 0.04), border: `1px solid ${hexToRgba(accentColor, 0.08)}`, textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '40px', height: '3px', borderRadius: '0 0 3px 3px', backgroundColor: accentColor, opacity: 0.7 }} />
@@ -2540,68 +2570,87 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
     </div>
   );
 
+  const formPanel = submitted ? (
+    <div style={{ textAlign: 'center', padding: '40px 24px', borderRadius: '16px', backgroundColor: '#ecfdf5', border: '1px solid #86efac' }}>
+      <div style={{ fontSize: '36px', marginBottom: '12px' }}>✓</div>
+      <p style={{ fontWeight: 700, color: '#166534', fontSize: '18px', marginBottom: '4px' }}>Message sent!</p>
+      <p style={{ color: '#166534', opacity: 0.75, fontSize: '14px' }}>We'll get back to you shortly.</p>
+    </div>
+  ) : (
+    <form style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} onSubmit={handleSubmit}>
+      {pairs.map(([a, b], pi) => (
+        <div key={pi} style={{ display: 'grid', gridTemplateColumns: b ? '1fr 1fr' : '1fr', gap: '16px' }}>
+          {renderInput(a)}
+          {b && renderInput(b)}
+        </div>
+      ))}
+      {textareaFields.map(field => (
+        <div key={field.id}>
+          <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px', letterSpacing: '0.01em', opacity: 0.75 }}>
+            {field.label}{field.required && <span style={{ color: accentColor, marginLeft: '2px' }}>*</span>}
+          </label>
+          <textarea
+            placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
+            style={{ ...inputStyle, resize: 'vertical', minHeight: '130px', lineHeight: 1.6 }}
+            onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
+            onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
+          />
+        </div>
+      ))}
+      {canEdit ? (
+        <div style={{ padding: '15px 28px', backgroundColor: accentColor, color: getContrastColor(accentColor), borderRadius: '12px', fontWeight: 700, textAlign: 'center', fontSize: '15px', letterSpacing: '0.01em' }}>
+          <EditableText value={props.buttonText || 'Send message'} field="buttonText" isEditing={editingField === 'buttonText'} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', color: 'inherit' }} as="span" isPreview={isPreview} />
+        </div>
+      ) : (
+        <HoverButton type="submit" disabled={isSubmitting} backgroundColor={accentColor} hoverBackgroundColor={hexToRgba(accentColor, 0.85)} textColor={getContrastColor(accentColor)} isPreview={isPreview} style={{ padding: '15px 28px', fontSize: '15px', fontWeight: 700, letterSpacing: '0.01em', width: '100%', borderRadius: '12px', opacity: isSubmitting ? 0.8 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          {isSubmitting ? (
+            <>
+              <svg style={{ animation: 'spin 0.8s linear infinite' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+              Sending...
+            </>
+          ) : (props.buttonText || 'Send message')}
+        </HoverButton>
+      )}
+    </form>
+  );
+
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
-      <div style={{ maxWidth: '680px', margin: '0 auto' }}>
-        {props.title && (
-          canEdit ? (
-            <EditableText value={props.title} field="title" isEditing={editingField === 'title'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center', display: 'block' }} as="h2" isPreview={isPreview} />
-          ) : (
-            <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '8px', textAlign: props.alignment || 'center' }}>{props.title}</h2>
-          )
-        )}
-        {props.description && (
-          canEdit ? (
-            <EditableText value={props.description} field="description" isEditing={editingField === 'description'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', textAlign: props.alignment || 'center', display: 'block' }} as="p" isPreview={isPreview} />
-          ) : (
-            <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', textAlign: props.alignment || 'center' }}>{props.description}</p>
-          )
-        )}
-        {submitted ? (
-          <div style={{ textAlign: 'center', padding: '40px 24px', borderRadius: '16px', backgroundColor: '#ecfdf5', border: '1px solid #86efac' }}>
-            <div style={{ fontSize: '36px', marginBottom: '12px' }}>✓</div>
-            <p style={{ fontWeight: 700, color: '#166534', fontSize: '18px', marginBottom: '4px' }}>Message sent!</p>
-            <p style={{ color: '#166534', opacity: 0.75, fontSize: '14px' }}>We'll get back to you shortly.</p>
-          </div>
-        ) : (
-          <form style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} onSubmit={handleSubmit}>
-            {/* Two-column layout for short fields */}
-            {pairs.map(([a, b], pi) => (
-              <div key={pi} style={{ display: 'grid', gridTemplateColumns: b ? '1fr 1fr' : '1fr', gap: '16px' }}>
-                {renderInput(a)}
-                {b && renderInput(b)}
-              </div>
-            ))}
-            {/* Textarea fields go full width */}
-            {textareaFields.map(field => (
-              <div key={field.id}>
-                <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, fontSize: '13px', letterSpacing: '0.01em', opacity: 0.75 }}>
-                  {field.label}{field.required && <span style={{ color: accentColor, marginLeft: '2px' }}>*</span>}
-                </label>
-                <textarea
-                  placeholder={field.placeholder || `Enter your ${(field.label || '').toLowerCase()}`}
-                  style={{ ...inputStyle, resize: 'vertical', minHeight: '130px', lineHeight: 1.6 }}
-                  onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.15); e.currentTarget.style.boxShadow = 'none'; }}
-                />
-              </div>
-            ))}
-            {canEdit ? (
-              <div style={{ padding: '15px 28px', backgroundColor: accentColor, color: getContrastColor(accentColor), borderRadius: '12px', fontWeight: 700, textAlign: 'center', fontSize: '15px', letterSpacing: '0.01em' }}>
-                <EditableText value={props.buttonText || 'Send message'} field="buttonText" isEditing={editingField === 'buttonText'} onEdit={onEditField} onChange={onTextChange} style={{ display: 'inline-block', color: 'inherit' }} as="span" isPreview={isPreview} />
-              </div>
+      <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '64px', alignItems: 'center' }}>
+        {/* Left: title + description */}
+        <div>
+          {props.title && (
+            canEdit ? (
+              <EditableText value={props.title} field="title" isEditing={editingField === 'title'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', display: 'block', lineHeight: 1.15, letterSpacing: '-0.025em' }} as="h2" isPreview={isPreview} />
             ) : (
-              <HoverButton type="submit" disabled={isSubmitting} backgroundColor={accentColor} hoverBackgroundColor={hexToRgba(accentColor, 0.85)} textColor={getContrastColor(accentColor)} isPreview={isPreview} style={{ padding: '15px 28px', fontSize: '15px', fontWeight: 700, letterSpacing: '0.01em', width: '100%', borderRadius: '12px', opacity: isSubmitting ? 0.8 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                {isSubmitting ? (
-                  <>
-                    <svg style={{ animation: 'spin 0.8s linear infinite' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                    Sending...
-                  </>
-                ) : (props.buttonText || 'Send message')}
-              </HoverButton>
-            )}
-          </form>
-        )}
+              <h2 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.15, letterSpacing: '-0.025em' }}>{props.title}</h2>
+            )
+          )}
+          {props.description && (
+            canEdit ? (
+              <EditableText value={props.description} field="description" isEditing={editingField === 'description'} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: bodyFontSize, opacity: 0.65, display: 'block', lineHeight: 1.7 }} as="p" isPreview={isPreview} />
+            ) : (
+              <p style={{ fontSize: bodyFontSize, opacity: 0.65, lineHeight: 1.7 }}>{props.description}</p>
+            )
+          )}
+          {/* Trust signals */}
+          <div style={{ marginTop: '32px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {[
+              { icon: '🔒', text: 'Your data is safe with us' },
+              { icon: '⚡', text: 'We reply within 24 hours' },
+              { icon: '💬', text: 'No commitment required' },
+            ].map((item, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', opacity: 0.6 }}>
+                <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                <span>{item.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Right: form card */}
+        <div style={{ backgroundColor: hexToRgba(accentColor, 0.04), border: `1px solid ${hexToRgba(accentColor, 0.1)}`, borderRadius: '24px', padding: '36px' }}>
+          {formPanel}
+        </div>
       </div>
     </section>
   );
@@ -2632,9 +2681,11 @@ function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, on
     return url;
   };
   
+  const fullWidth = props.fullWidth === true;
+
   return (
     <section style={{ ...baseStyle, borderRadius: styles.borderRadius, fontFamily }} onClick={onClick}>
-      <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+      <div style={{ maxWidth: fullWidth ? '100%' : '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
         {props.title && (
           canEdit ? (
             <EditableText
@@ -2668,7 +2719,7 @@ function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, on
           )
         )}
         {videoUrl ? (
-          <div style={{ aspectRatio: '16/9', borderRadius: styles.borderRadius || '16px', overflow: 'hidden', boxShadow: '0 12px 48px rgba(0,0,0,0.18)' }}>
+          <div style={{ aspectRatio: '16/9', borderRadius: fullWidth ? '0' : (styles.borderRadius || '16px'), overflow: 'hidden', boxShadow: fullWidth ? 'none' : '0 12px 48px rgba(0,0,0,0.18)', marginLeft: fullWidth ? '-24px' : 0, marginRight: fullWidth ? '-24px' : 0 }}>
             <iframe
               src={getEmbedUrl(videoUrl)}
               style={{ width: '100%', height: '100%', border: 'none' }}
@@ -2782,7 +2833,7 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || isSubmitting) return;
+    if (!isPreview || !email || isSubmitting) return;
     setIsSubmitting(true);
     setTimeout(() => { setSubmitted(true); setIsSubmitting(false); }, 900);
   };
@@ -2803,7 +2854,7 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        placeholder={props.placeholder || 'Din e-mailadresse'}
+        placeholder={props.placeholder || 'Your email address'}
         style={{ flex: isStacked ? '1 1 auto' : '1 1 220px', padding: '14px 18px', fontSize: '15px', border: `1.5px solid ${hexToRgba(accentColor, 0.18)}`, borderRadius: '12px', outline: 'none', fontFamily, backgroundColor: hexToRgba(accentColor, 0.04), color: textColor, transition: 'border-color 0.2s', minWidth: '180px', width: isStacked ? '100%' : 'auto' }}
         onFocus={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 0 3px ${hexToRgba(accentColor, 0.1)}`; }}
         onBlur={e => { e.currentTarget.style.borderColor = hexToRgba(accentColor, 0.18); e.currentTarget.style.boxShadow = 'none'; }}
@@ -2811,7 +2862,7 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
         data-testid="input-newsletter-email"
       />
       <HoverButton type="submit" backgroundColor={buttonColor} hoverBackgroundColor={buttonHoverColor} textColor={buttonTextColor} style={{ padding: '14px 28px', fontSize: '15px', fontWeight: 700, opacity: isSubmitting ? 0.7 : 1, borderRadius: '12px', width: isStacked ? '100%' : 'auto', letterSpacing: '0.01em' }}>
-        {isSubmitting ? '...' : (props.buttonText || 'Tilmeld')}
+        {isSubmitting ? '...' : (props.buttonText || 'Subscribe')}
       </HoverButton>
     </form>
   );
@@ -2837,7 +2888,7 @@ function NewsletterComponent({ props, styles, isSelected, onClick, isPreview, on
         {submitted ? (
           <div style={{ padding: '20px 28px', backgroundColor: hexToRgba('#10b981', 0.1), border: '1px solid rgba(16,185,129,0.25)', color: '#065f46', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }} data-testid="newsletter-success">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            <EditableText value={props.successMessage || 'Tak! Du er tilmeldt.'} field="successMessage" isEditing={editingField === 'successMessage'} onEdit={onEditField || (() => {})} onChange={onTextChange || (() => {})} style={{ fontSize: '16px', fontWeight: 600, color: '#065f46' }} as="span" isPreview={isPreview} />
+            <EditableText value={props.successMessage || "You're subscribed!"} field="successMessage" isEditing={editingField === 'successMessage'} onEdit={onEditField || (() => {})} onChange={onTextChange || (() => {})} style={{ fontSize: '16px', fontWeight: 600, color: '#065f46' }} as="span" isPreview={isPreview} />
           </div>
         ) : inputField}
         {privacyNote && !submitted && (
