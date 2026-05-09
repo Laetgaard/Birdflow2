@@ -536,9 +536,9 @@ export type ComponentStyles = {
   // Pricing card background
   cardBackground?: string;
   // Divider styles
-  dividerStyle?: string;
+  dividerStyle?: 'solid' | 'dashed' | 'dotted' | 'gradient' | 'dots' | 'ornamental' | string;
   dividerThickness?: string;
-  dividerWidth?: string;
+  dividerWidth?: 'narrow' | 'medium' | 'full' | string;
   // Header glassmorphism
   glassmorphism?: boolean | string;
 };

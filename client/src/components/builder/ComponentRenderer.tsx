@@ -780,9 +780,6 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
 
   return (
     <section style={baseStyle} onClick={onClick}>
-      <style>{`
-        @keyframes slider-fade { from { opacity: 0; transform: scale(1.02); } to { opacity: 1; transform: scale(1); } }
-      `}</style>
       <div style={{ position: 'relative', width: '100%', maxWidth: '1200px', margin: '0 auto', borderRadius: styles.borderRadius || '16px', overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
         <div style={{ width: '100%', aspectRatio, position: 'relative', backgroundColor: '#0a0a0a' }}>
           <div key={currentIndex} style={{ position: 'absolute', inset: 0, animation: 'slider-fade 0.45s ease forwards' }}>
@@ -2723,7 +2720,8 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
 
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
-      <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '64px', alignItems: 'center' }}>
+      <style>{`.contact-form-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 64px; align-items: center; } @media (max-width: 768px) { .contact-form-grid { grid-template-columns: 1fr !important; gap: 32px !important; } }`}</style>
+      <div className="contact-form-grid" style={{ maxWidth: '1100px', margin: '0 auto' }}>
         {/* Left: title + description */}
         <div>
           {props.title && (
