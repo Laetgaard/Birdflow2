@@ -1,6 +1,6 @@
 export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container';
 
-export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text';
+export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text' | 'boolean';
 
 export type StyledText = {
   text: string;
@@ -395,7 +395,11 @@ export type ComponentProps = {
   imageHeight?: string;
   videoUrl?: string;
   videoProvider?: 'youtube' | 'vimeo' | 'custom';
-  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right' | 'vertical' | 'horizontal' | 'grid-2' | 'grid-3' | 'grid-4';
+  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right' | 'vertical' | 'horizontal' | 'grid-2' | 'grid-3' | 'grid-4' | 'side-by-side' | 'stacked' | 'gallery-focus' | 'numbered';
+  badge?: string;
+  eyebrow?: string;
+  secondaryButtonText?: string;
+  secondaryButtonLink?: string;
   formFields?: FormField[];
   stats?: StatItem[];
   height?: string;
@@ -439,6 +443,14 @@ export type ComponentProps = {
   styledTitle?: StyledText;
   styledSubtitle?: StyledText;
   styledDescription?: StyledText;
+  // Product detail props
+  showReviews?: boolean;
+  showRelated?: boolean;
+  showTrustBadges?: boolean;
+  showAccordion?: boolean;
+  accentColor?: string;
+  buttonStyle?: string;
+  imageStyle?: string;
 };
 
 export type ComponentStyles = {
