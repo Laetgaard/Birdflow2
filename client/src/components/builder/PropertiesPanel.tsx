@@ -3,6 +3,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -556,6 +558,82 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                     placeholder="Icon (emoji)"
                     className="h-8 text-sm"
                   />
+                )}
+                {item.role !== undefined && (
+                  <Input
+                    value={item.role || ''}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[i] = { ...item, role: e.target.value };
+                      setValue(field, newItems);
+                    }}
+                    placeholder="Role"
+                    className="h-8 text-sm"
+                  />
+                )}
+                {item.price !== undefined && (
+                  <Input
+                    value={String(item.price ?? '')}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[i] = { ...item, price: e.target.value };
+                      setValue(field, newItems);
+                    }}
+                    placeholder="Price"
+                    className="h-8 text-sm"
+                  />
+                )}
+                {item.period !== undefined && (
+                  <Input
+                    value={item.period || ''}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[i] = { ...item, period: e.target.value };
+                      setValue(field, newItems);
+                    }}
+                    placeholder="Period (e.g. /md)"
+                    className="h-8 text-sm"
+                  />
+                )}
+                {item.features !== undefined && (
+                  <Textarea
+                    value={(item.features || []).join('\n')}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[i] = {
+                        ...item,
+                        features: e.target.value.split('\n').map((f) => f.trim()).filter(Boolean),
+                      };
+                      setValue(field, newItems);
+                    }}
+                    placeholder="One feature per line"
+                    className="text-sm min-h-[80px]"
+                  />
+                )}
+                {item.ctaText !== undefined && (
+                  <Input
+                    value={item.ctaText || ''}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[i] = { ...item, ctaText: e.target.value };
+                      setValue(field, newItems);
+                    }}
+                    placeholder="Button text"
+                    className="h-8 text-sm"
+                  />
+                )}
+                {item.highlighted !== undefined && (
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">Highlighted</Label>
+                    <Switch
+                      checked={!!item.highlighted}
+                      onCheckedChange={(checked) => {
+                        const newItems = [...items];
+                        newItems[i] = { ...item, highlighted: checked };
+                        setValue(field, newItems);
+                      }}
+                    />
+                  </div>
                 )}
               </div>
             ))}
