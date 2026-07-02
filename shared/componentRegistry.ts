@@ -559,6 +559,16 @@ export type ComponentDefinition = {
   fields: FieldDefinition[];
 };
 
+// Default section spacing scale — modern SaaS vertical rhythm.
+// Applied to premade section defaultStyles so stacked sections feel visually consistent.
+// Horizontal gutter stays 24px; vertical padding scales with section prominence.
+const SECTION_SPACING = {
+  compact: '48px 24px',
+  standard: '64px 24px',
+  comfortable: '80px 24px',
+  hero: '96px 24px',
+} as const;
+
 export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
   hero: {
     type: 'hero',
@@ -579,7 +589,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#1a1a2e',
       backgroundOpacity: 100,
       textColor: '#ffffff',
-      padding: '0',
+      padding: SECTION_SPACING.hero,
       buttonColor: '#4f46e5',
       buttonHoverColor: '#4338ca',
     },
@@ -642,7 +652,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
     },
     fields: [
       { key: 'styledTitle', label: 'Heading', type: 'styled-text', group: 'content' },
@@ -672,7 +682,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#4f46e5',
       textColor: '#ffffff',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       buttonColor: '#ffffff',
       buttonHoverColor: '#e5e7eb',
     },
@@ -709,7 +719,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
@@ -737,7 +747,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
@@ -918,7 +928,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       gap: '16px',
       borderRadius: '8px',
     },
@@ -952,7 +962,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       cardStyle: 'elevated',
     },
     fields: [
@@ -987,7 +997,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
@@ -1018,7 +1028,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#1a1a2e',
       textColor: '#ffffff',
-      padding: '0',
+      padding: SECTION_SPACING.standard,
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
@@ -1048,7 +1058,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       accentColor: '#4f46e5',
     },
     fields: [
@@ -1076,7 +1086,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#0f0f0f',
       textColor: '#ffffff',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       borderRadius: '12px',
     },
     fields: [
@@ -1146,7 +1156,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       buttonColor: '#4f46e5',
       buttonHoverColor: '#4338ca',
       animationType: 'none',
@@ -1187,7 +1197,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'none',
       animationTrigger: 'load',
       animationDuration: '0.5s',
@@ -1228,7 +1238,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8fafc',
       textColor: '#64748b',
-      padding: '64px 24px',
+      padding: SECTION_SPACING.standard,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1301,7 +1311,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1343,7 +1353,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1385,7 +1395,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'slide-up',
       animationTrigger: 'scroll',
       animationDuration: '0.6s',
@@ -1420,7 +1430,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#374151',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1459,7 +1469,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#f8fafc',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       cardStyle: 'elevated',
       animationType: 'slide-up',
       animationTrigger: 'scroll',
@@ -1501,7 +1511,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1542,7 +1552,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#f8fafc',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       cardStyle: 'elevated',
       animationType: 'slide-up',
       animationTrigger: 'scroll',
