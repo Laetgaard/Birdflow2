@@ -121,6 +121,9 @@ function ImgWithFallback({
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   if (failed) return <>{fallback}</>;
+  // The image is always in layout (no display:none) so it actually loads; the
+  // fallback simply renders behind it until the real pixels paint over. Every
+  // usage positions both absolutely over the same box, so they overlap cleanly.
   return (
     <>
       {!loaded && fallback}
@@ -128,10 +131,9 @@ function ImgWithFallback({
         src={src}
         alt={alt}
         className={className}
-        style={{ ...style, ...(loaded ? {} : { display: "none" }) }}
+        style={style}
         onError={() => setFailed(true)}
         onLoad={() => setLoaded(true)}
-        loading="lazy"
       />
     </>
   );
@@ -294,7 +296,7 @@ function PortraitArt({ className }: { className?: string }) {
 function PortraitSlot({ className }: { className?: string }) {
   return (
     <ImgWithFallback
-      src="/landing/klinik.jpg"
+      src="/landing/klinik.png"
       alt=""
       className={`${className ?? ""} object-cover`}
       fallback={<PortraitArt className={className} />}
