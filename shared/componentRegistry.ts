@@ -1,6 +1,6 @@
 export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container';
 
-export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text';
+export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text' | 'boolean';
 
 export type StyledText = {
   text: string;
@@ -349,6 +349,11 @@ export type ComponentItem = {
   content?: string;
   values?: string[];
   highlighted?: boolean;
+  // Pricing plan extras
+  period?: string;
+  features?: string[];
+  ctaText?: string;
+  ctaLink?: string;
 };
 
 export type FormField = {
@@ -365,6 +370,7 @@ export type StatItem = {
   label: string;
   prefix?: string;
   suffix?: string;
+  icon?: string;
 };
 
 export type PricingItem = ComponentItem & {
@@ -395,7 +401,11 @@ export type ComponentProps = {
   imageHeight?: string;
   videoUrl?: string;
   videoProvider?: 'youtube' | 'vimeo' | 'custom';
-  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right' | 'vertical' | 'horizontal' | 'grid-2' | 'grid-3' | 'grid-4';
+  layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right' | 'vertical' | 'horizontal' | 'grid-2' | 'grid-3' | 'grid-4' | 'side-by-side' | 'stacked' | 'gallery-focus' | 'numbered' | 'centered' | 'split-left' | 'split-right' | 'minimal' | 'bold' | 'video-bg';
+  badge?: string;
+  eyebrow?: string;
+  secondaryButtonText?: string;
+  secondaryButtonLink?: string;
   formFields?: FormField[];
   stats?: StatItem[];
   height?: string;
@@ -439,6 +449,29 @@ export type ComponentProps = {
   styledTitle?: StyledText;
   styledSubtitle?: StyledText;
   styledDescription?: StyledText;
+  // Product detail props
+  showReviews?: boolean;
+  showRelated?: boolean;
+  showTrustBadges?: boolean;
+  showAccordion?: boolean;
+  accentColor?: string;
+  buttonStyle?: string;
+  imageStyle?: string;
+  // Pricing table props
+  showToggle?: boolean;
+  // Footer props (complex objects stored as props)
+  footerColumns?: Array<{ heading: string; links: Array<{ label: string; href: string }> }>;
+  copyright?: string;
+  socialLinks?: Array<{ platform: string; url: string }>;
+  // Newsletter props
+  privacyNote?: string;
+  socialProof?: string;
+  // Image slider props
+  captions?: string[];
+  // Pricing table props
+  popularBadge?: string;
+  // Video embed props
+  fullWidth?: boolean;
 };
 
 export type ComponentStyles = {
@@ -494,6 +527,20 @@ export type ComponentStyles = {
   scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
   scrolledBackgroundColor?: string;
   hoverColor?: string;
+  // Image slider
+  aspectRatio?: string;
+  // CTA gradient
+  useGradient?: boolean | string;
+  // Testimonials
+  showStars?: boolean | string;
+  // Pricing card background
+  cardBackground?: string;
+  // Divider styles
+  dividerStyle?: 'solid' | 'dashed' | 'dotted' | 'gradient' | 'dots' | 'ornamental' | string;
+  dividerThickness?: string;
+  dividerWidth?: 'narrow' | 'medium' | 'full' | string;
+  // Header glassmorphism
+  glassmorphism?: boolean | string;
 };
 
 export type BuilderComponentData = {
@@ -512,24 +559,37 @@ export type ComponentDefinition = {
   fields: FieldDefinition[];
 };
 
+// Default section spacing scale — modern SaaS vertical rhythm.
+// Applied to premade section defaultStyles so stacked sections feel visually consistent.
+// Horizontal gutter stays 24px; vertical padding scales with section prominence.
+const SECTION_SPACING = {
+  compact: '48px 24px',
+  standard: '64px 24px',
+  comfortable: '80px 24px',
+  hero: '96px 24px',
+} as const;
+
 export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
   hero: {
     type: 'hero',
     name: 'Hero Section',
     icon: 'layout',
     defaultProps: {
-      styledTitle: { text: 'Welcome to Our Platform' },
-      styledSubtitle: { text: 'Build something amazing today' },
-      styledDescription: { text: 'Create stunning websites with our powerful builder tools.' },
-      buttonText: 'Get Started',
+      styledTitle: { text: 'Byg din hjemmeside på få minutter' },
+      styledSubtitle: { text: 'Smukke sider uden kode' },
+      styledDescription: { text: 'Skab professionelle hjemmesider med vores intuitive byggeplatform – helt uden teknisk erfaring.' },
+      buttonText: 'Kom i gang gratis',
       buttonLink: '#',
+      secondaryButtonText: 'Se hvordan det virker',
+      secondaryButtonLink: '#',
+      layout: 'centered',
       alignment: 'center',
     },
     defaultStyles: {
       backgroundColor: '#1a1a2e',
       backgroundOpacity: 100,
       textColor: '#ffffff',
-      padding: '0',
+      padding: SECTION_SPACING.hero,
       buttonColor: '#4f46e5',
       buttonHoverColor: '#4338ca',
     },
@@ -539,8 +599,11 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'buttonLink', label: 'Button Link', type: 'text', group: 'content' },
-      { key: 'imageUrl', label: 'Background Image', type: 'image', group: 'content' },
-      { key: 'alignment', label: 'Alignment', type: 'select', group: 'content', options: ['left', 'center', 'right'] },
+      { key: 'secondaryButtonText', label: 'Secondary Button Text', type: 'text', group: 'content' },
+      { key: 'secondaryButtonLink', label: 'Secondary Button URL', type: 'text', group: 'content' },
+      { key: 'layout', label: 'Layout Variant', type: 'select', group: 'content', options: ['centered', 'split-left', 'split-right', 'minimal', 'bold', 'video-bg'] },
+      { key: 'imageUrl', label: 'Image (background or split panel)', type: 'image', group: 'content' },
+      { key: 'alignment', label: 'Text Alignment', type: 'select', group: 'content', options: ['left', 'center', 'right'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'backgroundOpacity', label: 'Background Opacity', type: 'range', group: 'style', min: 0, max: 100, step: 5, unit: '%' },
       { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
@@ -579,17 +642,17 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Text + Image',
     icon: 'type',
     defaultProps: {
-      styledTitle: { text: 'Our Story' },
-      styledDescription: { text: 'We are passionate about creating exceptional digital experiences that help businesses grow and succeed in the modern world.' },
-      title: 'Our Story',
-      description: 'We are passionate about creating exceptional digital experiences that help businesses grow and succeed in the modern world.',
+      styledTitle: { text: 'Vores historie' },
+      styledDescription: { text: 'Vi brænder for at skabe digitale oplevelser i verdensklasse, der hjælper danske virksomheder med at vokse og lykkes online.' },
+      title: 'Vores historie',
+      description: 'Vi brænder for at skabe digitale oplevelser i verdensklasse, der hjælper danske virksomheder med at vokse og lykkes online.',
       imageUrl: 'https://images.unsplash.com/photo-1553877522-43269d4ea984?w=600',
       imageSide: 'right',
     },
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
     },
     fields: [
       { key: 'styledTitle', label: 'Heading', type: 'styled-text', group: 'content' },
@@ -607,17 +670,19 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Call to Action',
     icon: 'mouse-pointer',
     defaultProps: {
-      styledTitle: { text: 'Ready to Get Started?' },
-      styledDescription: { text: 'Join thousands of satisfied customers and transform your business today.' },
-      title: 'Ready to Get Started?',
-      description: 'Join thousands of satisfied customers and transform your business today.',
-      buttonText: 'Start Free Trial',
+      styledTitle: { text: 'Klar til at komme i gang?' },
+      styledDescription: { text: 'Slut dig til tusindvis af tilfredse kunder, og få din virksomhed online allerede i dag.' },
+      title: 'Klar til at komme i gang?',
+      description: 'Slut dig til tusindvis af tilfredse kunder, og få din virksomhed online allerede i dag.',
+      buttonText: 'Start gratis prøveperiode',
       buttonLink: '#',
+      secondaryButtonText: 'Kontakt salg',
+      secondaryButtonLink: '#',
     },
     defaultStyles: {
       backgroundColor: '#4f46e5',
       textColor: '#ffffff',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       buttonColor: '#ffffff',
       buttonHoverColor: '#e5e7eb',
     },
@@ -626,6 +691,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'buttonLink', label: 'Button URL', type: 'text', group: 'content' },
+      { key: 'secondaryButtonText', label: 'Secondary Button Text', type: 'text', group: 'content' },
+      { key: 'secondaryButtonLink', label: 'Secondary Button URL', type: 'text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
       { key: 'buttonHoverColor', label: 'Button Hover Color', type: 'color', group: 'style' },
@@ -639,20 +706,20 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Features Grid',
     icon: 'layout',
     defaultProps: {
-      styledTitle: { text: 'Our Features' },
-      styledSubtitle: { text: 'Everything you need to succeed' },
-      title: 'Our Features',
-      subtitle: 'Everything you need to succeed',
+      styledTitle: { text: 'Funktioner' },
+      styledSubtitle: { text: 'Alt hvad du behøver for at lykkes' },
+      title: 'Funktioner',
+      subtitle: 'Alt hvad du behøver for at lykkes',
       items: [
-        { id: '1', title: 'Easy to Use', description: 'Intuitive interface designed for everyone', icon: '✨' },
-        { id: '2', title: 'Fast & Reliable', description: 'Lightning-fast performance you can count on', icon: '⚡' },
-        { id: '3', title: 'Secure', description: 'Enterprise-grade security for your peace of mind', icon: '🔒' },
+        { id: '1', title: 'Nem at bruge', description: 'Intuitivt design, som alle kan finde rundt i.', icon: '✨' },
+        { id: '2', title: 'Hurtig og stabil', description: 'Lynhurtig ydeevne, du kan stole på.', icon: '⚡' },
+        { id: '3', title: 'Sikker', description: 'Datasikkerhed i topklasse, så du har ro i sindet.', icon: '🔒' },
       ],
     },
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
@@ -669,17 +736,18 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Testimonials',
     icon: 'user',
     defaultProps: {
-      styledTitle: { text: 'What Our Customers Say' },
-      title: 'What Our Customers Say',
+      styledTitle: { text: 'Det siger vores kunder' },
+      title: 'Det siger vores kunder',
       items: [
-        { id: '1', title: 'John Doe', description: 'This platform transformed our business!', imageUrl: '' },
-        { id: '2', title: 'Jane Smith', description: 'Incredible experience from start to finish.', imageUrl: '' },
+        { id: '1', title: 'Mette Sørensen', role: 'Ejer, Café Solsikke', description: 'BirdFlow gjorde det utrolig nemt at få vores café online. Vi havde en flot side klar på under en time!', imageUrl: '' },
+        { id: '2', title: 'Jonas Berg', role: 'Freelancefotograf', description: 'Endelig en platform på dansk, hvor jeg selv styrer det hele. Mine kunder elsker den nye portfolio.', imageUrl: '' },
+        { id: '3', title: 'Camilla Holm', role: 'Indehaver, Holm Consulting', description: 'Professionelt resultat uden at skulle hyre et bureau. Kan varmt anbefales til andre selvstændige.', imageUrl: '' },
       ],
     },
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
@@ -695,13 +763,14 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Header/Nav',
     icon: 'layout',
     defaultProps: {
-      title: 'Brand',
+      title: 'Dit Brand',
       imageUrl: '',
       showCart: true,
       items: [
-        { id: '1', title: 'Home', description: '/' },
-        { id: '2', title: 'About', description: '/about' },
-        { id: '3', title: 'Contact', description: '/contact' },
+        { id: '1', title: 'Forside', description: '/' },
+        { id: '2', title: 'Om os', description: '/om-os' },
+        { id: '3', title: 'Ydelser', description: '/ydelser' },
+        { id: '4', title: 'Kontakt', description: '/kontakt' },
       ],
     },
     defaultStyles: {
@@ -735,8 +804,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Footer',
     icon: 'layout',
     defaultProps: {
-      title: '© 2024 Your Company',
-      description: 'All rights reserved.',
+      title: '© 2026 Din Virksomhed',
+      description: 'Alle rettigheder forbeholdes.',
     },
     defaultStyles: {
       backgroundColor: '#1a1a1a',
@@ -843,10 +912,10 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Image Gallery',
     icon: 'grid',
     defaultProps: {
-      styledTitle: { text: 'Our Gallery' },
-      styledDescription: { text: 'Explore our collection' },
-      title: 'Our Gallery',
-      description: 'Explore our collection',
+      styledTitle: { text: 'Galleri' },
+      styledDescription: { text: 'Se et udvalg af vores arbejde' },
+      title: 'Galleri',
+      description: 'Se et udvalg af vores arbejde',
       images: [
         'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600',
         'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=600',
@@ -859,7 +928,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       gap: '16px',
       borderRadius: '8px',
     },
@@ -879,26 +948,30 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Pricing Table',
     icon: 'dollar-sign',
     defaultProps: {
-      styledTitle: { text: 'Simple, Transparent Pricing' },
-      styledSubtitle: { text: 'Choose the plan that works for you' },
-      title: 'Simple, Transparent Pricing',
-      subtitle: 'Choose the plan that works for you',
+      styledTitle: { text: 'Enkel og gennemskuelig prissætning' },
+      styledSubtitle: { text: 'Vælg den plan, der passer til dig' },
+      title: 'Enkel og gennemskuelig prissætning',
+      subtitle: 'Vælg den plan, der passer til dig',
+      popularBadge: 'Mest populær',
       items: [
-        { id: '1', title: 'Starter', description: '$9/mo', icon: '🚀' },
-        { id: '2', title: 'Pro', description: '$29/mo', icon: '⭐' },
-        { id: '3', title: 'Enterprise', description: '$99/mo', icon: '🏢' },
+        { id: '1', title: 'Start', price: '0 kr', period: '/md', description: 'Perfekt til at komme i gang.', features: ['1 hjemmeside', 'BirdFlow-subdomæne', 'Support i fællesskabet'], ctaText: 'Vælg Start', highlighted: false },
+        { id: '2', title: 'Pro', price: '99 kr', period: '/md', description: 'Til voksende virksomheder.', features: ['5 hjemmesider', 'Eget domæne', 'Fjern BirdFlow-branding', 'Prioriteret support'], ctaText: 'Vælg Pro', highlighted: true },
+        { id: '3', title: 'Business', price: '299 kr', period: '/md', description: 'Til professionelle og teams.', features: ['Ubegrænset antal hjemmesider', 'Avanceret statistik', 'E-handel og betalinger', 'Dedikeret support'], ctaText: 'Vælg Business', highlighted: false },
       ],
     },
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       cardStyle: 'elevated',
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
       { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
+      { key: 'eyebrow', label: 'Eyebrow Text', type: 'text', group: 'content' },
       { key: 'items', label: 'Pricing Plans', type: 'items', group: 'content' },
+      { key: 'showToggle', label: 'Show Monthly/Annual Toggle', type: 'boolean', group: 'content' },
+      { key: 'popularBadge', label: 'Popular Badge Label', type: 'text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
@@ -910,20 +983,21 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'FAQ Accordion',
     icon: 'help-circle',
     defaultProps: {
-      styledTitle: { text: 'Frequently Asked Questions' },
-      styledSubtitle: { text: 'Got questions? We have answers.' },
-      title: 'Frequently Asked Questions',
-      subtitle: 'Got questions? We have answers.',
+      styledTitle: { text: 'Ofte stillede spørgsmål' },
+      styledSubtitle: { text: 'Har du spørgsmål? Vi har svarene.' },
+      title: 'Ofte stillede spørgsmål',
+      subtitle: 'Har du spørgsmål? Vi har svarene.',
       items: [
-        { id: '1', title: 'How do I get started?', description: 'Simply sign up for a free account and follow our quick start guide.' },
-        { id: '2', title: 'Is there a free trial?', description: 'Yes! We offer a 30-day free trial with full access to all features.' },
-        { id: '3', title: 'Can I cancel anytime?', description: 'Absolutely. You can cancel your subscription at any time with no questions asked.' },
+        { id: '1', title: 'Hvordan kommer jeg i gang?', description: 'Opret en gratis konto og følg vores hurtige guide – så er du i gang på få minutter.' },
+        { id: '2', title: 'Er der en gratis prøveperiode?', description: 'Ja! Du kan prøve alle funktioner gratis i 30 dage helt uden bindinger.' },
+        { id: '3', title: 'Kan jeg opsige når som helst?', description: 'Selvfølgelig. Du kan opsige dit abonnement når som helst – uden ekstra gebyrer.' },
+        { id: '4', title: 'Kan jeg bruge mit eget domæne?', description: 'Ja, du kan nemt forbinde dit eget domæne via indstillingerne.' },
       ],
     },
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
@@ -940,21 +1014,21 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Stats Counter',
     icon: 'bar-chart',
     defaultProps: {
-      styledTitle: { text: 'Our Impact' },
-      styledSubtitle: { text: 'Numbers that speak for themselves' },
-      title: 'Our Impact',
-      subtitle: 'Numbers that speak for themselves',
+      styledTitle: { text: 'Vores resultater' },
+      styledSubtitle: { text: 'Tal, der taler for sig selv' },
+      title: 'Vores resultater',
+      subtitle: 'Tal, der taler for sig selv',
       stats: [
-        { id: '1', value: '10K', label: 'Happy Customers', suffix: '+' },
-        { id: '2', value: '500', label: 'Projects Completed', suffix: '+' },
-        { id: '3', value: '99', label: 'Satisfaction Rate', suffix: '%' },
-        { id: '4', value: '24/7', label: 'Support Available', prefix: '' },
+        { id: '1', value: '10K', label: 'Tilfredse kunder', suffix: '+' },
+        { id: '2', value: '500', label: 'Gennemførte projekter', suffix: '+' },
+        { id: '3', value: '99', label: 'Tilfredshed', suffix: '%' },
+        { id: '4', value: '24/7', label: 'Support', prefix: '' },
       ],
     },
     defaultStyles: {
       backgroundColor: '#1a1a2e',
       textColor: '#ffffff',
-      padding: '0',
+      padding: SECTION_SPACING.standard,
     },
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
@@ -984,7 +1058,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       accentColor: '#4f46e5',
     },
     fields: [
@@ -1002,17 +1076,17 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Video Embed',
     icon: 'play-circle',
     defaultProps: {
-      styledTitle: { text: 'Watch Our Story' },
-      styledDescription: { text: 'Learn more about what we do' },
-      title: 'Watch Our Story',
-      description: 'Learn more about what we do',
+      styledTitle: { text: 'Se vores historie' },
+      styledDescription: { text: 'Lær mere om, hvad vi laver' },
+      title: 'Se vores historie',
+      description: 'Lær mere om, hvad vi laver',
       videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
       videoProvider: 'youtube',
     },
     defaultStyles: {
       backgroundColor: '#0f0f0f',
       textColor: '#ffffff',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       borderRadius: '12px',
     },
     fields: [
@@ -1038,7 +1112,11 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       accentColor: '#e2e8f0',
     },
     fields: [
+      { key: 'style', label: 'Divider Style', type: 'select', group: 'content', options: ['solid', 'dashed', 'dotted', 'gradient', 'dots', 'ornamental'] },
+      { key: 'dividerThickness', label: 'Thickness', type: 'text', group: 'content', placeholder: '1px' },
+      { key: 'dividerWidth', label: 'Width', type: 'select', group: 'content', options: ['narrow', 'medium', 'full'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'accentColor', label: 'Divider Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '24px' },
     ],
   },
@@ -1065,18 +1143,20 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Newsletter Signup',
     icon: 'mail',
     defaultProps: {
-      styledTitle: { text: 'Subscribe to Our Newsletter' },
-      styledSubtitle: { text: 'Get the latest updates and exclusive offers delivered to your inbox.' },
-      title: 'Subscribe to Our Newsletter',
-      subtitle: 'Get the latest updates and exclusive offers delivered to your inbox.',
-      buttonText: 'Subscribe',
-      placeholder: 'Enter your email address',
-      successMessage: 'Thanks for subscribing! Check your email for confirmation.',
+      styledTitle: { text: 'Tilmeld dig vores nyhedsbrev' },
+      styledSubtitle: { text: 'Få de seneste nyheder og eksklusive tilbud direkte i din indbakke.' },
+      title: 'Tilmeld dig vores nyhedsbrev',
+      subtitle: 'Få de seneste nyheder og eksklusive tilbud direkte i din indbakke.',
+      buttonText: 'Tilmeld',
+      placeholder: 'Indtast din e-mailadresse',
+      successMessage: 'Tak for din tilmelding! Tjek din indbakke for en bekræftelse.',
+      socialProof: 'Tilmeld dig sammen med 5.000+ abonnenter',
+      privacyNote: 'Vi deler aldrig din e-mail. Afmeld når som helst.',
     },
     defaultStyles: {
       backgroundColor: '#f8f9fa',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       buttonColor: '#4f46e5',
       buttonHoverColor: '#4338ca',
       animationType: 'none',
@@ -1087,9 +1167,13 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     fields: [
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
       { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
+      { key: 'eyebrow', label: 'Eyebrow Text', type: 'text', group: 'content' },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'placeholder', label: 'Input Placeholder', type: 'text', group: 'content' },
       { key: 'successMessage', label: 'Success Message', type: 'textarea', group: 'content' },
+      { key: 'socialProof', label: 'Social Proof Text', type: 'text', group: 'content' },
+      { key: 'privacyNote', label: 'Privacy Note', type: 'text', group: 'content' },
+      { key: 'layout', label: 'Layout', type: 'select', group: 'content', options: ['inline', 'stacked'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
@@ -1103,17 +1187,17 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Before/After Comparison',
     icon: 'columns',
     defaultProps: {
-      title: 'See the Difference',
+      title: 'Se forskellen',
       beforeImage: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800',
       afterImage: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&sat=-100',
-      beforeLabel: 'Before',
-      afterLabel: 'After',
+      beforeLabel: 'Før',
+      afterLabel: 'Efter',
       sliderPosition: 50,
     },
     defaultStyles: {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
-      padding: '0',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'none',
       animationTrigger: 'load',
       animationDuration: '0.5s',
@@ -1137,16 +1221,16 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Logo Cloud',
     icon: 'grid-3x3',
     defaultProps: {
-      styledTitle: { text: 'Trusted by leading companies' },
-      styledSubtitle: { text: 'Join thousands of satisfied customers worldwide' },
-      title: 'Trusted by leading companies',
-      subtitle: 'Join thousands of satisfied customers worldwide',
+      styledTitle: { text: 'Brugt af førende virksomheder' },
+      styledSubtitle: { text: 'Mød tusindvis af tilfredse kunder i hele Danmark' },
+      title: 'Brugt af førende virksomheder',
+      subtitle: 'Mød tusindvis af tilfredse kunder i hele Danmark',
       logos: [
-        { id: '1', name: 'Company 1', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+1' },
-        { id: '2', name: 'Company 2', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+2' },
-        { id: '3', name: 'Company 3', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+3' },
-        { id: '4', name: 'Company 4', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+4' },
-        { id: '5', name: 'Company 5', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+5' },
+        { id: '1', name: 'Virksomhed 1', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+1' },
+        { id: '2', name: 'Virksomhed 2', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+2' },
+        { id: '3', name: 'Virksomhed 3', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+3' },
+        { id: '4', name: 'Virksomhed 4', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+4' },
+        { id: '5', name: 'Virksomhed 5', imageUrl: 'https://via.placeholder.com/120x40?text=Logo+5' },
       ],
       variant: 'grid',
       grayscale: true,
@@ -1154,7 +1238,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     defaultStyles: {
       backgroundColor: '#f8fafc',
       textColor: '#64748b',
-      padding: '64px 24px',
+      padding: SECTION_SPACING.standard,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1177,11 +1261,11 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     icon: 'arrow-right',
     defaultProps: {
       items: [
-        { id: '1', text: 'Award Winning Design' },
-        { id: '2', text: '24/7 Support' },
-        { id: '3', text: 'Free Shipping' },
-        { id: '4', text: '100% Satisfaction' },
-        { id: '5', text: 'Premium Quality' },
+        { id: '1', text: 'Prisvindende design' },
+        { id: '2', text: 'Support døgnet rundt' },
+        { id: '3', text: 'Gratis fragt' },
+        { id: '4', text: '100% tilfredshedsgaranti' },
+        { id: '5', text: 'Premium kvalitet' },
       ],
       speed: 30,
       direction: 'left',
@@ -1214,12 +1298,12 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Tabs',
     icon: 'folder',
     defaultProps: {
-      styledTitle: { text: 'Explore Our Solutions' },
-      title: 'Explore Our Solutions',
+      styledTitle: { text: 'Udforsk vores løsninger' },
+      title: 'Udforsk vores løsninger',
       tabs: [
-        { id: '1', title: 'For Businesses', content: 'Powerful tools designed for enterprise-level operations with advanced analytics and team collaboration.', icon: 'building', imageUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800' },
-        { id: '2', title: 'For Creators', content: 'Everything you need to build, launch, and grow your creative projects with professional-grade tools.', icon: 'palette', imageUrl: 'https://images.unsplash.com/photo-1558655146-9f40138edfeb?w=800' },
-        { id: '3', title: 'For Teams', content: 'Seamless collaboration features that keep your team aligned and productive, no matter where they are.', icon: 'users', imageUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800' },
+        { id: '1', title: 'Til virksomheder', content: 'Effektive værktøjer til professionelle med avanceret statistik og teamsamarbejde.', icon: 'building', imageUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800' },
+        { id: '2', title: 'Til kreative', content: 'Alt hvad du skal bruge for at bygge, lancere og udvikle dine kreative projekter.', icon: 'palette', imageUrl: 'https://images.unsplash.com/photo-1558655146-9f40138edfeb?w=800' },
+        { id: '3', title: 'Til teams', content: 'Sømløst samarbejde, der holder dit team afstemt og produktivt – uanset hvor I er.', icon: 'users', imageUrl: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800' },
       ],
       variant: 'horizontal',
     },
@@ -1227,7 +1311,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1269,7 +1353,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1290,20 +1374,20 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Split Section',
     icon: 'columns',
     defaultProps: {
-      styledTitle: { text: 'Transform Your Workflow' },
-      styledSubtitle: { text: 'Powerful Features' },
-      styledDescription: { text: 'Our platform combines cutting-edge technology with intuitive design to help you achieve more in less time. Experience the difference that smart tools can make.' },
-      title: 'Transform Your Workflow',
-      subtitle: 'Powerful Features',
-      description: 'Our platform combines cutting-edge technology with intuitive design to help you achieve more in less time. Experience the difference that smart tools can make.',
+      styledTitle: { text: 'Optimer dit arbejde' },
+      styledSubtitle: { text: 'Stærke funktioner' },
+      styledDescription: { text: 'Vores platform kombinerer moderne teknologi med intuitivt design, så du når mere på kortere tid. Mærk forskellen, som de rigtige værktøjer gør.' },
+      title: 'Optimer dit arbejde',
+      subtitle: 'Stærke funktioner',
+      description: 'Vores platform kombinerer moderne teknologi med intuitivt design, så du når mere på kortere tid. Mærk forskellen, som de rigtige værktøjer gør.',
       imageUrl: 'https://images.unsplash.com/photo-1551434678-e076c223a692?w=800',
       imageSide: 'right',
-      buttonText: 'Get Started',
+      buttonText: 'Kom i gang',
       buttonLink: '#',
       features: [
-        { id: '1', title: 'Lightning Fast', description: 'Optimized for speed and performance', icon: 'zap' },
-        { id: '2', title: 'Secure by Default', description: 'Enterprise-grade security built in', icon: 'shield' },
-        { id: '3', title: 'Easy Integration', description: 'Connect with your favorite tools', icon: 'plug' },
+        { id: '1', title: 'Lynhurtig', description: 'Optimeret for hastighed og ydeevne', icon: 'zap' },
+        { id: '2', title: 'Sikker som standard', description: 'Indbygget datasikkerhed i topklasse', icon: 'shield' },
+        { id: '3', title: 'Nem integration', description: 'Forbind med dine favoritværktøjer', icon: 'plug' },
       ],
       variant: 'features',
     },
@@ -1311,7 +1395,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'slide-up',
       animationTrigger: 'scroll',
       animationDuration: '0.6s',
@@ -1338,7 +1422,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Rich Text Block',
     icon: 'type',
     defaultProps: {
-      content: '<h2>Welcome to Our Platform</h2><p>We believe in creating exceptional experiences that make a real difference. Our team is dedicated to pushing boundaries and delivering solutions that exceed expectations.</p><blockquote>Innovation is the key to success in today\'s rapidly evolving landscape.</blockquote><p>Join thousands of satisfied customers who have already transformed their businesses with our platform.</p>',
+      content: '<h2>Velkommen</h2><p>Vi tror på at skabe enestående oplevelser, der gør en reel forskel. Vores team er dedikeret til at rykke grænser og levere løsninger, der overgår forventningerne.</p><blockquote>Innovation er nøglen til succes i en verden i konstant forandring.</blockquote><p>Bliv en del af de tusindvis af tilfredse kunder, der allerede har transformeret deres forretning med os.</p>',
       maxWidth: '720px',
       alignment: 'center',
     },
@@ -1346,7 +1430,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#374151',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1368,15 +1452,15 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Team',
     icon: 'users',
     defaultProps: {
-      styledTitle: { text: 'Meet Our Team' },
-      styledSubtitle: { text: 'The people behind our success' },
-      title: 'Meet Our Team',
-      subtitle: 'The people behind our success',
+      styledTitle: { text: 'Mød teamet' },
+      styledSubtitle: { text: 'Menneskene bag vores succes' },
+      title: 'Mød teamet',
+      subtitle: 'Menneskene bag vores succes',
       members: [
-        { id: '1', name: 'Sarah Johnson', role: 'CEO & Founder', imageUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400', bio: 'Visionary leader with 15+ years of experience in tech.' },
-        { id: '2', name: 'Michael Chen', role: 'CTO', imageUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', bio: 'Engineering expert specializing in scalable systems.' },
-        { id: '3', name: 'Emily Davis', role: 'Head of Design', imageUrl: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400', bio: 'Award-winning designer passionate about UX.' },
-        { id: '4', name: 'James Wilson', role: 'VP of Sales', imageUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400', bio: 'Driven sales leader with global experience.' },
+        { id: '1', name: 'Sara Jensen', role: 'Adm. direktør & stifter', imageUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400', bio: 'Visionær leder med 15+ års erfaring inden for tech.' },
+        { id: '2', name: 'Mikkel Christensen', role: 'Teknisk direktør', imageUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', bio: 'Ekspert i skalerbare systemer og softwarearkitektur.' },
+        { id: '3', name: 'Emilie Dahl', role: 'Designchef', imageUrl: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400', bio: 'Prisvindende designer med passion for brugeroplevelser.' },
+        { id: '4', name: 'Jakob Nielsen', role: 'Salgschef', imageUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400', bio: 'Resultatorienteret salgsleder med international erfaring.' },
       ],
       variant: 'grid',
       columns: 4,
@@ -1385,7 +1469,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#f8fafc',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       cardStyle: 'elevated',
       animationType: 'slide-up',
       animationTrigger: 'scroll',
@@ -1410,16 +1494,16 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Timeline',
     icon: 'git-branch',
     defaultProps: {
-      styledTitle: { text: 'Our Journey' },
-      styledSubtitle: { text: 'Key milestones that shaped our company' },
-      title: 'Our Journey',
-      subtitle: 'Key milestones that shaped our company',
+      styledTitle: { text: 'Vores rejse' },
+      styledSubtitle: { text: 'Milepæle der har formet vores virksomhed' },
+      title: 'Vores rejse',
+      subtitle: 'Milepæle der har formet vores virksomhed',
       items: [
-        { id: '1', year: '2019', title: 'Founded', description: 'Started with a vision to revolutionize the industry.', icon: 'rocket' },
-        { id: '2', year: '2020', title: 'Series A Funding', description: 'Raised $10M to accelerate growth and expansion.', icon: 'trending-up' },
-        { id: '3', year: '2021', title: '10,000 Customers', description: 'Reached our first major customer milestone.', icon: 'users' },
-        { id: '4', year: '2022', title: 'Global Expansion', description: 'Launched in 20+ countries worldwide.', icon: 'globe' },
-        { id: '5', year: '2023', title: 'Industry Leader', description: 'Recognized as the #1 solution in our category.', icon: 'award' },
+        { id: '1', year: '2019', title: 'Grundlagt', description: 'Startede med en vision om at forny branchen.', icon: 'rocket' },
+        { id: '2', year: '2020', title: 'Første investering', description: 'Rejste kapital til at accelerere væksten.', icon: 'trending-up' },
+        { id: '3', year: '2021', title: '10.000 kunder', description: 'Nåede vores første store kundemilepæl.', icon: 'users' },
+        { id: '4', year: '2022', title: 'International vækst', description: 'Lancerede i mere end 20 lande.', icon: 'globe' },
+        { id: '5', year: '2023', title: 'Markedsleder', description: 'Kåret som den førende løsning i vores kategori.', icon: 'award' },
       ],
       variant: 'alternating',
     },
@@ -1427,7 +1511,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#ffffff',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       animationType: 'fade-in',
       animationTrigger: 'scroll',
       animationDuration: '0.5s',
@@ -1449,17 +1533,17 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     name: 'Services',
     icon: 'briefcase',
     defaultProps: {
-      styledTitle: { text: 'Our Services' },
-      styledSubtitle: { text: 'What we offer' },
-      styledDescription: { text: 'Comprehensive solutions tailored to your business needs' },
-      title: 'Our Services',
-      subtitle: 'What we offer',
-      description: 'Comprehensive solutions tailored to your business needs',
+      styledTitle: { text: 'Vores ydelser' },
+      styledSubtitle: { text: 'Det tilbyder vi' },
+      styledDescription: { text: 'Komplette løsninger skræddersyet til din virksomheds behov' },
+      title: 'Vores ydelser',
+      subtitle: 'Det tilbyder vi',
+      description: 'Komplette løsninger skræddersyet til din virksomheds behov',
       services: [
-        { id: '1', title: 'Consulting', description: 'Expert guidance to help you make informed decisions and achieve your goals.', icon: 'message-circle', imageUrl: '', price: 'From $500' },
-        { id: '2', title: 'Development', description: 'Custom software solutions built with the latest technologies and best practices.', icon: 'code', imageUrl: '', price: 'From $2,000' },
-        { id: '3', title: 'Design', description: 'Beautiful, user-centered designs that captivate and convert your audience.', icon: 'palette', imageUrl: '', price: 'From $1,000' },
-        { id: '4', title: 'Marketing', description: 'Strategic marketing campaigns that drive growth and maximize ROI.', icon: 'megaphone', imageUrl: '', price: 'From $800' },
+        { id: '1', title: 'Rådgivning', description: 'Ekspertvejledning, der hjælper dig med at træffe de rigtige beslutninger og nå dine mål.', icon: 'message-circle', imageUrl: '', price: 'Fra 3.500 kr' },
+        { id: '2', title: 'Udvikling', description: 'Skræddersyede softwareløsninger bygget med de nyeste teknologier og bedste praksis.', icon: 'code', imageUrl: '', price: 'Fra 15.000 kr' },
+        { id: '3', title: 'Design', description: 'Smukt, brugervenligt design der fanger og konverterer dine besøgende.', icon: 'palette', imageUrl: '', price: 'Fra 7.500 kr' },
+        { id: '4', title: 'Markedsføring', description: 'Strategiske kampagner der skaber vækst og maksimerer dit afkast.', icon: 'megaphone', imageUrl: '', price: 'Fra 5.000 kr' },
       ],
       variant: 'cards',
       columns: 4,
@@ -1468,7 +1552,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       backgroundColor: '#f8fafc',
       textColor: '#1a1a1a',
       accentColor: '#4f46e5',
-      padding: '80px 24px',
+      padding: SECTION_SPACING.comfortable,
       cardStyle: 'elevated',
       animationType: 'slide-up',
       animationTrigger: 'scroll',

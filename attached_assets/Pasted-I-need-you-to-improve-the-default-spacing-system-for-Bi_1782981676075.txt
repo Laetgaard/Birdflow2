@@ -1,0 +1,143 @@
+I need you to improve the default spacing system for BirdFlow’s premade website sections.
+
+Context:
+
+* The editor/builder app is React + TypeScript with Vite.
+* Routing uses Wouter.
+* Server state uses TanStack React Query.
+* Backend is Express.js under `/api/`.
+* The editor UI uses Tailwind CSS v4 + shadcn/ui.
+* The user-facing premade website sections are styled mainly through inline styles.
+* Each section has a `defaultStyles` object in `shared/componentRegistry.ts`.
+* These styles are rendered in `client/src/components/builder/ComponentRenderer.tsx`.
+* Padding is editable by users in the Properties panel.
+* Margin is not currently editable and should not be added unless absolutely necessary.
+
+Important files:
+
+* `shared/componentRegistry.ts` — source of truth for all premade sections, including `defaultProps`, `defaultStyles`, and editable fields.
+* `client/src/components/builder/ComponentRenderer.tsx` — renders the JSX/markup for each section type.
+* `shared/websiteTemplates.ts` — may contain full-page templates that depend on section defaults.
+
+Current problem:
+Several older/core sections have inconsistent or bad spacing. For example, the Features Grid section has:
+
+```ts
+defaultStyles: {
+  backgroundColor: '#f8f9fa',
+  textColor: '#1a1a1a',
+  padding: '0',
+}
+```
+
+But the editable padding field placeholder says `60px 24px`. This creates a mismatch between the expected design and the actual default output.
+
+Many original core sections use `padding: '0'`, including:
+
+* hero
+* text-image
+* cta
+* features
+* testimonials
+* gallery
+* pricing-table
+* faq
+* stats
+
+Newer sections already use better defaults like `80px 24px`, including:
+
+* rich-text
+* team
+* timeline
+* services
+* tabs
+* split-section
+
+Goal:
+Create a more consistent modern SaaS-style spacing system across all premade sections.
+
+Spacing direction:
+
+* Use generous but safe default spacing.
+* Desktop vertical section padding should generally be around `64px–96px`.
+* Horizontal gutters should usually be `24px`.
+* The safest general default is `80px 24px`.
+* Smaller/simple sections can use `64px 24px`.
+* Hero or major CTA sections can use `96px 24px` if appropriate.
+* Avoid luxury/premium oversized spacing.
+* Avoid playful/asymmetric spacing.
+* Keep it broadly useful for a website-builder audience.
+
+Tasks:
+
+1. Audit all section definitions in `shared/componentRegistry.ts`.
+2. Find every section with `defaultStyles.padding: '0'`, missing padding, or inconsistent padding.
+3. Replace bad/default-zero padding with consistent modern SaaS spacing values.
+4. Make sure the default padding matches the padding field placeholder where possible.
+5. Prefer a shared spacing scale or constants if it fits the codebase, for example:
+
+```ts
+const SECTION_SPACING = {
+  compact: '48px 24px',
+  standard: '64px 24px',
+  comfortable: '80px 24px',
+  hero: '96px 24px',
+};
+```
+
+Only add this if it integrates cleanly with the existing registry structure.
+
+6. Update the older/core sections so they no longer rely only on hardcoded internal spacing inside `ComponentRenderer.tsx`.
+7. Inspect `ComponentRenderer.tsx` for internal padding/margin/gap values that conflict with the section-level padding.
+8. Keep internal layout spacing where it makes sense, for example:
+
+   * gap between cards
+   * spacing between heading and paragraph
+   * spacing inside cards
+   * grid gaps
+   * button spacing
+9. Do not add user-facing margin controls right now.
+10. Do not remove the existing padding control.
+11. Preserve live-editing behavior in the Properties panel.
+12. Preserve publishing behavior.
+13. Avoid unrelated refactors.
+14. Do not break existing saved websites if possible.
+15. Make sure new sections and old sections feel visually consistent when stacked together.
+
+Recommended defaults:
+
+* hero: `96px 24px`
+* text-image: `80px 24px`
+* cta: `80px 24px`
+* features: `80px 24px`
+* testimonials: `80px 24px`
+* gallery: `80px 24px`
+* pricing-table: `80px 24px`
+* faq: `80px 24px`
+* stats: `64px 24px`
+* rich-text: keep or normalize to `80px 24px`
+* team: keep or normalize to `80px 24px`
+* timeline: keep or normalize to `80px 24px`
+* services: keep or normalize to `80px 24px`
+* tabs: keep or normalize to `80px 24px`
+* split-section: keep or normalize to `80px 24px`
+
+Also check card/content spacing:
+
+* Cards should usually have at least `24px` internal padding.
+* Feature cards, pricing cards, testimonial cards, FAQ items, and service cards should not feel cramped.
+* Grid gaps should generally be `24px–32px`.
+* Heading/paragraph/CTA spacing should feel consistent.
+* Mobile should still look good and not become oversized.
+
+Important:
+Because user-facing sections use inline styles from `defaultStyles`, the main fix should happen in the registry defaults, not Tailwind classes.
+
+After making the changes:
+
+1. List every file changed.
+2. List every section whose default padding changed.
+3. Explain the spacing scale used.
+4. Mention any renderer-level spacing adjustments.
+5. Mention any sections that still need visual/manual review.
+6. Run TypeScript/build checks if available and fix any errors.

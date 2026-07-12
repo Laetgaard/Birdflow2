@@ -1,8 +1,108 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Calendar, Clock, User, Mail, Phone, FileText, CheckCircle, ArrowRight, ArrowLeft, Sparkles, Play, X, Star, Shield, MapPin } from 'lucide-react';
+import { Calendar, Clock, User, Mail, Phone, FileText, CheckCircle, ArrowRight, ArrowLeft, Sparkles, Play, X, Star, Shield, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!r) return `rgba(124,58,237,${alpha})`;
+  return `rgba(${parseInt(r[1], 16)},${parseInt(r[2], 16)},${parseInt(r[3], 16)},${alpha})`;
+}
+
+const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function MiniCalendar({ selectedDate, onSelect, accentColor, accentLight, disabled }: {
+  selectedDate: string;
+  onSelect: (date: string) => void;
+  accentColor: string;
+  accentLight: string;
+  disabled?: boolean;
+}) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+
+  const daysInMonth = useMemo(() => {
+    const first = new Date(viewYear, viewMonth, 1);
+    // Monday-first: (getDay() + 6) % 7
+    const startOffset = (first.getDay() + 6) % 7;
+    const days: (Date | null)[] = Array(startOffset).fill(null);
+    const count = new Date(viewYear, viewMonth + 1, 0).getDate();
+    for (let d = 1; d <= count; d++) days.push(new Date(viewYear, viewMonth, d));
+    return days;
+  }, [viewYear, viewMonth]);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
+    else setViewMonth(m => m - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
+    else setViewMonth(m => m + 1);
+  };
+
+  return (
+    <div style={{ userSelect: 'none' }}>
+      {/* Month nav */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <button type="button" onClick={e => { e.stopPropagation(); prevMonth(); }} disabled={disabled}
+          style={{ background: 'none', border: 'none', cursor: disabled ? 'default' : 'pointer', padding: '4px 8px', borderRadius: '8px', color: '#64748b', display: 'flex', alignItems: 'center' }}>
+          <ChevronLeft size={16} />
+        </button>
+        <span style={{ fontWeight: 700, fontSize: '14px', color: '#1e293b' }}>
+          {MONTHS[viewMonth]} {viewYear}
+        </span>
+        <button type="button" onClick={e => { e.stopPropagation(); nextMonth(); }} disabled={disabled}
+          style={{ background: 'none', border: 'none', cursor: disabled ? 'default' : 'pointer', padding: '4px 8px', borderRadius: '8px', color: '#64748b', display: 'flex', alignItems: 'center' }}>
+          <ChevronRight size={16} />
+        </button>
+      </div>
+      {/* Weekday headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', marginBottom: '4px' }}>
+        {WEEKDAYS.map((d: string) => (
+          <div key={d} style={{ textAlign: 'center', fontSize: '11px', fontWeight: 600, color: '#94a3b8', padding: '2px 0' }}>{d}</div>
+        ))}
+      </div>
+      {/* Days grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px' }}>
+        {daysInMonth.map((day, i) => {
+          if (!day) return <div key={`empty-${i}`} />;
+          const dateStr = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+          const isPast = dateStr < todayStr;
+          const isToday = dateStr === todayStr;
+          const isSelected = dateStr === selectedDate;
+          return (
+            <button
+              key={dateStr}
+              type="button"
+              disabled={disabled || isPast}
+              onClick={e => { e.stopPropagation(); if (!isPast && !disabled) onSelect(dateStr); }}
+              style={{
+                border: 'none',
+                borderRadius: '8px',
+                padding: '6px 2px',
+                fontSize: '13px',
+                fontWeight: isSelected ? 700 : isToday ? 600 : 400,
+                cursor: disabled || isPast ? 'default' : 'pointer',
+                backgroundColor: isSelected ? accentColor : isToday ? accentLight : 'transparent',
+                color: isSelected ? '#fff' : isPast ? '#cbd5e1' : isToday ? accentColor : '#334155',
+                transition: 'all 0.15s ease',
+                textAlign: 'center',
+              }}
+            >
+              {day.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 type BookingService = {
   id: string;
@@ -19,6 +119,9 @@ type Props = {
     backgroundColor?: string;
     textColor?: string;
     padding?: string;
+    accentColor?: string;
+    buttonColor?: string;
+    accentLight?: string;
   };
   props: {
     title?: string;
@@ -139,8 +242,8 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
 
   const bgColor = styles.backgroundColor || '#f8fafc';
   const textColor = styles.textColor || '#1e293b';
-  const accentColor = '#7c3aed';
-  const accentLight = '#ede9fe';
+  const accentColor = styles.accentColor || styles.buttonColor || '#7c3aed';
+  const accentLight = styles.accentLight || hexToRgba(accentColor, 0.12);
 
   const stepLabels = ['Service', 'Schedule', 'Details'];
 
@@ -615,59 +718,87 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                     )}
 
                     <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
-                        Select Date
+                      <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+                        Select date
                       </label>
-                      <Input
-                        type="date"
-                        min={today}
-                        value={selectedDate}
-                        onChange={(e) => !isBuilderMode && setSelectedDate(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        disabled={isBuilderMode}
-                        style={{
-                          padding: '12px 14px',
-                          borderRadius: '12px',
-                          fontSize: '15px',
-                          border: selectedDate ? `2px solid ${accentColor}` : '2px solid #e2e8f0',
-                          transition: 'all 0.2s ease',
-                        }}
-                        data-testid="input-date"
-                      />
+                      <div style={{ backgroundColor: '#f8fafc', borderRadius: '14px', padding: '14px 12px', border: `1.5px solid ${selectedDate ? accentColor : '#e2e8f0'}`, transition: 'border-color 0.2s' }}>
+                        <MiniCalendar
+                          selectedDate={selectedDate}
+                          onSelect={(d) => !isBuilderMode && setSelectedDate(d)}
+                          accentColor={accentColor}
+                          accentLight={accentLight}
+                          disabled={isBuilderMode}
+                        />
+                      </div>
+                      {selectedDate && (
+                        <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: accentColor, fontWeight: 600 }}>
+                          <Calendar style={{ width: '13px', height: '13px' }} />
+                          {selectedDate}
+                        </div>
+                      )}
                     </div>
 
                     <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
-                        Select Time
+                      <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+                        Select time
                       </label>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                        {timeSlots.map((time) => (
-                          <button
-                            key={time}
-                            type="button"
-                            onClick={(e) => {
-                              if (isBuilderMode) return;
-                              e.stopPropagation();
-                              setSelectedTime(time);
-                            }}
-                            disabled={isBuilderMode}
-                            style={{
-                              padding: '10px',
-                              borderRadius: '10px',
-                              border: selectedTime === time ? `2px solid ${accentColor}` : '2px solid #f1f5f9',
-                              backgroundColor: selectedTime === time ? accentLight : '#fafafa',
-                              color: selectedTime === time ? accentColor : textColor,
-                              fontWeight: selectedTime === time ? 700 : 500,
-                              fontSize: '14px',
-                              cursor: isBuilderMode ? 'default' : 'pointer',
-                              transition: 'all 0.2s ease',
-                              transform: selectedTime === time ? 'scale(1.03)' : 'scale(1)',
-                            }}
-                            data-testid={`time-slot-${time}`}
-                          >
-                            {time}
-                          </button>
-                        ))}
+                      {/* AM slots */}
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Morning</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {timeSlots.filter(t => parseInt(t) < 12).map((time) => (
+                            <button
+                              key={time}
+                              type="button"
+                              onClick={(e) => { if (isBuilderMode) return; e.stopPropagation(); setSelectedTime(time); }}
+                              disabled={isBuilderMode}
+                              style={{
+                                padding: '7px 14px',
+                                borderRadius: '999px',
+                                border: selectedTime === time ? `2px solid ${accentColor}` : '1.5px solid #e2e8f0',
+                                backgroundColor: selectedTime === time ? accentColor : '#fff',
+                                color: selectedTime === time ? '#fff' : '#475569',
+                                fontWeight: selectedTime === time ? 700 : 500,
+                                fontSize: '13px',
+                                cursor: isBuilderMode ? 'default' : 'pointer',
+                                transition: 'all 0.15s ease',
+                                boxShadow: selectedTime === time ? `0 2px 8px ${accentColor}40` : 'none',
+                              }}
+                              data-testid={`time-slot-${time}`}
+                            >
+                              {time}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* PM slots */}
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Afternoon</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {timeSlots.filter(t => parseInt(t) >= 12).map((time) => (
+                            <button
+                              key={time}
+                              type="button"
+                              onClick={(e) => { if (isBuilderMode) return; e.stopPropagation(); setSelectedTime(time); }}
+                              disabled={isBuilderMode}
+                              style={{
+                                padding: '7px 14px',
+                                borderRadius: '999px',
+                                border: selectedTime === time ? `2px solid ${accentColor}` : '1.5px solid #e2e8f0',
+                                backgroundColor: selectedTime === time ? accentColor : '#fff',
+                                color: selectedTime === time ? '#fff' : '#475569',
+                                fontWeight: selectedTime === time ? 700 : 500,
+                                fontSize: '13px',
+                                cursor: isBuilderMode ? 'default' : 'pointer',
+                                transition: 'all 0.15s ease',
+                                boxShadow: selectedTime === time ? `0 2px 8px ${accentColor}40` : 'none',
+                              }}
+                              data-testid={`time-slot-${time}`}
+                            >
+                              {time}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
