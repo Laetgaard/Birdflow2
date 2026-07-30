@@ -50,7 +50,8 @@ import {
   type ComponentProps,
   type ComponentStyles
 } from "@shared/componentRegistry";
-import type { BuilderStateData, BuilderPage, DesignTokens } from "@shared/schema";
+import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext } from "@shared/schema";
+import AdminEditingBanner from "@/components/AdminEditingBanner";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
@@ -88,6 +89,9 @@ type Website = {
   setupType: string;
   ownerId: string;
   deploymentUrl?: string;
+  // Present only when an administrator is editing someone else's website
+  // (set server-side; see GET /api/websites/:id). UI state only.
+  adminContext?: WebsiteAdminContext;
 };
 
 type DeviceType = 'desktop' | 'tablet' | 'mobile';
@@ -145,6 +149,10 @@ export default function BuilderPage() {
   const previewContainerRef = useRef<HTMLElement>(null);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const [propertiesPaddingTop, setPropertiesPaddingTop] = useState(0);
+  // Set only when the server says this is an admin editing session
+  // (website.adminContext present). Sent as metadata for audit grouping -
+  // it never affects authorization.
+  const adminSessionIdRef = useRef<string | null>(null);
 
   const executeSave = useCallback(async (stateToSave: BuilderStateData): Promise<boolean> => {
     if (!session || !id) return false;
@@ -158,12 +166,16 @@ export default function BuilderPage() {
     setIsSaving(true);
     saveInFlightRef.current = true;
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`,
+      };
+      if (adminSessionIdRef.current) {
+        headers["X-Admin-Session-Id"] = adminSessionIdRef.current;
+      }
       const response = await fetch(`/api/websites/${id}/builder`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
+        headers,
         body: JSON.stringify({ state: stateToSave }),
       });
 
@@ -470,6 +482,21 @@ export default function BuilderPage() {
 
         const websiteData = await websiteRes.json();
         setWebsite(websiteData);
+
+        // Admin editing session: generate/reuse a per-tab session UUID for
+        // audit grouping. Metadata only - the server authorizes each request
+        // from the authenticated user, never from this value.
+        if (websiteData.adminContext) {
+          const storageKey = `bf-admin-session-${id}`;
+          let adminSessionId = sessionStorage.getItem(storageKey);
+          if (!adminSessionId) {
+            adminSessionId = crypto.randomUUID();
+            sessionStorage.setItem(storageKey, adminSessionId);
+          }
+          adminSessionIdRef.current = adminSessionId;
+        } else {
+          adminSessionIdRef.current = null;
+        }
 
         const builderRes = await fetch(`/api/websites/${id}/builder`, {
           headers: { "Authorization": `Bearer ${session.access_token}` },
@@ -907,6 +934,8 @@ export default function BuilderPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      {/* Admin editing banner - persistent, non-dismissible */}
+      {website.adminContext && <AdminEditingBanner adminContext={website.adminContext} />}
       {/* Header */}
       <header className="border-b bg-card h-14 flex items-center px-2 md:px-4 gap-2 md:gap-4 shrink-0">
         {/* Mobile menu button */}
@@ -1004,10 +1033,14 @@ export default function BuilderPage() {
             <span className="hidden sm:inline">{isSaving ? 'Saving...' : isDirty ? 'Unsaved' : 'Saved'}</span>
             {isDirty && !isSaving && <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full" />}
           </Button>
-          <Button size="sm" variant="secondary" className="gap-1 md:gap-2 px-2 md:px-3" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
-            {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            <span className="hidden sm:inline">{isPublishing ? 'Publishing...' : 'Publish'}</span>
-          </Button>
+          {/* Publishing stays owner-only: the server denies it for admins,
+              so don't show a button that can only fail. */}
+          {!website.adminContext && (
+            <Button size="sm" variant="secondary" className="gap-1 md:gap-2 px-2 md:px-3" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
+              {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              <span className="hidden sm:inline">{isPublishing ? 'Publishing...' : 'Publish'}</span>
+            </Button>
+          )}
         </div>
 
         {/* Toggle sidebar button */}

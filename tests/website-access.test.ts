@@ -1,0 +1,260 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Website } from "../shared/schema";
+import {
+  buildWebsiteAccessContext,
+  computeWebsitePermissions,
+  sanitizeAdminSessionId,
+  type WebsitePermission,
+} from "../server/websiteAccess";
+import { summarizeBuilderStateChange } from "../server/adminAudit";
+
+/**
+ * Milestone 1 regression tests: the typed website access service that
+ * lets administrators edit client builders without impersonation, and
+ * the audit summarizer that must never leak content.
+ */
+
+const OWNER_ID = "owner-user-1";
+const ADMIN_ID = "admin-user-1";
+const STRANGER_ID = "other-user-1";
+
+const website = {
+  id: "site-1",
+  ownerId: OWNER_ID,
+  name: "Test site",
+} as Website;
+
+const ALL_PERMISSIONS: WebsitePermission[] = [
+  "readBuilder",
+  "updateBuilder",
+  "readManage",
+  "updateManage",
+  "manageMedia",
+  "manageCustomComponents",
+  "publish",
+  "usePaidAI",
+  "manageBilling",
+  "manageDomains",
+];
+
+describe("buildWebsiteAccessContext", () => {
+  it("owner gets owner mode with every permission", () => {
+    const ctx = buildWebsiteAccessContext({
+      website,
+      actorUserId: OWNER_ID,
+      actorIsAdmin: false,
+    });
+    expect(ctx).not.toBeNull();
+    expect(ctx!.mode).toBe("owner");
+    for (const permission of ALL_PERMISSIONS) {
+      expect(ctx!.permissions[permission], permission).toBe(true);
+    }
+  });
+
+  it("an admin who owns the website is an owner, not an admin editor", () => {
+    const ctx = buildWebsiteAccessContext({
+      website,
+      actorUserId: OWNER_ID,
+      actorIsAdmin: true,
+    });
+    expect(ctx!.mode).toBe("owner");
+    expect(ctx!.adminSessionId).toBeNull();
+  });
+
+  it("admin gets builder + media on a client website, nothing sensitive", () => {
+    const ctx = buildWebsiteAccessContext({
+      website,
+      actorUserId: ADMIN_ID,
+      actorIsAdmin: true,
+    });
+    expect(ctx).not.toBeNull();
+    expect(ctx!.mode).toBe("admin");
+    expect(ctx!.actorUserId).toBe(ADMIN_ID);
+    expect(ctx!.ownerUserId).toBe(OWNER_ID);
+
+    expect(ctx!.permissions.readBuilder).toBe(true);
+    expect(ctx!.permissions.updateBuilder).toBe(true);
+    expect(ctx!.permissions.manageMedia).toBe(true);
+
+    // Deliberately denied for administrators:
+    expect(ctx!.permissions.publish).toBe(false);
+    expect(ctx!.permissions.manageBilling).toBe(false);
+    expect(ctx!.permissions.manageDomains).toBe(false);
+    expect(ctx!.permissions.usePaidAI).toBe(false);
+
+    // Not enabled until the manage-access milestone:
+    expect(ctx!.permissions.readManage).toBe(false);
+    expect(ctx!.permissions.updateManage).toBe(false);
+    expect(ctx!.permissions.manageCustomComponents).toBe(false);
+  });
+
+  it("a normal user gets no access to someone else's website", () => {
+    const ctx = buildWebsiteAccessContext({
+      website,
+      actorUserId: STRANGER_ID,
+      actorIsAdmin: false,
+    });
+    expect(ctx).toBeNull();
+  });
+
+  it("admin session id is only attached in admin mode", () => {
+    const sessionId = "123e4567-e89b-42d3-a456-426614174000";
+    const asAdmin = buildWebsiteAccessContext({
+      website,
+      actorUserId: ADMIN_ID,
+      actorIsAdmin: true,
+      adminSessionId: sessionId,
+    });
+    expect(asAdmin!.adminSessionId).toBe(sessionId);
+
+    const asOwner = buildWebsiteAccessContext({
+      website,
+      actorUserId: OWNER_ID,
+      actorIsAdmin: false,
+      adminSessionId: sessionId,
+    });
+    expect(asOwner!.adminSessionId).toBeNull();
+  });
+});
+
+describe("computeWebsitePermissions", () => {
+  it("returns fresh objects (no shared mutable state)", () => {
+    const a = computeWebsitePermissions("admin");
+    const b = computeWebsitePermissions("admin");
+    expect(a).not.toBe(b);
+    a.publish = true; // mutating a copy must not poison later calls
+    expect(computeWebsitePermissions("admin").publish).toBe(false);
+  });
+});
+
+describe("sanitizeAdminSessionId", () => {
+  it("accepts UUIDs and rejects everything else", () => {
+    expect(sanitizeAdminSessionId("123e4567-e89b-42d3-a456-426614174000")).toBe(
+      "123e4567-e89b-42d3-a456-426614174000"
+    );
+    expect(sanitizeAdminSessionId("not-a-uuid")).toBeNull();
+    expect(sanitizeAdminSessionId("'; DROP TABLE admin_audit_log; --")).toBeNull();
+    expect(sanitizeAdminSessionId("")).toBeNull();
+    expect(sanitizeAdminSessionId(undefined)).toBeNull();
+    expect(sanitizeAdminSessionId(null)).toBeNull();
+  });
+});
+
+describe("summarizeBuilderStateChange", () => {
+  const page = (id: string, componentCount: number, marker = "") => ({
+    id,
+    name: `Page ${id}${marker}`,
+    path: `/${id}`,
+    components: Array.from({ length: componentCount }, (_, i) => ({
+      id: `${id}-c${i}`,
+      type: "hero",
+      props: { title: `SECRET-CONTENT-${id}-${i}` },
+      styles: {},
+    })),
+  });
+
+  it("reports structure, never content", () => {
+    const oldState = { pages: [page("home", 2)], activePage: "home" } as any;
+    const newState = {
+      pages: [page("home", 3, " edited"), page("about", 1)],
+      activePage: "home",
+    } as any;
+
+    const summary = summarizeBuilderStateChange(oldState, newState);
+
+    expect(summary.pagesAdded).toEqual(["about"]);
+    expect(summary.pagesRemoved).toEqual([]);
+    expect(summary.pagesModified).toEqual(["home"]);
+    expect(summary.componentCountBefore).toBe(2);
+    expect(summary.componentCountAfter).toBe(4);
+
+    // The whole summary must not contain any component content.
+    expect(JSON.stringify(summary)).not.toContain("SECRET-CONTENT");
+  });
+
+  it("detects removed pages and changed top-level keys", () => {
+    const oldState = {
+      pages: [page("home", 1), page("about", 1)],
+      activePage: "home",
+      globalStyles: { primaryColor: "#111111" },
+    } as any;
+    const newState = {
+      pages: [page("home", 1)],
+      activePage: "home",
+      globalStyles: { primaryColor: "#222222" },
+    } as any;
+
+    const summary = summarizeBuilderStateChange(oldState, newState);
+    expect(summary.pagesRemoved).toEqual(["about"]);
+    expect(summary.changedTopLevelKeys).toEqual(["globalStyles"]);
+  });
+
+  it("handles null and malformed states without throwing", () => {
+    expect(() => summarizeBuilderStateChange(null, null)).not.toThrow();
+    expect(() =>
+      summarizeBuilderStateChange({ pages: "garbage" } as any, undefined)
+    ).not.toThrow();
+  });
+});
+
+describe("route wiring (source tripwires)", () => {
+  // No route-level harness exists yet (server/routes.ts has import-time
+  // side effects); these fail loudly if the converted routes revert to
+  // inline owner checks or the audit call is dropped.
+  const routesSource = readFileSync(join(__dirname, "..", "server", "routes.ts"), "utf8");
+
+  it("builder routes go through requireWebsitePermission", () => {
+    expect(routesSource).toContain(
+      'app.get("/api/websites/:id/builder", requireAuth, requireWebsitePermission("readBuilder")'
+    );
+    expect(routesSource).toContain(
+      'app.patch("/api/websites/:id/builder", requireAuth, requireWebsitePermission("updateBuilder")'
+    );
+    expect(routesSource).toContain(
+      'app.get("/api/websites/:id", requireAuth, requireWebsitePermission("readBuilder")'
+    );
+  });
+
+  it("builder saves record an admin audit entry", () => {
+    expect(routesSource).toContain('action: "builder.update"');
+  });
+
+  it("media routes go through requireWebsitePermission(manageMedia)", () => {
+    expect(routesSource).toContain(
+      'app.get("/api/websites/:id/media", requireAuth, requireWebsitePermission("manageMedia")'
+    );
+    expect(routesSource).toContain(
+      'app.post("/api/websites/:id/media/upload-url", requireAuth, requireWebsitePermission("manageMedia")'
+    );
+    expect(routesSource).toContain(
+      'app.post("/api/websites/:id/media", requireAuth, requireWebsitePermission("manageMedia")'
+    );
+    expect(routesSource).toContain(
+      'app.patch("/api/websites/:id/media/:mediaId", requireAuth, requireWebsitePermission("manageMedia")'
+    );
+    expect(routesSource).toContain(
+      'app.delete("/api/websites/:id/media/:mediaId", requireAuth, requireWebsitePermission("manageMedia")'
+    );
+  });
+
+  it("media mutations record admin audit entries", () => {
+    expect(routesSource).toContain('action: "media.create"');
+    expect(routesSource).toContain('action: "media.update"');
+    expect(routesSource).toContain('action: "media.delete"');
+  });
+
+  it("the impersonation stub stays removed", () => {
+    expect(routesSource).not.toContain("/api/admin/impersonate");
+  });
+
+  it("publish keeps its owner-only inline check (not converted in M1)", () => {
+    // The publish route must NOT have been switched to a permission the
+    // admin holds; it still checks ownership inline.
+    const publishIdx = routesSource.indexOf('"/api/websites/:id/publish"');
+    expect(publishIdx).toBeGreaterThan(-1);
+    const handler = routesSource.slice(publishIdx, publishIdx + 1500);
+    expect(handler).toContain("ownerId");
+  });
+});

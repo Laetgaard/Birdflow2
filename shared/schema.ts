@@ -170,6 +170,20 @@ export const insertWebsiteSchema = createInsertSchema(websites).omit({
 export type InsertWebsite = z.infer<typeof insertWebsiteSchema>;
 export type Website = typeof websites.$inferSelect;
 
+// Present on GET /api/websites/:id responses ONLY when the requester is
+// an administrator editing someone else's website. Narrow on purpose:
+// just enough for the "editing as administrator" banner - no email, no
+// billing state, no credentials. UI state only; authorization always
+// happens server-side.
+export type WebsiteAdminContext = {
+  ownerId: string;
+  ownerDisplayName: string;
+};
+
+export type WebsiteWithAccess = Website & {
+  adminContext?: WebsiteAdminContext;
+};
+
 // Website inputs table (for customized setup data)
 export const websiteInputs = pgTable("website_inputs", {
   id: serial("id").primaryKey(),
@@ -1174,5 +1188,41 @@ export const oauthStateTokens = pgTable("oauth_state_tokens", {
 });
 
 export type OAuthStateToken = typeof oauthStateTokens.$inferSelect;
+
+// ============================================================
+// Admin audit log - append-only record of administrator actions
+// on client resources (cross-tenant edits). The application only
+// ever inserts and selects; there are deliberately no update or
+// delete storage methods, and the SQL migration adds no update or
+// delete RLS policies.
+// Never store complete builder state, tokens, passwords, customer
+// submissions or full order contents here - changedSummary carries
+// field names and counts, not values.
+// ============================================================
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: serial("id").primaryKey(),
+  actorAdminUserId: varchar("actor_admin_user_id").notNull(),
+  targetUserId: varchar("target_user_id").notNull(),
+  websiteId: varchar("website_id"),
+  // Client-generated UUID grouping one admin editing session (metadata only)
+  adminSessionId: varchar("admin_session_id"),
+  // Server-generated UUID correlating entries from one HTTP request
+  requestId: varchar("request_id").notNull(),
+  action: text("action").notNull(), // e.g. "builder.update", "media.upload"
+  resourceType: text("resource_type").notNull(), // e.g. "builderState", "media"
+  resourceId: text("resource_id"),
+  httpMethod: text("http_method").notNull(),
+  route: text("route").notNull(), // route pattern, e.g. /api/websites/:id/builder
+  changedSummary: jsonb("changed_summary"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAdminAuditLogSchema = createInsertSchema(adminAuditLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAdminAuditEntry = z.infer<typeof insertAdminAuditLogSchema>;
+export type AdminAuditEntry = typeof adminAuditLog.$inferSelect;
 
 export * from "./models/chat";

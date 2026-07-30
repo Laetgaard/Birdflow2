@@ -75,6 +75,7 @@ import {
   serviceBlockedDates, type ServiceBlockedDate, type InsertServiceBlockedDate,
   serviceDateRanges, type ServiceDateRange, type InsertServiceDateRange,
   supportTickets, type SupportTicket, type InsertSupportTicket,
+  adminAuditLog, type AdminAuditEntry, type InsertAdminAuditEntry,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
   type AdminUserWithStats, type AdminWebsiteWithOwner,
@@ -176,6 +177,14 @@ const defaultBuilderState: BuilderStateData = {
     fontFamily: 'Inter, sans-serif',
     backgroundColor: '#ffffff'
   }
+};
+
+export type AdminAuditFilters = {
+  websiteId?: string;
+  actorAdminUserId?: string;
+  adminSessionId?: string;
+  limit?: number;
+  offset?: number;
 };
 
 export interface IStorage {
@@ -280,7 +289,11 @@ export interface IStorage {
   getAllUsersWithSubscriptions(): Promise<AdminUserSubscription[]>;
   getAllWebsitesWithOwners(): Promise<AdminWebsiteWithOwner[]>;
   isUserAdmin(userId: string): Promise<boolean>;
-  
+
+  // Admin audit log methods (append-only: insert + select, nothing else)
+  createAdminAuditEntry(entry: InsertAdminAuditEntry): Promise<AdminAuditEntry>;
+  getAdminAuditEntries(filters: AdminAuditFilters): Promise<AdminAuditEntry[]>;
+
   // Admin analytics methods
   getAdminAnalyticsOverview(startDate: Date, endDate: Date): Promise<AdminAnalyticsOverview>;
   getAdminTrafficSources(startDate: Date, endDate: Date): Promise<AdminTrafficSource[]>;
@@ -1366,6 +1379,37 @@ export class DatabaseStorage implements IStorage {
       }
       throw error;
     }
+  }
+
+  // Append-only admin audit log: insert + select only. Do not add
+  // update or delete methods for this table.
+  async createAdminAuditEntry(entry: InsertAdminAuditEntry): Promise<AdminAuditEntry> {
+    const result = await db.insert(adminAuditLog).values(entry).returning();
+    return result[0];
+  }
+
+  async getAdminAuditEntries(filters: AdminAuditFilters): Promise<AdminAuditEntry[]> {
+    const conditions = [];
+    if (filters.websiteId) {
+      conditions.push(eq(adminAuditLog.websiteId, filters.websiteId));
+    }
+    if (filters.actorAdminUserId) {
+      conditions.push(eq(adminAuditLog.actorAdminUserId, filters.actorAdminUserId));
+    }
+    if (filters.adminSessionId) {
+      conditions.push(eq(adminAuditLog.adminSessionId, filters.adminSessionId));
+    }
+
+    const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
+    const offset = Math.max(filters.offset ?? 0, 0);
+
+    const base = db.select().from(adminAuditLog);
+    const query = conditions.length > 0 ? base.where(and(...conditions)) : base;
+
+    return await query
+      .orderBy(desc(adminAuditLog.createdAt), desc(adminAuditLog.id))
+      .limit(limit)
+      .offset(offset);
   }
 
   async getAdminOverviewStats(): Promise<AdminOverviewStats> {
