@@ -34,6 +34,7 @@ import {
   type StyledText
 } from "@shared/componentRegistry";
 import ImageCropper from "./ImageCropper";
+import { adminSessionHeaders } from "@/lib/adminSession";
 
 type CropData = {
   x: number;
@@ -99,6 +100,7 @@ async function uploadImage(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
+      ...adminSessionHeaders(websiteId),
     },
     body: JSON.stringify({
       filename,

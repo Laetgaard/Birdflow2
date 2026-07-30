@@ -1,7 +1,10 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
-import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile } from "@shared/schema";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
+import { recordAdminAudit, summarizeBuilderStateChange } from "./adminAudit";
+import { isAllowedMediaStoragePath } from "./mediaPaths";
 import { eq, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
@@ -765,22 +768,26 @@ export async function registerRoutes(
     }
   });
 
-  // Get single website - user can only access their own
-  app.get("/api/websites/:id", requireAuth, async (req, res) => {
+  // Get single website - owner, or an administrator (read-only metadata).
+  // Admin responses carry a narrow adminContext (owner id + display name)
+  // so the builder can show the "editing as administrator" banner without
+  // opening cross-user profile access.
+  app.get("/api/websites/:id", requireAuth, requireWebsitePermission("readBuilder"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
+      const access = getWebsiteAccess(req);
+
+      if (access.mode === "admin") {
+        const ownerProfile = await storage.getProfile(access.ownerUserId);
+        const adminContext: WebsiteAdminContext = {
+          ownerId: access.ownerUserId,
+          ownerDisplayName:
+            ownerProfile?.fullName?.trim() || ownerProfile?.email || "Unknown owner",
+        };
+        const payload: WebsiteWithAccess = { ...access.website, adminContext };
+        return res.json(payload);
       }
 
-      // User can only access their own websites
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      res.json(website);
+      res.json(access.website);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -937,33 +944,40 @@ export async function registerRoutes(
 
   // ============ BUILDER STATE ROUTES ============
 
-  // Get builder state (creates default if none exists)
-  app.get("/api/websites/:id/builder", requireAuth, async (req, res) => {
+  // Get builder state (creates default if none exists).
+  // Owner or administrator (readBuilder permission).
+  app.get("/api/websites/:id/builder", requireAuth, requireWebsitePermission("readBuilder"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
+      const access = getWebsiteAccess(req);
       let builderState = await storage.getBuilderState(req.params.id);
-      
-      // Create default builder state if none exists
+
+      // Create default builder state if none exists. This is a write, so an
+      // admin opening a never-opened client site must leave an audit trail.
       if (!builderState) {
         builderState = await storage.createBuilderState(req.params.id);
+        await recordAdminAudit(access, {
+          action: "builder.create-default",
+          resourceType: "builderState",
+          resourceId: req.params.id,
+          httpMethod: "GET",
+          route: "/api/websites/:id/builder",
+        });
       }
 
       // Migrate legacy element-based state to component-based state
       const migratedState = migrateBuilderState(builderState.state);
-      
+
       // If migration changed the state, persist it
       if (JSON.stringify(migratedState) !== JSON.stringify(builderState.state)) {
         builderState = await storage.updateBuilderState(req.params.id, migratedState);
+        // Also a write triggered merely by opening the builder.
+        await recordAdminAudit(access, {
+          action: "builder.migrate-legacy-state",
+          resourceType: "builderState",
+          resourceId: req.params.id,
+          httpMethod: "GET",
+          route: "/api/websites/:id/builder",
+        });
       }
 
       res.json({
@@ -975,33 +989,43 @@ export async function registerRoutes(
     }
   });
 
-  // Update builder state
-  app.patch("/api/websites/:id/builder", requireAuth, async (req, res) => {
+  // Update builder state. Owner or administrator (updateBuilder permission).
+  // Successful admin saves are recorded in the append-only audit log with a
+  // structural summary (page ids / counts), never the state content itself.
+  app.patch("/api/websites/:id/builder", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
+      const access = getWebsiteAccess(req);
       const { state } = req.body;
-      
+
       if (!state) {
         return res.status(400).json({ message: "State is required" });
       }
 
-      let builderState = await storage.getBuilderState(req.params.id);
-      
-      if (!builderState) {
+      const previous = await storage.getBuilderState(req.params.id);
+
+      let builderState;
+      if (!previous) {
         builderState = await storage.createBuilderState(req.params.id, state);
       } else {
         builderState = await storage.updateBuilderState(req.params.id, state);
       }
+
+      // Mutation succeeded - record it if this was an admin editing a
+      // client's website (no-op for owners).
+      await recordAdminAudit(access, {
+        action: "builder.update",
+        resourceType: "builderState",
+        resourceId: req.params.id,
+        httpMethod: "PATCH",
+        route: "/api/websites/:id/builder",
+        // Thunk: only computed in admin mode, so owner autosaves (every 2s)
+        // never pay for a diff that would be discarded.
+        changedSummary: () =>
+          summarizeBuilderStateChange(
+            (previous?.state ?? null) as Partial<BuilderStateData> | null,
+            state
+          ),
+      });
 
       res.json(builderState);
     } catch (error: any) {
@@ -2196,20 +2220,10 @@ export async function registerRoutes(
 
   // ============ MEDIA ASSETS ROUTES ============
 
-  // Get all media assets for a website
-  app.get("/api/websites/:id/media", requireAuth, async (req, res) => {
+  // Get all media assets for a website. Owner or administrator
+  // (manageMedia permission - media is part of builder editing).
+  app.get("/api/websites/:id/media", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
       const assets = await storage.getMediaAssets(req.params.id);
       res.json(assets);
     } catch (error: any) {
@@ -2218,19 +2232,8 @@ export async function registerRoutes(
   });
 
   // Create a signed upload URL for Supabase Storage
-  app.post("/api/websites/:id/media/upload-url", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/media/upload-url", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
       const { filename, contentType } = req.body;
       if (!filename || !contentType) {
         return res.status(400).json({ message: "Filename and content type are required" });
@@ -2282,23 +2285,22 @@ export async function registerRoutes(
   });
 
   // Create a media asset record after upload
-  app.post("/api/websites/:id/media", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/media", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
+      const access = getWebsiteAccess(req);
       const { filename, originalFilename, storagePath, mimeType, size, width, height, crop, altText } = req.body;
-      
+
       if (!filename || !originalFilename || !storagePath || !mimeType || size === undefined) {
         return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // storagePath is client-supplied but is later handed to the Supabase
+      // SERVICE-ROLE client for deletion, so it must be constrained to paths
+      // this website legitimately owns. Without this an authenticated user
+      // could register an asset pointing at another tenant's object and then
+      // delete it via DELETE /media/:mediaId.
+      if (!isAllowedMediaStoragePath(storagePath, req.params.id)) {
+        return res.status(400).json({ message: "Invalid storage path" });
       }
 
       const asset = await storage.createMediaAsset({
@@ -2314,6 +2316,15 @@ export async function registerRoutes(
         altText,
       });
 
+      await recordAdminAudit(access, {
+        action: "media.create",
+        resourceType: "media",
+        resourceId: asset.id,
+        httpMethod: "POST",
+        route: "/api/websites/:id/media",
+        changedSummary: { mimeType, size },
+      });
+
       res.status(201).json(asset);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2321,23 +2332,23 @@ export async function registerRoutes(
   });
 
   // Update a media asset (for cropping, alt text, etc.)
-  app.patch("/api/websites/:id/media/:mediaId", requireAuth, async (req, res) => {
+  app.patch("/api/websites/:id/media/:mediaId", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
+      const access = getWebsiteAccess(req);
       const asset = await storage.updateMediaAsset(req.params.mediaId, req.params.id, req.body);
       if (!asset) {
         return res.status(404).json({ message: "Media asset not found" });
       }
+
+      await recordAdminAudit(access, {
+        action: "media.update",
+        resourceType: "media",
+        resourceId: req.params.mediaId,
+        httpMethod: "PATCH",
+        route: "/api/websites/:id/media/:mediaId",
+        changedSummary: { changedFields: Object.keys(req.body ?? {}).sort() },
+      });
+
       res.json(asset);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2345,26 +2356,22 @@ export async function registerRoutes(
   });
 
   // Delete a media asset
-  app.delete("/api/websites/:id/media/:mediaId", requireAuth, async (req, res) => {
+  app.delete("/api/websites/:id/media/:mediaId", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-
-      // Also delete from Supabase Storage
+      const access = getWebsiteAccess(req);
+      // Also delete from Supabase Storage. Only remove paths this website
+      // legitimately owns - legacy rows predating path validation could
+      // otherwise point at another tenant's object.
       const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      if (supabaseServiceRoleKey && supabaseUrl) {
-        const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
-        if (asset) {
+      const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
+      if (supabaseServiceRoleKey && supabaseUrl && asset) {
+        if (isAllowedMediaStoragePath(asset.storagePath, req.params.id)) {
           const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
           await adminClient.storage.from('media').remove([asset.storagePath]);
+        } else {
+          console.warn(
+            `[Media] Refusing to delete out-of-scope storage path for website ${req.params.id}, asset ${req.params.mediaId}`
+          );
         }
       }
 
@@ -2372,6 +2379,17 @@ export async function registerRoutes(
       if (!deleted) {
         return res.status(404).json({ message: "Media asset not found" });
       }
+
+      await recordAdminAudit(access, {
+        action: "media.delete",
+        resourceType: "media",
+        resourceId: req.params.mediaId,
+        httpMethod: "DELETE",
+        route: "/api/websites/:id/media/:mediaId",
+        // Record WHICH object was destroyed, not just the row id.
+        changedSummary: { storagePath: asset?.storagePath ?? null },
+      });
+
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -5513,6 +5531,32 @@ export async function registerRoutes(
     }
   });
 
+  // Admin audit log - append-only record of administrator actions on
+  // client resources. Read-only endpoint; there is no update or delete.
+  app.get("/api/admin/audit-log", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      // parseInt("abc") is NaN, which survives ?? and Math.min/max and would
+      // reach the SQL layer as .limit(NaN). Fall back to the default instead.
+      const numericParam = (value: unknown): number | undefined => {
+        if (typeof value !== "string") return undefined;
+        const parsed = Number.parseInt(value, 10);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      };
+
+      const entries = await storage.getAdminAuditEntries({
+        websiteId: typeof req.query.websiteId === "string" ? req.query.websiteId : undefined,
+        actorAdminUserId: typeof req.query.actorAdminUserId === "string" ? req.query.actorAdminUserId : undefined,
+        adminSessionId: typeof req.query.adminSessionId === "string" ? req.query.adminSessionId : undefined,
+        limit: numericParam(req.query.limit),
+        offset: numericParam(req.query.offset),
+      });
+      res.json(entries);
+    } catch (error: any) {
+      console.error("Admin audit log error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Admin billing - user subscriptions
   app.get("/api/admin/billing/subscriptions", requireAuth, requireAdmin, async (req, res) => {
     try {
@@ -5573,24 +5617,10 @@ export async function registerRoutes(
     }
   });
 
-  // Admin impersonation - generates a session token for viewing as a user
-  app.post("/api/admin/impersonate/:userId", requireAuth, requireAdmin, async (req, res) => {
-    try {
-      const targetUser = await storage.getProfile(req.params.userId);
-      if (!targetUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      // Return user data for impersonation (frontend handles session swap)
-      res.json({
-        userId: targetUser.id,
-        email: targetUser.email,
-        fullName: targetUser.fullName,
-      });
-    } catch (error: any) {
-      console.error("Admin impersonate error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
+  // NOTE: the former admin impersonation stub route was removed.
+  // Administrators edit client websites through the website access
+  // service (server/websiteAccess.ts) with audit logging - never by
+  // impersonating the client's session.
 
   // Check if current user is admin
   app.get("/api/admin/check", requireAuth, async (req, res) => {

@@ -79,6 +79,20 @@ export default function SetupPage() {
         }
 
         const website = await response.json();
+
+        // Administrators can read website metadata but cannot read or write
+        // website inputs, so this page would silently fail to load and save.
+        if (website.adminContext) {
+          toast({
+            title: "Not available for administrators",
+            description:
+              "Administrator access currently covers the website builder only.",
+            variant: "destructive",
+          });
+          setLocation(`/builder/${id}`);
+          return;
+        }
+
         setWebsiteName(website.name);
 
         // Fetch existing inputs

@@ -32,7 +32,7 @@ import {
   DollarSign,
   ArrowLeft,
   ExternalLink,
-  UserCog,
+  Pencil,
   Filter,
   Search,
   RefreshCw,
@@ -622,10 +622,8 @@ function FunnelTab({ funnel }: { funnel: AdminFunnelStep[] }) {
 
 function UsersTab({
   users,
-  onImpersonate,
 }: {
   users: AdminUserWithStats[];
-  onImpersonate: (userId: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "verified" | "unverified">("all");
@@ -708,15 +706,12 @@ function UsersTab({
                 <TableCell className="text-center">{user.totalBookings}</TableCell>
                 <TableCell>{formatDate(user.createdAt)}</TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onImpersonate(user.id)}
-                    data-testid={`button-impersonate-${user.id}`}
-                  >
-                    <UserCog className="h-4 w-4 mr-1" />
-                    View As
-                  </Button>
+                  {/* The former "View As" impersonation stub was removed.
+                      Admins edit client sites via "Open builder" on the
+                      Websites tab - authorized and audited server-side. */}
+                  <span className="text-xs text-muted-foreground">
+                    See Websites tab
+                  </span>
                 </TableCell>
               </TableRow>
             ))}
@@ -930,6 +925,7 @@ function BillingTab({ subscriptions }: { subscriptions: AdminUserSubscription[] 
 }
 
 function WebsitesTab({ websites }: { websites: AdminWebsiteWithOwner[] }) {
+  const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "published" | "draft">("all");
 
@@ -1018,23 +1014,37 @@ function WebsitesTab({ websites }: { websites: AdminWebsiteWithOwner[] }) {
                 <TableCell className="text-center">{website.bookingCount}</TableCell>
                 <TableCell>{formatDate(website.lastPublishedAt)}</TableCell>
                 <TableCell className="text-right">
-                  {website.deploymentUrl && (
+                  <div className="flex items-center justify-end gap-1">
+                    {/* Opens the client's builder in admin editing mode.
+                        The query param only primes UI state - the server
+                        authorizes and audits every request. */}
                     <Button
                       variant="ghost"
                       size="sm"
-                      asChild
-                      data-testid={`button-visit-${website.id}`}
+                      onClick={() => setLocation(`/builder/${website.id}?adminEdit=1`)}
+                      data-testid={`button-open-builder-${website.id}`}
                     >
-                      <a
-                        href={website.deploymentUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <ExternalLink className="h-4 w-4 mr-1" />
-                        Visit
-                      </a>
+                      <Pencil className="h-4 w-4 mr-1" />
+                      Open builder
                     </Button>
-                  )}
+                    {website.deploymentUrl && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                        data-testid={`button-visit-${website.id}`}
+                      >
+                        <a
+                          href={website.deploymentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="h-4 w-4 mr-1" />
+                          Visit
+                        </a>
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -1398,20 +1408,6 @@ export default function AdminPage() {
     enabled: adminCheck?.isAdmin && !!session,
   });
 
-  const impersonateMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      const res = await fetch(`/api/admin/impersonate/${userId}`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) throw new Error("Failed to impersonate user");
-      return res.json();
-    },
-    onSuccess: (data) => {
-      alert(`Viewing as ${data.fullName} (${data.email})\n\nNote: Full impersonation requires session management. For now, navigate to their dashboard manually.`);
-    },
-  });
-
   const { data: supportTickets, isLoading: ticketsLoading, refetch: refetchTickets } = useQuery({
     queryKey: ["admin-support-tickets"],
     queryFn: async () => {
@@ -1615,10 +1611,7 @@ export default function AdminPage() {
             {usersLoading ? (
               <Skeleton className="h-[400px]" />
             ) : users ? (
-              <UsersTab
-                users={users}
-                onImpersonate={(userId) => impersonateMutation.mutate(userId)}
-              />
+              <UsersTab users={users} />
             ) : null}
           </TabsContent>
 
