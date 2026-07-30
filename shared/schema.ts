@@ -91,7 +91,24 @@ export const insertProfileSchema = createInsertSchema(profiles).omit({
   createdAt: true,
 });
 
+// Fields a user is allowed to change on their own profile via PATCH /api/profile/:id.
+// Deliberately narrow allowlist: isAdmin, planSlug, subscriptionId, subscriptionStatus,
+// subscriptionPriceId, stripeCustomerId, verifiedOnboardingSubscriptionId and
+// onboardingCompleted are privilege/billing state and must only be set server-side
+// (admin tooling, Stripe webhooks, onboarding routes). Email is owned by Supabase Auth -
+// changing it here would desync the two. id comes from the authenticated route param,
+// never from the body. strict() rejects any unknown or excluded key outright instead
+// of silently stripping it.
+export const updateProfileSchema = z
+  .object({
+    fullName: z.string().max(200),
+    phoneNumber: z.string().max(50),
+  })
+  .partial()
+  .strict();
+
 export type InsertProfile = z.infer<typeof insertProfileSchema>;
+export type UpdateProfile = z.infer<typeof updateProfileSchema>;
 export type Profile = typeof profiles.$inferSelect;
 
 // User invoices for billing history

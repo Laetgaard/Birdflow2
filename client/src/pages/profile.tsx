@@ -253,8 +253,11 @@ export default function ProfilePage() {
   const updateProfileMutation = useMutation({
     mutationFn: async (data: { fullName: string; phoneNumber: string }) => {
       const response = await fetch(`/api/profile/${user?.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
         body: JSON.stringify(data),
       });
       if (!response.ok) throw new Error('Kunne ikke opdatere profil');

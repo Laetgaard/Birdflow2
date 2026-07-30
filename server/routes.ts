@@ -1,8 +1,9 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
-import { insertProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile } from "@shared/schema";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
+import { ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
@@ -732,15 +733,21 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Access denied" });
       }
 
-      const validatedData = insertProfileSchema.partial().parse(req.body);
+      // Strict allowlist: only self-service fields (fullName, phoneNumber).
+      // Privileged fields (isAdmin, plan/subscription state, stripeCustomerId, ...)
+      // are rejected outright - see updateProfileSchema in shared/schema.ts.
+      const validatedData = updateProfileSchema.parse(req.body);
       const profile = await storage.updateProfile(req.params.id, validatedData);
-      
+
       if (!profile) {
         return res.status(404).json({ message: "Profile not found" });
       }
 
       res.json(profile);
     } catch (error: any) {
+      if (error instanceof ZodError) {
+        return res.status(400).json({ message: "Invalid profile update", issues: error.issues });
+      }
       res.status(500).json({ message: error.message });
     }
   });
