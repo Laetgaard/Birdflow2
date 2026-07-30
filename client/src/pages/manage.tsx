@@ -2261,6 +2261,21 @@ export default function ManagePage() {
         }
 
         const websiteData = await websiteRes.json();
+
+        // Administrators can read website metadata (for the builder) but have
+        // no manage permissions yet, so every sub-resource below would 403 and
+        // render an empty page. Send them to the builder instead of a shell.
+        if (websiteData.adminContext) {
+          toast({
+            title: "Not available for administrators",
+            description:
+              "Administrator access currently covers the website builder only.",
+            variant: "destructive",
+          });
+          setLocation(`/builder/${id}`);
+          return;
+        }
+
         setWebsite(websiteData);
 
         const ordersRes = await fetch(`/api/websites/${id}/orders`, {

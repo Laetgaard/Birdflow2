@@ -11,13 +11,20 @@ import { storage } from "./storage";
 // which top-level keys / how many components), never content.
 // ============================================================
 
+export type AuditSummary = Record<string, unknown>;
+
 export type AuditParams = {
   action: string; // e.g. "builder.update"
   resourceType: string; // e.g. "builderState"
   resourceId?: string | null;
   httpMethod: string;
   route: string; // route pattern, not the raw URL
-  changedSummary?: Record<string, unknown> | null;
+  /**
+   * Pass a thunk for anything expensive (e.g. a builder-state diff): it is
+   * only invoked in admin mode, so owner requests on hot paths like autosave
+   * never pay for a summary that would be discarded.
+   */
+  changedSummary?: AuditSummary | (() => AuditSummary) | null;
 };
 
 /**
@@ -33,21 +40,28 @@ export async function recordAdminAudit(
 ): Promise<void> {
   if (ctx.mode !== "admin") return;
 
-  const entry: InsertAdminAuditEntry = {
-    actorAdminUserId: ctx.actorUserId,
-    targetUserId: ctx.ownerUserId,
-    websiteId: ctx.website.id,
-    adminSessionId: ctx.adminSessionId,
-    requestId: ctx.requestId,
-    action: params.action,
-    resourceType: params.resourceType,
-    resourceId: params.resourceId ?? null,
-    httpMethod: params.httpMethod,
-    route: params.route,
-    changedSummary: params.changedSummary ?? null,
-  };
-
   try {
+    // Resolved here, after the mode check and inside the catch: a summary
+    // that throws must never turn an already-committed mutation into a 500.
+    const changedSummary =
+      typeof params.changedSummary === "function"
+        ? params.changedSummary()
+        : params.changedSummary ?? null;
+
+    const entry: InsertAdminAuditEntry = {
+      actorAdminUserId: ctx.actorUserId,
+      targetUserId: ctx.ownerUserId,
+      websiteId: ctx.website.id,
+      adminSessionId: ctx.adminSessionId,
+      requestId: ctx.requestId,
+      action: params.action,
+      resourceType: params.resourceType,
+      resourceId: params.resourceId ?? null,
+      httpMethod: params.httpMethod,
+      route: params.route,
+      changedSummary,
+    };
+
     await storage.createAdminAuditEntry(entry);
   } catch (error) {
     // Loud, greppable failure - the audit trail has a gap.
@@ -60,13 +74,31 @@ export async function recordAdminAudit(
 
 type PageLike = { id?: string; name?: string; components?: unknown[] };
 
+// Caps so a hostile or malformed save cannot inflate an audit row.
+const MAX_LISTED_IDS = 50;
+const MAX_ID_LENGTH = 128;
+
 function pagesById(state: Partial<BuilderStateData> | null | undefined): Map<string, PageLike> {
   const map = new Map<string, PageLike>();
-  const pages = (state?.pages ?? []) as PageLike[];
-  for (const page of pages) {
+  // state comes straight from the request body and is not schema-validated,
+  // so pages may be any shape. Never iterate it blindly.
+  const pages = state?.pages;
+  if (!Array.isArray(pages)) return map;
+  for (const page of pages as PageLike[]) {
     if (page && typeof page.id === "string") map.set(page.id, page);
   }
   return map;
+}
+
+/** Truncate ids and cap list length so changed_summary stays small. */
+function capIds(ids: string[]): string[] {
+  const capped = ids
+    .slice(0, MAX_LISTED_IDS)
+    .map((id) => (id.length > MAX_ID_LENGTH ? `${id.slice(0, MAX_ID_LENGTH)}...` : id));
+  if (ids.length > MAX_LISTED_IDS) {
+    capped.push(`...+${ids.length - MAX_LISTED_IDS} more`);
+  }
+  return capped;
 }
 
 /**
@@ -119,10 +151,10 @@ export function summarizeBuilderStateChange(
   };
 
   return {
-    pagesAdded,
-    pagesRemoved,
-    pagesModified,
-    changedTopLevelKeys: changedTopLevelKeys.sort(),
+    pagesAdded: capIds(pagesAdded),
+    pagesRemoved: capIds(pagesRemoved),
+    pagesModified: capIds(pagesModified),
+    changedTopLevelKeys: capIds(changedTopLevelKeys.sort()),
     componentCountBefore: countComponents(oldPages),
     componentCountAfter: countComponents(newPages),
   };

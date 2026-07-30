@@ -9,6 +9,7 @@ import {
   type WebsitePermission,
 } from "../server/websiteAccess";
 import { summarizeBuilderStateChange } from "../server/adminAudit";
+import { isAllowedMediaStoragePath } from "../server/mediaPaths";
 
 /**
  * Milestone 1 regression tests: the typed website access service that
@@ -196,6 +197,79 @@ describe("summarizeBuilderStateChange", () => {
     expect(() =>
       summarizeBuilderStateChange({ pages: "garbage" } as any, undefined)
     ).not.toThrow();
+    // Non-iterable truthy pages: `for...of` would throw here. The builder
+    // PATCH body is never schema-validated, so this must stay safe - a throw
+    // would 500 a save that has already been committed.
+    expect(() => summarizeBuilderStateChange({ pages: {} } as any, undefined)).not.toThrow();
+    expect(() => summarizeBuilderStateChange({ pages: 42 } as any, undefined)).not.toThrow();
+    expect(() => summarizeBuilderStateChange({ pages: true } as any, null)).not.toThrow();
+  });
+
+  it("caps id lists and id lengths so an audit row cannot be inflated", () => {
+    const many = Array.from({ length: 500 }, (_, i) => ({
+      id: `page-${i}`,
+      name: `p${i}`,
+      path: `/p${i}`,
+      components: [],
+    }));
+    const summary = summarizeBuilderStateChange({ pages: [] } as any, { pages: many } as any);
+    const added = summary.pagesAdded as string[];
+    expect(added.length).toBeLessThanOrEqual(51); // 50 ids + the "more" marker
+    expect(added[added.length - 1]).toContain("more");
+
+    const longId = "x".repeat(5000);
+    const longSummary = summarizeBuilderStateChange(
+      { pages: [] } as any,
+      { pages: [{ id: longId, components: [] }] } as any
+    );
+    expect((longSummary.pagesAdded as string[])[0].length).toBeLessThan(200);
+  });
+});
+
+describe("isAllowedMediaStoragePath", () => {
+  const SITE = "site-1";
+  const VICTIM = "victim-site";
+
+  it("accepts the two legitimate upload shapes", () => {
+    // Supabase media bucket path from POST /media/upload-url
+    expect(isAllowedMediaStoragePath(`${SITE}/1720000000-photo.jpg`, SITE)).toBe(true);
+    // Replit object storage path from POST /api/uploads/optimized-image
+    expect(
+      isAllowedMediaStoragePath(
+        "/objects/uploads/0f8fad5b-d9cb-469f-a165-70867728950e.webp",
+        SITE
+      )
+    ).toBe(true);
+  });
+
+  it("rejects another tenant's storage path (cross-tenant deletion)", () => {
+    // The core attack: register an asset on your own site that points at a
+    // victim's object, then DELETE it and let the service-role client remove it.
+    expect(isAllowedMediaStoragePath(`${VICTIM}/1720000000-photo.jpg`, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(`${VICTIM}/logo.png`, SITE)).toBe(false);
+  });
+
+  it("rejects traversal, separators and nested paths", () => {
+    expect(isAllowedMediaStoragePath(`${SITE}/../${VICTIM}/photo.jpg`, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(`${SITE}/nested/photo.jpg`, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(`${SITE}\\photo.jpg`, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(`${SITE}/photo\0.jpg`, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath("/objects/../../etc/passwd", SITE)).toBe(false);
+  });
+
+  it("rejects prefix-confusion against a similarly named site", () => {
+    // "site-10/x" must not pass validation for website "site-1"
+    expect(isAllowedMediaStoragePath("site-10/photo.jpg", "site-1")).toBe(false);
+  });
+
+  it("rejects empty, oversized and non-string values", () => {
+    expect(isAllowedMediaStoragePath("", SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(`${SITE}/`, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(`${SITE}/${"a".repeat(600)}`, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(null, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(undefined, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath(42, SITE)).toBe(false);
+    expect(isAllowedMediaStoragePath({ toString: () => `${SITE}/x.jpg` }, SITE)).toBe(false);
   });
 });
 
@@ -243,6 +317,23 @@ describe("route wiring (source tripwires)", () => {
     expect(routesSource).toContain('action: "media.create"');
     expect(routesSource).toContain('action: "media.update"');
     expect(routesSource).toContain('action: "media.delete"');
+  });
+
+  it("media creation validates the client-supplied storage path", () => {
+    expect(routesSource).toContain("isAllowedMediaStoragePath(storagePath, req.params.id)");
+    // Deletion must not hand an out-of-scope path to the service-role client
+    expect(routesSource).toContain(
+      "isAllowedMediaStoragePath(asset.storagePath, req.params.id)"
+    );
+  });
+
+  it("writes performed by the builder GET are audited in admin mode", () => {
+    expect(routesSource).toContain('action: "builder.create-default"');
+    expect(routesSource).toContain('action: "builder.migrate-legacy-state"');
+  });
+
+  it("the builder-state audit summary is lazy (owner autosaves skip it)", () => {
+    expect(routesSource).toContain("changedSummary: () =>");
   });
 
   it("the impersonation stub stays removed", () => {

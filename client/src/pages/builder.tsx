@@ -52,6 +52,7 @@ import {
 } from "@shared/componentRegistry";
 import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext } from "@shared/schema";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
+import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
@@ -483,18 +484,13 @@ export default function BuilderPage() {
         const websiteData = await websiteRes.json();
         setWebsite(websiteData);
 
-        // Admin editing session: generate/reuse a per-tab session UUID for
+        // Admin editing session: generate/reuse a per-website session UUID for
         // audit grouping. Metadata only - the server authorizes each request
         // from the authenticated user, never from this value.
         if (websiteData.adminContext) {
-          const storageKey = `bf-admin-session-${id}`;
-          let adminSessionId = sessionStorage.getItem(storageKey);
-          if (!adminSessionId) {
-            adminSessionId = crypto.randomUUID();
-            sessionStorage.setItem(storageKey, adminSessionId);
-          }
-          adminSessionIdRef.current = adminSessionId;
+          adminSessionIdRef.current = startAdminSession(id);
         } else {
+          clearAdminSession(id);
           adminSessionIdRef.current = null;
         }
 

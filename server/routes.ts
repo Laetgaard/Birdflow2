@@ -4,6 +4,7 @@ import { storage, db } from "./storage";
 import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
 import { recordAdminAudit, summarizeBuilderStateChange } from "./adminAudit";
+import { isAllowedMediaStoragePath } from "./mediaPaths";
 import { eq, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
@@ -947,19 +948,36 @@ export async function registerRoutes(
   // Owner or administrator (readBuilder permission).
   app.get("/api/websites/:id/builder", requireAuth, requireWebsitePermission("readBuilder"), async (req, res) => {
     try {
+      const access = getWebsiteAccess(req);
       let builderState = await storage.getBuilderState(req.params.id);
-      
-      // Create default builder state if none exists
+
+      // Create default builder state if none exists. This is a write, so an
+      // admin opening a never-opened client site must leave an audit trail.
       if (!builderState) {
         builderState = await storage.createBuilderState(req.params.id);
+        await recordAdminAudit(access, {
+          action: "builder.create-default",
+          resourceType: "builderState",
+          resourceId: req.params.id,
+          httpMethod: "GET",
+          route: "/api/websites/:id/builder",
+        });
       }
 
       // Migrate legacy element-based state to component-based state
       const migratedState = migrateBuilderState(builderState.state);
-      
+
       // If migration changed the state, persist it
       if (JSON.stringify(migratedState) !== JSON.stringify(builderState.state)) {
         builderState = await storage.updateBuilderState(req.params.id, migratedState);
+        // Also a write triggered merely by opening the builder.
+        await recordAdminAudit(access, {
+          action: "builder.migrate-legacy-state",
+          resourceType: "builderState",
+          resourceId: req.params.id,
+          httpMethod: "GET",
+          route: "/api/websites/:id/builder",
+        });
       }
 
       res.json({
@@ -1000,10 +1018,13 @@ export async function registerRoutes(
         resourceId: req.params.id,
         httpMethod: "PATCH",
         route: "/api/websites/:id/builder",
-        changedSummary: summarizeBuilderStateChange(
-          (previous?.state ?? null) as Partial<BuilderStateData> | null,
-          state
-        ),
+        // Thunk: only computed in admin mode, so owner autosaves (every 2s)
+        // never pay for a diff that would be discarded.
+        changedSummary: () =>
+          summarizeBuilderStateChange(
+            (previous?.state ?? null) as Partial<BuilderStateData> | null,
+            state
+          ),
       });
 
       res.json(builderState);
@@ -2273,6 +2294,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Missing required fields" });
       }
 
+      // storagePath is client-supplied but is later handed to the Supabase
+      // SERVICE-ROLE client for deletion, so it must be constrained to paths
+      // this website legitimately owns. Without this an authenticated user
+      // could register an asset pointing at another tenant's object and then
+      // delete it via DELETE /media/:mediaId.
+      if (!isAllowedMediaStoragePath(storagePath, req.params.id)) {
+        return res.status(400).json({ message: "Invalid storage path" });
+      }
+
       const asset = await storage.createMediaAsset({
         websiteId: req.params.id,
         filename,
@@ -2329,13 +2359,19 @@ export async function registerRoutes(
   app.delete("/api/websites/:id/media/:mediaId", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
       const access = getWebsiteAccess(req);
-      // Also delete from Supabase Storage
+      // Also delete from Supabase Storage. Only remove paths this website
+      // legitimately owns - legacy rows predating path validation could
+      // otherwise point at another tenant's object.
       const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      if (supabaseServiceRoleKey && supabaseUrl) {
-        const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
-        if (asset) {
+      const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
+      if (supabaseServiceRoleKey && supabaseUrl && asset) {
+        if (isAllowedMediaStoragePath(asset.storagePath, req.params.id)) {
           const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
           await adminClient.storage.from('media').remove([asset.storagePath]);
+        } else {
+          console.warn(
+            `[Media] Refusing to delete out-of-scope storage path for website ${req.params.id}, asset ${req.params.mediaId}`
+          );
         }
       }
 
@@ -2350,6 +2386,8 @@ export async function registerRoutes(
         resourceId: req.params.mediaId,
         httpMethod: "DELETE",
         route: "/api/websites/:id/media/:mediaId",
+        // Record WHICH object was destroyed, not just the row id.
+        changedSummary: { storagePath: asset?.storagePath ?? null },
       });
 
       res.json({ success: true });
@@ -5497,12 +5535,20 @@ export async function registerRoutes(
   // client resources. Read-only endpoint; there is no update or delete.
   app.get("/api/admin/audit-log", requireAuth, requireAdmin, async (req, res) => {
     try {
+      // parseInt("abc") is NaN, which survives ?? and Math.min/max and would
+      // reach the SQL layer as .limit(NaN). Fall back to the default instead.
+      const numericParam = (value: unknown): number | undefined => {
+        if (typeof value !== "string") return undefined;
+        const parsed = Number.parseInt(value, 10);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      };
+
       const entries = await storage.getAdminAuditEntries({
         websiteId: typeof req.query.websiteId === "string" ? req.query.websiteId : undefined,
         actorAdminUserId: typeof req.query.actorAdminUserId === "string" ? req.query.actorAdminUserId : undefined,
         adminSessionId: typeof req.query.adminSessionId === "string" ? req.query.adminSessionId : undefined,
-        limit: req.query.limit ? parseInt(req.query.limit as string) : undefined,
-        offset: req.query.offset ? parseInt(req.query.offset as string) : undefined,
+        limit: numericParam(req.query.limit),
+        offset: numericParam(req.query.offset),
       });
       res.json(entries);
     } catch (error: any) {

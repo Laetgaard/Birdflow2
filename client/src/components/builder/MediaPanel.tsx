@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Upload, Trash2, Crop, Image as ImageIcon } from 'lucide-react';
 import ImageCropper from './ImageCropper';
 import { useAuth } from '@/lib/auth';
+import { adminSessionHeaders } from '@/lib/adminSession';
 
 type MediaAsset = {
   id: string;
@@ -105,6 +106,7 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          ...adminSessionHeaders(websiteId),
         },
         body: JSON.stringify({
           filename,
@@ -137,6 +139,7 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          ...adminSessionHeaders(websiteId),
         },
         body: JSON.stringify({ crop }),
       });
@@ -155,7 +158,7 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
       if (!accessToken) throw new Error('Not authenticated');
       const res = await fetch(`/api/websites/${websiteId}/media/${mediaId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { Authorization: `Bearer ${accessToken}`, ...adminSessionHeaders(websiteId) },
       });
       if (!res.ok) throw new Error('Failed to delete');
       return res.json();
