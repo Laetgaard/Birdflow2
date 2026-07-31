@@ -1330,6 +1330,22 @@ export class DatabaseStorage implements IStorage {
     const conversionRate = sessionsWithPageView > 0 ? (sessionsWithOrder / sessionsWithPageView) * 100 : 0;
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
+    // Average visit duration: sum each session's page_time beacons (one per
+    // page leave, clamped server-side on ingest), then average per session.
+    const durationBySession = new Map<string, number>();
+    for (const e of events) {
+      if (e.eventType !== 'page_time') continue;
+      const raw = (e.eventData as Record<string, unknown> | null)?.durationSeconds;
+      const seconds = typeof raw === 'number' && Number.isFinite(raw) ? Math.min(raw, 3600) : 0;
+      if (seconds <= 0 || !e.sessionId) continue;
+      durationBySession.set(e.sessionId, (durationBySession.get(e.sessionId) || 0) + seconds);
+    }
+    let totalDuration = 0;
+    durationBySession.forEach((seconds) => { totalDuration += seconds; });
+    const avgVisitDurationSeconds = durationBySession.size > 0
+      ? Math.round(totalDuration / durationBySession.size)
+      : 0;
+
     return {
       totalPageViews: pageViews,
       uniqueSessions,
@@ -1338,6 +1354,7 @@ export class DatabaseStorage implements IStorage {
       conversionRate: Math.round(conversionRate * 100) / 100,
       avgOrderValue: Math.round(avgOrderValue),
       totalBookings,
+      avgVisitDurationSeconds,
     };
   }
 

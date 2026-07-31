@@ -5832,7 +5832,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "websiteId, sessionId, and eventType are required" });
       }
 
-      const validEventTypes = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'checkout_success', 'order_created', 'booking_submit', 'booking_created'];
+      const validEventTypes = ['page_view', 'page_time', 'product_view', 'add_to_cart', 'checkout_start', 'checkout_success', 'order_created', 'booking_submit', 'booking_created'];
       if (!validEventTypes.includes(eventType)) {
         return res.status(400).json({ message: "Invalid event type" });
       }
@@ -5845,6 +5845,20 @@ export async function registerRoutes(
 
       // Privacy-first: Use centralized sanitization from shared schema
       const sanitizedEventData = sanitizeAnalyticsEventData(eventData);
+
+      // page_time beacons: durationSeconds must be a finite number in
+      // [1, 3600] - anything else is dropped so a hostile client cannot
+      // inflate averages or store junk.
+      if (eventType === 'page_time') {
+        const raw = sanitizedEventData?.durationSeconds;
+        const numeric = typeof raw === 'number' ? raw : Number(raw);
+        if (!Number.isFinite(numeric) || numeric < 1) {
+          return res.status(400).json({ message: "Invalid durationSeconds" });
+        }
+        sanitizedEventData!.durationSeconds = Math.min(Math.round(numeric), 3600);
+      } else if (sanitizedEventData && 'durationSeconds' in sanitizedEventData) {
+        delete sanitizedEventData.durationSeconds;
+      }
 
       // Classify the traffic source server-side. New trackers send the raw
       // document.referrer (possibly empty = direct); older ones only send a

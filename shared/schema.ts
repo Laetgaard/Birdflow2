@@ -1042,7 +1042,9 @@ export const ANALYTICS_ALLOWED_EVENT_DATA_FIELDS = [
   'bookingId',
   'utm_source',
   'utm_medium',
-  'utm_campaign'
+  'utm_campaign',
+  // Time-on-page beacon payload (seconds, clamped server-side)
+  'durationSeconds'
 ] as const;
 
 export type AnalyticsEventDataField = typeof ANALYTICS_ALLOWED_EVENT_DATA_FIELDS[number];
@@ -1067,6 +1069,7 @@ export function sanitizeAnalyticsEventData(eventData: unknown): Record<string, u
 // Analytics event types
 export type AnalyticsEventType = 
   | 'page_view'
+  | 'page_time'
   | 'product_view'
   | 'add_to_cart'
   | 'checkout_start'
@@ -1082,6 +1085,9 @@ export type AnalyticsOverview = {
   conversionRate: number;
   avgOrderValue: number;
   totalBookings: number;
+  // Average visit duration in seconds ("besøgstid"), from page_time beacons.
+  // 0 when no beacons exist yet (older deployed sites don't send them).
+  avgVisitDurationSeconds: number;
 };
 
 export type FunnelStep = {
