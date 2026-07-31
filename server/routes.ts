@@ -1117,6 +1117,342 @@ export async function registerRoutes(
     }
   });
 
+  // Create a booking as the website owner (from the manage calendar)
+  app.post("/api/websites/:id/bookings", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const {
+        serviceId, service, customerName, customerEmail, customerPhone,
+        date, time, durationMinutes, teamMemberId, place, notes, status,
+        sendReminder, price, currency, sendConfirmationEmail,
+      } = req.body || {};
+
+      if (!customerName || !service || !date || !time) {
+        return res.status(400).json({ message: "Kundenavn, ydelse, dato og tidspunkt er påkrævet" });
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "Ugyldig dato. Brug formatet ÅÅÅÅ-MM-DD" });
+      }
+      if (!/^\d{2}:\d{2}$/.test(time)) {
+        return res.status(400).json({ message: "Ugyldigt tidspunkt. Brug formatet TT:MM" });
+      }
+
+      // Resolve duration: explicit > service default > 60
+      let duration = typeof durationMinutes === 'number' && durationMinutes > 0 ? durationMinutes : 0;
+      if (!duration && serviceId) {
+        const svc = await storage.getBookingService(serviceId, req.params.id);
+        if (svc) duration = svc.durationMinutes || 0;
+      }
+      if (!duration) duration = 60;
+
+      if (teamMemberId) {
+        const member = await storage.getTeamMember(teamMemberId, req.params.id);
+        if (!member) {
+          return res.status(400).json({ message: "Teammedlemmet findes ikke" });
+        }
+        const conflict = await storage.findMemberConflict(req.params.id, teamMemberId, date, time, duration);
+        if (conflict) {
+          return res.status(409).json({
+            message: `${member.name} er optaget på dette tidspunkt`,
+            code: "MEMBER_CONFLICT",
+            conflictBookingId: conflict.id,
+          });
+        }
+      }
+
+      if (serviceId) {
+        const conflict = await storage.findServiceConflict(req.params.id, serviceId, date, time, duration);
+        if (conflict) {
+          return res.status(409).json({
+            message: "Tidspunktet er allerede booket for denne ydelse",
+            code: "SLOT_UNAVAILABLE",
+            conflictBookingId: conflict.id,
+          });
+        }
+      }
+
+      const booking = await storage.createBooking({
+        websiteId: req.params.id,
+        serviceId: serviceId || null,
+        service,
+        customerName,
+        customerEmail: customerEmail || '',
+        customerPhone: customerPhone || null,
+        date: new Date(date + 'T00:00:00'),
+        time,
+        durationMinutes: duration,
+        teamMemberId: teamMemberId || null,
+        place: place || null,
+        notes: notes || null,
+        status: status || 'confirmed',
+        sendReminder: sendReminder !== false,
+        price: price || null,
+        currency: currency || null,
+      });
+
+      // Optimistic post-insert verification (closes the create race window)
+      const raceConflict = await storage.findPlacementConflict(req.params.id, booking.id);
+      if (raceConflict) {
+        await storage.deleteBooking(booking.id, req.params.id);
+        return res.status(409).json({
+          message: "Tidspunktet blev optaget af en anden booking i mellemtiden",
+          code: "SLOT_UNAVAILABLE",
+          conflictBookingId: raceConflict.id,
+        });
+      }
+
+      if (booking.customerEmail && sendConfirmationEmail !== false) {
+        try {
+          const websiteUrl = website.deploymentUrl || undefined;
+          await emailService.sendBookingConfirmation(booking, booking.customerEmail, booking.service, websiteUrl);
+        } catch (emailErr) {
+          console.error(`[Booking] Failed to send owner-created confirmation email:`, emailErr);
+        }
+      }
+
+      res.status(201).json(booking);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ TEAM MEMBERS ROUTES ============
+
+  const sanitizeMemberAvailability = (value: unknown): { dayOfWeek: number; startTime: string; endTime: string }[] => {
+    if (!Array.isArray(value)) return [];
+    const windows: { dayOfWeek: number; startTime: string; endTime: string }[] = [];
+    for (const w of value) {
+      if (!w || typeof w !== 'object') continue;
+      const dayOfWeek = (w as any).dayOfWeek;
+      const startTime = (w as any).startTime;
+      const endTime = (w as any).endTime;
+      if (typeof dayOfWeek !== 'number' || dayOfWeek < 0 || dayOfWeek > 6) continue;
+      if (typeof startTime !== 'string' || !/^\d{2}:\d{2}$/.test(startTime)) continue;
+      if (typeof endTime !== 'string' || !/^\d{2}:\d{2}$/.test(endTime)) continue;
+      if (startTime >= endTime) continue;
+      windows.push({ dayOfWeek, startTime, endTime });
+    }
+    return windows;
+  };
+
+  app.get("/api/websites/:id/team-members", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+      const members = await storage.getTeamMembers(req.params.id);
+      res.json(members);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/websites/:id/team-members", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+      const { name, role, email, phone, color, serviceIds, availability, active, sortOrder } = req.body || {};
+      if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ message: "Navn er påkrævet" });
+      }
+
+      const member = await storage.createTeamMember({
+        websiteId: req.params.id,
+        name: name.trim(),
+        role: role || null,
+        email: email || null,
+        phone: phone || null,
+        color: typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#6366f1',
+        serviceIds: Array.isArray(serviceIds) ? serviceIds.filter((s: unknown) => typeof s === 'string') : [],
+        availability: sanitizeMemberAvailability(availability),
+        active: active !== false,
+        sortOrder: typeof sortOrder === 'number' ? sortOrder : 0,
+      });
+      res.status(201).json(member);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/websites/:id/team-members/:memberId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+      const { name, role, email, phone, color, serviceIds, availability, active, sortOrder } = req.body || {};
+      const data: Record<string, unknown> = {};
+      if (name !== undefined) {
+        if (typeof name !== 'string' || !name.trim()) {
+          return res.status(400).json({ message: "Navn er påkrævet" });
+        }
+        data.name = name.trim();
+      }
+      if (role !== undefined) data.role = role || null;
+      if (email !== undefined) data.email = email || null;
+      if (phone !== undefined) data.phone = phone || null;
+      if (color !== undefined && typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) data.color = color;
+      if (serviceIds !== undefined) data.serviceIds = Array.isArray(serviceIds) ? serviceIds.filter((s: unknown) => typeof s === 'string') : [];
+      if (availability !== undefined) data.availability = sanitizeMemberAvailability(availability);
+      if (active !== undefined) data.active = active === true;
+      if (sortOrder !== undefined && typeof sortOrder === 'number') data.sortOrder = sortOrder;
+
+      const member = await storage.updateTeamMember(req.params.memberId, req.params.id, data);
+      if (!member) return res.status(404).json({ message: "Teammedlemmet findes ikke" });
+      res.json(member);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/websites/:id/team-members/:memberId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+      const member = await storage.getTeamMember(req.params.memberId, req.params.id);
+      if (!member) return res.status(404).json({ message: "Teammedlemmet findes ikke" });
+
+      await storage.deleteTeamMember(req.params.memberId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ OPEN SLOTS ROUTES ============
+
+  app.get("/api/websites/:id/open-slots", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+      const { from, to } = req.query;
+      const slots = await storage.getOpenSlots(
+        req.params.id,
+        typeof from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : undefined,
+        typeof to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : undefined,
+      );
+      res.json(slots);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/websites/:id/open-slots", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+      const { date, time, durationMinutes, serviceId, teamMemberId, notes } = req.body || {};
+      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "Ugyldig dato. Brug formatet ÅÅÅÅ-MM-DD" });
+      }
+      if (!time || !/^\d{2}:\d{2}$/.test(time)) {
+        return res.status(400).json({ message: "Ugyldigt tidspunkt. Brug formatet TT:MM" });
+      }
+      if (teamMemberId) {
+        const member = await storage.getTeamMember(teamMemberId, req.params.id);
+        if (!member) return res.status(400).json({ message: "Teammedlemmet findes ikke" });
+      }
+
+      const slot = await storage.createOpenSlot({
+        websiteId: req.params.id,
+        serviceId: serviceId || null,
+        teamMemberId: teamMemberId || null,
+        date,
+        time,
+        durationMinutes: typeof durationMinutes === 'number' && durationMinutes > 0 ? durationMinutes : 30,
+        status: 'open',
+        notes: notes || null,
+      });
+      res.status(201).json(slot);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/websites/:id/open-slots/:slotId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+      const existing = await storage.getOpenSlot(req.params.slotId, req.params.id);
+      if (!existing) return res.status(404).json({ message: "Ledig tid ikke fundet" });
+      if (existing.status === 'booked') {
+        return res.status(409).json({ message: "Tiden er allerede booket og kan ikke ændres" });
+      }
+
+      const { date, time, durationMinutes, serviceId, teamMemberId, notes } = req.body || {};
+      const data: Record<string, unknown> = {};
+      if (date !== undefined) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: "Ugyldig dato" });
+        data.date = date;
+      }
+      if (time !== undefined) {
+        if (!/^\d{2}:\d{2}$/.test(time)) return res.status(400).json({ message: "Ugyldigt tidspunkt" });
+        data.time = time;
+      }
+      if (durationMinutes !== undefined) {
+        if (typeof durationMinutes !== 'number' || durationMinutes <= 0) return res.status(400).json({ message: "Ugyldig varighed" });
+        data.durationMinutes = durationMinutes;
+      }
+      if (serviceId !== undefined) data.serviceId = serviceId || null;
+      if (teamMemberId !== undefined) {
+        if (teamMemberId) {
+          const member = await storage.getTeamMember(teamMemberId, req.params.id);
+          if (!member) return res.status(400).json({ message: "Teammedlemmet findes ikke" });
+        }
+        data.teamMemberId = teamMemberId || null;
+      }
+      if (notes !== undefined) data.notes = notes || null;
+
+      const slot = await storage.updateOpenSlot(req.params.slotId, req.params.id, data);
+      res.json(slot);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/websites/:id/open-slots/:slotId", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+
+      const existing = await storage.getOpenSlot(req.params.slotId, req.params.id);
+      if (!existing) return res.status(404).json({ message: "Ledig tid ikke fundet" });
+
+      await storage.deleteOpenSlot(req.params.slotId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Get form submissions for a website
   app.get("/api/websites/:id/submissions", requireAuth, async (req, res) => {
     try {
@@ -1183,7 +1519,7 @@ export async function registerRoutes(
     }
   });
 
-  // Update booking status
+  // Update a booking (status, reschedule, reassign, details)
   app.patch("/api/websites/:id/bookings/:bookingId", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
@@ -1199,24 +1535,127 @@ export async function registerRoutes(
 
       // Get the original booking to check for status changes
       const originalBooking = await storage.getBooking(req.params.bookingId, req.params.id);
+      if (!originalBooking) {
+        return res.status(404).json({ message: "Booking not found" });
+      }
 
-      const booking = await storage.updateBooking(req.params.bookingId, req.params.id, req.body);
+      const body = req.body || {};
+      const data: Record<string, unknown> = {};
+
+      // Whitelisted updatable fields
+      if (body.status !== undefined) data.status = body.status;
+      if (body.notes !== undefined) data.notes = body.notes || null;
+      if (body.place !== undefined) data.place = body.place || null;
+      if (body.sendReminder !== undefined) data.sendReminder = body.sendReminder === true;
+      if (body.customerName !== undefined) data.customerName = body.customerName;
+      if (body.customerEmail !== undefined) data.customerEmail = body.customerEmail;
+      if (body.customerPhone !== undefined) data.customerPhone = body.customerPhone || null;
+      if (body.service !== undefined) data.service = body.service;
+      if (body.serviceId !== undefined) data.serviceId = body.serviceId || null;
+      if (body.price !== undefined) data.price = body.price || null;
+      if (body.currency !== undefined) data.currency = body.currency || null;
+
+      // Reschedule fields
+      let newDateStr: string | undefined;
+      if (body.date !== undefined) {
+        if (typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
+          newDateStr = body.date;
+          data.date = new Date(body.date + 'T00:00:00');
+        } else {
+          const parsed = new Date(body.date);
+          if (isNaN(parsed.getTime())) {
+            return res.status(400).json({ message: "Ugyldig dato" });
+          }
+          newDateStr = parsed.toISOString().slice(0, 10);
+          data.date = parsed;
+        }
+      }
+      if (body.time !== undefined) {
+        if (typeof body.time !== 'string' || !/^\d{2}:\d{2}$/.test(body.time)) {
+          return res.status(400).json({ message: "Ugyldigt tidspunkt. Brug formatet TT:MM" });
+        }
+        data.time = body.time;
+      }
+      if (body.durationMinutes !== undefined) {
+        if (typeof body.durationMinutes !== 'number' || body.durationMinutes <= 0) {
+          return res.status(400).json({ message: "Ugyldig varighed" });
+        }
+        data.durationMinutes = body.durationMinutes;
+      }
+      if (body.teamMemberId !== undefined) {
+        if (body.teamMemberId) {
+          const member = await storage.getTeamMember(body.teamMemberId, req.params.id);
+          if (!member) return res.status(400).json({ message: "Teammedlemmet findes ikke" });
+        }
+        data.teamMemberId = body.teamMemberId || null;
+      }
+
+      // Conflict checks when the effective time/assignee changes, or when a
+      // cancelled booking is reactivated (its old time may have been retaken)
+      const timingChanged = body.date !== undefined || body.time !== undefined
+        || body.durationMinutes !== undefined || body.teamMemberId !== undefined;
+      const reactivating = body.status !== undefined && body.status !== 'cancelled'
+        && originalBooking.status === 'cancelled';
+      if (timingChanged || reactivating) {
+        const effDate = newDateStr ?? new Date(originalBooking.date).toISOString().slice(0, 10);
+        const effTime = (body.time !== undefined ? body.time : originalBooking.time) as string | null;
+        const effDuration = (body.durationMinutes !== undefined ? body.durationMinutes : originalBooking.durationMinutes) || 60;
+        const effMember = body.teamMemberId !== undefined ? (body.teamMemberId || null) : originalBooking.teamMemberId;
+        const effServiceId = body.serviceId !== undefined ? (body.serviceId || null) : originalBooking.serviceId;
+
+        if (effTime && /^\d{2}:\d{2}$/.test(effTime)) {
+          if (effMember) {
+            const conflict = await storage.findMemberConflict(req.params.id, effMember, effDate, effTime, effDuration, originalBooking.id);
+            if (conflict) {
+              return res.status(409).json({
+                message: "Teammedlemmet er optaget på dette tidspunkt",
+                code: "MEMBER_CONFLICT",
+                conflictBookingId: conflict.id,
+              });
+            }
+          }
+          if (effServiceId) {
+            const conflict = await storage.findServiceConflict(req.params.id, effServiceId, effDate, effTime, effDuration, originalBooking.id);
+            if (conflict) {
+              return res.status(409).json({
+                message: "Tidspunktet er allerede booket for denne ydelse",
+                code: "SLOT_UNAVAILABLE",
+                conflictBookingId: conflict.id,
+              });
+            }
+          }
+        }
+      }
+
+      const booking = await storage.updateBooking(req.params.bookingId, req.params.id, data);
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
 
-      // Send email if status changed
-      if (originalBooking && booking.customerEmail && req.body.status) {
+      // Send email on status change or reschedule
+      const rescheduled = (body.date !== undefined || body.time !== undefined)
+        && (new Date(booking.date).getTime() !== new Date(originalBooking.date).getTime() || booking.time !== originalBooking.time);
+
+      // A cancelled or rescheduled booking that claimed an open slot reopens it
+      // (the slot's time is offered again; the booking no longer occupies it)
+      if ((body.status === 'cancelled' && originalBooking.status !== 'cancelled') || rescheduled) {
+        try {
+          await storage.releaseOpenSlotByBooking(req.params.id, booking.id);
+        } catch (slotErr) {
+          console.error(`Failed to release open slot for cancelled/moved booking:`, slotErr);
+        }
+      }
+      if (booking.customerEmail) {
         const websiteUrl = website.deploymentUrl || undefined;
         try {
-          if (req.body.status === 'cancelled') {
+          if (body.status === 'cancelled' && originalBooking.status !== 'cancelled') {
             await emailService.sendBookingCancelled(
               booking,
               booking.customerEmail,
               booking.service
             );
             console.log(`Booking cancelled email sent to ${booking.customerEmail}`);
-          } else if (originalBooking.status !== req.body.status) {
+          } else if ((body.status && originalBooking.status !== body.status) || rescheduled) {
             await emailService.sendBookingUpdated(
               booking,
               booking.customerEmail,
@@ -2955,10 +3394,34 @@ export async function registerRoutes(
     }
   });
 
+  // Public endpoint to get active team members (for "choose person" step)
+  app.get("/api/public/websites/:id/team-members", async (req, res) => {
+    try {
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      const members = await storage.getTeamMembers(req.params.id);
+      res.json(
+        members
+          .filter(m => m.active)
+          .map(m => ({
+            id: m.id,
+            name: m.name,
+            role: m.role,
+            color: m.color,
+            serviceIds: Array.isArray(m.serviceIds) ? m.serviceIds : [],
+          }))
+      );
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Public endpoint to get available time slots for a date
   app.get("/api/public/websites/:websiteId/services/:serviceId/slots", async (req, res) => {
     try {
-      const { date } = req.query;
+      const { date, teamMemberId } = req.query;
       
       if (!date || typeof date !== 'string') {
         return res.status(400).json({ message: "Date query parameter is required (YYYY-MM-DD format)" });
@@ -2972,7 +3435,8 @@ export async function registerRoutes(
       const slots = await storage.getAvailableSlotsForDate(
         req.params.serviceId,
         req.params.websiteId,
-        date
+        date,
+        typeof teamMemberId === 'string' && teamMemberId ? teamMemberId : undefined
       );
 
       res.json(slots);
@@ -3016,8 +3480,8 @@ export async function registerRoutes(
     console.log(`[Booking] Received booking request for website ${websiteId}`);
     
     try {
-      const { customerName, customerEmail, customerPhone, service, serviceId, date, time, notes } = req.body;
-      console.log(`[Booking] Request details:`, { customerName, customerEmail, service, serviceId, date, time });
+      const { customerName, customerEmail, customerPhone, service, serviceId, date, time, notes, teamMemberId, openSlotId, place } = req.body;
+      console.log(`[Booking] Request details:`, { customerName, customerEmail, service, serviceId, date, time, teamMemberId, openSlotId });
       
       if (!customerName || !customerEmail || !service || !date) {
         console.log(`[Booking] REJECTED: Missing required fields`);
@@ -3031,35 +3495,141 @@ export async function registerRoutes(
       }
       console.log(`[Booking] Website found: ${website.name}`);
 
-      // Double-booking prevention: Check if slot is still available
-      if (serviceId && time) {
-        // Parse date string to YYYY-MM-DD format
-        const dateObj = new Date(date);
-        const dateStr = dateObj.toISOString().split('T')[0];
-        
-        console.log(`[Booking] Checking availability for service ${serviceId} on ${dateStr} at ${time}`);
-        const isAvailable = await storage.checkSlotAvailable(serviceId, websiteId, dateStr, time);
-        if (!isAvailable) {
-          console.log(`[Booking] CONFLICT: Slot ${time} on ${dateStr} is already booked for service ${serviceId}`);
-          return res.status(409).json({ 
+      // Validate the requested team member (if any) belongs to this website
+      let requestedMemberId: string | null = null;
+      if (teamMemberId && typeof teamMemberId === 'string') {
+        const member = await storage.getTeamMember(teamMemberId, websiteId);
+        if (!member || !member.active) {
+          console.log(`[Booking] REJECTED: Unknown team member ${teamMemberId}`);
+          return res.status(400).json({ message: "Selected team member is not available" });
+        }
+        requestedMemberId = member.id;
+      }
+
+      let booking;
+
+      if (openSlotId && typeof openSlotId === 'string') {
+        // Owner-placed open slot: claim it atomically, then create the booking from it
+        const claimed = await storage.claimOpenSlot(openSlotId, websiteId);
+        if (!claimed) {
+          console.log(`[Booking] CONFLICT: Open slot ${openSlotId} already taken`);
+          return res.status(409).json({
             message: "This time slot is no longer available. Please select a different time.",
             code: "SLOT_UNAVAILABLE"
           });
         }
-        console.log(`[Booking] Slot is available, proceeding with booking`);
-      }
 
-      const booking = await storage.createBooking({
-        websiteId,
-        customerName,
-        customerEmail,
-        customerPhone,
-        service,
-        serviceId: serviceId || null,
-        date: new Date(date),
-        time: time || null,
-        notes,
-      });
+        try {
+          // Slot settings win over request values
+          let slotServiceId = claimed.serviceId || serviceId || null;
+          let serviceName = service;
+          if (claimed.serviceId && claimed.serviceId !== serviceId) {
+            const svc = await storage.getBookingService(claimed.serviceId, websiteId);
+            if (svc) serviceName = svc.name;
+          }
+
+          booking = await storage.createBooking({
+            websiteId,
+            customerName,
+            customerEmail,
+            customerPhone,
+            service: serviceName,
+            serviceId: slotServiceId,
+            date: new Date(claimed.date + 'T00:00:00'),
+            time: claimed.time,
+            durationMinutes: claimed.durationMinutes || null,
+            teamMemberId: claimed.teamMemberId || requestedMemberId,
+            place: typeof place === 'string' && place ? place : null,
+            notes,
+          });
+          await storage.linkOpenSlotBooking(claimed.id, booking.id);
+        } catch (createErr) {
+          // Revert the claim so the slot is not lost
+          await storage.releaseOpenSlot(claimed.id).catch(() => {});
+          throw createErr;
+        }
+        console.log(`[Booking] SUCCESS: Created booking ${booking.id} from open slot ${claimed.id}`);
+      } else {
+        // Resolve the service duration once — used for conflict checks and
+        // stored on the booking so calendar and emails know the real length
+        let durationMinutes: number | null = null;
+        if (serviceId) {
+          const svc = await storage.getBookingService(serviceId, websiteId);
+          if (svc?.durationMinutes) durationMinutes = svc.durationMinutes;
+        }
+
+        // Double-booking prevention: Check if slot is still available
+        let dateStr: string | null = null;
+        if (serviceId && time) {
+          // Parse date string to YYYY-MM-DD format
+          const dateObj = new Date(date);
+          dateStr = dateObj.toISOString().split('T')[0];
+          
+          console.log(`[Booking] Checking availability for service ${serviceId} on ${dateStr} at ${time}`);
+          const isAvailable = await storage.checkSlotAvailable(serviceId, websiteId, dateStr, time, requestedMemberId || undefined);
+          if (!isAvailable) {
+            console.log(`[Booking] CONFLICT: Slot ${time} on ${dateStr} is already booked for service ${serviceId}`);
+            return res.status(409).json({ 
+              message: "This time slot is no longer available. Please select a different time.",
+              code: "SLOT_UNAVAILABLE"
+            });
+          }
+          // Interval-based check catches overlaps at offset times (e.g. an
+          // owner-placed 10:15 booking blocking the 10:00 grid slot)
+          if (/^\d{1,2}:\d{2}/.test(time)) {
+            const overlapConflict = await storage.findServiceConflict(websiteId, serviceId, dateStr, time, durationMinutes || 60);
+            if (overlapConflict) {
+              console.log(`[Booking] CONFLICT: ${time} on ${dateStr} overlaps booking ${overlapConflict.id}`);
+              return res.status(409).json({
+                message: "This time slot is no longer available. Please select a different time.",
+                code: "SLOT_UNAVAILABLE"
+              });
+            }
+          }
+          console.log(`[Booking] Slot is available, proceeding with booking`);
+        }
+
+        // Member double-booking prevention across all services
+        if (requestedMemberId && time && /^\d{2}:\d{2}$/.test(time)) {
+          const memberDateStr = dateStr || new Date(date).toISOString().split('T')[0];
+          const conflict = await storage.findMemberConflict(websiteId, requestedMemberId, memberDateStr, time, durationMinutes || 60);
+          if (conflict) {
+            console.log(`[Booking] CONFLICT: Member ${requestedMemberId} busy on ${memberDateStr} at ${time}`);
+            return res.status(409).json({
+              message: "The selected person is not available at this time. Please select a different time.",
+              code: "MEMBER_CONFLICT"
+            });
+          }
+        }
+
+        booking = await storage.createBooking({
+          websiteId,
+          customerName,
+          customerEmail,
+          customerPhone,
+          service,
+          serviceId: serviceId || null,
+          date: new Date(date),
+          time: time || null,
+          durationMinutes,
+          teamMemberId: requestedMemberId,
+          place: typeof place === 'string' && place ? place : null,
+          notes,
+        });
+
+        // Optimistic post-insert verification: two concurrent requests can
+        // both pass the pre-checks above; the later-created booking loses
+        // and is rolled back.
+        const raceConflict = await storage.findPlacementConflict(websiteId, booking.id);
+        if (raceConflict) {
+          await storage.deleteBooking(booking.id, websiteId);
+          console.log(`[Booking] RACE: booking rolled back, lost to earlier booking ${raceConflict.id}`);
+          return res.status(409).json({
+            message: "This time slot is no longer available. Please select a different time.",
+            code: "SLOT_UNAVAILABLE"
+          });
+        }
+      }
       console.log(`[Booking] SUCCESS: Created booking ${booking.id} for ${customerName} (${customerEmail})`);
 
       // Send booking confirmation email

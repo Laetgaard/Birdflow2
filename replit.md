@@ -109,7 +109,7 @@ A full e-commerce checkout flow with React Context for cart state, `localStorage
 Dual-mode shipping management supporting manual fixed pricing and live carrier rates (UPS, GLS, PostNord) with encrypted credentials and fallback mechanisms.
 
 ### Calendar Availability System
-Comprehensive booking availability management for services including weekly schedules, blocked dates (with yearly recurring option), and active service periods. The system includes UI for managing availability and an interactive calendar for booking on published sites.
+Comprehensive booking availability management for services including weekly schedules, blocked dates (with yearly recurring option), and active service periods. The system includes UI for managing availability and an interactive calendar for booking on published sites. Extends to team members (per-member services, weekly availability windows, calendar color) with an optional person picker on public booking forms, owner-placed open slots that are publicly bookable via atomic claim (double-claim safe), a manage-side month/week calendar with drag & drop rescheduling and double-booking protection (interval-based conflict checks plus optimistic post-insert race verification on all creation paths), and automated booking emails: confirmation with .ics calendar attachment, configurable pre-appointment reminder and post-appointment follow-up driven by a 60s polling scheduler with claim-before-send at-most-once semantics.
 
 ### Custom Domain Support
 Simplified custom domain connection via Vercel integration, allowing users to add CNAME or A records with status tracking.

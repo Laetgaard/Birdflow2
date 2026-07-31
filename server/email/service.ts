@@ -1,5 +1,6 @@
 import { getUncachableResendClient } from '../replit_integrations/resendClient';
 import { storage } from '../storage';
+import { buildBookingIcs, type IcsMethod } from './ics';
 import type { EmailSettings, EmailTemplate, Order, Booking } from '@shared/schema';
 
 const DEFAULT_BRANDING = {
@@ -34,6 +35,16 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; body
     heading: 'Your booking has been cancelled',
     bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
   },
+  booking_reminder: {
+    subject: 'Reminder: {{serviceName}} on {{date}}',
+    heading: 'Your appointment is coming up',
+    bodyText: 'This is a friendly reminder about your upcoming appointment. We look forward to seeing you!',
+  },
+  booking_followup: {
+    subject: 'Thank you for your visit - {{serviceName}}',
+    heading: 'Thank you for visiting us!',
+    bodyText: 'We hope you enjoyed your appointment. We would love to see you again - book your next appointment anytime.',
+  },
   website_published: {
     subject: 'Your website is now live!',
     heading: 'Congratulations! Your website is published',
@@ -42,12 +53,18 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; body
   },
 };
 
+interface EmailAttachment {
+  filename: string;
+  content: string; // base64
+}
+
 interface EmailData {
   to: string;
   websiteId: string;
   templateType: string;
   variables: Record<string, string>;
   buttonUrl?: string;
+  attachments?: EmailAttachment[];
 }
 
 function generateEmailHtml(
@@ -245,6 +262,9 @@ export class EmailService {
         from: `${fromName} <${senderEmail}>`,
         subject,
         html,
+        ...(data.attachments && data.attachments.length > 0
+          ? { attachments: data.attachments }
+          : {}),
       });
 
       console.log(`[EmailService] Resend API response:`, result);
@@ -271,8 +291,71 @@ export class EmailService {
         return settings.bookingUpdatedEnabled;
       case 'booking_cancelled':
         return settings.bookingCancelledEnabled;
+      case 'booking_reminder':
+        return settings.bookingReminderEnabled;
+      case 'booking_followup':
+        return settings.bookingFollowupEnabled;
       default:
         return true;
+    }
+  }
+
+  // Builds a calendar invite (.ics) attachment for a booking. Returns
+  // undefined when the booking has no usable date/time.
+  private async buildBookingIcsAttachment(
+    booking: Booking,
+    serviceName: string,
+    method: IcsMethod
+  ): Promise<EmailAttachment[] | undefined> {
+    try {
+      if (!booking?.date || !booking?.time) return undefined;
+      const rawTime = String(booking.time);
+      if (!/^\d{1,2}:\d{2}/.test(rawTime)) return undefined;
+      const timeStr = (rawTime.length > 5 ? rawTime.slice(0, 5) : rawTime).padStart(5, '0');
+      const parsedDate = new Date(booking.date);
+      if (isNaN(parsedDate.getTime())) return undefined;
+      const dateStr = parsedDate.toISOString().slice(0, 10);
+
+      const settings = await storage.getEmailSettings(booking.websiteId);
+      let organizerName = settings?.senderName || '';
+      if (!organizerName) {
+        const legal = await storage.getLegalSettings(booking.websiteId);
+        organizerName = legal?.companyName || DEFAULT_BRANDING.senderName;
+      }
+      const organizerEmail = settings?.senderEmail || DEFAULT_BRANDING.senderEmail;
+
+      // SEQUENCE must increase across updates of the same UID
+      const baseMs = booking.createdAt
+        ? new Date(booking.createdAt).getTime()
+        : Date.now();
+      let sequence = Math.max(0, Math.floor((Date.now() - baseMs) / 60000));
+      if (method === 'CANCEL') sequence += 1;
+
+      const ics = buildBookingIcs({
+        uid: `booking-${booking.id}@birdflow`,
+        method,
+        sequence,
+        dateStr,
+        timeStr,
+        durationMinutes: booking.durationMinutes || 60,
+        summary: serviceName,
+        description: booking.notes || undefined,
+        location: booking.place || undefined,
+        organizerName,
+        organizerEmail,
+        attendeeName: booking.customerName || undefined,
+        attendeeEmail: booking.customerEmail || undefined,
+      });
+
+      return [
+        {
+          filename: method === 'CANCEL' ? 'cancellation.ics' : 'booking.ics',
+          content: Buffer.from(ics, 'utf8').toString('base64'),
+        },
+      ];
+    } catch (err) {
+      console.error('[EmailService] Failed to build ICS attachment:', err);
+      return undefined;
     }
   }
 
@@ -292,18 +375,25 @@ export class EmailService {
     });
   }
 
+  private bookingVariables(booking: Booking, serviceName: string): Record<string, string> {
+    const variables: Record<string, string> = {
+      serviceName,
+      date: new Date(booking.date).toLocaleDateString(),
+      time: booking.time || '',
+      customerName: booking.customerName || 'Customer',
+    };
+    if (booking.place) variables.place = booking.place;
+    return variables;
+  }
+
   async sendBookingConfirmation(booking: Booking, customerEmail: string, serviceName: string, websiteUrl?: string): Promise<boolean> {
     return this.sendEmail({
       to: customerEmail,
       websiteId: booking.websiteId,
       templateType: 'booking_confirmation',
-      variables: {
-        serviceName,
-        date: new Date(booking.date).toLocaleDateString(),
-        time: booking.time || '',
-        customerName: booking.customerName || 'Customer',
-      },
+      variables: this.bookingVariables(booking, serviceName),
       buttonUrl: websiteUrl ? `${websiteUrl}/bookings/${booking.id}` : undefined,
+      attachments: await this.buildBookingIcsAttachment(booking, serviceName, 'REQUEST'),
     });
   }
 
@@ -313,13 +403,11 @@ export class EmailService {
       websiteId: booking.websiteId,
       templateType: 'booking_updated',
       variables: {
-        serviceName,
-        date: new Date(booking.date).toLocaleDateString(),
-        time: booking.time || '',
-        customerName: booking.customerName || 'Customer',
+        ...this.bookingVariables(booking, serviceName),
         status: booking.status,
       },
       buttonUrl: websiteUrl ? `${websiteUrl}/bookings/${booking.id}` : undefined,
+      attachments: await this.buildBookingIcsAttachment(booking, serviceName, 'REQUEST'),
     });
   }
 
@@ -328,12 +416,28 @@ export class EmailService {
       to: customerEmail,
       websiteId: booking.websiteId,
       templateType: 'booking_cancelled',
-      variables: {
-        serviceName,
-        date: new Date(booking.date).toLocaleDateString(),
-        time: booking.time || '',
-        customerName: booking.customerName || 'Customer',
-      },
+      variables: this.bookingVariables(booking, serviceName),
+      attachments: await this.buildBookingIcsAttachment(booking, serviceName, 'CANCEL'),
+    });
+  }
+
+  async sendBookingReminder(booking: Booking, customerEmail: string, serviceName: string, websiteUrl?: string): Promise<boolean> {
+    return this.sendEmail({
+      to: customerEmail,
+      websiteId: booking.websiteId,
+      templateType: 'booking_reminder',
+      variables: this.bookingVariables(booking, serviceName),
+      buttonUrl: websiteUrl ? `${websiteUrl}/bookings/${booking.id}` : undefined,
+    });
+  }
+
+  async sendBookingFollowup(booking: Booking, customerEmail: string, serviceName: string, websiteUrl?: string): Promise<boolean> {
+    return this.sendEmail({
+      to: customerEmail,
+      websiteId: booking.websiteId,
+      templateType: 'booking_followup',
+      variables: this.bookingVariables(booking, serviceName),
+      buttonUrl: websiteUrl,
     });
   }
 

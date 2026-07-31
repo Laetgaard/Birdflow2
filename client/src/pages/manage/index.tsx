@@ -12,12 +12,13 @@ import { useToast } from "@/hooks/use-toast";
 import {
   LayoutDashboard, Calendar, Clock, ShoppingCart, Package, Truck, Users,
   FileInput, BarChart3, Settings, Mail, ArrowLeft, Globe, Palette, Menu,
-  Loader2, type LucideIcon,
+  Loader2, UserRound, type LucideIcon,
 } from "lucide-react";
 import type { ManageWebsite } from "./types";
 import { OverviewSection } from "./OverviewSection";
 import { BookingsSection } from "./BookingsSection";
 import { ServicesSection } from "./ServicesSection";
+import { TeamSection } from "./TeamSection";
 import { OrdersSection } from "./OrdersSection";
 import { ProductsSection } from "./ProductsSection";
 import { ShippingSection } from "./ShippingSection";
@@ -29,13 +30,14 @@ import { EmailsSection } from "./EmailsSection";
 import { AccountMenu } from "./AccountMenu";
 
 type SectionKey =
-  | "overview" | "bookings" | "services" | "orders" | "products" | "shipping"
+  | "overview" | "bookings" | "services" | "team" | "orders" | "products" | "shipping"
   | "customers" | "submissions" | "analytics" | "settings" | "emails";
 
 const SECTION_COMPONENTS: Record<SectionKey, React.ComponentType<any>> = {
   overview: OverviewSection,
   bookings: BookingsSection,
   services: ServicesSection,
+  team: TeamSection,
   orders: OrdersSection,
   products: ProductsSection,
   shipping: ShippingSection,
@@ -50,6 +52,7 @@ const SECTION_TITLES: Record<SectionKey, string> = {
   overview: "Overblik",
   bookings: "Bookinger",
   services: "Ydelser & tider",
+  team: "Team",
   orders: "Ordrer",
   products: "Produkter",
   shipping: "Forsendelse",
@@ -70,6 +73,7 @@ const NAV_GROUPS: { label: string | null; items: { key: SectionKey; label: strin
     items: [
       { key: "bookings", label: "Bookinger", icon: Calendar },
       { key: "services", label: "Ydelser & tider", icon: Clock },
+      { key: "team", label: "Team", icon: UserRound },
     ],
   },
   {

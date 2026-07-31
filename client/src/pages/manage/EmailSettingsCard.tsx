@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,6 +17,7 @@ import {
   Globe, Loader2, ShoppingCart, Calendar, Mail, Palette,
   CheckCircle, XCircle, Pencil, Image, Truck, FileText,
   UserPlus, ShoppingBag, FileInput, RotateCcw, RefreshCw,
+  BellRing, Heart,
 } from "lucide-react";
 import type { EmailSettings, EmailTemplate } from "./types";
 import { EMAIL_TEMPLATE_TYPES, DEFAULT_TEMPLATES } from "./types";
@@ -81,6 +83,27 @@ export function EmailSettingsCard({ websiteId, accessToken }: { websiteId: strin
         const updated = await res.json();
         setSettings(updated);
         toast({ title: 'E-mailindstillinger opdateret' });
+      }
+    } catch (error) {
+      toast({ title: 'Kunne ikke opdatere indstillingerne', variant: 'destructive' });
+    }
+  };
+
+  // Gemmer et enkelt felt (bruges af påmindelses- og opfølgningsrækkerne).
+  const handleFieldUpdate = async (data: Partial<EmailSettings>) => {
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/email-settings`, {
+        method: 'PATCH',
+        headers: jsonAuthHeaders(accessToken),
+        body: JSON.stringify(data),
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        setSettings(updated);
+        toast({ title: 'E-mailindstillinger opdateret' });
+      } else {
+        toast({ title: 'Kunne ikke opdatere indstillingerne', variant: 'destructive' });
       }
     } catch (error) {
       toast({ title: 'Kunne ikke opdatere indstillingerne', variant: 'destructive' });
@@ -159,7 +182,24 @@ export function EmailSettingsCard({ websiteId, accessToken }: { websiteId: strin
     );
   }
 
-  const notificationItems = [
+  type NotificationItem = {
+    field: keyof EmailSettings;
+    label: string;
+    description: string;
+    icon: typeof Mail;
+    testId: string;
+    /** Rækker med et ekstra timetal-felt bruger en switch i stedet for til/fra-knappen. */
+    hours?: {
+      field: keyof EmailSettings;
+      suffix: string;
+      min: number;
+      max: number;
+      fallback: number;
+      testId: string;
+    };
+  };
+
+  const notificationItems: NotificationItem[] = [
     {
       field: 'orderConfirmationEnabled' as keyof EmailSettings,
       label: 'Ordrebekræftelser',
@@ -201,6 +241,36 @@ export function EmailSettingsCard({ websiteId, accessToken }: { websiteId: strin
       description: 'Send en mail når en booking aflyses',
       icon: XCircle,
       testId: 'toggle-booking-cancelled',
+    },
+    {
+      field: 'bookingReminderEnabled' as keyof EmailSettings,
+      label: 'Påmindelse før aftale',
+      description: 'Send automatisk en påmindelse til kunden inden aftalen',
+      icon: BellRing,
+      testId: 'switch-booking-reminder',
+      hours: {
+        field: 'bookingReminderLeadHours' as keyof EmailSettings,
+        suffix: 'timer før',
+        min: 1,
+        max: 336,
+        fallback: 48,
+        testId: 'input-reminder-lead-hours',
+      },
+    },
+    {
+      field: 'bookingFollowupEnabled' as keyof EmailSettings,
+      label: 'Opfølgning efter aftale',
+      description: 'Send automatisk en opfølgende mail efter aftalen er afholdt',
+      icon: Heart,
+      testId: 'switch-booking-followup',
+      hours: {
+        field: 'bookingFollowupDelayHours' as keyof EmailSettings,
+        suffix: 'timer efter',
+        min: 1,
+        max: 720,
+        fallback: 24,
+        testId: 'input-followup-delay-hours',
+      },
     },
     {
       field: 'welcomeEmailEnabled' as keyof EmailSettings,
@@ -276,19 +346,56 @@ export function EmailSettingsCard({ websiteId, accessToken }: { websiteId: strin
                       <p className="text-xs text-muted-foreground">{item.description}</p>
                     </div>
                   </div>
-                  <Button
-                    variant={isEnabled ? "default" : "outline"}
-                    size="sm"
-                    className={`min-w-[90px] ${isEnabled ? '' : 'text-muted-foreground'}`}
-                    onClick={() => handleToggle(item.field, !isEnabled)}
-                    data-testid={item.testId}
-                  >
-                    {isEnabled ? (
-                      <><CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Aktiveret</>
-                    ) : (
-                      <><XCircle className="w-3.5 h-3.5 mr-1.5" /> Deaktiveret</>
-                    )}
-                  </Button>
+                  {item.hours ? (
+                    <div className="flex items-center gap-3">
+                      {isEnabled && (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min={item.hours.min}
+                            max={item.hours.max}
+                            className="w-20 h-9"
+                            value={String((settings?.[item.hours.field] as number | undefined) ?? item.hours.fallback)}
+                            onChange={(e) => {
+                              const hoursField = item.hours!.field;
+                              const parsed = parseInt(e.target.value, 10);
+                              setSettings(prev => prev ? { ...prev, [hoursField]: Number.isNaN(parsed) ? '' : parsed } as EmailSettings : null);
+                            }}
+                            onBlur={(e) => {
+                              const config = item.hours!;
+                              const parsed = parseInt(e.target.value, 10);
+                              const clamped = Number.isNaN(parsed)
+                                ? config.fallback
+                                : Math.min(config.max, Math.max(config.min, parsed));
+                              setSettings(prev => prev ? { ...prev, [config.field]: clamped } as EmailSettings : null);
+                              handleFieldUpdate({ [config.field]: clamped } as Partial<EmailSettings>);
+                            }}
+                            data-testid={item.hours.testId}
+                          />
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">{item.hours.suffix}</span>
+                        </div>
+                      )}
+                      <Switch
+                        checked={isEnabled}
+                        onCheckedChange={(checked) => handleToggle(item.field, checked)}
+                        data-testid={item.testId}
+                      />
+                    </div>
+                  ) : (
+                    <Button
+                      variant={isEnabled ? "default" : "outline"}
+                      size="sm"
+                      className={`min-w-[90px] ${isEnabled ? '' : 'text-muted-foreground'}`}
+                      onClick={() => handleToggle(item.field, !isEnabled)}
+                      data-testid={item.testId}
+                    >
+                      {isEnabled ? (
+                        <><CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Aktiveret</>
+                      ) : (
+                        <><XCircle className="w-3.5 h-3.5 mr-1.5" /> Deaktiveret</>
+                      )}
+                    </Button>
+                  )}
                 </div>
                 {index < notificationItems.length - 1 && <Separator />}
               </div>

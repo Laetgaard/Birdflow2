@@ -41,10 +41,46 @@ export type Booking = {
   date: string;
   time?: string;
   durationMinutes?: number;
+  teamMemberId?: string | null;
+  place?: string | null;
+  sendReminder?: boolean;
   price?: string;
   notes?: string;
   status: 'pending' | 'confirmed' | 'cancelled';
   createdAt?: string;
+};
+
+export type TeamMemberAvailabilityWindow = {
+  dayOfWeek: number; // 0 = søndag ... 6 = lørdag
+  startTime: string; // "HH:MM"
+  endTime: string;   // "HH:MM"
+};
+
+export type TeamMember = {
+  id: string;
+  websiteId: string;
+  name: string;
+  role?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  color: string;
+  serviceIds: string[]; // tom = alle ydelser
+  availability: TeamMemberAvailabilityWindow[]; // tom = altid tilgængelig
+  active: boolean;
+  sortOrder: number;
+};
+
+export type OpenSlot = {
+  id: string;
+  websiteId: string;
+  serviceId?: string | null;
+  teamMemberId?: string | null;
+  date: string; // "YYYY-MM-DD"
+  time: string; // "HH:MM"
+  durationMinutes: number;
+  status: 'open' | 'booked';
+  bookingId?: string | null;
+  notes?: string | null;
 };
 
 export type FormSubmission = {
@@ -220,6 +256,10 @@ export type EmailSettings = {
   bookingConfirmationEnabled: boolean;
   bookingUpdatedEnabled: boolean;
   bookingCancelledEnabled: boolean;
+  bookingReminderEnabled: boolean;
+  bookingReminderLeadHours: number;
+  bookingFollowupEnabled: boolean;
+  bookingFollowupDelayHours: number;
   shippingConfirmationEnabled: boolean;
   welcomeEmailEnabled: boolean;
   abandonedCartEnabled: boolean;
@@ -262,6 +302,8 @@ export const EMAIL_TEMPLATE_TYPES = [
   { id: 'booking_confirmation', name: 'Bookingbekræftelse', description: 'Sendes når en kunde opretter en booking' },
   { id: 'booking_updated', name: 'Booking opdateret', description: 'Sendes når en booking ændres' },
   { id: 'booking_cancelled', name: 'Booking aflyst', description: 'Sendes når en booking aflyses' },
+  { id: 'booking_reminder', name: 'Påmindelse', description: 'Sendes automatisk før en aftale som påmindelse' },
+  { id: 'booking_followup', name: 'Opfølgning', description: 'Sendes automatisk efter en aftale som tak-for-besøget' },
   { id: 'welcome_email', name: 'Velkomstmail', description: 'Sendes til nye kunder efter deres første køb eller tilmelding' },
   { id: 'abandoned_cart', name: 'Forladt kurv-påmindelse', description: 'Sendes når en kunde efterlader varer i kurven' },
   { id: 'new_submission', name: 'Ny formular-indsendelse', description: 'Giver dig besked når nogen udfylder en kontaktformular' },
@@ -302,6 +344,16 @@ export const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: strin
     subject: 'Booking Cancelled - {{serviceName}}',
     heading: 'Your booking has been cancelled',
     bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
+  },
+  booking_reminder: {
+    subject: 'Reminder: {{serviceName}} on {{date}}',
+    heading: 'Your appointment is coming up',
+    bodyText: 'This is a friendly reminder about your upcoming appointment. We look forward to seeing you!',
+  },
+  booking_followup: {
+    subject: 'Thank you for your visit - {{serviceName}}',
+    heading: 'Thank you for visiting us!',
+    bodyText: 'We hope you enjoyed your appointment. We would love to see you again - book your next appointment anytime.',
   },
   welcome_email: {
     subject: 'Welcome to {{websiteName}}!',

@@ -59,6 +59,8 @@ import {
   products, type Product, type InsertProduct,
   mediaAssets, type MediaAsset, type InsertMediaAsset,
   bookingServices, type BookingService, type InsertBookingService,
+  bookingTeamMembers, type BookingTeamMember, type InsertBookingTeamMember,
+  bookingOpenSlots, type BookingOpenSlot, type InsertBookingOpenSlot,
   customDomains, type CustomDomain, type InsertCustomDomain,
   shippingMethods, type ShippingMethod, type InsertShippingMethod,
   shippingCarrierCredentials, type ShippingCarrierCredentials, type InsertShippingCarrierCredentials,
@@ -83,8 +85,19 @@ import {
   type AdminAnalyticsOverview, type AdminTrafficSource, type AdminDailyVisitors,
   type AdminUserSubscription
 } from "@shared/schema";
-import { sql, gte, lte, desc, count, countDistinct, and } from "drizzle-orm";
+import { sql, gte, lte, desc, asc, ne, count, countDistinct, and } from "drizzle-orm";
 import { copenhagenDayRange, fillDailySeries } from "./analytics";
+
+// A bookable time slot; openSlotId is set when the time comes from an
+// owner-placed open slot rather than the regular availability rules.
+export type AvailableSlot = {
+  time: string;
+  available: boolean;
+  openSlotId?: string;
+  teamMemberId?: string | null;
+};
+
+import { timeToMinutes, intervalsOverlap, TIME_RE } from "./bookingOverlap";
 
 // Use Supabase database as primary storage
 // Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
@@ -322,8 +335,32 @@ export interface IStorage {
   createServiceAvailability(availability: InsertServiceAvailability): Promise<ServiceAvailability>;
   updateServiceAvailability(id: string, data: Partial<InsertServiceAvailability>): Promise<ServiceAvailability | undefined>;
   deleteServiceAvailability(id: string): Promise<void>;
-  getAvailableSlotsForDate(serviceId: string, websiteId: string, date: string): Promise<{time: string, available: boolean}[]>;
-  checkSlotAvailable(serviceId: string, websiteId: string, date: string, time: string): Promise<boolean>;
+  getAvailableSlotsForDate(serviceId: string, websiteId: string, date: string, teamMemberId?: string): Promise<AvailableSlot[]>;
+  checkSlotAvailable(serviceId: string, websiteId: string, date: string, time: string, teamMemberId?: string): Promise<boolean>;
+
+  // Booking team member methods
+  getTeamMembers(websiteId: string): Promise<BookingTeamMember[]>;
+  getTeamMember(id: string, websiteId: string): Promise<BookingTeamMember | undefined>;
+  createTeamMember(member: InsertBookingTeamMember): Promise<BookingTeamMember>;
+  updateTeamMember(id: string, websiteId: string, data: Partial<InsertBookingTeamMember>): Promise<BookingTeamMember | undefined>;
+  deleteTeamMember(id: string, websiteId: string): Promise<void>;
+
+  // Open slot methods
+  getOpenSlots(websiteId: string, from?: string, to?: string): Promise<BookingOpenSlot[]>;
+  getOpenSlot(id: string, websiteId: string): Promise<BookingOpenSlot | undefined>;
+  createOpenSlot(slot: InsertBookingOpenSlot): Promise<BookingOpenSlot>;
+  updateOpenSlot(id: string, websiteId: string, data: Partial<InsertBookingOpenSlot>): Promise<BookingOpenSlot | undefined>;
+  deleteOpenSlot(id: string, websiteId: string): Promise<void>;
+  claimOpenSlot(id: string, websiteId: string): Promise<BookingOpenSlot | undefined>;
+  releaseOpenSlot(id: string): Promise<void>;
+  releaseOpenSlotByBooking(websiteId: string, bookingId: string): Promise<void>;
+  linkOpenSlotBooking(id: string, bookingId: string): Promise<void>;
+
+  // Booking conflict checks (interval overlap within one day)
+  findMemberConflict(websiteId: string, teamMemberId: string, date: string, time: string, durationMinutes: number, excludeBookingId?: string): Promise<Booking | undefined>;
+  findServiceConflict(websiteId: string, serviceId: string, date: string, time: string, durationMinutes: number, excludeBookingId?: string): Promise<Booking | undefined>;
+  findPlacementConflict(websiteId: string, bookingId: string): Promise<Booking | undefined>;
+  deleteBooking(bookingId: string, websiteId: string): Promise<boolean>;
 
   // Service blocked dates methods
   getServiceBlockedDates(serviceId: string): Promise<ServiceBlockedDate[]>;
@@ -640,6 +677,184 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(bookings.id, bookingId), eq(bookings.websiteId, websiteId)))
       .returning();
     return result[0];
+  }
+
+  // Booking team member methods
+  async getTeamMembers(websiteId: string): Promise<BookingTeamMember[]> {
+    return db.select().from(bookingTeamMembers)
+      .where(eq(bookingTeamMembers.websiteId, websiteId))
+      .orderBy(asc(bookingTeamMembers.sortOrder), asc(bookingTeamMembers.name));
+  }
+
+  async getTeamMember(id: string, websiteId: string): Promise<BookingTeamMember | undefined> {
+    const result = await db.select().from(bookingTeamMembers)
+      .where(and(eq(bookingTeamMembers.id, id), eq(bookingTeamMembers.websiteId, websiteId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createTeamMember(member: InsertBookingTeamMember): Promise<BookingTeamMember> {
+    const result = await db.insert(bookingTeamMembers).values(member as any).returning();
+    return result[0];
+  }
+
+  async updateTeamMember(id: string, websiteId: string, data: Partial<InsertBookingTeamMember>): Promise<BookingTeamMember | undefined> {
+    const result = await db.update(bookingTeamMembers)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(bookingTeamMembers.id, id), eq(bookingTeamMembers.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteTeamMember(id: string, websiteId: string): Promise<void> {
+    // Detach from bookings and open slots first so nothing dangles
+    await db.update(bookings)
+      .set({ teamMemberId: null })
+      .where(and(eq(bookings.websiteId, websiteId), eq(bookings.teamMemberId, id)));
+    await db.update(bookingOpenSlots)
+      .set({ teamMemberId: null, updatedAt: new Date() })
+      .where(and(eq(bookingOpenSlots.websiteId, websiteId), eq(bookingOpenSlots.teamMemberId, id)));
+    await db.delete(bookingTeamMembers)
+      .where(and(eq(bookingTeamMembers.id, id), eq(bookingTeamMembers.websiteId, websiteId)));
+  }
+
+  // Open slot methods
+  async getOpenSlots(websiteId: string, from?: string, to?: string): Promise<BookingOpenSlot[]> {
+    const conditions = [eq(bookingOpenSlots.websiteId, websiteId)];
+    if (from) conditions.push(gte(bookingOpenSlots.date, from));
+    if (to) conditions.push(lte(bookingOpenSlots.date, to));
+    return db.select().from(bookingOpenSlots)
+      .where(and(...conditions))
+      .orderBy(asc(bookingOpenSlots.date), asc(bookingOpenSlots.time));
+  }
+
+  async getOpenSlot(id: string, websiteId: string): Promise<BookingOpenSlot | undefined> {
+    const result = await db.select().from(bookingOpenSlots)
+      .where(and(eq(bookingOpenSlots.id, id), eq(bookingOpenSlots.websiteId, websiteId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createOpenSlot(slot: InsertBookingOpenSlot): Promise<BookingOpenSlot> {
+    const result = await db.insert(bookingOpenSlots).values(slot as any).returning();
+    return result[0];
+  }
+
+  async updateOpenSlot(id: string, websiteId: string, data: Partial<InsertBookingOpenSlot>): Promise<BookingOpenSlot | undefined> {
+    const result = await db.update(bookingOpenSlots)
+      .set({ ...data, updatedAt: new Date() } as any)
+      .where(and(eq(bookingOpenSlots.id, id), eq(bookingOpenSlots.websiteId, websiteId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteOpenSlot(id: string, websiteId: string): Promise<void> {
+    await db.delete(bookingOpenSlots)
+      .where(and(eq(bookingOpenSlots.id, id), eq(bookingOpenSlots.websiteId, websiteId)));
+  }
+
+  // Atomically claim an open slot (open -> booked). Returns the slot when the
+  // claim succeeded; undefined means someone else already took it.
+  async claimOpenSlot(id: string, websiteId: string): Promise<BookingOpenSlot | undefined> {
+    const result = await db.update(bookingOpenSlots)
+      .set({ status: 'booked', updatedAt: new Date() })
+      .where(and(
+        eq(bookingOpenSlots.id, id),
+        eq(bookingOpenSlots.websiteId, websiteId),
+        eq(bookingOpenSlots.status, 'open')
+      ))
+      .returning();
+    return result[0];
+  }
+
+  async releaseOpenSlot(id: string): Promise<void> {
+    await db.update(bookingOpenSlots)
+      .set({ status: 'open', bookingId: null, updatedAt: new Date() })
+      .where(eq(bookingOpenSlots.id, id));
+  }
+
+  // When a booking that claimed an open slot is cancelled, reopen the slot
+  async releaseOpenSlotByBooking(websiteId: string, bookingId: string): Promise<void> {
+    await db.update(bookingOpenSlots)
+      .set({ status: 'open', bookingId: null, updatedAt: new Date() })
+      .where(and(
+        eq(bookingOpenSlots.websiteId, websiteId),
+        eq(bookingOpenSlots.bookingId, bookingId),
+        eq(bookingOpenSlots.status, 'booked')
+      ));
+  }
+
+  async linkOpenSlotBooking(id: string, bookingId: string): Promise<void> {
+    await db.update(bookingOpenSlots)
+      .set({ bookingId, updatedAt: new Date() })
+      .where(eq(bookingOpenSlots.id, id));
+  }
+
+  // Booking conflict checks
+  private async getDayBookings(websiteId: string, date: string, excludeBookingId?: string): Promise<Booking[]> {
+    const startOfDay = new Date(date + 'T00:00:00');
+    const endOfDay = new Date(date + 'T23:59:59');
+    const rows = await db.select().from(bookings)
+      .where(and(
+        eq(bookings.websiteId, websiteId),
+        gte(bookings.date, startOfDay),
+        lte(bookings.date, endOfDay),
+        ne(bookings.status, 'cancelled')
+      ));
+    return excludeBookingId ? rows.filter(b => b.id !== excludeBookingId) : rows;
+  }
+
+  async findMemberConflict(websiteId: string, teamMemberId: string, date: string, time: string, durationMinutes: number, excludeBookingId?: string): Promise<Booking | undefined> {
+    const dayBookings = await this.getDayBookings(websiteId, date, excludeBookingId);
+    const start = timeToMinutes(time);
+    return dayBookings.find(b =>
+      b.teamMemberId === teamMemberId &&
+      b.time && TIME_RE.test(b.time) &&
+      intervalsOverlap(start, durationMinutes, timeToMinutes(b.time.slice(0, 5)), b.durationMinutes || 60)
+    );
+  }
+
+  async findServiceConflict(websiteId: string, serviceId: string, date: string, time: string, durationMinutes: number, excludeBookingId?: string): Promise<Booking | undefined> {
+    const dayBookings = await this.getDayBookings(websiteId, date, excludeBookingId);
+    const start = timeToMinutes(time);
+    return dayBookings.find(b =>
+      b.serviceId === serviceId &&
+      b.time && TIME_RE.test(b.time) &&
+      intervalsOverlap(start, durationMinutes, timeToMinutes(b.time.slice(0, 5)), b.durationMinutes || 60)
+    );
+  }
+
+  // Optimistic post-insert race check: after creating a booking, look for an
+  // overlapping same-service or same-member booking that was created EARLIER
+  // (id as tiebreak on identical timestamps). Two concurrent requests can both
+  // pass the pre-insert checks; exactly one of them loses this verification
+  // and rolls its booking back.
+  async findPlacementConflict(websiteId: string, bookingId: string): Promise<Booking | undefined> {
+    const own = await this.getBooking(bookingId, websiteId);
+    if (!own || !own.time || !TIME_RE.test(own.time)) return undefined;
+    const d = new Date(own.date);
+    if (isNaN(d.getTime())) return undefined;
+    const dateStr = d.toISOString().split('T')[0];
+    const start = timeToMinutes(own.time.slice(0, 5));
+    const dur = own.durationMinutes || 60;
+    const ownCreated = own.createdAt ? new Date(own.createdAt).getTime() : 0;
+    const dayBookings = await this.getDayBookings(websiteId, dateStr, bookingId);
+    return dayBookings.find(b => {
+      if (!b.time || !TIME_RE.test(b.time)) return false;
+      if (!intervalsOverlap(start, dur, timeToMinutes(b.time.slice(0, 5)), b.durationMinutes || 60)) return false;
+      const sharedService = !!own.serviceId && b.serviceId === own.serviceId;
+      const sharedMember = !!own.teamMemberId && b.teamMemberId === own.teamMemberId;
+      if (!sharedService && !sharedMember) return false;
+      const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bCreated < ownCreated || (bCreated === ownCreated && b.id < bookingId);
+    });
+  }
+
+  async deleteBooking(bookingId: string, websiteId: string): Promise<boolean> {
+    const result = await db.delete(bookings)
+      .where(and(eq(bookings.id, bookingId), eq(bookings.websiteId, websiteId)))
+      .returning({ id: bookings.id });
+    return result.length > 0;
   }
 
   // Form submissions methods
@@ -1500,6 +1715,16 @@ export class DatabaseStorage implements IStorage {
         heading: 'Your booking has been cancelled',
         bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
       },
+      booking_reminder: {
+        subject: 'Reminder: {{serviceName}} on {{date}}',
+        heading: 'Your appointment is coming up',
+        bodyText: 'This is a friendly reminder about your upcoming appointment. We look forward to seeing you!',
+      },
+      booking_followup: {
+        subject: 'Thank you for your visit - {{serviceName}}',
+        heading: 'Thank you for visiting us!',
+        bodyText: 'We hope you enjoyed your appointment. We would love to see you again - book your next appointment anytime.',
+      },
       website_published: {
         subject: 'Your website is now live!',
         heading: 'Congratulations! Your website is published',
@@ -2079,7 +2304,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(serviceAvailability).where(eq(serviceAvailability.id, id));
   }
 
-  async getAvailableSlotsForDate(serviceId: string, websiteId: string, date: string): Promise<{time: string, available: boolean}[]> {
+  async getAvailableSlotsForDate(serviceId: string, websiteId: string, date: string, teamMemberId?: string): Promise<AvailableSlot[]> {
     // Get the service to know the duration
     const service = await db.select().from(bookingServices)
       .where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId)))
@@ -2088,6 +2313,16 @@ export class DatabaseStorage implements IStorage {
     if (!service[0]) return [];
     
     const durationMinutes = service[0].durationMinutes || 30;
+
+    // Optional team member filter
+    let member: BookingTeamMember | undefined;
+    if (teamMemberId) {
+      member = await this.getTeamMember(teamMemberId, websiteId);
+      if (!member || !member.active) return [];
+    }
+    const memberServiceIds = Array.isArray(member?.serviceIds) ? member!.serviceIds : [];
+    const memberWindows = Array.isArray(member?.availability) ? member!.availability : [];
+    const memberPerformsService = !member || memberServiceIds.length === 0 || memberServiceIds.includes(serviceId);
     
     // Parse the date to get day of week (0 = Sunday, 1 = Monday, etc.)
     const dateObj = new Date(date + 'T00:00:00');
@@ -2103,53 +2338,102 @@ export class DatabaseStorage implements IStorage {
         )
       );
     
-    if (availabilityRules.length === 0) return [];
-    
-    // Get existing bookings for this date and service
+    // Existing bookings for this date - all services, needed for member overlap checks
     const startOfDay = new Date(date + 'T00:00:00');
     const endOfDay = new Date(date + 'T23:59:59');
     
-    const existingBookings = await db.select().from(bookings)
+    const dayBookings = await db.select().from(bookings)
       .where(
         and(
           eq(bookings.websiteId, websiteId),
-          eq(bookings.serviceId, serviceId),
           gte(bookings.date, startOfDay),
           lte(bookings.date, endOfDay),
           sql`${bookings.status} != 'cancelled'`
         )
       );
     
-    // Build set of booked time slots
-    const bookedTimes = new Set(existingBookings.map(b => b.time).filter(Boolean));
+    // Same-service exact-time collisions (original behavior)
+    const bookedTimes = new Set(
+      dayBookings.filter(b => b.serviceId === serviceId).map(b => b.time).filter(Boolean)
+    );
+
+    // Member busy check: interval overlap against ALL of the member's bookings that day
+    const memberBusy = (startMin: number, slotDur: number): boolean => {
+      if (!member) return false;
+      return dayBookings.some(b =>
+        b.teamMemberId === member!.id &&
+        b.time && TIME_RE.test(b.time) &&
+        intervalsOverlap(startMin, slotDur, timeToMinutes(b.time.slice(0, 5)), b.durationMinutes || 60)
+      );
+    };
+
+    // Member weekly windows: empty = always available
+    const memberWindowOk = (startMin: number, slotDur: number): boolean => {
+      if (!member || memberWindows.length === 0) return true;
+      return memberWindows.some(w =>
+        w.dayOfWeek === dayOfWeek &&
+        timeToMinutes(w.startTime) <= startMin &&
+        startMin + slotDur <= timeToMinutes(w.endTime)
+      );
+    };
     
-    // Generate all possible slots
-    const slots: {time: string, available: boolean}[] = [];
+    // Generate all possible slots from the service availability rules
+    const slots: AvailableSlot[] = [];
     
-    for (const rule of availabilityRules) {
-      const slotDuration = rule.slotDurationMinutes || durationMinutes;
-      const [startHour, startMin] = rule.startTime.split(':').map(Number);
-      const [endHour, endMin] = rule.endTime.split(':').map(Number);
-      
-      let currentTime = startHour * 60 + startMin;
-      const endTime = endHour * 60 + endMin;
-      
-      while (currentTime + slotDuration <= endTime) {
-        const hours = Math.floor(currentTime / 60);
-        const mins = currentTime % 60;
-        const timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+    if (memberPerformsService) {
+      for (const rule of availabilityRules) {
+        const slotDuration = rule.slotDurationMinutes || durationMinutes;
+        const [startHour, startMin] = rule.startTime.split(':').map(Number);
+        const [endHour, endMin] = rule.endTime.split(':').map(Number);
         
-        // Check if this slot is already added (from another rule)
-        const existingSlot = slots.find(s => s.time === timeStr);
-        if (!existingSlot) {
-          slots.push({
-            time: timeStr,
-            available: !bookedTimes.has(timeStr)
-          });
+        let currentTime = startHour * 60 + startMin;
+        const endTime = endHour * 60 + endMin;
+        
+        while (currentTime + slotDuration <= endTime) {
+          const hours = Math.floor(currentTime / 60);
+          const mins = currentTime % 60;
+          const timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+          
+          if (memberWindowOk(currentTime, slotDuration)) {
+            // Check if this slot is already added (from another rule)
+            const existingSlot = slots.find(s => s.time === timeStr);
+            if (!existingSlot) {
+              slots.push({
+                time: timeStr,
+                available: !bookedTimes.has(timeStr) && !memberBusy(currentTime, slotDuration)
+              });
+            }
+          }
+          
+          currentTime += slotDuration;
         }
-        
-        currentTime += slotDuration;
       }
+    }
+
+    // Merge owner-placed open slots - offered even outside the regular rules
+    const openSlotRows = await db.select().from(bookingOpenSlots)
+      .where(
+        and(
+          eq(bookingOpenSlots.websiteId, websiteId),
+          eq(bookingOpenSlots.date, date),
+          eq(bookingOpenSlots.status, 'open')
+        )
+      );
+
+    for (const openSlot of openSlotRows) {
+      if (openSlot.serviceId && openSlot.serviceId !== serviceId) continue;
+      if (teamMemberId && openSlot.teamMemberId && openSlot.teamMemberId !== teamMemberId) continue;
+      if (!TIME_RE.test(openSlot.time)) continue;
+      // Selected member must actually be free at the open slot's time
+      if (member && memberBusy(timeToMinutes(openSlot.time.slice(0, 5)), openSlot.durationMinutes || durationMinutes)) continue;
+      // Keep regular slots as-is; only add times not already offered
+      if (slots.find(s => s.time === openSlot.time)) continue;
+      slots.push({
+        time: openSlot.time,
+        available: true,
+        openSlotId: openSlot.id,
+        teamMemberId: openSlot.teamMemberId,
+      });
     }
     
     // Sort by time
@@ -2158,9 +2442,9 @@ export class DatabaseStorage implements IStorage {
     return slots;
   }
 
-  async checkSlotAvailable(serviceId: string, websiteId: string, date: string, time: string): Promise<boolean> {
+  async checkSlotAvailable(serviceId: string, websiteId: string, date: string, time: string, teamMemberId?: string): Promise<boolean> {
     // First check if this slot is within availability rules
-    const slots = await this.getAvailableSlotsForDate(serviceId, websiteId, date);
+    const slots = await this.getAvailableSlotsForDate(serviceId, websiteId, date, teamMemberId);
     const slot = slots.find(s => s.time === time);
     return slot?.available ?? false;
   }
@@ -2336,6 +2620,28 @@ export class DatabaseStorage implements IStorage {
         }
       }
     }
+
+    // Owner-placed open slots make their dates bookable even outside weekly rules
+    const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`;
+    const openSlotRows = await db.select().from(bookingOpenSlots)
+      .where(
+        and(
+          eq(bookingOpenSlots.websiteId, websiteId),
+          eq(bookingOpenSlots.status, 'open'),
+          sql`${bookingOpenSlots.date} LIKE ${monthPrefix + '%'}`
+        )
+      );
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+    const availableSet = new Set(availableDates);
+    for (const slot of openSlotRows) {
+      if (slot.serviceId && slot.serviceId !== serviceId) continue;
+      if (new Date(slot.date + 'T00:00:00') < todayStart) continue;
+      if (!availableSet.has(slot.date)) {
+        availableSet.add(slot.date);
+        availableDates.push(slot.date);
+      }
+    }
+    availableDates.sort();
     
     return { availableDates, blockedDates, dateRange, weeklySchedule };
   }
