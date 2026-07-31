@@ -1,11 +1,17 @@
 import { z } from "zod";
 import type { ComponentType } from "./componentRegistry";
 
-export const componentTypes: ComponentType[] = [
+// Every registry type the AI may place with add_component. 'custom' is
+// deliberately absent: custom components are created through
+// add_custom_component, which carries the primitive tree.
+export const componentTypes = [
   'hero', 'image-slider', 'text-image', 'cta', 'features',
   'testimonials', 'footer', 'header', 'product-grid', 'product-detail', 'booking',
-  'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed', 'divider', 'spacer'
-];
+  'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed',
+  'divider', 'spacer', 'newsletter', 'before-after', 'logo-cloud', 'marquee', 'tabs',
+  'comparison-table', 'split-section', 'rich-text', 'team', 'timeline', 'services',
+  'container',
+] as const satisfies readonly ComponentType[];
 
 export const ComponentPropsSchema = z.object({
   title: z.string().optional(),
@@ -87,7 +93,7 @@ export const ComponentStylesSchema = z.object({
 
 export const ComponentSchema = z.object({
   id: z.string(),
-  type: z.enum(['hero', 'image-slider', 'text-image', 'cta', 'features', 'testimonials', 'footer', 'header', 'product-grid', 'product-detail', 'booking', 'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed', 'divider', 'spacer']),
+  type: z.enum(componentTypes),
   props: ComponentPropsSchema,
   styles: ComponentStylesSchema.optional().default({}),
 });

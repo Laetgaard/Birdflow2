@@ -1,0 +1,515 @@
+import { z } from "zod";
+import type { BuilderStateData, BrandGuide } from "@shared/schema";
+import type { BuilderMutation } from "@shared/aiBuilderSchema";
+import {
+  AddComponentMutation,
+  UpdateComponentMutation,
+  RemoveComponentMutation,
+  MoveComponentMutation,
+  DuplicateComponentMutation,
+  AddPageMutation,
+  RemovePageMutation,
+  UpdatePageMutation,
+  UpdateGlobalStylesMutation,
+  ApplyPresetMutation,
+  AddSectionMutation,
+  AddCustomComponentMutation,
+  UpdateCustomComponentMutation,
+  UpdateBrandGuideMutation,
+} from "@shared/aiBuilderSchema";
+import { buildBrandContext } from "@shared/customComponents";
+import { applyMutation, validateMutation, analyzeDesign, assertSaneJsonDepth } from "./aiBuilder";
+import { runSelfCheck } from "./selfCheck";
+import { generateAndStoreImage, type ImageAspect } from "./aiImages";
+
+/* ─────────────────────────────────────────────────────────────
+   Tool catalogue for the builder agent.
+
+   Every write tool delegates to the SAME validate + apply pair the
+   one-shot path uses (validateMutation / applyMutation), so there is
+   exactly one implementation of what a mutation means. Tools operate
+   on an in-memory working copy; nothing is persisted here — the
+   caller runs the self-check → sanitize → save → report tail once at
+   the end, in that order.
+   ───────────────────────────────────────────────────────────── */
+
+export const MAX_IMAGES_PER_RUN = 3;
+
+/** Everything a tool may read or change during one agent run. */
+export type AgentContext = {
+  websiteId: string;
+  /** Mutated in place as tools apply mutations. */
+  state: BuilderStateData;
+  /** Ordered record of what was applied — feeds buildReport. */
+  applied: BuilderMutation[];
+  /** Danish notes surfaced in the final report. */
+  notes: string[];
+  /** Descriptions of images generated this run (for the report). */
+  createdImages: string[];
+  /** Unique (aspect, description) → url, so repeats are free. */
+  imageCache: Map<string, string>;
+  /** True once the caller has approved large changes for this run. */
+  approvedLargeChanges: boolean;
+};
+
+export type ToolResult =
+  | { ok: true; data: unknown; summary: string }
+  | { ok: false; error: string }
+  /** Large-change gate tripped: the loop must stop and ask the user. */
+  | { ok: false; needsApproval: true; error: string; reason: string };
+
+export type AgentTool = {
+  name: string;
+  description: string;
+  parameters: z.ZodTypeAny;
+  /** Write tools carry the mutation action they map to. */
+  mutates: boolean;
+  run: (args: any, ctx: AgentContext) => Promise<ToolResult> | ToolResult;
+};
+
+/* ─────────── large-change classification ─────────── */
+
+export type LargeChangeVerdict = { large: boolean; reason?: string };
+
+/**
+ * Hybrid autonomy: the agent edits freely, but structural changes need
+ * a human. Pure function of the mutations applied so far plus the one
+ * being attempted, so it is directly testable.
+ */
+export function classifyChange(
+  appliedSoFar: BuilderMutation[],
+  next: BuilderMutation,
+  state: BuilderStateData
+): LargeChangeVerdict {
+  const all = [...appliedSoFar, next];
+
+  if (next.action === "remove_page") {
+    return { large: true, reason: "En hel side slettes" };
+  }
+  if (next.action === "update_brand_guide") {
+    return { large: true, reason: "Brand guiden ændres" };
+  }
+  if (next.action === "apply_preset") {
+    return { large: true, reason: "Et helt designtema skiftes" };
+  }
+
+  const removals = all.filter((m) => m.action === "remove_component").length;
+  if (removals >= 3) {
+    return { large: true, reason: `${removals} sektioner fjernes` };
+  }
+
+  if (all.length > 12) {
+    return { large: true, reason: `${all.length} ændringer i én omgang` };
+  }
+
+  // More than half of a single page's sections removed
+  if (next.action === "remove_component") {
+    const pageId = next.pageId;
+    const page = state.pages.find((p) => p.id === pageId);
+    if (page && page.components.length > 0) {
+      const removedOnPage = all.filter(
+        (m) => m.action === "remove_component" && m.pageId === pageId
+      ).length;
+      if (removedOnPage / page.components.length > 0.5) {
+        return { large: true, reason: `Over halvdelen af "${page.name}" fjernes` };
+      }
+    }
+  }
+
+  return { large: false };
+}
+
+/* ─────────── helpers ─────────── */
+
+function compactComponent(c: { id: string; type: string; props?: Record<string, any> }) {
+  const props = c.props ?? {};
+  const title =
+    typeof props.title === "string"
+      ? props.title
+      : typeof props.title === "object" && props.title?.text
+        ? String(props.title.text)
+        : undefined;
+  return {
+    id: c.id,
+    type: c.type,
+    ...(title ? { title: title.slice(0, 80) } : {}),
+    ...(Array.isArray(props.items) ? { itemCount: props.items.length } : {}),
+  };
+}
+
+/** Apply a validated mutation to the working copy, or explain why not. */
+function applyWrite(
+  mutation: BuilderMutation,
+  ctx: AgentContext,
+  summarize: (m: BuilderMutation) => string
+): ToolResult {
+  const verdict = classifyChange(ctx.applied, mutation, ctx.state);
+  if (verdict.large && !ctx.approvedLargeChanges) {
+    return {
+      ok: false,
+      needsApproval: true,
+      reason: verdict.reason ?? "Stor ændring",
+      error:
+        "Denne ændring kræver brugerens godkendelse. Stop her og opsummer hvad du vil gøre.",
+    };
+  }
+
+  const check = validateMutation(mutation, ctx.state);
+  if (!check.valid) {
+    // Returned to the model, not thrown: it gets to correct itself.
+    return { ok: false, error: check.error ?? "Ugyldig ændring" };
+  }
+
+  try {
+    ctx.state = applyMutation(ctx.state, mutation);
+  } catch (err: any) {
+    return { ok: false, error: `Kunne ikke anvende ændringen: ${err?.message ?? err}` };
+  }
+
+  ctx.applied.push(mutation);
+  return { ok: true, data: { applied: true }, summary: summarize(mutation) };
+}
+
+/** Wrap a mutation schema as a write tool. */
+function writeTool(
+  name: string,
+  description: string,
+  schema: z.ZodTypeAny,
+  summarize: (m: any) => string
+): AgentTool {
+  return {
+    name,
+    description,
+    parameters: schema,
+    mutates: true,
+    run: (args, ctx) => {
+      assertSaneJsonDepth(args);
+      const parsed = schema.safeParse(args);
+      if (!parsed.success) {
+        return { ok: false, error: parsed.error.errors[0]?.message ?? "Ugyldige parametre" };
+      }
+      return applyWrite(parsed.data as BuilderMutation, ctx, summarize);
+    },
+  };
+}
+
+/* ─────────── the catalogue ─────────── */
+
+export function buildToolCatalogue(): AgentTool[] {
+  const tools: AgentTool[] = [];
+
+  // ---- read tools ----
+
+  tools.push({
+    name: "list_pages",
+    description:
+      "List the website's pages with their ids, names, paths and how many sections each has. Start here.",
+    parameters: z.object({}),
+    mutates: false,
+    run: (_args, ctx) => ({
+      ok: true,
+      summary: "Læste sideoversigt",
+      data: ctx.state.pages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        path: p.path,
+        componentCount: p.components.length,
+        hidden: p.hidden ?? false,
+      })),
+    }),
+  });
+
+  tools.push({
+    name: "get_page",
+    description:
+      "List the sections on one page in order, with their ids and types. Use before changing anything on that page.",
+    parameters: z.object({ pageId: z.string() }),
+    mutates: false,
+    run: ({ pageId }, ctx) => {
+      const page = ctx.state.pages.find((p) => p.id === pageId);
+      if (!page) {
+        return {
+          ok: false,
+          error: `Ukendt side "${pageId}". Kendte sider: ${ctx.state.pages.map((p) => p.id).join(", ")}`,
+        };
+      }
+      return {
+        ok: true,
+        summary: `Læste siden "${page.name}"`,
+        data: { id: page.id, name: page.name, components: page.components.map(compactComponent) },
+      };
+    },
+  });
+
+  tools.push({
+    name: "get_component",
+    description: "Read one section's full props and styles.",
+    parameters: z.object({ pageId: z.string(), componentId: z.string() }),
+    mutates: false,
+    run: ({ pageId, componentId }, ctx) => {
+      const page = ctx.state.pages.find((p) => p.id === pageId);
+      const component = page?.components.find((c) => c.id === componentId);
+      if (!component) {
+        return { ok: false, error: `Ukendt sektion "${componentId}" på siden "${pageId}"` };
+      }
+      return {
+        ok: true,
+        summary: `Læste sektion ${component.type}`,
+        data: component,
+      };
+    },
+  });
+
+  tools.push({
+    name: "get_brand_guide",
+    description:
+      "Read the website's brand guide (colours, fonts, spacing, motion, tone of voice). Follow it for every change.",
+    parameters: z.object({}),
+    mutates: false,
+    run: (_args, ctx) => ({
+      ok: true,
+      summary: "Læste brand guide",
+      data: ctx.state.brandGuide
+        ? buildBrandContext(ctx.state.brandGuide as BrandGuide)
+        : "Ingen brand guide defineret endnu.",
+    }),
+  });
+
+  tools.push({
+    name: "list_custom_components",
+    description: "List the website's saved custom components ('Mine komponenter').",
+    parameters: z.object({}),
+    mutates: false,
+    run: (_args, ctx) => ({
+      ok: true,
+      summary: "Læste komponentbibliotek",
+      data: (ctx.state.customComponents ?? []).map((e) => ({ id: e.id, name: e.name })),
+    }),
+  });
+
+  tools.push({
+    name: "analyze_design",
+    description:
+      "Get a design critique of the current site (hierarchy, spacing, consistency). Useful before a redesign.",
+    parameters: z.object({}),
+    mutates: false,
+    run: async (_args, ctx) => {
+      try {
+        const analysis = await analyzeDesign(ctx.state);
+        return { ok: true, summary: "Analyserede designet", data: analysis };
+      } catch (err: any) {
+        return { ok: false, error: `Analysen fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  tools.push({
+    name: "run_self_check",
+    description:
+      "Run the deterministic quality check (link targets, WCAG contrast, responsive hazards) and read its notes.",
+    parameters: z.object({}),
+    mutates: false,
+    run: (_args, ctx) => {
+      const check = runSelfCheck(ctx.state);
+      return {
+        ok: true,
+        summary: `Kvalitetstjek: ${check.notes.length} bemærkninger`,
+        data: check.notes.length > 0 ? check.notes : ["Ingen problemer fundet."],
+      };
+    },
+  });
+
+  // ---- write tools (one per mutation action) ----
+
+  tools.push(
+    writeTool(
+      "add_component",
+      "Add a standard section to a page.",
+      AddComponentMutation,
+      (m) => `Tilføjede ${m.component.type}`
+    )
+  );
+  tools.push(
+    writeTool(
+      "update_component",
+      "Change an existing section's props and/or styles.",
+      UpdateComponentMutation,
+      () => "Opdaterede en sektion"
+    )
+  );
+  tools.push(
+    writeTool(
+      "remove_component",
+      "Delete a section from a page.",
+      RemoveComponentMutation,
+      () => "Fjernede en sektion"
+    )
+  );
+  tools.push(
+    writeTool(
+      "move_component",
+      "Reorder a section within its page.",
+      MoveComponentMutation,
+      () => "Flyttede en sektion"
+    )
+  );
+  tools.push(
+    writeTool(
+      "duplicate_component",
+      "Duplicate a section in place.",
+      DuplicateComponentMutation,
+      () => "Duplikerede en sektion"
+    )
+  );
+  tools.push(
+    writeTool("add_page", "Add a new page.", AddPageMutation, (m) => `Oprettede siden "${m.page.name}"`)
+  );
+  tools.push(writeTool("remove_page", "Delete a page.", RemovePageMutation, () => "Slettede en side"));
+  tools.push(
+    writeTool("update_page", "Rename a page or change its path.", UpdatePageMutation, () => "Opdaterede en side")
+  );
+  tools.push(
+    writeTool(
+      "set_global_styles",
+      "Change global design tokens (colours, fonts, radius, spacing).",
+      UpdateGlobalStylesMutation,
+      () => "Opdaterede globale styles"
+    )
+  );
+  tools.push(
+    writeTool(
+      "apply_preset",
+      "Apply a whole design preset. This is a large change and needs approval.",
+      ApplyPresetMutation,
+      (m) => `Anvendte temaet ${m.preset}`
+    )
+  );
+  tools.push(
+    writeTool(
+      "add_section",
+      "Add a higher-level section pattern (hero, features, ...) that expands into components.",
+      AddSectionMutation,
+      (m) => `Tilføjede sektionen ${m.sectionType}`
+    )
+  );
+  tools.push(
+    writeTool(
+      "create_custom_component",
+      "Build a brand new component from primitive nodes (box/text/image/button/svg) when no standard section fits. " +
+        "Supply base styles plus tabletStyles and mobileStyles so it is responsive. SVG nodes may contain SMIL " +
+        "(animate, animateTransform, animateMotion) for real motion graphics.",
+      AddCustomComponentMutation,
+      (m) => `Byggede komponenten "${m.name}"`
+    )
+  );
+  tools.push(
+    writeTool(
+      "update_custom_component",
+      "Replace the tree or styles of an existing custom component.",
+      UpdateCustomComponentMutation,
+      () => "Opdaterede en egen komponent"
+    )
+  );
+  tools.push(
+    writeTool(
+      "update_brand_guide",
+      "Change the brand guide. This is a large change and needs approval.",
+      UpdateBrandGuideMutation,
+      () => "Opdaterede brand guiden"
+    )
+  );
+
+  // ---- motion ----
+
+  tools.push({
+    name: "set_motion",
+    description:
+      "Set the entrance animation on a section. Use 'load' above the fold and 'scroll' below it; stagger " +
+      "consecutive sections with increasing delays. Respect the brand guide's motion level.",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      animationType: z.enum([
+        "none", "fade-in", "slide-up", "slide-down", "slide-left",
+        "slide-right", "zoom-in", "zoom-out", "bounce", "flip",
+      ]),
+      animationTrigger: z.enum(["load", "scroll"]).optional(),
+      animationDuration: z.enum(["0.3s", "0.5s", "0.8s", "1.2s"]).optional(),
+      animationDelay: z.enum(["0s", "0.1s", "0.3s", "0.5s"]).optional(),
+    }),
+    mutates: true,
+    run: (args, ctx) => {
+      const mutation = {
+        action: "update_component" as const,
+        pageId: args.pageId,
+        componentId: args.componentId,
+        styles: {
+          animationType: args.animationType,
+          ...(args.animationTrigger ? { animationTrigger: args.animationTrigger } : {}),
+          ...(args.animationDuration ? { animationDuration: args.animationDuration } : {}),
+          ...(args.animationDelay ? { animationDelay: args.animationDelay } : {}),
+        },
+      } as BuilderMutation;
+      return applyWrite(mutation, ctx, () => `Satte animation ${args.animationType}`);
+    },
+  });
+
+  // ---- image generation ----
+
+  tools.push({
+    name: "generate_image",
+    description:
+      `Generate a brand-styled image and get back a hosted URL to use in an image field. Max ${MAX_IMAGES_PER_RUN} ` +
+      "unique images per run — reusing the exact same description is free. Describe subject, composition, mood and " +
+      "lighting; never ask for text or logos inside the image. For generic stock photography, prefer an Unsplash URL.",
+    parameters: z.object({
+      description: z.string().min(8).max(600),
+      aspect: z.enum(["square", "landscape", "portrait"]).default("landscape"),
+    }),
+    mutates: false,
+    run: async ({ description, aspect }, ctx) => {
+      const key = `${aspect}::${description}`;
+      const cached = ctx.imageCache.get(key);
+      if (cached) {
+        return { ok: true, summary: "Genbrugte et genereret billede", data: { url: cached } };
+      }
+      if (ctx.imageCache.size >= MAX_IMAGES_PER_RUN) {
+        return {
+          ok: false,
+          error:
+            `Billedbudgettet på ${MAX_IMAGES_PER_RUN} unikke AI-billeder er brugt. ` +
+            "Brug et Unsplash-billede i stedet, eller genbrug en tidligere beskrivelse.",
+        };
+      }
+      try {
+        const { url } = await generateAndStoreImage(
+          ctx.websiteId,
+          description,
+          ctx.state.brandGuide as BrandGuide | undefined,
+          aspect as ImageAspect
+        );
+        ctx.imageCache.set(key, url);
+        ctx.createdImages.push(description);
+        return { ok: true, summary: "Genererede et billede", data: { url } };
+      } catch (err: any) {
+        ctx.notes.push(
+          `Billedet "${description.slice(0, 60)}" kunne ikke genereres — upload evt. et billede manuelt.`
+        );
+        return { ok: false, error: `Billedgenerering fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  // ---- termination ----
+
+  tools.push({
+    name: "finish",
+    description:
+      "Call when the request is fully handled. Give a one-sentence Danish summary of what you changed.",
+    parameters: z.object({ summary: z.string().max(400) }),
+    mutates: false,
+    run: ({ summary }) => ({ ok: true, summary, data: { done: true } }),
+  });
+
+  return tools;
+}
