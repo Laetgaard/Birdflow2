@@ -9,203 +9,14 @@ import { Menu, X } from "lucide-react";
    absolute collages degrade to stacked, scroll-revealed layouts.
    ───────────────────────────────────────────────────────────── */
 
-const PURPLE = "#8016C3";
-const BLUE = "#306DDA";
-const LIME = "#F6FFD3";
-const BLUSH = "#FFF7F7";
-const GREEN = "#2E7D4F";
-
-const EASE = "cubic-bezier(0.22,1,0.36,1)";
-const POP = "cubic-bezier(0.34,1.45,0.64,1)";
-
-const PAGE_CSS = `
-html { scroll-behavior: smooth; }
-.bf2-display { font-family: 'Agbalumo', cursive; font-style: italic; font-weight: 400; }
-.bf2-page ::selection { background: rgba(128,22,195,0.22); }
-@keyframes bf2Float { 0%, 100% { transform: translateY(0) rotate(var(--rot,0deg)); } 50% { transform: translateY(-8px) rotate(var(--rot,0deg)); } }
-@keyframes bf2Pulse { 0% { box-shadow: 0 0 0 0 rgba(46,125,79,0.4); } 70% { box-shadow: 0 0 0 7px rgba(46,125,79,0); } 100% { box-shadow: 0 0 0 0 rgba(46,125,79,0); } }
-@keyframes bf2Drift { from { transform: translateX(-14px); } to { transform: translateX(14px); } }
-@keyframes bf2Shadow { 0%, 100% { transform: translateX(-50%) scaleX(1); opacity: 0.6; } 50% { transform: translateX(-50%) scaleX(0.88); opacity: 0.38; } }
-@media (prefers-reduced-motion: reduce) {
-  .bf2-page * { animation: none !important; transition: none !important; }
-}
-`;
-
-/* ─────────── small helpers ─────────── */
-
-function useInView<T extends HTMLElement>(threshold = 0.2) {
-  const ref = useRef<T | null>(null);
-  const [inView, setInView] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setInView(true);
-      return;
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting) {
-            setInView(true);
-            io.disconnect();
-          }
-        });
-      },
-      { threshold },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [threshold]);
-  return [ref, inView] as const;
-}
-
-function prefersReducedMotion() {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-/** fade-up entrance used everywhere in the design */
-function fadeUp(on: boolean, delay = 0, dist = 22): CSSProperties {
-  return {
-    opacity: on ? 1 : 0,
-    transform: on ? "none" : `translateY(${dist}px)`,
-    transition: `opacity 0.7s ${EASE} ${delay}s, transform 0.7s ${EASE} ${delay}s`,
-  };
-}
-
-/** springy pop-in used for floating cards */
-function popIn(on: boolean, delay = 0): CSSProperties {
-  return {
-    opacity: on ? 1 : 0,
-    transform: on ? "none" : "translateY(20px) scale(0.9)",
-    transition: `opacity 0.6s ${POP} ${delay}s, transform 0.6s ${POP} ${delay}s`,
-  };
-}
-
-function RevealOnView({
-  children,
-  delay = 0,
-  className,
-}: {
-  children: ReactNode;
-  delay?: number;
-  className?: string;
-}) {
-  const [ref, on] = useInView<HTMLDivElement>(0.12);
-  return (
-    <div ref={ref} className={className} style={fadeUp(on, delay)}>
-      {children}
-    </div>
-  );
-}
-
-/* ─────────── the Birdflow bird ─────────── */
-
-const BIRD_PATH =
-  "M27.2242 56.2296C23.6392 60.8978 16.7633 67.0868 16.7633 67.0868C16.7633 67.0868 19.4896 67.3737 21.2224 67.1932C25.2946 66.769 27.7219 65.5829 31.361 63.7087C35.5882 61.5317 38.1232 59.7405 41.6745 57.1125C46.2373 53.7359 48.4247 51.8791 52.2697 47.9611C56.0812 44.0772 57.7612 41.4163 60.6401 36.8563L60.7269 36.7188C62.4342 34.0147 64.7637 29.5953 64.7637 29.5953C64.7637 29.5953 66.8328 25.5806 68.5707 23.2855C69.9718 21.4352 70.7378 20.3227 72.5476 18.867C74.3156 17.4449 75.4861 16.8301 77.5894 15.9757C79.5825 15.166 82.9161 14.5689 82.9161 14.5689L78.9167 12.8352L72.5931 9.04628C72.5931 9.04628 70.2737 7.90895 68.6649 7.68367C67.4721 7.51663 66.767 7.49181 65.58 7.6984C63.6166 8.04012 62.7087 8.8265 60.9897 9.92588C58.0717 11.7922 56.5665 13.1303 53.3695 14.4662C48.7262 16.4066 45.7438 16.7821 40.7124 16.8948C33.3575 17.0595 29.2167 15.3468 22.3501 12.7223C16.9882 10.6728 14.1952 8.96458 9.28702 5.9939C5.71001 3.82893 0.417534 0 0.417534 0C0.417534 0 -0.160053 5.5581 0.0434353 9.11422C0.317451 13.9028 0.446366 16.776 2.35767 21.1757C4.23888 25.5061 5.88925 27.8642 9.44829 30.9739C13.2102 34.2609 16.0385 35.3706 20.8087 36.8746C26.5451 38.6832 36.146 38.3569 36.146 38.3569C36.146 38.3569 34.9755 43.0863 33.7407 45.9369C31.8505 50.3003 30.1226 52.4554 27.2242 56.2296Z";
-
-function BirdDefs() {
-  return (
-    <svg className="absolute w-0 h-0" aria-hidden="true">
-      <defs>
-        <path id="bfbird" d={BIRD_PATH} fill="currentColor" />
-        <radialGradient id="bfPuff" cx="38%" cy="24%" r="88%">
-          <stop offset="0%" stopColor="#FFFFFF" />
-          <stop offset="52%" stopColor="#FDFCFE" />
-          <stop offset="80%" stopColor="#F0EBF9" />
-          <stop offset="100%" stopColor="#D8D0EF" />
-        </radialGradient>
-        <radialGradient id="bfPuffBk" cx="46%" cy="30%" r="80%">
-          <stop offset="0%" stopColor="#F3F0FA" />
-          <stop offset="100%" stopColor="#C9BFE6" />
-        </radialGradient>
-        <filter id="bfSoftB" x="-40%" y="-40%" width="180%" height="180%">
-          <feGaussianBlur stdDeviation="4" />
-        </filter>
-      </defs>
-    </svg>
-  );
-}
-
-function Bird({ className, style }: { className?: string; style?: CSSProperties }) {
-  return (
-    <svg viewBox="0 0 83 68" className={className} style={style} aria-hidden="true">
-      <use href="#bfbird" />
-    </svg>
-  );
-}
-
-/* ─────────── wave separators ─────────── */
-
-/** Tall band wave: top bg → purple band → bottom bg (viewBox 1440×415) */
-function BandWave({ top, bottom, flip = false }: { top: string; bottom: string; flip?: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 1440 415"
-      preserveAspectRatio="none"
-      className="block w-full h-36 md:h-64 lg:h-[390px]"
-      style={flip ? { transform: "scaleX(-1)", marginTop: -1, marginBottom: -1 } : { marginTop: -1 }}
-      aria-hidden="true"
-    >
-      <rect x="0" y="0" width="1440" height="415" fill={bottom} />
-      <path
-        d="M0 0 L1440 0 L1440 205 C1370 160 1290 118 1160 95 C1000 70 860 72 640 76 C420 80 200 55 0 0 Z"
-        fill={top}
-      />
-      <path
-        d="M0 0 C200 55 420 80 640 76 C860 72 1000 70 1160 95 C1290 118 1370 160 1440 205 L1440 412 C1370 385 1270 330 1150 275 C1030 225 950 185 800 180 C640 178 500 195 280 204 C160 200 90 175 0 138 Z"
-        fill={PURPLE}
-      />
-    </svg>
-  );
-}
-
-/** Short edge wave into/out of a purple field (viewBox 1440×205) */
-function EdgeWave({ other, flip }: { other: string; flip?: "x" | "xy" }) {
-  const transform =
-    flip === "x" ? "scaleX(-1)" : flip === "xy" ? "scale(-1,-1)" : undefined;
-  return (
-    <svg
-      viewBox="0 0 1440 205"
-      preserveAspectRatio="none"
-      className="block w-full h-24 lg:h-[195px]"
-      style={{ transform, marginTop: -1, marginBottom: -1 }}
-      aria-hidden="true"
-    >
-      <rect x="0" y="0" width="1440" height="205" fill={PURPLE} />
-      <path
-        d="M0 0 L1440 0 L1440 205 C1370 160 1290 118 1160 95 C1000 70 860 72 640 76 C420 80 200 55 0 0 Z"
-        fill={other}
-      />
-    </svg>
-  );
-}
-
-/** Wave B before the Amalie case (viewBox 1440×455) */
-function WaveB() {
-  return (
-    <svg
-      viewBox="0 0 1440 455"
-      preserveAspectRatio="none"
-      className="block w-full h-40 md:h-64 lg:h-[420px]"
-      aria-hidden="true"
-    >
-      <rect x="0" y="0" width="1440" height="455" fill={BLUSH} />
-      <path
-        d="M0 0 L1440 0 L1440 5 C1300 75 1120 112 950 122 C750 128 550 112 370 131 C220 150 120 175 0 240 Z"
-        fill={LIME}
-      />
-      <path
-        d="M0 240 C120 175 220 150 370 131 C550 112 750 128 950 122 C1120 112 1300 75 1440 5 L1440 188 C1300 215 1150 250 950 235 C780 224 640 232 480 258 C330 285 140 380 0 449 Z"
-        fill={PURPLE}
-      />
-    </svg>
-  );
-}
+import {
+  PURPLE, BLUE, LIME, BLUSH, GREEN, EASE, POP,
+  PAGE_CSS, prefersReducedMotion, fadeUp, popIn,
+} from "@/components/bf2/theme";
+import {
+  useInView, RevealOnView, BirdDefs, Bird, BandWave, EdgeWave, WaveB,
+} from "@/components/bf2/primitives";
+import { Nav, NAV_LINKS, NavLink, bookHref, useOnLanding } from "@/components/bf2/Nav";
 
 /* ─────────── decorative portrait placeholder ───────────
    Stands in for the design's droppable portrait slots. */
@@ -252,115 +63,6 @@ function PortraitArt({ className }: { className?: string }) {
         opacity="0.5"
       />
     </svg>
-  );
-}
-
-/* ─────────── nav ─────────── */
-
-const NAV_LINKS: Array<[string, string]> = [
-  ["#platformen", "Platformen"],
-  ["#funktioner", "Funktioner"],
-  ["#saadan-virker-det", "Sådan virker det"],
-  ["#kundecase", "Kundecase"],
-];
-
-function Nav() {
-  const [open, setOpen] = useState(false);
-  return (
-    <header id="top" style={{ background: PURPLE }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 h-16 lg:h-[86px] flex items-center gap-4 lg:gap-9">
-        <a href="#top" className="flex items-center gap-3 no-underline" data-testid="link-logo">
-          <Bird className="w-8 h-[26px] lg:w-10 lg:h-[33px] text-white" />
-          <span className="bf2-display text-[22px] lg:text-[26px] text-white">Birdflow</span>
-        </a>
-
-        {/* desktop nav — Log ind sits beside the Book button, top right */}
-        <nav className="hidden lg:flex gap-8 ml-auto items-center">
-          {NAV_LINKS.map(([href, label]) => (
-            <a
-              key={href}
-              href={href}
-              className="text-white no-underline text-[16px] font-extrabold hover:opacity-80 transition-opacity"
-            >
-              {label}
-            </a>
-          ))}
-          <Link
-            href="/auth?mode=signin"
-            className="inline-block text-white no-underline text-[16px] font-extrabold px-[22px] py-[11px] rounded-[10px] border-2 border-white/45 hover:bg-white/10 transition-colors"
-            data-testid="button-login-header"
-          >
-            Log ind
-          </Link>
-          <a
-            href="#kontakt"
-            className="inline-block text-white no-underline text-[16px] font-extrabold px-[22px] py-3 rounded-[10px] hover:brightness-110 transition"
-            style={{ background: BLUE, boxShadow: "0 4px 14px rgba(10,2,25,0.3)" }}
-            data-testid="button-book-header"
-          >
-            Book 20 minutter
-          </a>
-        </nav>
-
-        {/* mobile: compact Log ind + burger */}
-        <div className="flex lg:hidden items-center gap-1 ml-auto">
-          <Link
-            href="/auth?mode=signin"
-            className="text-white no-underline text-[14px] font-extrabold px-3 py-2 rounded-lg border-2 border-white/45"
-            data-testid="button-login-header-mobile"
-          >
-            Log ind
-          </Link>
-          <button
-            className="p-2 -mr-2 text-white"
-            onClick={() => setOpen(!open)}
-            aria-label="Menu"
-            data-testid="button-mobile-menu"
-          >
-            {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
-        </div>
-      </div>
-
-      {open && (
-        <div
-          className="lg:hidden border-t border-white/20 px-5 pt-2 pb-6"
-          style={{ background: PURPLE }}
-        >
-          <nav className="flex flex-col">
-            {NAV_LINKS.map(([href, label]) => (
-              <a
-                key={href}
-                href={href}
-                onClick={() => setOpen(false)}
-                className="text-white no-underline text-[16px] font-extrabold py-3 border-b border-white/10"
-              >
-                {label}
-              </a>
-            ))}
-          </nav>
-          <div className="flex flex-col gap-2.5 mt-4">
-            <Link
-              href="/auth?mode=signin"
-              onClick={() => setOpen(false)}
-              className="text-center text-white no-underline text-[16px] font-extrabold py-3 rounded-[10px] border-2 border-white/45"
-              data-testid="button-login-drawer"
-            >
-              Log ind
-            </Link>
-            <a
-              href="#kontakt"
-              onClick={() => setOpen(false)}
-              className="text-center text-white no-underline text-[16px] font-extrabold py-3 rounded-[10px]"
-              style={{ background: BLUE, boxShadow: "0 4px 14px rgba(10,2,25,0.3)" }}
-              data-testid="button-book-drawer"
-            >
-              Book 20 minutter
-            </a>
-          </div>
-        </div>
-      )}
-    </header>
   );
 }
 
@@ -3136,14 +2838,14 @@ function FinalCta() {
           </p>
           <nav className="md:ml-auto flex flex-wrap gap-x-[26px] gap-y-2">
             {NAV_LINKS.map(([href, label]) => (
-              <a
+              <NavLink
                 key={href}
                 href={href}
                 className="no-underline text-[14px] font-extrabold hover:opacity-100"
                 style={{ color: "rgba(255,255,255,0.85)" }}
               >
                 {label}
-              </a>
+              </NavLink>
             ))}
             <Link
               href="/auth?mode=signin"
