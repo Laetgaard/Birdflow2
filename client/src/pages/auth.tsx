@@ -25,8 +25,8 @@ const signInSchema = z.object({
 });
 
 const features = [
-  "Professionelle hjemmeside-skabeloner",
-  "AI-drevet website builder",
+  "AI bygger din første hjemmeside for dig",
+  "Personlig brandguide med farver og typografi",
   "Eget domæne inkluderet",
   "Booking- og webshop funktioner",
   "Sikker betaling via Stripe",

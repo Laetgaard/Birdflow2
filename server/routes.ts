@@ -348,13 +348,25 @@ export async function registerRoutes(
   });
 
   // Onboarding - Create website and complete onboarding in one atomic transaction
+  // Prevents duplicate AI drafts from double-submits (read-then-insert race)
+  const aiOnboardingCreateLock = new Set<string>();
   app.post("/api/onboarding/create-website", requireAuth, async (req, res) => {
+    let lockedUserId: string | null = null;
     try {
       const user = (req as any).user;
-      const { name, slug, templateId, websiteType } = req.body;
+      const { name, slug, templateId, websiteType, mode } = req.body;
+      const isAiMode = mode === "ai";
 
-      if (!name || !templateId) {
+      if (!name || (!templateId && !isAiMode)) {
         return res.status(400).json({ message: "Name and template are required" });
+      }
+
+      if (isAiMode) {
+        if (aiOnboardingCreateLock.has(user.id)) {
+          return res.status(429).json({ message: "Dit projekt er ved at blive oprettet — vent et øjeblik." });
+        }
+        aiOnboardingCreateLock.add(user.id);
+        lockedUserId = user.id;
       }
 
       // Check if user already completed onboarding (outside transaction for early exit)
@@ -362,7 +374,23 @@ export async function registerRoutes(
       if (profile?.onboardingCompleted) {
         return res.status(400).json({ message: "Onboarding already completed" });
       }
-      
+
+      // AI onboarding is resume-safe: if the user refreshed mid-flow, reuse
+      // their existing draft instead of piling up duplicate websites.
+      if (isAiMode) {
+        const existing = (await storage.getWebsitesByOwner(user.id)).find(
+          (w) => w.setupType === "ai" && w.status === "draft"
+        );
+        if (existing) {
+          return res.status(200).json({
+            websiteId: existing.id,
+            slug: existing.slug,
+            reused: true,
+            message: "Existing draft website reused",
+          });
+        }
+      }
+
       // Note: We no longer require payment before website creation
       // Users can create their website first and pay in the final onboarding step
 
@@ -371,9 +399,10 @@ export async function registerRoutes(
       const timestamp = Date.now().toString(36);
       const uniqueSlug = `${baseSlug}-${timestamp}`;
 
-      // Load template data before transaction
+      // Load template data before transaction (AI mode starts blank; the
+      // generation pipeline fills it in afterwards)
       const { getTemplateById, cloneTemplateState } = await import("@shared/websiteTemplates");
-      const template = getTemplateById(templateId);
+      const template = !isAiMode && templateId ? getTemplateById(templateId) : null;
       const stateData = template ? cloneTemplateState(template) : null;
 
       // Execute all database operations atomically in a transaction
@@ -383,7 +412,7 @@ export async function registerRoutes(
           ownerId: user.id,
           name,
           slug: uniqueSlug,
-          setupType: websiteType || "template",
+          setupType: isAiMode ? "ai" : (websiteType || "template"),
           status: "draft",
         }).returning();
 
@@ -430,6 +459,8 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Onboarding error:", error);
       res.status(500).json({ message: error.message });
+    } finally {
+      if (lockedUserId) aiOnboardingCreateLock.delete(lockedUserId);
     }
   });
 
@@ -2405,7 +2436,7 @@ export async function registerRoutes(
   });
 
   // Get public URL for a media asset
-  app.get("/api/websites/:id/media/:mediaId/url", async (req, res) => {
+  app.get("/api/websites/:id/media/:mediaId/url", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
       const asset = await storage.getMediaAsset(req.params.mediaId, req.params.id);
       if (!asset) {
@@ -4619,6 +4650,120 @@ export async function registerRoutes(
       return res.json({ success: true, brandGuide: guide, newState, report, summary });
     } catch (error: any) {
       console.error("Design interview error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // AI onboarding — background generation of brand guide + first website,
+  // with polled progress. One full generation per (empty) website.
+  const onboardingGenStarts = new Map<string, number[]>();
+  const onboardingGenBodySchema = z.object({
+    business: z.object({
+      name: z.string().min(1).max(80),
+      industry: z.string().max(80).default(""),
+      description: z.string().max(2000).default(""),
+    }),
+    wishes: z.object({
+      goals: z.array(z.string().max(40)).max(8).default([]),
+      notes: z.string().max(2000).default(""),
+    }),
+    feeling: z.string().min(1).max(200),
+    palette: diPaletteSchema,
+    fontPair: diFontPairSchema,
+    logoUrl: z.string().max(512).optional(),
+    logoMediaId: z.string().max(128).optional(),
+    inspirationUrls: z.array(z.string().max(512)).max(5).default([]),
+    ownImageUrls: z.array(z.string().max(512)).max(6).default([]),
+  });
+
+  app.post("/api/websites/:id/onboarding/generate", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      const { getOnboardingGenStatus, isOnboardingGenRunning, startOnboardingGeneration } = await import("./onboardingGenerator");
+
+      // Already running → return live status (makes the client restart-safe)
+      if (isOnboardingGenRunning(req.params.id)) {
+        return res.json({ success: true, status: getOnboardingGenStatus(req.params.id) });
+      }
+
+      const parsedBody = onboardingGenBodySchema.safeParse(req.body ?? {});
+      if (!parsedBody.success) {
+        return res.status(400).json({ message: "Ugyldigt input til AI-opbygningen" });
+      }
+      const body = parsedBody.data;
+
+      // Same font allowlist guard as the design interview
+      const { CURATED_GOOGLE_FONTS } = await import("./designInterview");
+      const fontAllowlist = new Set<string>(CURATED_GOOGLE_FONTS);
+      if (!fontAllowlist.has(body.fontPair.heading) || !fontAllowlist.has(body.fontPair.body)) {
+        return res.status(400).json({ message: "Ugyldig skrifttype" });
+      }
+
+      // Only generate onto an empty site — a finished build is never overwritten.
+      const builderData = await storage.getBuilderState(req.params.id);
+      if (!builderData) {
+        return res.status(404).json({ message: "Builder state not found" });
+      }
+      const currentState = builderData.state as BuilderStateData;
+      const componentCount = currentState.pages.reduce((sum, p) => sum + (p.components?.length ?? 0), 0);
+      if (componentCount > 0) {
+        const finished = getOnboardingGenStatus(req.params.id);
+        return res.status(409).json({
+          message: "Websitet er allerede bygget.",
+          alreadyBuilt: true,
+          status: finished?.done ? finished : undefined,
+        });
+      }
+
+      // Each start is a full multi-model pipeline — cap retries per website.
+      const now = Date.now();
+      const starts = (onboardingGenStarts.get(req.params.id) ?? []).filter((t) => now - t < 6 * 60 * 60 * 1000);
+      if (starts.length >= 3) {
+        return res.status(429).json({ message: "For mange forsøg på kort tid. Fortsæt til editoren og byg videre med AI-assistenten der." });
+      }
+      starts.push(now);
+      onboardingGenStarts.set(req.params.id, starts);
+
+      // Media ownership: only accept /objects/ paths registered to THIS website.
+      const assets = await storage.getMediaAssets(req.params.id);
+      const owned = new Set(assets.map((a) => a.storagePath));
+      const ownedIds = new Set(assets.map((a) => a.id));
+      const logoUrl = body.logoUrl && owned.has(body.logoUrl) ? body.logoUrl : undefined;
+      const logoMediaId = logoUrl && body.logoMediaId && ownedIds.has(body.logoMediaId) ? body.logoMediaId : undefined;
+
+      const status = startOnboardingGeneration(req.params.id, {
+        business: body.business,
+        wishes: body.wishes,
+        feeling: body.feeling,
+        palette: body.palette,
+        fontPair: body.fontPair,
+        logoUrl,
+        logoMediaId,
+        inspirationUrls: body.inspirationUrls.filter((u) => owned.has(u)).slice(0, 5),
+        ownImageUrls: body.ownImageUrls.filter((u) => owned.has(u)).slice(0, 6),
+      });
+
+      res.json({ success: true, status });
+    } catch (error: any) {
+      console.error("Onboarding generate error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/websites/:id/onboarding/generate/status", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      const { getOnboardingGenStatus, isOnboardingGenRunning } = await import("./onboardingGenerator");
+      const status = getOnboardingGenStatus(req.params.id);
+      if (status) {
+        return res.json({ success: true, active: isOnboardingGenRunning(req.params.id), status });
+      }
+      // No job in memory (e.g. server restarted mid-flow) — report whether the
+      // site already has content so the client can move on instead of hanging.
+      const builderData = await storage.getBuilderState(req.params.id);
+      const state = builderData?.state as BuilderStateData | undefined;
+      const built = !!state && state.pages.reduce((sum, p) => sum + (p.components?.length ?? 0), 0) > 0;
+      res.json({ success: true, active: false, status: null, built });
+    } catch (error: any) {
+      console.error("Onboarding generate status error:", error);
       res.status(500).json({ message: error.message });
     }
   });
