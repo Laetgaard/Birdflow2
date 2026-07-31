@@ -2,6 +2,9 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { CustomComponentEntry, BrandGuide } from "./customComponents";
+
+export type { CustomComponentEntry, BrandGuide } from "./customComponents";
 
 // Platform subscription plans
 export type PlatformPlanSlug = 'basic' | 'starter' | 'professional';
@@ -319,6 +322,10 @@ export type BuilderStateData = {
   bookingConfig?: BookingConfig;
   checkoutConfig?: CheckoutConfig;
   productGridConfig?: ProductGridConfig;
+  /** Per-website library of reusable components ("Mine komponenter"). */
+  customComponents?: CustomComponentEntry[];
+  /** Per-website brand guide (drives the Brand tab and AI grounding). */
+  brandGuide?: BrandGuide;
 };
 
 // Builder state table
@@ -423,6 +430,11 @@ export const bookings = pgTable("bookings", {
   status: text("status").notNull().default("pending"),
   notes: text("notes"),
   metadata: jsonb("metadata").$type<Record<string, any>>(),
+  teamMemberId: varchar("team_member_id"),
+  place: text("place"),
+  sendReminder: boolean("send_reminder").notNull().default(true),
+  reminderSentAt: timestamp("reminder_sent_at"),
+  followupSentAt: timestamp("followup_sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -663,6 +675,66 @@ export const insertServiceDateRangeSchema = createInsertSchema(serviceDateRanges
 export type InsertServiceDateRange = z.infer<typeof insertServiceDateRangeSchema>;
 export type ServiceDateRange = typeof serviceDateRanges.$inferSelect;
 
+// Weekly availability window for a team member (kept in jsonb)
+export type TeamMemberAvailabilityWindow = {
+  dayOfWeek: number; // 0 = Sunday ... 6 = Saturday
+  startTime: string; // "HH:MM"
+  endTime: string;   // "HH:MM"
+};
+
+// Booking team members - people who perform booking services
+export const bookingTeamMembers = pgTable("booking_team_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  name: text("name").notNull(),
+  role: text("role"), // e.g. "Frisør", "Massør"
+  email: text("email"),
+  phone: text("phone"),
+  color: text("color").notNull().default("#6366f1"), // calendar color
+  // Service ids this member performs; empty array = performs all services
+  serviceIds: jsonb("service_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  // Weekly availability windows; empty array = always available (follows service availability)
+  availability: jsonb("availability").$type<TeamMemberAvailabilityWindow[]>().notNull().default(sql`'[]'::jsonb`),
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBookingTeamMemberSchema = createInsertSchema(bookingTeamMembers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertBookingTeamMember = z.infer<typeof insertBookingTeamMemberSchema>;
+export type BookingTeamMember = typeof bookingTeamMembers.$inferSelect;
+
+// Open slots - owner-placed bookable time slots that visitors can claim
+export const bookingOpenSlots = pgTable("booking_open_slots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  serviceId: varchar("service_id"), // null = any service may claim the slot
+  teamMemberId: varchar("team_member_id"), // null = no specific person
+  date: text("date").notNull(), // YYYY-MM-DD
+  time: text("time").notNull(), // HH:MM
+  durationMinutes: integer("duration_minutes").notNull().default(30),
+  status: text("status").notNull().default("open"), // open | booked
+  bookingId: varchar("booking_id"), // set when claimed
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBookingOpenSlotSchema = createInsertSchema(bookingOpenSlots).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertBookingOpenSlot = z.infer<typeof insertBookingOpenSlotSchema>;
+export type BookingOpenSlot = typeof bookingOpenSlots.$inferSelect;
+
 // Custom domains table - simplified flow using Vercel for verification
 export const customDomains = pgTable("custom_domains", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -830,6 +902,11 @@ export const emailSettings = pgTable("email_settings", {
   abandonedCartEnabled: boolean("abandoned_cart_enabled").default(true).notNull(),
   newSubmissionEnabled: boolean("new_submission_enabled").default(true).notNull(),
   refundConfirmationEnabled: boolean("refund_confirmation_enabled").default(true).notNull(),
+  // Booking automation emails
+  bookingReminderEnabled: boolean("booking_reminder_enabled").default(true).notNull(),
+  bookingReminderLeadHours: integer("booking_reminder_lead_hours").default(48).notNull(),
+  bookingFollowupEnabled: boolean("booking_followup_enabled").default(false).notNull(),
+  bookingFollowupDelayHours: integer("booking_followup_delay_hours").default(24).notNull(),
   // Branding
   senderName: text("sender_name"),
   senderEmail: text("sender_email"),
@@ -850,7 +927,7 @@ export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
 export type EmailSettings = typeof emailSettings.$inferSelect;
 
 // Email templates table (per website, per email type)
-export type EmailTemplateType = 'order_confirmation' | 'booking_confirmation' | 'booking_updated' | 'booking_cancelled';
+export type EmailTemplateType = 'order_confirmation' | 'booking_confirmation' | 'booking_updated' | 'booking_cancelled' | 'booking_reminder' | 'booking_followup';
 
 export const emailTemplates = pgTable("email_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1023,6 +1100,58 @@ export type TopPage = {
   uniqueVisitors: number;
   avgTimeOnPage?: number;
   bounceRate?: number;
+};
+
+// Daily visits series point (dates are YYYY-MM-DD in Europe/Copenhagen)
+export type AnalyticsTimeseriesPoint = {
+  date: string;
+  pageViews: number;
+  visitors: number;
+};
+
+// Visitors per country over a period (country = ISO 3166-1 alpha-2 or null/unknown)
+export type CountryVisitors = {
+  country: string | null;
+  visitors: number;
+  pageViews: number;
+};
+
+// Live visitors = distinct sessions with events in the last few minutes
+export type LiveVisitorStats = {
+  activeVisitors: number;
+  byCountry: Array<{ country: string | null; visitors: number }>;
+};
+
+// Aggregated numbers for the manage Overview home
+export type ManageOverview = {
+  todayBookings: number;
+  upcomingBookings: Array<{
+    id: string;
+    customerName: string;
+    service: string;
+    date: string;
+    time: string | null;
+    status: string;
+  }>;
+  newOrdersToday: number;
+  pendingOrders: number;
+  revenueTodayCents: number;
+  revenue30dCents: number;
+  currency: string;
+  unreadSubmissions: number;
+  totalCustomers: number;
+  activeVisitors: number;
+  visitors7d: number;
+  pageViews7d: number;
+  recentOrders: Array<{
+    id: string;
+    customerName: string;
+    totalAmountCents: number;
+    currency: string;
+    status: string;
+    paymentStatus: string;
+    createdAt: string;
+  }>;
 };
 
 export type CustomerJourney = {

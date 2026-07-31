@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -113,6 +113,26 @@ type BookingService = {
   currency: string;
 };
 
+type PublicTeamMember = {
+  id: string;
+  name: string;
+  role?: string | null;
+  color?: string | null;
+  serviceIds?: string[];
+};
+
+type PublicSlot = {
+  time: string;
+  available: boolean;
+  openSlotId?: string;
+  teamMemberId?: string | null;
+};
+
+// Only used for the static builder canvas preview - the live widget fetches real slots.
+const PLACEHOLDER_TIMES: PublicSlot[] = [
+  '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
+].map(time => ({ time, available: true }));
+
 type Props = {
   websiteId: string;
   styles: {
@@ -142,6 +162,22 @@ async function fetchServices(websiteId: string): Promise<BookingService[]> {
   return res.json();
 }
 
+async function fetchTeamMembers(websiteId: string): Promise<PublicTeamMember[]> {
+  const res = await fetch(`/api/public/websites/${websiteId}/team-members`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function fetchSlots(websiteId: string, serviceId: string, date: string, teamMemberId: string): Promise<PublicSlot[]> {
+  const query = new URLSearchParams({ date });
+  if (teamMemberId) query.set('teamMemberId', teamMemberId);
+  const res = await fetch(`/api/public/websites/${websiteId}/services/${serviceId}/slots?${query.toString()}`);
+  if (!res.ok) throw new Error('Could not load available times');
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
 function formatCurrency(amount: number, currency: string = 'USD') {
   const symbols: Record<string, string> = { USD: '$', EUR: '\u20ac', GBP: '\u00a3', DKK: 'kr ' };
   const symbol = symbols[currency] || currency + ' ';
@@ -155,6 +191,9 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
   const [selectedService, setSelectedService] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
+  const [selectedMemberId, setSelectedMemberId] = useState('');
+  const [selectedOpenSlotId, setSelectedOpenSlotId] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -168,9 +207,48 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
     enabled: !!websiteId,
   });
 
-  const timeSlots = [
-    '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'
-  ];
+  const { data: teamMembers = [] } = useQuery({
+    queryKey: ['booking-team-members', websiteId],
+    queryFn: () => fetchTeamMembers(websiteId),
+    enabled: !!websiteId,
+  });
+
+  // Only members who can perform the selected service (empty serviceIds = all services)
+  const availableMembers = useMemo(() => {
+    if (!selectedService) return teamMembers;
+    return teamMembers.filter(m => !m.serviceIds || m.serviceIds.length === 0 || m.serviceIds.includes(selectedService));
+  }, [teamMembers, selectedService]);
+
+  // Drop a person selection that no longer matches the chosen service
+  useEffect(() => {
+    if (selectedMemberId && !availableMembers.some(m => m.id === selectedMemberId)) {
+      setSelectedMemberId('');
+    }
+  }, [availableMembers, selectedMemberId]);
+
+  const {
+    data: slots = [],
+    isFetching: slotsLoading,
+    isError: slotsError,
+    refetch: refetchSlots,
+  } = useQuery({
+    queryKey: ['booking-slots', websiteId, selectedService, selectedDate, selectedMemberId],
+    queryFn: () => fetchSlots(websiteId, selectedService, selectedDate, selectedMemberId),
+    enabled: !!websiteId && !!selectedService && !!selectedDate,
+  });
+
+  // Clear a time that is no longer offered after the slot list changes
+  useEffect(() => {
+    if (!selectedTime) return;
+    if (slotsLoading) return;
+    const match = slots.find(s => s.time === selectedTime);
+    if (!match || !match.available) {
+      setSelectedTime('');
+      setSelectedOpenSlotId('');
+    } else if ((match.openSlotId || '') !== selectedOpenSlotId) {
+      setSelectedOpenSlotId(match.openSlotId || '');
+    }
+  }, [slots, slotsLoading, selectedTime, selectedOpenSlotId]);
 
   const handleSectionClick = (e: React.MouseEvent) => {
     if (!isPreview && !testMode && onClick) {
@@ -185,6 +263,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
     if (isBuilderMode) return;
 
     if (!selectedService || !selectedDate || !selectedTime || !name || !email) {
+      setErrorMessage('');
       setStatus('error');
       return;
     }
@@ -195,6 +274,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
     }
 
     setStatus('loading');
+    setErrorMessage('');
     try {
       const service = services.find(s => s.id === selectedService);
 
@@ -209,16 +289,29 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
           service: service?.name || 'Service',
           date: `${selectedDate}T${selectedTime}:00`,
           notes: notes || undefined,
+          teamMemberId: selectedMemberId || undefined,
+          openSlotId: selectedOpenSlotId || undefined,
         }),
       });
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          // Slot or person was taken meanwhile - reload availability and send the user back
+          setErrorMessage(errorData.message || 'That time is no longer available. Please pick another time.');
+          setSelectedTime('');
+          setSelectedOpenSlotId('');
+          setStatus('error');
+          refetchSlots();
+          setStep(2);
+          return;
+        }
         throw new Error(errorData.message || 'Booking failed');
       }
 
       setStatus('success');
     } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : '');
       setStatus('error');
     }
   };
@@ -228,6 +321,9 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
     setSelectedService('');
     setSelectedDate('');
     setSelectedTime('');
+    setSelectedMemberId('');
+    setSelectedOpenSlotId('');
+    setErrorMessage('');
     setName('');
     setEmail('');
     setPhone('');
@@ -246,6 +342,47 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
   const accentLight = styles.accentLight || hexToRgba(accentColor, 0.12);
 
   const stepLabels = ['Service', 'Schedule', 'Details'];
+
+  // The builder canvas has no real service/date selection, so show example times there
+  const displaySlots: PublicSlot[] = isBuilderMode ? PLACEHOLDER_TIMES : slots;
+  const morningSlots = displaySlots.filter(s => parseInt(s.time, 10) < 12);
+  const afternoonSlots = displaySlots.filter(s => parseInt(s.time, 10) >= 12);
+
+  const renderTimeSlot = (slot: PublicSlot) => {
+    const isSelected = selectedTime === slot.time;
+    const isDisabled = isBuilderMode || !slot.available;
+    return (
+      <button
+        key={slot.time}
+        type="button"
+        onClick={(e) => {
+          if (isDisabled) return;
+          e.stopPropagation();
+          setSelectedTime(slot.time);
+          setSelectedOpenSlotId(slot.openSlotId || '');
+          setErrorMessage('');
+          if (status === 'error') setStatus('idle');
+        }}
+        disabled={isDisabled}
+        style={{
+          padding: '7px 14px',
+          borderRadius: '999px',
+          border: isSelected ? `2px solid ${accentColor}` : '1.5px solid #e2e8f0',
+          backgroundColor: isSelected ? accentColor : slot.available ? '#fff' : '#f8fafc',
+          color: isSelected ? '#fff' : slot.available ? '#475569' : '#cbd5e1',
+          fontWeight: isSelected ? 700 : 500,
+          fontSize: '13px',
+          cursor: isDisabled ? 'default' : 'pointer',
+          transition: 'all 0.15s ease',
+          boxShadow: isSelected ? `0 2px 8px ${accentColor}40` : 'none',
+          textDecoration: !slot.available ? 'line-through' : 'none',
+        }}
+        data-testid={`time-slot-${slot.time}`}
+      >
+        {slot.time}
+      </button>
+    );
+  };
 
   return (
     <section
@@ -717,6 +854,93 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                       </div>
                     )}
 
+                    {/* Optional person picker */}
+                    {availableMembers.length > 0 && (
+                      <div data-testid="person-picker">
+                        <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
+                          Choose a person <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
+                        </label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              if (isBuilderMode) return;
+                              e.stopPropagation();
+                              setSelectedMemberId('');
+                              setSelectedTime('');
+                              setSelectedOpenSlotId('');
+                            }}
+                            disabled={isBuilderMode}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '9px 14px',
+                              borderRadius: '12px',
+                              border: selectedMemberId === '' ? `2px solid ${accentColor}` : '1.5px solid #e2e8f0',
+                              backgroundColor: selectedMemberId === '' ? accentLight : '#fff',
+                              color: selectedMemberId === '' ? accentColor : '#475569',
+                              fontWeight: selectedMemberId === '' ? 700 : 500,
+                              fontSize: '13px',
+                              cursor: isBuilderMode ? 'default' : 'pointer',
+                              transition: 'all 0.15s ease',
+                            }}
+                            data-testid="person-option-any"
+                          >
+                            <User style={{ width: '14px', height: '14px' }} />
+                            Anyone available
+                          </button>
+                          {availableMembers.map((member) => {
+                            const isActive = selectedMemberId === member.id;
+                            return (
+                              <button
+                                key={member.id}
+                                type="button"
+                                onClick={(e) => {
+                                  if (isBuilderMode) return;
+                                  e.stopPropagation();
+                                  setSelectedMemberId(member.id);
+                                  setSelectedTime('');
+                                  setSelectedOpenSlotId('');
+                                }}
+                                disabled={isBuilderMode}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  padding: '9px 14px',
+                                  borderRadius: '12px',
+                                  border: isActive ? `2px solid ${accentColor}` : '1.5px solid #e2e8f0',
+                                  backgroundColor: isActive ? accentLight : '#fff',
+                                  color: isActive ? accentColor : '#475569',
+                                  fontWeight: isActive ? 700 : 500,
+                                  fontSize: '13px',
+                                  cursor: isBuilderMode ? 'default' : 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  textAlign: 'left',
+                                }}
+                                data-testid={`person-option-${member.id}`}
+                              >
+                                <span style={{
+                                  width: '10px',
+                                  height: '10px',
+                                  borderRadius: '50%',
+                                  backgroundColor: member.color || accentColor,
+                                  flexShrink: 0,
+                                }} />
+                                <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+                                  <span>{member.name}</span>
+                                  {member.role && (
+                                    <span style={{ fontSize: '11px', fontWeight: 400, color: '#94a3b8' }}>{member.role}</span>
+                                  )}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     <div>
                       <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
                         Select date
@@ -724,7 +948,13 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                       <div style={{ backgroundColor: '#f8fafc', borderRadius: '14px', padding: '14px 12px', border: `1.5px solid ${selectedDate ? accentColor : '#e2e8f0'}`, transition: 'border-color 0.2s' }}>
                         <MiniCalendar
                           selectedDate={selectedDate}
-                          onSelect={(d) => !isBuilderMode && setSelectedDate(d)}
+                          onSelect={(d) => {
+                            if (isBuilderMode) return;
+                            setSelectedDate(d);
+                            setSelectedTime('');
+                            setSelectedOpenSlotId('');
+                            setErrorMessage('');
+                          }}
                           accentColor={accentColor}
                           accentLight={accentLight}
                           disabled={isBuilderMode}
@@ -742,64 +972,70 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                       <label style={{ display: 'block', marginBottom: '10px', fontSize: '13px', fontWeight: 600, color: '#475569' }}>
                         Select time
                       </label>
-                      {/* AM slots */}
-                      <div style={{ marginBottom: '8px' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Morning</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          {timeSlots.filter(t => parseInt(t) < 12).map((time) => (
-                            <button
-                              key={time}
-                              type="button"
-                              onClick={(e) => { if (isBuilderMode) return; e.stopPropagation(); setSelectedTime(time); }}
-                              disabled={isBuilderMode}
+                      {!isBuilderMode && !selectedDate ? (
+                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0 }}>
+                          Select a date to see available times.
+                        </p>
+                      ) : !isBuilderMode && slotsLoading ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }} data-testid="time-slots-loading">
+                          {[0, 1, 2, 3, 4, 5].map((i) => (
+                            <div
+                              key={i}
+                              className="animate-pulse"
                               style={{
-                                padding: '7px 14px',
+                                width: '68px',
+                                height: '32px',
                                 borderRadius: '999px',
-                                border: selectedTime === time ? `2px solid ${accentColor}` : '1.5px solid #e2e8f0',
-                                backgroundColor: selectedTime === time ? accentColor : '#fff',
-                                color: selectedTime === time ? '#fff' : '#475569',
-                                fontWeight: selectedTime === time ? 700 : 500,
-                                fontSize: '13px',
-                                cursor: isBuilderMode ? 'default' : 'pointer',
-                                transition: 'all 0.15s ease',
-                                boxShadow: selectedTime === time ? `0 2px 8px ${accentColor}40` : 'none',
+                                backgroundColor: '#f1f5f9',
                               }}
-                              data-testid={`time-slot-${time}`}
-                            >
-                              {time}
-                            </button>
+                            />
                           ))}
                         </div>
-                      </div>
-                      {/* PM slots */}
-                      <div>
-                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Afternoon</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          {timeSlots.filter(t => parseInt(t) >= 12).map((time) => (
-                            <button
-                              key={time}
-                              type="button"
-                              onClick={(e) => { if (isBuilderMode) return; e.stopPropagation(); setSelectedTime(time); }}
-                              disabled={isBuilderMode}
-                              style={{
-                                padding: '7px 14px',
-                                borderRadius: '999px',
-                                border: selectedTime === time ? `2px solid ${accentColor}` : '1.5px solid #e2e8f0',
-                                backgroundColor: selectedTime === time ? accentColor : '#fff',
-                                color: selectedTime === time ? '#fff' : '#475569',
-                                fontWeight: selectedTime === time ? 700 : 500,
-                                fontSize: '13px',
-                                cursor: isBuilderMode ? 'default' : 'pointer',
-                                transition: 'all 0.15s ease',
-                                boxShadow: selectedTime === time ? `0 2px 8px ${accentColor}40` : 'none',
-                              }}
-                              data-testid={`time-slot-${time}`}
-                            >
-                              {time}
-                            </button>
-                          ))}
+                      ) : !isBuilderMode && slotsError ? (
+                        <p style={{ fontSize: '13px', color: '#dc2626', margin: 0 }} data-testid="time-slots-error">
+                          We couldn't load available times right now. Please try again.
+                        </p>
+                      ) : displaySlots.length === 0 ? (
+                        <p style={{ fontSize: '13px', color: '#94a3b8', margin: 0 }} data-testid="time-slots-empty">
+                          No available times on this date.
+                        </p>
+                      ) : (
+                        <>
+                          {/* AM slots */}
+                          {morningSlots.length > 0 && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Morning</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {morningSlots.map(renderTimeSlot)}
+                              </div>
+                            </div>
+                          )}
+                          {/* PM slots */}
+                          {afternoonSlots.length > 0 && (
+                            <div>
+                              <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '6px' }}>Afternoon</div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {afternoonSlots.map(renderTimeSlot)}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {errorMessage && (
+                        <div style={{
+                          marginTop: '10px',
+                          padding: '10px 14px',
+                          backgroundColor: '#fef2f2',
+                          borderRadius: '10px',
+                          color: '#dc2626',
+                          fontSize: '13px',
+                          textAlign: 'center',
+                          fontWeight: 500,
+                          border: '1px solid #fecaca',
+                        }} data-testid="text-slot-error">
+                          {errorMessage}
                         </div>
-                      </div>
+                      )}
                     </div>
 
                     <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
@@ -1000,7 +1236,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
                         fontWeight: 500,
                         border: '1px solid #fecaca',
                       }}>
-                        Please fill in all required fields and try again.
+                        {errorMessage || 'Please fill in all required fields and try again.'}
                       </div>
                     )}
 

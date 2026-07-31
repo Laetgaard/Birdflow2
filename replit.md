@@ -38,8 +38,20 @@ The `shared/` directory centralizes database schemas, Zod validation schemas, Ty
 ### Component System
 A registry-based component system for the website builder defining 20 component types with editable properties. Includes a `ComponentRenderer` and `PropertiesPanel`. Per-component entrance animations are configurable with triggers and duration.
 
+### Custom Components (Egne komponenter)
+User-built components stored as data trees of primitive nodes (box/text/image/button/svg) defined in `shared/customComponents.ts` — never runtime-compiled code. The tree lives in `ComponentProps.customTree` on components of type `custom`; reusable copies are saved to `builderState.customComponents` as library entries ("Mine komponenter" in the palette) and deep-cloned with fresh node ids on insert. Any section can also be saved to the library. Per-breakpoint styling cascades base `styles` → `tabletStyles` (≤1024px) → `mobileStyles` (≤640px). The builder edits trees via `CustomComponentEditor` (layer tree, element editors, per-device style fields) and `CustomComponentRenderer` (canvas rendering, node selection, inline text editing via `node:<id>:<field>` editing fields). Published sites render trees with per-node CSS classes (`pn-<id>`) plus media queries generated inside the Next.js ComponentRenderer template. SVG markup is sanitized with the allowlist-based `shared/svgSanitizer.ts` at three points: builder save (PATCH route), builder render, and publish generation.
+
+### Brand Guide
+Per-website brand guide persisted at `builderState.brandGuide` (types in `shared/customComponents.ts`): colors (primary/secondary/accent/background/surface/text), typography (heading/body font + scale), logo, imagery style + notes, tone of voice + keywords, and spacing/radius/shadow/motion levels. Edited in the builder's "Brand" tab (`BrandGuidePanel`); "Anvend på hjemmesiden" maps the guide onto global styles via `brandGuideToDesignTokens()`.
+
 ### AI Builder Assistant
-AI-powered website modification through structured JSON mutations supporting "Build Mode", "Thinking Mode", and "Design Analysis Mode". It includes "Creative Mode" (full CSS freedom) and "Safe Mode" (restricted styling), along with undo/redo functionality. Mutations cover components, pages, global styles, style presets, and section-based composition. Professional UI/UX capabilities include a Design Tokens System, 5 Style Presets, and a Section Registry (15 types with variants) for rapid page creation. AI Design Analysis scores design quality and provides recommendations.
+AI-powered website modification through structured JSON mutations supporting "Build Mode", "Thinking Mode", and "Design Analysis Mode". It includes "Creative Mode" (full CSS freedom) and "Safe Mode" (restricted styling), along with undo/redo functionality. Mutations cover components, pages, global styles, style presets, section-based composition, custom components (`add_custom_component` / `update_custom_component` — data trees only, optional library save), and brand-guide edits (`update_brand_guide`, deep partial merge with optional design-token application). The AI panel (`AIBuilderPanel.tsx`) is fully in Danish.
+
+**AI images**: image fields may contain `ai://<description>` markers; `server/aiImages.ts` resolves them before mutations are applied (brand-grounded prompts, gpt-image-1, sharp→webp, stored in object storage as `/objects/uploads/*.webp` + media asset row, max 3 unique images per request; failures collapse to `''` with Danish notes).
+
+**Pipeline** (in `/ai/build`, `/ai/apply`, `/ai/architect-build`): AI response → resolve `ai://` markers → apply mutations → deterministic self-check (`server/selfCheck.ts`: broken internal links → `/`, WCAG 4.5:1 contrast fixes, custom-tree responsive auto-fixes) → sanitize custom content → save → respond with a server-derived Danish build report (`server/aiReport.ts`, groups: Oprettet / Ændret / Tjek) rendered as a card in the panel.
+
+**Design interview** (`POST /api/websites/:id/ai/design-interview`, wizard in the AI panel): feeling → 4 AI palettes (readability-enforced) → 3 font pairs (24 curated Google fonts) → optional inspiration image uploads (vision analysis, only website-owned media) + notes → writes `builderState.brandGuide` (+ global styles unless opted out). Guarded by `requireWebsitePermission("updateBuilder")`, strict zod body validation, and a per-user rate limit.
 
 ### AI Website Architect System
 A professional 2-mode website building system that creates Webflow/Framer quality websites with complete design systems:
@@ -97,7 +109,7 @@ A full e-commerce checkout flow with React Context for cart state, `localStorage
 Dual-mode shipping management supporting manual fixed pricing and live carrier rates (UPS, GLS, PostNord) with encrypted credentials and fallback mechanisms.
 
 ### Calendar Availability System
-Comprehensive booking availability management for services including weekly schedules, blocked dates (with yearly recurring option), and active service periods. The system includes UI for managing availability and an interactive calendar for booking on published sites.
+Comprehensive booking availability management for services including weekly schedules, blocked dates (with yearly recurring option), and active service periods. The system includes UI for managing availability and an interactive calendar for booking on published sites. Extends to team members (per-member services, weekly availability windows, calendar color) with an optional person picker on public booking forms, owner-placed open slots that are publicly bookable via atomic claim (double-claim safe), a manage-side month/week calendar with drag & drop rescheduling and double-booking protection (interval-based conflict checks plus optimistic post-insert race verification on all creation paths), and automated booking emails: confirmation with .ics calendar attachment, configurable pre-appointment reminder and post-appointment follow-up driven by a 60s polling scheduler with claim-before-send at-most-once semantics.
 
 ### Custom Domain Support
 Simplified custom domain connection via Vercel integration, allowing users to add CNAME or A records with status tracking.
@@ -143,7 +155,7 @@ Professional subscription management for the platform, offering Free/Starter, Pr
 - **Stripe**: For e-commerce checkout sessions, webhooks, and subscription billing.
 
 ### File Storage
-- **Replit Object Storage**: For image uploads.
+- **Replit Object Storage**: For image uploads. The upload endpoints (`/api/uploads/request-url`, `/api/uploads/optimized-image`) require an authenticated user (Bearer token); all client upload helpers send it.
 
 ### Email Service
 - **Resend**: Transactional email service (via Replit connector).

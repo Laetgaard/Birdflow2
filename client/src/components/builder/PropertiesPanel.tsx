@@ -34,7 +34,8 @@ import {
   type StyledText
 } from "@shared/componentRegistry";
 import ImageCropper from "./ImageCropper";
-import { adminSessionHeaders } from "@/lib/adminSession";
+import CustomComponentEditor from "./CustomComponentEditor";
+import { uploadImage } from "@/lib/builderUpload";
 
 type CropData = {
   x: number;
@@ -56,76 +57,15 @@ type Props = {
   onMove: (direction: 'up' | 'down') => void;
   websiteId: string;
   accessToken: string;
+  /** Node selection inside custom components (primitive node trees). */
+  selectedNodeId?: string | null;
+  onNodeSelect?: (nodeId: string | null) => void;
 };
 
 type TabId = 'content' | 'design' | 'animation';
 
-async function uploadImage(
-  websiteId: string,
-  accessToken: string,
-  file: File
-): Promise<{ url: string; mediaId: string }> {
-  const formData = new FormData();
-  formData.append('image', file);
 
-  const optimizedRes = await fetch('/api/uploads/optimized-image', {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!optimizedRes.ok) {
-    throw new Error('Failed to upload and optimize image');
-  }
-
-  const { objectPath, optimizedSize } = await optimizedRes.json();
-
-  let width: number | undefined;
-  let height: number | undefined;
-  if (file.type.startsWith('image/')) {
-    const img = new Image();
-    await new Promise<void>((resolve) => {
-      img.onload = () => {
-        width = img.naturalWidth;
-        height = img.naturalHeight;
-        resolve();
-      };
-      img.src = URL.createObjectURL(file);
-    });
-  }
-
-  const filename = objectPath.split('/').pop() || `${Date.now()}.webp`;
-
-  const createRes = await fetch(`/api/websites/${websiteId}/media`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-      ...adminSessionHeaders(websiteId),
-    },
-    body: JSON.stringify({
-      filename,
-      originalFilename: file.name,
-      storagePath: objectPath,
-      mimeType: 'image/webp',
-      size: optimizedSize,
-      width,
-      height,
-    }),
-  });
-
-  if (!createRes.ok) throw new Error('Failed to create media record');
-  const media = await createRes.json();
-
-  const urlRes = await fetch(`/api/websites/${websiteId}/media/${media.id}/url`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!urlRes.ok) throw new Error('Failed to get media URL');
-  const { url } = await urlRes.json();
-
-  return { url, mediaId: media.id };
-}
-
-export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken }: Props) {
+export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, selectedNodeId, onNodeSelect }: Props) {
   const definition = componentRegistry[component.type];
   const [activeTab, setActiveTab] = useState<TabId>('content');
   const [uploadingField, setUploadingField] = useState<string | null>(null);
@@ -1396,7 +1336,20 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {activeTab === 'content' && renderContentTab()}
+        {activeTab === 'content' && (
+          component.type === 'custom' ? (
+            <CustomComponentEditor
+              component={component}
+              onUpdate={onUpdate}
+              websiteId={websiteId}
+              accessToken={accessToken}
+              selectedNodeId={selectedNodeId}
+              onNodeSelect={onNodeSelect}
+            />
+          ) : (
+            renderContentTab()
+          )
+        )}
         {activeTab === 'design' && renderDesignTab()}
         {activeTab === 'animation' && renderAnimationTab()}
       </div>

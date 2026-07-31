@@ -95,7 +95,8 @@ export default function Dashboard() {
             }
             
             if (targetWebsiteId) {
-              setLocation(`/builder/${targetWebsiteId}`);
+              // Fresh from onboarding → land in the builder with the guided intro
+              setLocation(websiteId ? `/builder/${targetWebsiteId}?tour=true` : `/builder/${targetWebsiteId}`);
               return;
             }
           } else {

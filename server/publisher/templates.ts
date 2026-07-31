@@ -188,10 +188,21 @@ async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string
   return BUILD_TIME_WEBSITE_ID;
 }
 
+// Convert 'HH:MM' to minutes since midnight. Returns null when not parseable.
+function timeToMinutes(value: string | null | undefined): number | null {
+  if (!value || typeof value !== 'string') return null;
+  const match = value.match(/^(\\d{1,2}):(\\d{2})/);
+  if (!match) return null;
+  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { customerName, customerEmail, customerPhone, serviceId, service, date, time, notes } = body;
+    const teamMemberId = body.team_member_id || body.teamMemberId || null;
+    const openSlotId = body.open_slot_id || body.openSlotId || null;
+    const place = body.place || null;
     
     if (!customerName || !customerEmail || !service || !date) {
       return NextResponse.json({ message: 'Customer name, email, service, and date are required' }, { status: 400 });
@@ -227,24 +238,223 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { data, error } = await supabase.from('bookings').insert({
-      website_id: effectiveWebsiteId,
-      service_id: serviceId || null,
-      service: service,
-      customer_name: customerName,
-      customer_email: customerEmail,
-      customer_phone: customerPhone || null,
-      date: new Date(date).toISOString(),
-      time: time || null,
-      duration_minutes: durationMinutes,
-      price: price,
-      notes: notes || null,
-      status: 'pending',
-    }).select().single();
+    let data: any = null;
+    let bookingDate = date;
+    let bookingTime = time || null;
 
-    if (error) {
-      console.error('Booking error:', error);
-      return NextResponse.json({ message: 'Failed to create booking' }, { status: 500 });
+    if (openSlotId) {
+      // Owner-placed open slot: claim it atomically before creating the booking
+      const { data: claimedRows, error: claimError } = await supabase
+        .from('booking_open_slots')
+        .update({ status: 'booked' })
+        .eq('id', openSlotId)
+        .eq('website_id', effectiveWebsiteId)
+        .eq('status', 'open')
+        .select();
+
+      if (claimError) {
+        console.error('Open slot claim error:', claimError);
+        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking' }, { status: 500 });
+      }
+
+      const claimed = (claimedRows || [])[0];
+      if (!claimed) {
+        return NextResponse.json({
+          message: 'This time slot is no longer available. Please select a different time.',
+          error: 'This time slot is no longer available. Please select a different time.',
+          code: 'SLOT_UNAVAILABLE',
+        }, { status: 409 });
+      }
+
+      bookingDate = claimed.date;
+      bookingTime = claimed.time;
+
+      const slotServiceId = claimed.service_id || serviceId || null;
+      let slotServiceName = service;
+      if (claimed.service_id && claimed.service_id !== serviceId) {
+        const { data: slotService } = await supabase
+          .from('booking_services')
+          .select('name, price')
+          .eq('id', claimed.service_id)
+          .eq('website_id', effectiveWebsiteId)
+          .single();
+        if (slotService) {
+          slotServiceName = slotService.name;
+          price = slotService.price;
+        }
+      }
+
+      const insertResult = await supabase.from('bookings').insert({
+        website_id: effectiveWebsiteId,
+        service_id: slotServiceId,
+        service: slotServiceName,
+        customer_name: customerName,
+        customer_email: customerEmail,
+        customer_phone: customerPhone || null,
+        date: new Date(claimed.date + 'T00:00:00').toISOString(),
+        time: claimed.time || null,
+        duration_minutes: claimed.duration_minutes || durationMinutes,
+        team_member_id: claimed.team_member_id || teamMemberId || null,
+        place: place || null,
+        send_reminder: true,
+        price: price,
+        notes: notes || null,
+        status: 'pending',
+      }).select().single();
+
+      if (insertResult.error || !insertResult.data) {
+        console.error('Booking error:', insertResult.error);
+        // Revert the claim so the slot is not lost
+        await supabase
+          .from('booking_open_slots')
+          .update({ status: 'open' })
+          .eq('id', claimed.id)
+          .eq('website_id', effectiveWebsiteId);
+        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking' }, { status: 500 });
+      }
+
+      data = insertResult.data;
+
+      await supabase
+        .from('booking_open_slots')
+        .update({ booking_id: data.id })
+        .eq('id', claimed.id)
+        .eq('website_id', effectiveWebsiteId);
+    } else {
+      const dateOnly = new Date(date).toISOString().split('T')[0];
+      const startOfDay = \`\${dateOnly}T00:00:00\`;
+      const endOfDay = \`\${dateOnly}T23:59:59\`;
+
+      // Double-booking prevention for the same service.
+      // Exact-time match is a cheap early exit; interval overlap catches
+      // bookings of differing durations that still collide.
+      const requestedServiceStart = timeToMinutes(time);
+      if (serviceId && requestedServiceStart !== null) {
+        const requestedServiceEnd = requestedServiceStart + (durationMinutes || 60);
+        const { data: sameServiceBookings } = await supabase
+          .from('bookings')
+          .select('id, time, duration_minutes')
+          .eq('website_id', effectiveWebsiteId)
+          .eq('service_id', serviceId)
+          .gte('date', startOfDay)
+          .lte('date', endOfDay)
+          .neq('status', 'cancelled');
+
+        const serviceConflict = (sameServiceBookings || []).some((b: any) => {
+          if (b.time === time) return true;
+          const existingStart = timeToMinutes(b.time);
+          if (existingStart === null) return false;
+          const existingEnd = existingStart + (b.duration_minutes || 60);
+          return requestedServiceStart < existingEnd && existingStart < requestedServiceEnd;
+        });
+
+        if (serviceConflict) {
+          return NextResponse.json({
+            message: 'This time slot is no longer available. Please select a different time.',
+            error: 'This time slot is no longer available. Please select a different time.',
+            code: 'SLOT_UNAVAILABLE',
+          }, { status: 409 });
+        }
+      }
+
+      // Member double-booking prevention across all services
+      const requestedStart = timeToMinutes(time);
+      if (teamMemberId && requestedStart !== null) {
+        const requestedEnd = requestedStart + (durationMinutes || 60);
+        const { data: memberBookings } = await supabase
+          .from('bookings')
+          .select('id, time, duration_minutes')
+          .eq('website_id', effectiveWebsiteId)
+          .eq('team_member_id', teamMemberId)
+          .gte('date', startOfDay)
+          .lte('date', endOfDay)
+          .neq('status', 'cancelled');
+
+        const conflict = (memberBookings || []).some((b: any) => {
+          const existingStart = timeToMinutes(b.time);
+          if (existingStart === null) return false;
+          const existingEnd = existingStart + (b.duration_minutes || 60);
+          return requestedStart < existingEnd && existingStart < requestedEnd;
+        });
+
+        if (conflict) {
+          return NextResponse.json({
+            message: 'The selected person is not available at this time. Please select a different time.',
+            error: 'The selected person is not available at this time. Please select a different time.',
+            code: 'MEMBER_CONFLICT',
+          }, { status: 409 });
+        }
+      }
+
+      const insertResult = await supabase.from('bookings').insert({
+        website_id: effectiveWebsiteId,
+        service_id: serviceId || null,
+        service: service,
+        customer_name: customerName,
+        customer_email: customerEmail,
+        customer_phone: customerPhone || null,
+        date: new Date(date).toISOString(),
+        time: time || null,
+        duration_minutes: durationMinutes,
+        team_member_id: teamMemberId || null,
+        place: place || null,
+        send_reminder: true,
+        price: price,
+        notes: notes || null,
+        status: 'pending',
+      }).select().single();
+
+      if (insertResult.error || !insertResult.data) {
+        console.error('Booking error:', insertResult.error);
+        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking' }, { status: 500 });
+      }
+
+      data = insertResult.data;
+
+      // Optimistic post-insert race verification: two concurrent submissions can
+      // both pass the pre-insert checks. Re-read same-day non-cancelled bookings
+      // and look for an overlapping one (sharing service_id or team_member_id)
+      // that was created EARLIER (created_at, id string compare as tiebreak). If
+      // such an earlier winner exists, this request lost the race: delete our
+      // just-inserted booking and return 409. Exactly one submission survives.
+      const ownStart = timeToMinutes(data.time);
+      if (ownStart !== null) {
+        const ownEnd = ownStart + (data.duration_minutes || 60);
+        const ownCreated = data.created_at ? new Date(data.created_at).getTime() : 0;
+        const { data: dayBookings } = await supabase
+          .from('bookings')
+          .select('id, time, duration_minutes, service_id, team_member_id, created_at')
+          .eq('website_id', effectiveWebsiteId)
+          .gte('date', startOfDay)
+          .lte('date', endOfDay)
+          .neq('status', 'cancelled')
+          .neq('id', data.id);
+
+        const earlierWinner = (dayBookings || []).some((b: any) => {
+          const existingStart = timeToMinutes(b.time);
+          if (existingStart === null) return false;
+          const existingEnd = existingStart + (b.duration_minutes || 60);
+          if (!(ownStart < existingEnd && existingStart < ownEnd)) return false;
+          const sharedService = !!data.service_id && b.service_id === data.service_id;
+          const sharedMember = !!data.team_member_id && b.team_member_id === data.team_member_id;
+          if (!sharedService && !sharedMember) return false;
+          const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return bCreated < ownCreated || (bCreated === ownCreated && String(b.id) < String(data.id));
+        });
+
+        if (earlierWinner) {
+          await supabase
+            .from('bookings')
+            .delete()
+            .eq('id', data.id)
+            .eq('website_id', effectiveWebsiteId);
+          return NextResponse.json({
+            message: 'This time slot is no longer available. Please select a different time.',
+            error: 'This time slot is no longer available. Please select a different time.',
+            code: 'SLOT_UNAVAILABLE',
+          }, { status: 409 });
+        }
+      }
     }
 
     // Send booking confirmation email via BirdFlow API
@@ -262,8 +472,8 @@ export async function POST(request: NextRequest) {
             customerName,
             customerEmail,
             service,
-            date,
-            time,
+            date: bookingDate,
+            time: bookingTime,
           }),
         });
         if (!emailResponse.ok) {
@@ -630,6 +840,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Owner-placed open slots make their date bookable even without a rule grid
+    const todayStr = \`\${today.getFullYear()}-\${String(today.getMonth() + 1).padStart(2, '0')}-\${String(today.getDate()).padStart(2, '0')}\`;
+    const monthStart = \`\${year}-\${String(month).padStart(2, '0')}-01\`;
+    const monthEnd = \`\${year}-\${String(month).padStart(2, '0')}-\${String(daysInMonth).padStart(2, '0')}\`;
+
+    const { data: openSlots } = await supabase
+      .from('booking_open_slots')
+      .select('date, service_id')
+      .eq('website_id', websiteId)
+      .eq('status', 'open')
+      .gte('date', monthStart)
+      .lte('date', monthEnd)
+      .or(\`service_id.is.null,service_id.eq.\${serviceId}\`);
+
+    const blockedSet = new Set(blockedDates.map((b) => b.date));
+    const availableSet = new Set(availableDates);
+
+    for (const slot of openSlots || []) {
+      const slotDate = String(slot.date || '').slice(0, 10);
+      if (!slotDate) continue;
+      if (slotDate < todayStr) continue;
+      if (blockedSet.has(slotDate)) continue;
+      if (availableSet.has(slotDate)) continue;
+      availableSet.add(slotDate);
+      availableDates.push(slotDate);
+    }
+
+    availableDates.sort();
+
     return NextResponse.json({ availableDates, blockedDates, dateRanges, weeklySchedule });
   } catch (err) {
     console.error('Availability error:', err);
@@ -640,6 +879,262 @@ export async function GET(request: NextRequest) {
 }
 
 export function generateSlotsApiRoute(websiteId: string): string {
+  return `import { NextRequest, NextResponse } from 'next/server';
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+
+async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
+  if (host.includes('localhost') || host.includes('127.0.0.1')) {
+    return BUILD_TIME_WEBSITE_ID;
+  }
+  
+  let normalizedHost = host.replace(/^www\\./, '').split(':')[0];
+  const urlToMatch = \`https://\${normalizedHost}\`;
+  const urlWithWww = \`https://www.\${normalizedHost}\`;
+  
+  const { data: exactMatch } = await supabase
+    .from('websites')
+    .select('id')
+    .or(\`deployment_url.eq.\${urlToMatch},deployment_url.eq.\${urlWithWww}\`)
+    .limit(1)
+    .single();
+  
+  if (exactMatch) return exactMatch.id;
+  
+  const parts = normalizedHost.split('.');
+  let slug: string | null = null;
+  
+  if (parts.length >= 3 && parts.slice(1).join('.') === 'bird-flow.com') {
+    slug = parts[0];
+  } else if (normalizedHost.endsWith('.vercel.app') && parts.length === 3) {
+    slug = parts[0];
+  }
+  
+  if (slug) {
+    const { data: slugMatch } = await supabase
+      .from('websites')
+      .select('id')
+      .eq('slug', slug)
+      .limit(1)
+      .single();
+    
+    if (slugMatch) return slugMatch.id;
+  }
+  
+  return BUILD_TIME_WEBSITE_ID;
+}
+
+// Convert 'HH:MM' to minutes since midnight. Returns null when not parseable.
+function toMinutes(value: string | null | undefined): number | null {
+  if (!value || typeof value !== 'string') return null;
+  const match = value.match(/^(\\d{1,2}):(\\d{2})/);
+  if (!match) return null;
+  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    if (!SUPABASE_SERVICE_KEY) {
+      return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
+    }
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+    const host = request.headers.get('host') || '';
+    const websiteId = await getWebsiteIdFromHost(host, supabase);
+    
+    if (!websiteId) {
+      return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const serviceId = searchParams.get('serviceId');
+    const date = searchParams.get('date');
+    const teamMemberId = searchParams.get('teamMemberId') || null;
+
+    if (!serviceId || !date) {
+      return NextResponse.json({ message: 'serviceId and date are required' }, { status: 400 });
+    }
+
+    // Validate date format
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) {
+      return NextResponse.json({ message: 'Invalid date format. Use YYYY-MM-DD' }, { status: 400 });
+    }
+
+    // Get the service
+    const { data: service } = await supabase
+      .from('booking_services')
+      .select('duration_minutes')
+      .eq('id', serviceId)
+      .eq('website_id', websiteId)
+      .single();
+
+    if (!service) {
+      return NextResponse.json([]);
+    }
+
+    const durationMinutes = service.duration_minutes || 30;
+    const dateObj = new Date(\`\${date}T00:00:00\`);
+    const dayOfWeek = dateObj.getDay();
+    const startOfDay = \`\${date}T00:00:00\`;
+    const endOfDay = \`\${date}T23:59:59\`;
+
+    // Optional team member filtering
+    let member: any = null;
+    if (teamMemberId) {
+      const { data: memberRow } = await supabase
+        .from('booking_team_members')
+        .select('id, active, service_ids, availability')
+        .eq('id', teamMemberId)
+        .eq('website_id', websiteId)
+        .single();
+
+      if (!memberRow || memberRow.active === false) {
+        return NextResponse.json([]);
+      }
+      member = memberRow;
+    }
+
+    const memberServiceIds: string[] = Array.isArray(member?.service_ids) ? member.service_ids : [];
+    const memberDoesService = !member || memberServiceIds.length === 0 || memberServiceIds.includes(serviceId);
+    const memberWindows: { dayOfWeek: number; startTime: string; endTime: string }[] =
+      Array.isArray(member?.availability) ? member.availability : [];
+
+    // Busy ranges for the selected member (any service) on this date
+    const memberBusy: { start: number; end: number }[] = [];
+    if (member) {
+      const { data: memberBookings } = await supabase
+        .from('bookings')
+        .select('time, duration_minutes')
+        .eq('website_id', websiteId)
+        .eq('team_member_id', member.id)
+        .gte('date', startOfDay)
+        .lte('date', endOfDay)
+        .neq('status', 'cancelled');
+
+      for (const b of memberBookings || []) {
+        const parsed = toMinutes(b.time);
+        if (parsed === null) continue;
+        memberBusy.push({ start: parsed, end: parsed + (b.duration_minutes || 60) });
+      }
+    }
+
+    const isMemberFree = (startMinutes: number, length: number) =>
+      !memberBusy.some((busy) => startMinutes < busy.end && busy.start < startMinutes + length);
+
+    const inMemberWindow = (startMinutes: number, length: number) => {
+      if (!member) return true;
+      const windows = memberWindows.filter((w: any) => Number(w.dayOfWeek) === dayOfWeek);
+      if (memberWindows.length === 0) return true;
+      if (windows.length === 0) return false;
+      return windows.some((w: any) => {
+        const wStart = toMinutes(w.startTime);
+        const wEnd = toMinutes(w.endTime);
+        if (wStart === null || wEnd === null) return false;
+        return startMinutes >= wStart && startMinutes + length <= wEnd;
+      });
+    };
+
+    // Get availability rules for this day
+    const { data: rules } = await supabase
+      .from('service_availability')
+      .select('start_time, end_time, slot_duration_minutes')
+      .eq('service_id', serviceId)
+      .eq('is_active', true)
+      .or(\`day_of_week.eq.\${dayOfWeek},specific_date.eq.\${date}\`);
+
+    // Get existing bookings for this date
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select('time')
+      .eq('website_id', websiteId)
+      .eq('service_id', serviceId)
+      .gte('date', startOfDay)
+      .lte('date', endOfDay)
+      .neq('status', 'cancelled');
+
+    const bookedTimes = new Set((bookings || []).map((b: any) => b.time).filter(Boolean));
+
+    // Generate slots
+    const slots: { time: string; available: boolean; openSlotId?: string; teamMemberId?: string | null }[] = [];
+    const addedTimes = new Set<string>();
+
+    if (memberDoesService) {
+      for (const rule of rules || []) {
+        const slotDuration = rule.slot_duration_minutes || durationMinutes;
+        const [startHour, startMin] = rule.start_time.split(':').map(Number);
+        const [endHour, endMin] = rule.end_time.split(':').map(Number);
+        
+        let currentTime = startHour * 60 + startMin;
+        const endTime = endHour * 60 + endMin;
+        
+        while (currentTime + slotDuration <= endTime) {
+          const hours = Math.floor(currentTime / 60);
+          const mins = currentTime % 60;
+          const timeStr = \`\${String(hours).padStart(2, '0')}:\${String(mins).padStart(2, '0')}\`;
+          
+          if (!addedTimes.has(timeStr)) {
+            const memberOk = !member || (inMemberWindow(currentTime, slotDuration) && isMemberFree(currentTime, slotDuration));
+            if (memberOk) {
+              addedTimes.add(timeStr);
+              slots.push({
+                time: timeStr,
+                available: !bookedTimes.has(timeStr),
+                teamMemberId: member ? member.id : null,
+              });
+            }
+          }
+          
+          currentTime += slotDuration;
+        }
+      }
+    }
+
+    // Merge owner-placed open slots
+    let openSlotQuery = supabase
+      .from('booking_open_slots')
+      .select('id, time, duration_minutes, team_member_id')
+      .eq('website_id', websiteId)
+      .eq('date', date)
+      .eq('status', 'open')
+      .or(\`service_id.is.null,service_id.eq.\${serviceId}\`);
+
+    if (teamMemberId) {
+      openSlotQuery = openSlotQuery.or(\`team_member_id.is.null,team_member_id.eq.\${teamMemberId}\`);
+    }
+
+    const { data: openSlots } = await openSlotQuery;
+
+    for (const slot of openSlots || []) {
+      const timeStr = String(slot.time || '').slice(0, 5);
+      if (!timeStr || addedTimes.has(timeStr)) continue;
+      const startMinutes = toMinutes(timeStr);
+      if (startMinutes === null) continue;
+      const length = slot.duration_minutes || durationMinutes;
+      if (member && !isMemberFree(startMinutes, length)) continue;
+      addedTimes.add(timeStr);
+      slots.push({
+        time: timeStr,
+        available: true,
+        openSlotId: slot.id,
+        teamMemberId: slot.team_member_id || (member ? member.id : null),
+      });
+    }
+
+    slots.sort((a, b) => a.time.localeCompare(b.time));
+    return NextResponse.json(slots);
+  } catch (err) {
+    console.error('Slots error:', err);
+    return NextResponse.json({ message: 'Failed to fetch slots' }, { status: 500 });
+  }
+}
+`;
+}
+
+export function generateTeamMembersApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -703,96 +1198,30 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const serviceId = searchParams.get('serviceId');
-    const date = searchParams.get('date');
-
-    if (!serviceId || !date) {
-      return NextResponse.json({ message: 'serviceId and date are required' }, { status: 400 });
-    }
-
-    // Validate date format
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) {
-      return NextResponse.json({ message: 'Invalid date format. Use YYYY-MM-DD' }, { status: 400 });
-    }
-
-    // Get the service
-    const { data: service } = await supabase
-      .from('booking_services')
-      .select('duration_minutes')
-      .eq('id', serviceId)
+    const { data, error } = await supabase
+      .from('booking_team_members')
+      .select('id, name, role, color, service_ids')
       .eq('website_id', websiteId)
-      .single();
+      .eq('active', true)
+      .order('sort_order', { ascending: true });
 
-    if (!service) {
-      return NextResponse.json([]);
+    if (error) {
+      console.error('Team members fetch error:', error);
+      return NextResponse.json({ message: 'Failed to fetch team members' }, { status: 500 });
     }
 
-    const durationMinutes = service.duration_minutes || 30;
-    const dateObj = new Date(\`\${date}T00:00:00\`);
-    const dayOfWeek = dateObj.getDay();
+    const members = (data || []).map((m: any) => ({
+      id: m.id,
+      name: m.name,
+      role: m.role || null,
+      color: m.color || null,
+      serviceIds: Array.isArray(m.service_ids) ? m.service_ids : [],
+    }));
 
-    // Get availability rules for this day
-    const { data: rules } = await supabase
-      .from('service_availability')
-      .select('start_time, end_time, slot_duration_minutes')
-      .eq('service_id', serviceId)
-      .eq('is_active', true)
-      .or(\`day_of_week.eq.\${dayOfWeek},specific_date.eq.\${date}\`);
-
-    if (!rules || rules.length === 0) {
-      return NextResponse.json([]);
-    }
-
-    // Get existing bookings for this date
-    const startOfDay = \`\${date}T00:00:00\`;
-    const endOfDay = \`\${date}T23:59:59\`;
-
-    const { data: bookings } = await supabase
-      .from('bookings')
-      .select('time')
-      .eq('website_id', websiteId)
-      .eq('service_id', serviceId)
-      .gte('date', startOfDay)
-      .lte('date', endOfDay)
-      .neq('status', 'cancelled');
-
-    const bookedTimes = new Set((bookings || []).map((b: any) => b.time).filter(Boolean));
-
-    // Generate slots
-    const slots: { time: string; available: boolean }[] = [];
-    const addedTimes = new Set<string>();
-
-    for (const rule of rules) {
-      const slotDuration = rule.slot_duration_minutes || durationMinutes;
-      const [startHour, startMin] = rule.start_time.split(':').map(Number);
-      const [endHour, endMin] = rule.end_time.split(':').map(Number);
-      
-      let currentTime = startHour * 60 + startMin;
-      const endTime = endHour * 60 + endMin;
-      
-      while (currentTime + slotDuration <= endTime) {
-        const hours = Math.floor(currentTime / 60);
-        const mins = currentTime % 60;
-        const timeStr = \`\${String(hours).padStart(2, '0')}:\${String(mins).padStart(2, '0')}\`;
-        
-        if (!addedTimes.has(timeStr)) {
-          addedTimes.add(timeStr);
-          slots.push({
-            time: timeStr,
-            available: !bookedTimes.has(timeStr),
-          });
-        }
-        
-        currentTime += slotDuration;
-      }
-    }
-
-    slots.sort((a, b) => a.time.localeCompare(b.time));
-    return NextResponse.json(slots);
+    return NextResponse.json(members);
   } catch (err) {
-    console.error('Slots error:', err);
-    return NextResponse.json({ message: 'Failed to fetch slots' }, { status: 500 });
+    console.error('Team members error:', err);
+    return NextResponse.json({ message: 'Failed to fetch team members' }, { status: 500 });
   }
 }
 `;
@@ -2195,6 +2624,7 @@ type ComponentProps = {
   showCart?: boolean | string;
   gap?: string;
   children?: string[];
+  customTree?: any;
   [key: string]: any; // Allow additional properties
 };
 
@@ -4403,6 +4833,209 @@ function ContainerSection({ props, styles }: { props: ComponentProps; styles: Co
   );
 }
 
+// ============ Custom components (primitive node trees) ============
+// Mirrors the builder's CustomComponentRenderer: base styles apply always,
+// tabletStyles <= 1024px, mobileStyles <= 640px. All SVG markup is
+// sanitized server-side before the site is generated.
+
+type PrimitiveNode = {
+  id: string;
+  type: 'box' | 'text' | 'image' | 'button' | 'svg';
+  name?: string;
+  styles?: Record<string, string>;
+  tabletStyles?: Record<string, string>;
+  mobileStyles?: Record<string, string>;
+  text?: string;
+  tag?: string;
+  src?: string;
+  alt?: string;
+  label?: string;
+  href?: string;
+  variant?: string;
+  svg?: string;
+  children?: PrimitiveNode[];
+};
+
+function toKebabCase(key: string): string {
+  return key.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
+}
+
+function nodeClassName(node: PrimitiveNode): string {
+  return 'pn-' + String(node.id).replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function customButtonBaseStyles(variant?: string): Record<string, string> {
+  const primary = theme.primaryColor || '#4f46e5';
+  const secondary = (theme as any).secondaryColor || '#06b6d4';
+  const radius = (theme as any).borderRadius || '8px';
+  const base: Record<string, string> = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '12px 24px',
+    borderRadius: radius,
+    fontWeight: '600',
+    fontSize: '15px',
+    lineHeight: '1.2',
+    textDecoration: 'none',
+    border: '2px solid transparent',
+    cursor: 'pointer',
+    transition: 'opacity 0.15s ease, transform 0.15s ease',
+  };
+  switch (variant) {
+    case 'secondary':
+      return { ...base, backgroundColor: secondary, color: '#ffffff' };
+    case 'outline':
+      return { ...base, backgroundColor: 'transparent', color: primary, borderColor: primary };
+    case 'ghost':
+      return { ...base, backgroundColor: 'transparent', color: primary };
+    case 'link':
+      return { ...base, backgroundColor: 'transparent', color: primary, padding: '0', textDecoration: 'underline' };
+    default:
+      return { ...base, backgroundColor: primary, color: '#ffffff' };
+  }
+}
+
+// Defaults merged under user styles so per-node overrides always win.
+function customNodeBaseStyles(node: PrimitiveNode): Record<string, string> {
+  switch (node.type) {
+    case 'box':
+      return { display: 'flex', flexDirection: 'column', ...(node.styles || {}) };
+    case 'text':
+      return { margin: '0', ...(node.styles || {}) };
+    case 'image':
+      return { display: 'block', maxWidth: '100%', ...(node.styles || {}) };
+    case 'button':
+      return { ...customButtonBaseStyles(node.variant), ...(node.styles || {}) };
+    case 'svg':
+      return { display: 'block', lineHeight: '0', ...(node.styles || {}) };
+    default:
+      return node.styles || {};
+  }
+}
+
+// Defense in depth: state is sanitized server-side before generation, but
+// the emitter still refuses any key/value that could escape a CSS rule.
+const SAFE_STYLE_KEY = /^[a-zA-Z]+$/;
+
+function safeStyleValue(value: unknown): string | null {
+  if (value == null) return null;
+  const str = String(value).trim();
+  if (!str || str.length > 300) return null;
+  if (/[<>{}@;]/.test(str)) return null;
+  if (str.indexOf('\\\\') >= 0) return null;
+  if (/expression\\s*\\(|javascript:/i.test(str)) return null;
+  return str;
+}
+
+function customStyleBlock(selector: string, styles?: Record<string, string>): string {
+  if (!styles) return '';
+  const decls: string[] = [];
+  for (const [k, v] of Object.entries(styles)) {
+    if (!SAFE_STYLE_KEY.test(k)) continue;
+    const val = safeStyleValue(v);
+    if (val == null) continue;
+    decls.push(toKebabCase(k) + ':' + val + ';');
+  }
+  if (!decls.length) return '';
+  return selector + '{' + decls.join('') + '}';
+}
+
+function collectCustomCss(node: PrimitiveNode, base: string[], tablet: string[], mobile: string[]) {
+  const cls = '.' + nodeClassName(node);
+  const b = customStyleBlock(cls, customNodeBaseStyles(node));
+  if (b) base.push(b);
+  const t = customStyleBlock(cls, node.tabletStyles);
+  if (t) tablet.push(t);
+  const m = customStyleBlock(cls, node.mobileStyles);
+  if (m) mobile.push(m);
+  (node.children || []).forEach((child) => collectCustomCss(child, base, tablet, mobile));
+}
+
+function fitCustomSvg(svg: string): string {
+  const rootMatch = svg.match(/^<svg\\b[^>]*>/i);
+  if (!rootMatch) return svg;
+  if (/style="/i.test(rootMatch[0])) {
+    return svg.replace(/^(<svg\\b[^>]*?)style="([^"]*)"/i, '$1style="$2;width:100%;height:100%;display:block"');
+  }
+  return svg.replace(/^<svg\\b/i, '<svg style="width:100%;height:100%;display:block"');
+}
+
+const CUSTOM_TEXT_TAGS = ['h1', 'h2', 'h3', 'h4', 'p', 'span', 'blockquote'];
+
+function safeCustomHref(href?: string): string {
+  if (!href) return '#';
+  const t = href.trim();
+  if (!t || t.length > 2000) return '#';
+  if (/[\\u0000-\\u001f\\u007f<>"']/.test(t)) return '#';
+  if (t.charAt(0) === '#' || t.charAt(0) === '?') return t;
+  if (t.slice(0, 2) === '//') return '#';
+  if (t.charAt(0) === '/' || t.slice(0, 2) === './' || t.slice(0, 3) === '../') return t;
+  if (/^(https?:|mailto:|tel:)/i.test(t)) return t;
+  const colon = t.indexOf(':');
+  if (colon === -1) return t;
+  const slash = t.indexOf('/');
+  if (slash !== -1 && colon > slash) return t;
+  return '#';
+}
+
+function CustomNode({ node }: { node: PrimitiveNode }) {
+  const cls = nodeClassName(node);
+  switch (node.type) {
+    case 'box':
+      return (
+        <div className={cls}>
+          {(node.children || []).map((child) => (
+            <CustomNode key={child.id} node={child} />
+          ))}
+        </div>
+      );
+    case 'text': {
+      const rawTag = node.tag || 'p';
+      const Tag = (CUSTOM_TEXT_TAGS.indexOf(rawTag) >= 0 ? rawTag : 'p') as any;
+      return <Tag className={cls}>{node.text || ''}</Tag>;
+    }
+    case 'image': {
+      const src = node.src ? safeCustomHref(node.src) : '';
+      if (!src || src === '#') return null;
+      return <img className={cls} src={src} alt={node.alt || ''} />;
+    }
+    case 'button':
+      return (
+        <a className={cls} href={safeCustomHref(node.href)}>
+          {node.label || ''}
+        </a>
+      );
+    case 'svg':
+      if (!node.svg) return null;
+      return <div className={cls} dangerouslySetInnerHTML={{ __html: fitCustomSvg(node.svg) }} />;
+    default:
+      return null;
+  }
+}
+
+function CustomComponentSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const tree = props.customTree as PrimitiveNode | undefined;
+  if (!tree) return null;
+
+  const base: string[] = [];
+  const tablet: string[] = [];
+  const mobile: string[] = [];
+  collectCustomCss(tree, base, tablet, mobile);
+
+  let css = base.join('\\n');
+  if (tablet.length) css += '\\n@media (max-width: 1024px){' + tablet.join('') + '}';
+  if (mobile.length) css += '\\n@media (max-width: 640px){' + mobile.join('') + '}';
+
+  return (
+    <section style={{ backgroundColor: (styles.backgroundColor as string) || 'transparent', padding: (styles.padding as string) || '0px' }}>
+      {css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null}
+      <CustomNode node={tree} />
+    </section>
+  );
+}
+
 export default function ComponentRenderer({ component, products = [], pages = [] }: { component: ComponentData; products?: any[]; pages?: BuilderPage[] }) {
   const renderComponent = () => {
     switch (component.type) {
@@ -4464,6 +5097,8 @@ export default function ComponentRenderer({ component, products = [], pages = []
         return <RichTextSection props={component.props} styles={component.styles} />;
       case 'container':
         return <ContainerSection props={component.props} styles={component.styles} />;
+      case 'custom':
+        return <CustomComponentSection props={component.props} styles={component.styles} />;
       default:
         return null;
     }
@@ -4603,6 +5238,16 @@ type AvailabilityData = {
 type TimeSlot = {
   time: string;
   available: boolean;
+  openSlotId?: string;
+  teamMemberId?: string | null;
+};
+
+type TeamMember = {
+  id: string;
+  name: string;
+  role?: string | null;
+  color?: string | null;
+  serviceIds?: string[];
 };
 
 function formatCurrency(amount: number, currency: string = 'USD'): string {
@@ -4625,9 +5270,11 @@ type Props = {
   };
 };
 
+type StepId = 'service' | 'person' | 'datetime' | 'details';
+
 export default function BookingForm({ styles, props }: Props) {
   const { websiteId } = useWebsite();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<StepId>('service');
   const [services, setServices] = useState<BookingService[]>([]);
   const [selectedService, setSelectedService] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
@@ -4637,6 +5284,11 @@ export default function BookingForm({ styles, props }: Props) {
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+  
+  // Team members (optional - step is skipped entirely when there are none)
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [selectedMember, setSelectedMember] = useState('');
   
   // Calendar and availability state
   const [calendarMonth, setCalendarMonth] = useState(new Date());
@@ -4664,6 +5316,22 @@ export default function BookingForm({ styles, props }: Props) {
     fetchServices();
   }, []);
 
+  // Fetch bookable team members (optional feature)
+  useEffect(() => {
+    const fetchTeamMembers = async () => {
+      try {
+        const res = await fetch('/api/team-members');
+        if (res.ok) {
+          const data = await res.json();
+          setTeamMembers(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch team members:', err);
+      }
+    };
+    fetchTeamMembers();
+  }, []);
+
   // Fetch availability when service is selected or month changes
   useEffect(() => {
     if (!selectedService || !websiteId) return;
@@ -4686,7 +5354,27 @@ export default function BookingForm({ styles, props }: Props) {
     fetchAvailability();
   }, [selectedService, calendarMonth, websiteId]);
 
-  // Fetch time slots when date is selected
+  const refreshSlots = async (keepSelectedTime = false) => {
+    if (!selectedService || !selectedDate) return;
+    setLoadingSlots(true);
+    if (!keepSelectedTime) setSelectedTime('');
+    try {
+      const memberQuery = selectedMember ? \`&teamMemberId=\${encodeURIComponent(selectedMember)}\` : '';
+      const res = await fetch(\`/api/slots?serviceId=\${selectedService}&date=\${selectedDate}\${memberQuery}\`);
+      if (res.ok) {
+        const data = await res.json();
+        setTimeSlots(Array.isArray(data) ? data : []);
+      } else {
+        setTimeSlots([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch slots:', err);
+      setTimeSlots([]);
+    }
+    setLoadingSlots(false);
+  };
+
+  // Fetch time slots when date (or person) is selected
   useEffect(() => {
     if (!selectedService || !selectedDate || !websiteId) return;
     
@@ -4694,10 +5382,11 @@ export default function BookingForm({ styles, props }: Props) {
       setLoadingSlots(true);
       setSelectedTime('');
       try {
-        const res = await fetch(\`/api/slots?serviceId=\${selectedService}&date=\${selectedDate}\`);
+        const memberQuery = selectedMember ? \`&teamMemberId=\${encodeURIComponent(selectedMember)}\` : '';
+        const res = await fetch(\`/api/slots?serviceId=\${selectedService}&date=\${selectedDate}\${memberQuery}\`);
         if (res.ok) {
           const data = await res.json();
-          setTimeSlots(data);
+          setTimeSlots(Array.isArray(data) ? data : []);
         } else {
           setTimeSlots([]);
         }
@@ -4708,7 +5397,7 @@ export default function BookingForm({ styles, props }: Props) {
       setLoadingSlots(false);
     };
     fetchSlots();
-  }, [selectedService, selectedDate, websiteId]);
+  }, [selectedService, selectedDate, selectedMember, websiteId]);
 
   // Generate calendar days for current month
   const calendarDays = useMemo(() => {
@@ -4759,6 +5448,7 @@ export default function BookingForm({ styles, props }: Props) {
     setSelectedService(serviceId);
     setSelectedDate('');
     setSelectedTime('');
+    setSelectedMember('');
     setTimeSlots([]);
     setAvailability(null);
   };
@@ -4766,11 +5456,14 @@ export default function BookingForm({ styles, props }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedService || !selectedDate || !selectedTime || !name || !email) {
+      setErrorMessage('Please fill in all required fields and try again.');
       setStatus('error');
       return;
     }
     setStatus('loading');
+    setErrorMessage('');
     const service = services.find(s => s.id === selectedService);
+    const chosenSlot = timeSlots.find(s => s.time === selectedTime);
     const bookingDateTime = new Date(selectedDate + 'T' + selectedTime + ':00').toISOString();
     
     try {
@@ -4786,10 +5479,31 @@ export default function BookingForm({ styles, props }: Props) {
           date: bookingDateTime,
           time: selectedTime,
           notes: notes || null,
+          team_member_id: selectedMember || chosenSlot?.teamMemberId || null,
+          open_slot_id: chosenSlot?.openSlotId || null,
         }),
       });
       
       if (!res.ok) {
+        let payload: any = null;
+        try {
+          payload = await res.json();
+        } catch (parseErr) {
+          payload = null;
+        }
+        if (res.status === 409 && payload?.code === 'MEMBER_CONFLICT') {
+          setErrorMessage('The selected person is not available at this time.');
+          setSelectedTime('');
+          setStep('datetime');
+          await refreshSlots();
+        } else if (res.status === 409) {
+          setErrorMessage('This time slot is no longer available. Please select a different time.');
+          setSelectedTime('');
+          setStep('datetime');
+          await refreshSlots();
+        } else {
+          setErrorMessage('Please fill in all required fields and try again.');
+        }
         setStatus('error');
       } else {
         const data = await res.json();
@@ -4806,20 +5520,23 @@ export default function BookingForm({ styles, props }: Props) {
         }
       }
     } catch (err) {
+      setErrorMessage('Something went wrong. Please try again.');
       setStatus('error');
     }
   };
 
   const resetForm = () => {
-    setStep(1);
+    setStep('service');
     setSelectedService('');
     setSelectedDate('');
     setSelectedTime('');
+    setSelectedMember('');
     setName('');
     setEmail('');
     setPhone('');
     setNotes('');
     setStatus('idle');
+    setErrorMessage('');
     setAvailability(null);
     setTimeSlots([]);
   };
@@ -4829,6 +5546,21 @@ export default function BookingForm({ styles, props }: Props) {
   };
 
   const selectedServiceData = services.find(s => s.id === selectedService);
+  // Members that can perform the chosen service (empty serviceIds = performs all services)
+  const availableMembers = useMemo(() => {
+    if (!selectedService) return teamMembers;
+    return teamMembers.filter(m => !m.serviceIds || m.serviceIds.length === 0 || m.serviceIds.includes(selectedService));
+  }, [teamMembers, selectedService]);
+  const showPersonStep = teamMembers.length > 0;
+  const stepOrder: StepId[] = showPersonStep
+    ? ['service', 'person', 'datetime', 'details']
+    : ['service', 'datetime', 'details'];
+  const currentStepIndex = Math.max(0, stepOrder.indexOf(step));
+  const goToStep = (offset: number) => {
+    const next = stepOrder[currentStepIndex + offset];
+    if (next) setStep(next);
+  };
+  const selectedMemberData = teamMembers.find(m => m.id === selectedMember);
   const canProceedStep1 = selectedService !== '';
   const canProceedStep2 = selectedDate !== '' && selectedTime !== '';
   const bgColor = styles.backgroundColor || '#f8fafc';
@@ -4850,10 +5582,10 @@ export default function BookingForm({ styles, props }: Props) {
 
         {status !== 'success' && services.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '32px' }}>
-            {[1, 2, 3].map((s) => (
+            {stepOrder.map((s, idx) => (
               <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '14px', backgroundColor: step >= s ? accentColor : '#e2e8f0', color: step >= s ? '#fff' : '#94a3b8', transition: 'all 0.2s' }}>{s}</div>
-                {s < 3 && <div style={{ width: '40px', height: '2px', backgroundColor: step > s ? accentColor : '#e2e8f0', transition: 'all 0.2s' }} />}
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '14px', backgroundColor: currentStepIndex >= idx ? accentColor : '#e2e8f0', color: currentStepIndex >= idx ? '#fff' : '#94a3b8', transition: 'all 0.2s' }}>{idx + 1}</div>
+                {idx < stepOrder.length - 1 && <div style={{ width: '40px', height: '2px', backgroundColor: currentStepIndex > idx ? accentColor : '#e2e8f0', transition: 'all 0.2s' }} />}
               </div>
             ))}
           </div>
@@ -4866,7 +5598,7 @@ export default function BookingForm({ styles, props }: Props) {
             </div>
             <h3 style={{ color: '#065f46', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>Booking Confirmed!</h3>
             <p style={{ color: '#047857', marginBottom: '24px' }}>We'll send a confirmation email to {email}</p>
-            <button onClick={resetForm} style={{ backgroundColor: '#10b981', color: '#fff', padding: '12px 24px', borderRadius: '10px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>Book Another Appointment</button>
+            <button onClick={resetForm} data-testid="button-book-another" style={{ backgroundColor: '#10b981', color: '#fff', padding: '12px 24px', borderRadius: '10px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>Book Another Appointment</button>
           </div>
         ) : (
           <div style={{ backgroundColor: '#fff', borderRadius: '20px', padding: '32px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: '1px solid rgba(0,0,0,0.06)' }}>
@@ -4876,11 +5608,11 @@ export default function BookingForm({ styles, props }: Props) {
               </div>
             ) : (
               <form onSubmit={handleSubmit}>
-                {step === 1 && (
+                {step === 'service' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <p style={{ fontWeight: 600, marginBottom: '8px' }}>Choose a Service</p>
                     {services.map((service) => (
-                      <div key={service.id} onClick={() => handleSelectService(service.id)} style={{ padding: '20px', borderRadius: '12px', border: selectedService === service.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedService === service.id ? '#f0f4ff' : '#fff', cursor: 'pointer', transition: 'all 0.15s ease' }}>
+                      <div key={service.id} data-testid={'option-service-' + service.id} onClick={() => handleSelectService(service.id)} style={{ padding: '20px', borderRadius: '12px', border: selectedService === service.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedService === service.id ? '#f0f4ff' : '#fff', cursor: 'pointer', transition: 'all 0.15s ease' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div>
                             <p style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{service.name}</p>
@@ -4891,11 +5623,44 @@ export default function BookingForm({ styles, props }: Props) {
                         </div>
                       </div>
                     ))}
-                    <button type="button" onClick={() => canProceedStep1 && setStep(2)} disabled={!canProceedStep1} style={{ marginTop: '16px', padding: '14px 24px', borderRadius: '12px', fontSize: '16px', fontWeight: 600, backgroundColor: canProceedStep1 ? accentColor : '#e2e8f0', color: canProceedStep1 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep1 ? 'pointer' : 'default' }}>Continue</button>
+                    <button type="button" data-testid="button-continue-service" onClick={() => canProceedStep1 && goToStep(1)} disabled={!canProceedStep1} style={{ marginTop: '16px', padding: '14px 24px', borderRadius: '12px', fontSize: '16px', fontWeight: 600, backgroundColor: canProceedStep1 ? accentColor : '#e2e8f0', color: canProceedStep1 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep1 ? 'pointer' : 'default' }}>Continue</button>
                   </div>
                 )}
 
-                {step === 2 && (
+                {step === 'person' && showPersonStep && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>Choose a Person</p>
+                    <button
+                      type="button"
+                      data-testid="button-select-anyone"
+                      onClick={() => setSelectedMember('')}
+                      style={{ textAlign: 'left', padding: '16px 20px', borderRadius: '12px', border: selectedMember === '' ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedMember === '' ? '#f0f4ff' : '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '15px', color: textColor }}
+                    >
+                      Anyone available
+                    </button>
+                    {availableMembers.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        data-testid={'button-select-member-' + member.id}
+                        onClick={() => setSelectedMember(member.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', textAlign: 'left', padding: '16px 20px', borderRadius: '12px', border: selectedMember === member.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedMember === member.id ? '#f0f4ff' : '#fff', cursor: 'pointer', color: textColor }}
+                      >
+                        <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: member.color || accentColor, flexShrink: 0 }}></span>
+                        <span>
+                          <span style={{ display: 'block', fontWeight: 600, fontSize: '15px' }}>{member.name}</span>
+                          {member.role && <span style={{ display: 'block', fontSize: '13px', opacity: 0.6 }}>{member.role}</span>}
+                        </span>
+                      </button>
+                    ))}
+                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                      <button type="button" data-testid="button-back-person" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
+                      <button type="button" data-testid="button-continue-person" onClick={() => goToStep(1)} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: 'pointer' }}>Continue</button>
+                    </div>
+                  </div>
+                )}
+
+                {step === 'datetime' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <p style={{ fontWeight: 600, marginBottom: '8px' }}>Select Date & Time</p>
                     
@@ -4976,21 +5741,28 @@ export default function BookingForm({ styles, props }: Props) {
                         ) : (
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
                             {availableSlots.map((slot) => (
-                              <button key={slot.time} type="button" onClick={() => setSelectedTime(slot.time)} style={{ padding: '12px', borderRadius: '8px', border: selectedTime === slot.time ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedTime === slot.time ? '#f0f4ff' : '#fff', color: selectedTime === slot.time ? accentColor : textColor, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}>{slot.time}</button>
+                              <button key={slot.time} type="button" data-testid={'button-slot-' + slot.time} onClick={() => setSelectedTime(slot.time)} style={{ padding: '12px', borderRadius: '8px', border: selectedTime === slot.time ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedTime === slot.time ? '#f0f4ff' : '#fff', color: selectedTime === slot.time ? accentColor : textColor, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}>
+                                {slot.time}
+                                {slot.openSlotId && <span style={{ display: 'block', fontSize: '11px', opacity: 0.6, fontWeight: 400 }}>Open slot</span>}
+                              </button>
                             ))}
                           </div>
                         )}
                       </div>
                     )}
+
+                    {errorMessage && status === 'error' && (
+                      <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{errorMessage}</div>
+                    )}
                     
                     <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" onClick={() => setStep(1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
-                      <button type="button" onClick={() => canProceedStep2 && setStep(3)} disabled={!canProceedStep2} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: canProceedStep2 ? accentColor : '#e2e8f0', color: canProceedStep2 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep2 ? 'pointer' : 'default' }}>Continue</button>
+                      <button type="button" data-testid="button-back-datetime" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
+                      <button type="button" data-testid="button-continue-datetime" onClick={() => canProceedStep2 && goToStep(1)} disabled={!canProceedStep2} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: canProceedStep2 ? accentColor : '#e2e8f0', color: canProceedStep2 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep2 ? 'pointer' : 'default' }}>Continue</button>
                     </div>
                   </div>
                 )}
 
-                {step === 3 && (
+                {step === 'details' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <p style={{ fontWeight: 600, marginBottom: '8px' }}>Your Details</p>
                     {selectedServiceData && (
@@ -5003,28 +5775,34 @@ export default function BookingForm({ styles, props }: Props) {
                           <span style={{ opacity: 0.7 }}>Date & Time:</span>
                           <span style={{ fontWeight: 600 }}>{new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {selectedTime}</span>
                         </div>
+                        {selectedMemberData && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '4px' }}>
+                            <span style={{ opacity: 0.7 }}>With:</span>
+                            <span style={{ fontWeight: 600 }}>{selectedMemberData.name}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                     <div>
                       <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Full Name *</label>
-                      <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                      <input type="text" data-testid="input-customer-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Email *</label>
-                      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                      <input type="email" data-testid="input-customer-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Phone (optional)</label>
-                      <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 123-4567" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                      <input type="tel" data-testid="input-customer-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 123-4567" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
                     </div>
                     <div>
                       <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Notes (optional)</label>
-                      <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Any special requests..." style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '16px', resize: 'none' }} />
+                      <textarea data-testid="input-booking-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Any special requests..." style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '16px', resize: 'none' }} />
                     </div>
-                    {status === 'error' && <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>Please fill in all required fields and try again.</div>}
+                    {status === 'error' && <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{errorMessage || 'Please fill in all required fields and try again.'}</div>}
                     <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" onClick={() => setStep(2)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
-                      <button type="submit" disabled={status === 'loading' || !name || !email} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: status === 'loading' || !name || !email ? 'default' : 'pointer', opacity: status === 'loading' || !name || !email ? 0.6 : 1 }}>{status === 'loading' ? 'Booking...' : (props.buttonText || 'Confirm Booking')}</button>
+                      <button type="button" data-testid="button-back-details" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
+                      <button type="submit" data-testid="button-confirm-booking" disabled={status === 'loading' || !name || !email} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: status === 'loading' || !name || !email ? 'default' : 'pointer', opacity: status === 'loading' || !name || !email ? 0.6 : 1 }}>{status === 'loading' ? 'Booking...' : (props.buttonText || 'Confirm Booking')}</button>
                     </div>
                   </div>
                 )}
@@ -5459,6 +6237,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+// BirdFlow API endpoint. When configured, events are sent there so the server
+// can classify the traffic source and resolve the visitor's country from the
+// IP (only the ISO country code is stored - never the IP).
+const BIRDFLOW_API_URL = (process.env.NEXT_PUBLIC_BIRDFLOW_API_URL || '').replace(/\\/+$/, '');
+
 function getOrCreateSession(): string {
   if (typeof window === 'undefined') return '';
   
@@ -5517,13 +6300,31 @@ function getDeviceType(): string {
 function sanitizeEventData(data?: Record<string, unknown>): Record<string, unknown> | null {
   if (!data) return null;
   const sanitized: Record<string, unknown> = {};
-  const allowedKeys = ['path', 'productId', 'productName', 'quantity', 'price', 'currency', 'serviceId', 'serviceName', 'orderId', 'bookingId', 'total'];
+  const allowedKeys = ['path', 'productId', 'productName', 'quantity', 'price', 'currency', 'serviceId', 'serviceName', 'orderId', 'bookingId', 'total', 'utm_source', 'utm_medium', 'utm_campaign'];
   for (const key of allowedKeys) {
     if (data[key] !== undefined) {
       sanitized[key] = data[key];
     }
   }
   return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
+// Campaign parameters from the current URL, so paid/social/email campaigns
+// are attributed correctly by the server-side classifier.
+function getUtmParams(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const utm: Record<string, string> = {};
+    const keys = ['utm_source', 'utm_medium', 'utm_campaign'];
+    for (let i = 0; i < keys.length; i++) {
+      const value = params.get(keys[i]);
+      if (value) utm[keys[i]] = value;
+    }
+    return utm;
+  } catch {
+    return {};
+  }
 }
 
 export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
@@ -5548,14 +6349,39 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
   const track = useCallback(async (eventType: string, eventData?: Record<string, unknown>) => {
     // Only track if user has accepted cookies
     if (consent !== 'accepted') return;
-    if (!supabase) {
-      console.warn('[Analytics] Supabase not configured');
-      return;
-    }
     
     try {
       const sessionId = getOrCreateSession();
       if (!sessionId || !websiteId) return;
+      
+      const mergedData = sanitizeEventData({ ...(eventData || {}), ...getUtmParams() });
+      
+      if (BIRDFLOW_API_URL) {
+        // Preferred path: the BirdFlow API classifies the traffic source from
+        // the raw referrer and resolves the country server-side.
+        await fetch(BIRDFLOW_API_URL + '/api/public/analytics/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            websiteId,
+            sessionId,
+            eventType,
+            pageUrl: typeof window !== 'undefined' ? window.location.pathname : null,
+            referrer: typeof document !== 'undefined' ? document.referrer : '',
+            deviceType: getDeviceType(),
+            eventData: mergedData,
+          }),
+          keepalive: true,
+        });
+        return;
+      }
+      
+      // Fallback for sites published without an API URL: direct insert with
+      // client-side source classification (no country available).
+      if (!supabase) {
+        console.warn('[Analytics] Supabase not configured');
+        return;
+      }
       
       const { error } = await supabase.from('analytics_events').insert({
         website_id: websiteId,
@@ -5564,7 +6390,7 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
         page_url: typeof window !== 'undefined' ? window.location.pathname : null,
         traffic_source: getTrafficSource(),
         device_type: getDeviceType(),
-        event_data: sanitizeEventData(eventData),
+        event_data: mergedData,
       });
       
       if (error) {
