@@ -23,6 +23,8 @@ import ProfilePage from "@/pages/profile";
 import OnboardingPage from "@/pages/onboarding";
 import AdminPage from "@/pages/admin";
 import PricingPage from "@/pages/pricing";
+import ServicesPage from "@/pages/services";
+import { LocaleProvider } from "@/lib/locale";
 import BillingPage from "@/pages/billing";
 import VerifyEmailPage from "@/pages/verify-email";
 import ResetPasswordPage from "@/pages/reset-password";
@@ -36,6 +38,7 @@ function Router() {
       <Route path="/" component={BirdflowLandingPage} />
       <Route path="/dfy" component={LandingPage} />
       <Route path="/diy" component={DIYPage} />
+      <Route path="/services" component={ServicesPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/terms" component={TermsPage} />
@@ -89,10 +92,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+        <LocaleProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </LocaleProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

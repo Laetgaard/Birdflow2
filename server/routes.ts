@@ -4795,6 +4795,123 @@ export async function registerRoutes(
   });
 
   // AI Builder - Build mode (directly applies changes)
+  /**
+   * The tool-using builder agent, streamed over SSE.
+   *
+   * The agent works on an in-memory copy and never persists; this route
+   * owns the load-bearing tail exactly once, in order:
+   *   self-check -> sanitize custom content -> save -> Danish report.
+   * (ai:// markers are resolved inside the agent's tools, before each
+   * mutation applies, so the "markers before apply" rule still holds.)
+   *
+   * On a large change the agent stops and returns what it has; the
+   * client shows an approval card and POSTs those mutations to
+   * /ai/apply, which runs the same tail.
+   */
+  app.post("/api/websites/:id/ai/agent", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    // Per-user budget: one message can be a dozen model calls.
+    const userId = (req as any).user?.id ?? req.params.id;
+    const now = Date.now();
+    const recentRuns = (agentRunHits.get(userId) ?? []).filter((t) => now - t < 10 * 60 * 1000);
+    if (recentRuns.length >= 10) {
+      agentRunHits.set(userId, recentRuns);
+      return res.status(429).json({
+        message: "For mange AI-forespørgsler på kort tid. Vent et par minutter og prøv igen.",
+      });
+    }
+    recentRuns.push(now);
+    agentRunHits.set(userId, recentRuns);
+
+    const bodySchema = z.object({
+      prompt: z.string().trim().min(1).max(4000),
+      approvedLargeChanges: z.boolean().optional(),
+    });
+    const parsed = bodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Ugyldig forespørgsel" });
+    }
+
+    const builderData = await storage.getBuilderState(req.params.id);
+    if (!builderData) {
+      return res.status(404).json({ message: "Builder state not found" });
+    }
+    const currentState = builderData.state as BuilderStateData;
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // don't let a proxy buffer the stream
+    const send = (payload: unknown) => {
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    try {
+      const { runBuilderAgent } = await import("./aiAgent");
+      const outcome = await runBuilderAgent({
+        websiteId: req.params.id,
+        prompt: parsed.data.prompt,
+        state: currentState,
+        approvedLargeChanges: parsed.data.approvedLargeChanges === true,
+        onEvent: send,
+      });
+
+      if (outcome.status === "failed") {
+        send({ type: "error", message: outcome.message });
+        return res.end();
+      }
+
+      if (outcome.status === "needs_approval") {
+        // Nothing was saved. The client asks the user, then replays the
+        // mutations through /ai/apply.
+        send({
+          type: "result",
+          status: "needs_approval",
+          reason: outcome.reason,
+          summary: outcome.summary,
+          mutations: outcome.mutations,
+        });
+        return res.end();
+      }
+
+      if (outcome.mutations.length === 0) {
+        send({ type: "result", status: "no_changes", summary: outcome.summary });
+        return res.end();
+      }
+
+      // ---- the load-bearing tail, once, in order ----
+      let newState = outcome.state;
+      const check = runSelfCheck(newState);
+      newState = check.state;
+      sanitizeBuilderStateCustomContent(newState);
+      await storage.updateBuilderState(req.params.id, newState);
+
+      const report = buildReport(
+        outcome.mutations,
+        newState,
+        [...outcome.notes, ...check.notes],
+        outcome.createdImages
+      );
+
+      send({
+        type: "result",
+        status: "completed",
+        summary: outcome.summary,
+        steps: outcome.steps,
+        newState,
+        report,
+      });
+      res.end();
+    } catch (error: any) {
+      console.error("AI agent error:", error);
+      if (res.headersSent) {
+        send({ type: "error", message: error?.message ?? "Agenten fejlede" });
+        res.end();
+      } else {
+        res.status(500).json({ message: error?.message ?? "Agenten fejlede" });
+      }
+    }
+  });
+
   app.post("/api/websites/:id/ai/build", requireAuth, async (req, res) => {
     try {
       const website = await storage.getWebsite(req.params.id);
@@ -4947,6 +5064,9 @@ export async function registerRoutes(
 
   // AI Builder - Design interview (guided brand-guide wizard)
   const designInterviewHits = new Map<string, number[]>();
+  // The agent makes several model calls per message, so it gets its own
+  // tighter budget than the single-shot endpoints.
+  const agentRunHits = new Map<string, number[]>();
   const diHex = z.string().regex(/^#[0-9a-fA-F]{3,8}$/);
   const diPaletteSchema = z.object({
     id: z.string().max(64),

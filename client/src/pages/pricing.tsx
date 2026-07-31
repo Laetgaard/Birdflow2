@@ -1,341 +1,423 @@
-import { Link, useLocation } from "wouter";
-import { Button } from "@/components/ui/button";
-import { 
-  Check, 
-  ArrowRight,
-  Sparkles,
-  Zap,
-  HelpCircle,
-  Loader2,
-} from "lucide-react";
-import { motion } from "framer-motion";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useAuth } from "@/lib/auth";
-import { useMutation } from "@tanstack/react-query";
-import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
-import { subscriptionPlans, formatPrice, getYearlySavings } from "@shared/subscriptionPlans";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
+import { Link } from "wouter";
+import { Check, Minus } from "lucide-react";
+import { BLUE, BLUSH, LIME, PAGE_CSS, PURPLE } from "@/components/bf2/theme";
+import { BandWave, Bird, BirdDefs, EdgeWave, RevealOnView } from "@/components/bf2/primitives";
+import { Nav, bookHref } from "@/components/bf2/Nav";
+import { LangToggle } from "@/components/bf2/LangToggle";
+import { useLocale, pick, type Lang } from "@/lib/locale";
 
-const faqs = [
-  {
-    question: "Hvordan fungerer den gratis prøveperiode?",
-    answer: "Du får 31 dages gratis prøveperiode med fuld adgang til alle funktioner. Du skal indtaste betalingsoplysninger, men bliver først opkrævet efter prøveperioden. Du kan opsige når som helst i prøveperioden.",
+/* ─────────────────────────────────────────────────────────────
+   /pricing — plans and what's included.
+
+   IMPORTANT: this page is presentation only. The prices below come
+   from the product's pricing sheet and are NOT the amounts wired
+   into Stripe (PLATFORM_PLANS in shared/schema.ts still defines
+   69/149/249 kr). That is why no button here starts a checkout:
+   every CTA goes to signup or to booking a meeting. Wiring real
+   payment requires updating PLATFORM_PLANS and the Stripe price
+   IDs together, which is a separate, deliberate change.
+   ───────────────────────────────────────────────────────────── */
+
+type Tier = {
+  id: string;
+  name: string;
+  price: string;
+  period: string;
+  tagline: string;
+  featured?: boolean;
+  cta: string;
+  /** Empty means "book a meeting" rather than a route. */
+  ctaHref: string;
+};
+
+/** A feature row across all four tiers. `true`/`false` render as icons. */
+type Row = {
+  label: string;
+  values: [string | boolean, string | boolean, string | boolean, string | boolean];
+};
+
+type Package = { pages: string; price: string; saving?: string };
+
+const COPY: Record<Lang, {
+  heroKicker: string;
+  heroTitle: string;
+  heroTitleEm: string;
+  heroBody: string;
+  tiers: Tier[];
+  matrixTitle: string;
+  rows: Row[];
+  packagesKicker: string;
+  packagesTitle: string;
+  packagesBody: string;
+  packages: Package[];
+  savingLabel: string;
+  customTitle: string;
+  customBody: string;
+  customCta: string;
+  answerWithin: string;
+  noteTitle: string;
+  noteBody: string;
+  closingTitle: string;
+  closingBody: string;
+  closingCta: string;
+  servicesLink: string;
+}> = {
+  da: {
+    heroKicker: "Priser",
+    heroTitle: "Vælg det der passer",
+    heroTitleEm: "din praksis.",
+    heroBody:
+      "Alle abonnementer indeholder hosting, vedligeholdelse, HTTPS og GDPR-venlig drift. Du betaler kun ekstra for det, du rent faktisk sender.",
+    tiers: [
+      { id: "basic", name: "Basic", price: "49,95", period: "kr/md.", tagline: "Til dig der skal i gang", cta: "Kom i gang", ctaHref: "/auth?mode=signup" },
+      { id: "starter", name: "Starter", price: "749,95", period: "kr/md.", tagline: "Til praksis med booking", featured: true, cta: "Kom i gang", ctaHref: "/auth?mode=signup" },
+      { id: "professional", name: "Professional", price: "1.999", period: "kr/md.", tagline: "Til klinikker med flere behandlere", cta: "Kom i gang", ctaHref: "/auth?mode=signup" },
+      { id: "enterprise", name: "Enterprise", price: "Custom", period: "", tagline: "Skræddersyet til jer", cta: "Book 20 min. gratis", ctaHref: "" },
+    ],
+    matrixTitle: "Hvad er inkluderet",
+    rows: [
+      { label: "Hosting", values: [true, true, true, true] },
+      { label: "Vedligeholdelse", values: [true, true, true, true] },
+      { label: "Support", values: ["14–16", "10–16", "24/7", "Dedikeret"] },
+      { label: "Domæne", values: ["Tilbud", "Gratis", "Eget domæne", "Efter aftale"] },
+      { label: "Mailkonti", values: ["1", "3", "10", "Efter aftale"] },
+      { label: "HTTPS-sikkerhed", values: [true, true, true, true] },
+      { label: "GDPR-sikker", values: [true, true, true, true] },
+      { label: "Datalagring", values: ["5 år", "5 år", "op til 10 år", "Efter aftale"] },
+      { label: "Bookingsystem", values: ["Med gebyr", "0,5 %", "0,01 %", "Efter aftale"] },
+      { label: "Eksterne kalendere", values: [false, "5", "50", "Efter aftale"] },
+      { label: "SMS-påmindelse", values: ["3 kr/stk.", "1 kr/stk.", "0,5 kr/stk.", "Efter aftale"] },
+      { label: "Automatisk mail", values: ["3 kr/stk.", "3 kr/stk.", "0,25 kr/stk.", "Efter aftale"] },
+      { label: "Lagerplads", values: ["5 GB", "15 GB", "50 GB", "Efter aftale"] },
+    ],
+    packagesKicker: "Hjemmesidepakker",
+    packagesTitle: "Skal vi bygge siden for dig?",
+    packagesBody:
+      "Engangspris for en færdig hjemmeside. Derefter vælger du selv det abonnement, der passer til driften.",
+    packages: [
+      { pages: "3 sider", price: "299" },
+      { pages: "5 sider", price: "499,95", saving: "20" },
+      { pages: "9 sider", price: "699,95", saving: "78" },
+    ],
+    savingLabel: "spar",
+    customTitle: "Speciel størrelse?",
+    customBody: "Beskriv hvad du har brug for, så vender vi tilbage med en pris.",
+    customCta: "Beskriv dit projekt",
+    answerWithin: "Svar inden for 24 timer",
+    noteTitle: "Godt at vide",
+    noteBody:
+      "Priser er ekskl. moms. SMS og mails afregnes efter forbrug. Bookinggebyr beregnes af beløbet på den enkelte booking.",
+    closingTitle: "Er du i tvivl om hvad du har brug for?",
+    closingBody: "Tag en uforpligtende snak — så finder vi det rigtige niveau sammen.",
+    closingCta: "Book 20 minutter",
+    servicesLink: "Se alle ydelser",
   },
-  {
-    question: "Kan jeg skifte mellem månedlig og årlig betaling?",
-    answer: "Ja! Du kan skifte mellem månedlig og årlig betaling når som helst fra din faktureringsoversigt. Ved skift til årlig betaling sparer du 2 måneder.",
+  en: {
+    heroKicker: "Pricing",
+    heroTitle: "Pick what fits",
+    heroTitleEm: "your practice.",
+    heroBody:
+      "Every plan includes hosting, maintenance, HTTPS and GDPR-friendly operation. You only pay extra for what you actually send.",
+    tiers: [
+      { id: "basic", name: "Basic", price: "49.95", period: "kr/mo.", tagline: "For getting started", cta: "Get started", ctaHref: "/auth?mode=signup" },
+      { id: "starter", name: "Starter", price: "749.95", period: "kr/mo.", tagline: "For practices with booking", featured: true, cta: "Get started", ctaHref: "/auth?mode=signup" },
+      { id: "professional", name: "Professional", price: "1,999", period: "kr/mo.", tagline: "For clinics with several practitioners", cta: "Get started", ctaHref: "/auth?mode=signup" },
+      { id: "enterprise", name: "Enterprise", price: "Custom", period: "", tagline: "Tailored to you", cta: "Book 20 min. free", ctaHref: "" },
+    ],
+    matrixTitle: "What's included",
+    rows: [
+      { label: "Hosting", values: [true, true, true, true] },
+      { label: "Maintenance", values: [true, true, true, true] },
+      { label: "Support", values: ["14–16", "10–16", "24/7", "Dedicated"] },
+      { label: "Domain", values: ["Offer", "Free", "Own domain", "By agreement"] },
+      { label: "Mailboxes", values: ["1", "3", "10", "By agreement"] },
+      { label: "HTTPS security", values: [true, true, true, true] },
+      { label: "GDPR compliant", values: [true, true, true, true] },
+      { label: "Data retention", values: ["5 years", "5 years", "up to 10 years", "By agreement"] },
+      { label: "Booking system", values: ["With fee", "0.5 %", "0.01 %", "By agreement"] },
+      { label: "External calendars", values: [false, "5", "50", "By agreement"] },
+      { label: "SMS reminder", values: ["3 kr/ea.", "1 kr/ea.", "0.5 kr/ea.", "By agreement"] },
+      { label: "Automatic email", values: ["3 kr/ea.", "3 kr/ea.", "0.25 kr/ea.", "By agreement"] },
+      { label: "Storage", values: ["5 GB", "15 GB", "50 GB", "By agreement"] },
+    ],
+    packagesKicker: "Website packages",
+    packagesTitle: "Want us to build it for you?",
+    packagesBody:
+      "A one-off price for a finished website. After that you pick whichever subscription suits running it.",
+    packages: [
+      { pages: "3 pages", price: "299" },
+      { pages: "5 pages", price: "499.95", saving: "20" },
+      { pages: "9 pages", price: "699.95", saving: "78" },
+    ],
+    savingLabel: "save",
+    customTitle: "Special size?",
+    customBody: "Describe what you need and we'll come back with a price.",
+    customCta: "Describe your project",
+    answerWithin: "Answer within 24 hours",
+    noteTitle: "Good to know",
+    noteBody:
+      "Prices exclude VAT. SMS and email are billed on usage. The booking fee is calculated from the value of each booking.",
+    closingTitle: "Not sure what you need?",
+    closingBody: "Have a no-obligation chat — we'll work out the right level together.",
+    closingCta: "Book 20 minutes",
+    servicesLink: "See all services",
   },
-  {
-    question: "Hvilke betalingsmetoder accepterer I?",
-    answer: "Vi accepterer alle større betalingskort (Visa, Mastercard, American Express) via Stripe. Alle priser er i danske kroner (DKK).",
-  },
-  {
-    question: "Kan jeg opsige når som helst?",
-    answer: "Ja, absolut. Der er ingen bindingsperiode. Du kan opsige dit abonnement når som helst, og du beholder adgang til dine features indtil slutningen af din betalingsperiode.",
-  },
-  {
-    question: "Hvad sker der når min prøveperiode udløber?",
-    answer: "Du modtager email-påmindelser før din prøveperiode udløber. Hvis du ikke opsiger, bliver dit kort automatisk opkrævet. Hvis du opsiger, mister du adgang til funktionerne.",
-  },
-  {
-    question: "Er mine data sikre?",
-    answer: "Ja, vi tager datasikkerhed meget alvorligt. Alle betalinger håndteres sikkert via Stripe, og dine data hostes på sikre servere med SSL-kryptering.",
-  },
-];
+};
+
+function ValueCell({ value }: { value: string | boolean }) {
+  if (value === true) {
+    return <Check className="w-[18px] h-[18px] mx-auto" style={{ color: PURPLE }} aria-label="included" />;
+  }
+  if (value === false) {
+    return <Minus className="w-[18px] h-[18px] mx-auto opacity-30" aria-label="not included" />;
+  }
+  return <span className="text-[14px] font-bold">{value}</span>;
+}
 
 export default function PricingPage() {
-  const { user, isLoading: authLoading } = useAuth();
-  const [, navigate] = useLocation();
-  const { toast } = useToast();
-  const [isYearly, setIsYearly] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  
-  const isAuthenticated = !!user;
-  const plan = subscriptionPlans[0];
-
-  const checkoutMutation = useMutation({
-    mutationFn: async ({ planId, billingPeriod }: { planId: string; billingPeriod: "monthly" | "yearly" }) => {
-      const res = await fetch("/api/subscriptions/user-checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ planId, billingPeriod }),
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Kunne ikke starte betaling");
-      }
-      return res.json();
-    },
-    onSuccess: (data) => {
-      if (data.url) {
-        window.location.href = data.url;
-      }
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Betalingsfejl",
-        description: error.message || "Kunne ikke starte betaling. Prøv venligst igen.",
-        variant: "destructive",
-      });
-      setIsLoading(false);
-    },
-  });
-
-  const handleStartTrial = () => {
-    if (!isAuthenticated) {
-      navigate(`/auth?mode=signup&plan=basic`);
-      return;
-    }
-    
-    setIsLoading(true);
-    checkoutMutation.mutate({ 
-      planId: "basic", 
-      billingPeriod: isYearly ? "yearly" : "monthly" 
-    });
-  };
-
-  const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
-  const yearlySavings = getYearlySavings(plan);
+  const { lang } = useLocale();
+  const t = pick(COPY, lang);
+  const book = bookHref(false);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col overflow-x-hidden">
-      <header className="border-b sticky top-0 bg-background/80 backdrop-blur-md z-50">
-        <div className="w-full px-6 lg:px-12 h-16 flex items-center justify-between">
-          <Link href="/">
-            <div className="flex items-center gap-2 font-bold text-xl tracking-tight cursor-pointer">
-              <img src="/logo.png" alt="BirdFlow" className="w-8 h-8" />
-              <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                BirdFlow
-              </span>
-            </div>
-          </Link>
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
-            <Link href="/#features" className="hover:text-foreground transition-colors">Features</Link>
-            <Link href="/#how-it-works" className="hover:text-foreground transition-colors">Sådan Virker Det</Link>
-            <Link href="/pricing" className="text-foreground">Priser</Link>
-            <Link href="/#faq" className="hover:text-foreground transition-colors">FAQ</Link>
-          </nav>
-          <div className="flex items-center gap-3">
-            {isAuthenticated ? (
-              <Link href="/dashboard">
-                <Button size="sm" variant="ghost" data-testid="button-dashboard-nav">Dashboard</Button>
-              </Link>
-            ) : (
-              <>
-                <Link href="/auth?mode=signin">
-                  <Button variant="ghost" size="sm" data-testid="button-signin-nav">Log ind</Button>
-                </Link>
-                <Link href="/auth?mode=signup">
-                  <Button size="sm" className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700" data-testid="button-get-started-nav">
-                    Kom i gang gratis
-                  </Button>
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      </header>
+    <div
+      className="bf2-page min-h-screen"
+      style={{ fontFamily: "'Nunito', sans-serif", color: "#000", background: LIME }}
+    >
+      <style>{PAGE_CSS}</style>
+      <BirdDefs />
+      <Nav />
 
-      <main className="flex-1">
-        <section className="py-20 md:py-28 px-6 lg:px-12">
-          <div className="max-w-4xl mx-auto">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-              className="text-center mb-12"
-            >
-              <div className="inline-flex items-center gap-2 bg-emerald-500/10 text-emerald-600 px-4 py-2 rounded-full text-sm font-medium mb-6">
-                <Sparkles className="w-4 h-4" />
-                31 dages gratis prøveperiode
-              </div>
-              <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-                Enkel og gennemsigtig prissætning
-              </h1>
-              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Én plan med alt inkluderet. Start med 31 dages gratis prøveperiode.
+      <main>
+        {/* Hero */}
+        <section style={{ background: PURPLE }} data-testid="section-pricing-hero">
+          <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-10 pb-16 lg:pt-14 lg:pb-24">
+            <div className="flex items-center justify-between gap-4 mb-8">
+              <p className="text-[13px] font-extrabold uppercase tracking-[0.14em] text-white/75 m-0">
+                {t.heroKicker}
               </p>
-            </motion.div>
-
-            {/* Billing Toggle */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1 }}
-              className="flex items-center justify-center gap-4 mb-12"
-            >
-              <Label htmlFor="billing-toggle" className={`text-base ${!isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
-                Månedlig
-              </Label>
-              <Switch
-                id="billing-toggle"
-                checked={isYearly}
-                onCheckedChange={setIsYearly}
-                data-testid="switch-billing-toggle"
-              />
-              <div className="flex items-center gap-2">
-                <Label htmlFor="billing-toggle" className={`text-base ${isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
-                  Årlig
-                </Label>
-                <span className="bg-emerald-500/10 text-emerald-600 text-xs font-semibold px-2 py-1 rounded-full">
-                  Spar {formatPrice(yearlySavings)}
-                </span>
-              </div>
-            </motion.div>
-
-            {/* Single Plan Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="max-w-lg mx-auto mb-20"
-            >
-              <div className="relative rounded-2xl border-2 border-primary bg-card p-8 shadow-xl shadow-primary/10">
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                  <span className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-semibold px-4 py-1.5 rounded-full">
-                    Alt inkluderet
-                  </span>
-                </div>
-                
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center">
-                    <Zap className="w-6 h-6 text-indigo-500" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-2xl">{plan.name}</h3>
-                    <p className="text-muted-foreground">{plan.description}</p>
-                  </div>
-                </div>
-
-                <div className="mb-2">
-                  <span className="text-5xl font-bold">{formatPrice(currentPrice)}</span>
-                  <span className="text-muted-foreground ml-2">
-                    {isYearly ? "/år" : "/md"}
-                  </span>
-                </div>
-                
-                {isYearly && (
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Svarer til {formatPrice(Math.round(plan.yearlyPrice / 12))}/md
-                  </p>
-                )}
-                
-                <p className="text-emerald-600 font-medium mb-6">
-                  31 dages gratis prøveperiode
-                </p>
-
-                <Button 
-                  className="w-full h-14 text-lg mb-8 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
-                  data-testid="button-start-trial"
-                  onClick={handleStartTrial}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Behandler...
-                    </>
-                  ) : (
-                    <>
-                      Start gratis prøveperiode
-                      <ArrowRight className="w-5 h-5 ml-2" />
-                    </>
-                  )}
-                </Button>
-
-                <ul className="space-y-3">
-                  {plan.features.map((feature, j) => (
-                    <li key={j} className="flex items-start gap-3">
-                      <Check className={`w-5 h-5 shrink-0 mt-0.5 ${feature.highlight ? "text-emerald-500" : "text-emerald-500"}`} />
-                      <span className={feature.highlight ? "font-medium text-emerald-600" : ""}>
-                        {feature.text}
-                        {feature.tooltip && (
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>{feature.tooltip}</TooltipContent>
-                          </Tooltip>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </motion.div>
-
-            {/* FAQ Section */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className="max-w-3xl mx-auto"
-            >
-              <h2 className="text-2xl font-bold text-center mb-8">Ofte stillede spørgsmål</h2>
-              <div className="space-y-4">
-                {faqs.map((faq, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, y: 10 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ delay: i * 0.1 }}
-                    className="border rounded-xl p-6 bg-card"
-                  >
-                    <h3 className="font-semibold mb-2">{faq.question}</h3>
-                    <p className="text-muted-foreground text-sm">{faq.answer}</p>
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
+              <LangToggle />
+            </div>
+            <h1 className="bf2-display text-white text-[36px] sm:text-[48px] lg:text-[64px] leading-[1.1] max-w-[820px] m-0">
+              {t.heroTitle} <span className="opacity-80">{t.heroTitleEm}</span>
+            </h1>
+            <p className="mt-6 max-w-[620px] text-[17px] lg:text-[20px] leading-[1.6] text-white/85">
+              {t.heroBody}
+            </p>
           </div>
         </section>
 
-        <section className="py-16 px-6 lg:px-12 bg-gradient-to-r from-indigo-500 to-purple-600">
-          <div className="max-w-4xl mx-auto text-center">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
+        <EdgeWave other={LIME} flip="xy" />
+
+        {/* Tier cards */}
+        <section style={{ background: LIME }} data-testid="section-pricing-tiers">
+          <div className="max-w-[1240px] mx-auto px-5 md:px-9 pb-4 lg:pb-8">
+            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-5">
+              {t.tiers.map((tier, i) => (
+                <RevealOnView key={tier.id} delay={0.05 * i}>
+                  <div
+                    className="h-full rounded-[18px] p-6 flex flex-col"
+                    style={{
+                      background: tier.featured ? PURPLE : "#FFFFFF",
+                      color: tier.featured ? "#FFFFFF" : "#000000",
+                      border: tier.featured ? "none" : "2px solid rgba(0,0,0,0.10)",
+                      boxShadow: tier.featured ? "0 18px 40px -18px rgba(128,22,195,0.55)" : "none",
+                    }}
+                    data-testid={`tier-${tier.id}`}
+                  >
+                    <p className="text-[13px] font-extrabold uppercase tracking-[0.12em] m-0 opacity-70">
+                      {tier.name}
+                    </p>
+                    <div className="mt-3 flex items-baseline gap-1.5">
+                      <span className="bf2-display text-[38px] lg:text-[44px] leading-none">
+                        {tier.price}
+                      </span>
+                      {tier.period && (
+                        <span className="text-[14px] font-extrabold opacity-70">{tier.period}</span>
+                      )}
+                    </div>
+                    <p className="mt-3 text-[14.5px] leading-[1.55] opacity-75 flex-1">{tier.tagline}</p>
+                    {tier.ctaHref ? (
+                      <Link
+                        href={tier.ctaHref}
+                        className="mt-5 inline-block text-center no-underline text-[15px] font-extrabold px-5 py-3 rounded-[10px] transition hover:brightness-110"
+                        style={
+                          tier.featured
+                            ? { background: "#FFFFFF", color: PURPLE }
+                            : { background: BLUE, color: "#FFFFFF" }
+                        }
+                        data-testid={`tier-cta-${tier.id}`}
+                      >
+                        {tier.cta}
+                      </Link>
+                    ) : (
+                      <a
+                        href={book}
+                        className="mt-5 inline-block text-center no-underline text-[15px] font-extrabold px-5 py-3 rounded-[10px] border-2 transition hover:bg-white/10"
+                        style={{ borderColor: "rgba(0,0,0,0.2)", color: "#000" }}
+                        data-testid={`tier-cta-${tier.id}`}
+                      >
+                        {tier.cta}
+                      </a>
+                    )}
+                  </div>
+                </RevealOnView>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Feature matrix */}
+        <section style={{ background: LIME }} data-testid="section-pricing-matrix">
+          <div className="max-w-[1240px] mx-auto px-5 md:px-9 py-12 lg:py-16">
+            <h2 className="bf2-display text-[28px] lg:text-[38px] leading-[1.2] mb-6">
+              {t.matrixTitle}
+            </h2>
+            <div className="overflow-x-auto rounded-[16px]" style={{ background: "#FFFFFF" }}>
+              <table className="w-full min-w-[720px] border-collapse text-left">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-3 text-[13px] font-extrabold uppercase tracking-[0.1em] opacity-60">
+                      &nbsp;
+                    </th>
+                    {t.tiers.map((tier) => (
+                      <th
+                        key={tier.id}
+                        className="px-4 py-3 text-center text-[13px] font-extrabold uppercase tracking-[0.1em]"
+                        style={{ color: tier.featured ? PURPLE : "rgba(0,0,0,0.6)" }}
+                      >
+                        {tier.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {t.rows.map((row) => (
+                    <tr key={row.label} style={{ borderTop: "1.5px solid rgba(0,0,0,0.08)" }}>
+                      <th scope="row" className="px-4 py-3 text-[14.5px] font-bold whitespace-nowrap">
+                        {row.label}
+                      </th>
+                      {row.values.map((value, i) => (
+                        <td key={i} className="px-4 py-3 text-center">
+                          <ValueCell value={value} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-4 text-[13.5px] leading-[1.6] opacity-65 max-w-[720px]">
+              <strong>{t.noteTitle}:</strong> {t.noteBody}
+            </p>
+          </div>
+        </section>
+
+        <BandWave top={LIME} bottom={BLUSH} />
+
+        {/* One-off website packages */}
+        <section style={{ background: BLUSH }} data-testid="section-pricing-packages">
+          <div className="max-w-[1240px] mx-auto px-5 md:px-9 py-14 lg:py-20">
+            <p
+              className="text-[13px] font-extrabold uppercase tracking-[0.12em] mb-3"
+              style={{ color: PURPLE }}
             >
-              <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-                Klar til at bygge din hjemmeside?
-              </h2>
-              <p className="text-white/80 text-lg mb-8 max-w-2xl mx-auto">
-                Start din gratis prøveperiode i dag og se hvor nemt det er at bygge en professionel hjemmeside.
-              </p>
-              <Link href="/auth?mode=signup&plan=basic">
-                <Button size="lg" variant="secondary" className="font-semibold shadow-xl" data-testid="button-cta-bottom">
-                  Start Gratis Prøveperiode
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
+              {t.packagesKicker}
+            </p>
+            <h2 className="bf2-display text-[28px] lg:text-[40px] leading-[1.2] max-w-[620px] m-0">
+              {t.packagesTitle}
+            </h2>
+            <p className="mt-4 max-w-[560px] text-[16px] lg:text-[17.5px] leading-[1.65] opacity-75">
+              {t.packagesBody}
+            </p>
+
+            <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {t.packages.map((pkg, i) => (
+                <RevealOnView key={pkg.pages} delay={0.05 * i}>
+                  <div
+                    className="h-full rounded-[16px] p-5 bg-white flex flex-col"
+                    style={{ border: "2px solid rgba(0,0,0,0.10)" }}
+                    data-testid={`package-${i}`}
+                  >
+                    <p className="text-[14px] font-extrabold uppercase tracking-[0.1em] opacity-60 m-0">
+                      {pkg.pages}
+                    </p>
+                    <div className="mt-2 flex items-baseline gap-1.5">
+                      <span className="bf2-display text-[34px] leading-none">{pkg.price}</span>
+                      <span className="text-[14px] font-extrabold opacity-70">kr</span>
+                    </div>
+                    {pkg.saving && (
+                      <span
+                        className="mt-3 inline-block self-start rounded-full px-2.5 py-1 text-[12px] font-extrabold text-white"
+                        style={{ background: PURPLE }}
+                      >
+                        {t.savingLabel} {pkg.saving} kr
+                      </span>
+                    )}
+                  </div>
+                </RevealOnView>
+              ))}
+
+              {/* Custom size → describe it, we answer within 24h */}
+              <RevealOnView delay={0.2}>
+                <div
+                  className="h-full rounded-[16px] p-5 flex flex-col"
+                  style={{ background: PURPLE, color: "#FFFFFF" }}
+                  data-testid="package-custom"
+                >
+                  <p className="text-[14px] font-extrabold uppercase tracking-[0.1em] opacity-75 m-0">
+                    {t.customTitle}
+                  </p>
+                  <p className="mt-2 text-[14.5px] leading-[1.55] opacity-90 flex-1">{t.customBody}</p>
+                  <a
+                    href={book}
+                    className="mt-4 inline-block text-center no-underline text-[14.5px] font-extrabold px-4 py-2.5 rounded-[10px]"
+                    style={{ background: "#FFFFFF", color: PURPLE }}
+                    data-testid="button-custom-package"
+                  >
+                    {t.customCta}
+                  </a>
+                  <p className="mt-2.5 mb-0 text-[12.5px] font-bold opacity-75 text-center">
+                    {t.answerWithin}
+                  </p>
+                </div>
+              </RevealOnView>
+            </div>
+          </div>
+        </section>
+
+        {/* Closing CTA */}
+        <section style={{ background: BLUSH }} data-testid="section-pricing-cta">
+          <div className="max-w-[1240px] mx-auto px-5 md:px-9 pb-16 lg:pb-24 text-center">
+            <div className="flex justify-center mb-5">
+              <Bird className="w-9 h-7" style={{ color: PURPLE }} />
+            </div>
+            <h2 className="bf2-display text-[28px] sm:text-[36px] lg:text-[44px] leading-[1.2] max-w-[660px] mx-auto m-0">
+              {t.closingTitle}
+            </h2>
+            <p className="mt-5 mx-auto max-w-[520px] text-[16.5px] lg:text-[19px] leading-[1.65] opacity-75">
+              {t.closingBody}
+            </p>
+            <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+              <a
+                href={book}
+                className="inline-block text-white no-underline text-[17px] font-extrabold px-[30px] py-[15px] rounded-[10px] hover:brightness-110 transition"
+                style={{ background: BLUE, boxShadow: "0 6px 18px rgba(10,2,25,0.28)" }}
+                data-testid="button-pricing-book"
+              >
+                {t.closingCta}
+              </a>
+              <Link
+                href="/services"
+                className="inline-block no-underline text-[17px] font-extrabold px-[30px] py-[15px] rounded-[10px] border-2 transition-colors hover:bg-black/5"
+                style={{ borderColor: "rgba(0,0,0,0.2)", color: "#000" }}
+              >
+                {t.servicesLink}
               </Link>
-            </motion.div>
+            </div>
           </div>
         </section>
       </main>
-
-      <footer className="py-8 border-t bg-background">
-        <div className="w-full px-6 lg:px-12">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-sm text-muted-foreground">
-              © {new Date().getFullYear()} BirdFlow. All rights reserved.
-            </p>
-            <div className="flex items-center gap-6 text-sm text-muted-foreground">
-              <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
-              <Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
-            </div>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
