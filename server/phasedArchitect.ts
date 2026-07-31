@@ -118,7 +118,7 @@ Return JSON:
   "tagline": "..."
 }`;
 
-export async function generateStructure(prompt: string, sourceUrl?: string): Promise<{
+export async function generateStructure(prompt: string, sourceUrl?: string, brandContext?: string): Promise<{
   success: boolean;
   plan?: Partial<WebsitePlan>;
   error?: string;
@@ -133,6 +133,7 @@ export async function generateStructure(prompt: string, sourceUrl?: string): Pro
           content: `Create a website structure/wireframe for:
 
 "${prompt}"
+${brandContext ? `\n${brandContext}\n` : ''}
 
 ${sourceUrl ? `Reference URL: ${sourceUrl}` : ''}
 
@@ -263,7 +264,8 @@ Return JSON with content for each section ID:
 }`;
 
 export async function generateContent(
-  plan: Partial<WebsitePlan>
+  plan: Partial<WebsitePlan>,
+  brandContext?: string
 ): Promise<{
   success: boolean;
   content?: Record<string, any>;
@@ -288,6 +290,7 @@ export async function generateContent(
 
 Tagline: ${plan.tagline}
 Target Audience: ${plan.analysis?.targetAudience}
+${brandContext ? `\n${brandContext}\n` : ''}
 
 SECTIONS TO FILL:
 ${JSON.stringify(sectionsToFill, null, 2)}
@@ -379,7 +382,8 @@ Design the visual system:
 
 export async function generateStyling(
   plan: Partial<WebsitePlan>,
-  content: Record<string, any>
+  content: Record<string, any>,
+  brandContext?: string
 ): Promise<{
   success: boolean;
   designSystem?: DesignSystem;
@@ -396,6 +400,7 @@ export async function generateStyling(
           content: `Design the visual system for this ${plan.siteType} website: "${plan.siteName}"
 
 Target Audience: ${plan.analysis?.targetAudience}
+${brandContext ? `\n${brandContext}\nWhen a brand guide is present, the design system MUST use its colors, fonts and shape tokens rather than inventing new ones.\n` : ''}
 
 PAGES & SECTIONS:
 ${JSON.stringify(plan.pages, null, 2)}

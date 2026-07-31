@@ -4,7 +4,7 @@ import { storage, db } from "./storage";
 import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
-import { recordAdminAudit, summarizeBuilderStateChange } from "./adminAudit";
+import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
 import { isAllowedMediaStoragePath } from "./mediaPaths";
 import { eq, sql } from "drizzle-orm";
 import { z, ZodError } from "zod";
@@ -40,7 +40,7 @@ import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
 import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
-import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens } from "@shared/customComponents";
+import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
 import { emailService } from "./email/service";
 
 // Helper to migrate legacy element-based state to component-based state
@@ -1076,18 +1076,9 @@ export async function registerRoutes(
   // ============ MANAGEMENT ROUTES (Orders, Bookings, Submissions, Customers) ============
 
   // Get orders for a website
-  app.get("/api/websites/:id/orders", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/orders", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const orders = await storage.getOrders(req.params.id);
       res.json(orders);
@@ -1097,18 +1088,9 @@ export async function registerRoutes(
   });
 
   // Get bookings for a website
-  app.get("/api/websites/:id/bookings", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/bookings", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const bookings = await storage.getBookings(req.params.id);
       res.json(bookings);
@@ -1118,16 +1100,9 @@ export async function registerRoutes(
   });
 
   // Create a booking as the website owner (from the manage calendar)
-  app.post("/api/websites/:id/bookings", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/bookings", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("booking.create", "booking"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const {
         serviceId, service, customerName, customerEmail, customerPhone,
@@ -1243,12 +1218,9 @@ export async function registerRoutes(
     return windows;
   };
 
-  app.get("/api/websites/:id/team-members", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/team-members", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const website = getWebsiteAccess(req).website;
 
       const members = await storage.getTeamMembers(req.params.id);
       res.json(members);
@@ -1257,12 +1229,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/websites/:id/team-members", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/team-members", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("teamMember.create", "teamMember"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const website = getWebsiteAccess(req).website;
 
       const { name, role, email, phone, color, serviceIds, availability, active, sortOrder } = req.body || {};
       if (!name || typeof name !== 'string' || !name.trim()) {
@@ -1287,12 +1256,9 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/websites/:id/team-members/:memberId", requireAuth, async (req, res) => {
+  app.patch("/api/websites/:id/team-members/:memberId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("teamMember.update", "teamMember", "memberId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const website = getWebsiteAccess(req).website;
 
       const { name, role, email, phone, color, serviceIds, availability, active, sortOrder } = req.body || {};
       const data: Record<string, unknown> = {};
@@ -1319,12 +1285,9 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/websites/:id/team-members/:memberId", requireAuth, async (req, res) => {
+  app.delete("/api/websites/:id/team-members/:memberId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("teamMember.delete", "teamMember", "memberId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const website = getWebsiteAccess(req).website;
 
       const member = await storage.getTeamMember(req.params.memberId, req.params.id);
       if (!member) return res.status(404).json({ message: "Teammedlemmet findes ikke" });
@@ -1338,12 +1301,9 @@ export async function registerRoutes(
 
   // ============ OPEN SLOTS ROUTES ============
 
-  app.get("/api/websites/:id/open-slots", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/open-slots", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const website = getWebsiteAccess(req).website;
 
       const { from, to } = req.query;
       const slots = await storage.getOpenSlots(
@@ -1357,12 +1317,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/websites/:id/open-slots", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/open-slots", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("openSlot.create", "openSlot"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const website = getWebsiteAccess(req).website;
 
       const { date, time, durationMinutes, serviceId, teamMemberId, notes } = req.body || {};
       if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -1392,12 +1349,9 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/websites/:id/open-slots/:slotId", requireAuth, async (req, res) => {
+  app.patch("/api/websites/:id/open-slots/:slotId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("openSlot.update", "openSlot", "slotId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const website = getWebsiteAccess(req).website;
 
       const existing = await storage.getOpenSlot(req.params.slotId, req.params.id);
       if (!existing) return res.status(404).json({ message: "Ledig tid ikke fundet" });
@@ -1436,12 +1390,9 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/websites/:id/open-slots/:slotId", requireAuth, async (req, res) => {
+  app.delete("/api/websites/:id/open-slots/:slotId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("openSlot.delete", "openSlot", "slotId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
+      const website = getWebsiteAccess(req).website;
 
       const existing = await storage.getOpenSlot(req.params.slotId, req.params.id);
       if (!existing) return res.status(404).json({ message: "Ledig tid ikke fundet" });
@@ -1454,18 +1405,9 @@ export async function registerRoutes(
   });
 
   // Get form submissions for a website
-  app.get("/api/websites/:id/submissions", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/submissions", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const submissions = await storage.getFormSubmissions(req.params.id);
       res.json(submissions);
@@ -1475,18 +1417,9 @@ export async function registerRoutes(
   });
 
   // Get customers for a website
-  app.get("/api/websites/:id/customers", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/customers", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const customers = await storage.getCustomers(req.params.id);
       res.json(customers);
@@ -1496,23 +1429,52 @@ export async function registerRoutes(
   });
 
   // Update order status
-  app.patch("/api/websites/:id/orders/:orderId", requireAuth, async (req, res) => {
+  app.patch("/api/websites/:id/orders/:orderId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("order.update", "order", "orderId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
+      const website = getWebsiteAccess(req).website;
 
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
+      // Whitelist (the previous raw req.body passthrough let any column
+      // through, including payment state). sendShippedEmail is an action
+      // flag, not a column.
+      const patchSchema = z.object({
+        status: z.string().max(50).optional(),
+        deliveryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+        trackingNumber: z.string().max(120).nullable().optional(),
+        trackingCarrier: z.string().max(60).nullable().optional(),
+        sendShippedEmail: z.boolean().optional(),
+      });
+      const parsed = patchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid order update" });
       }
+      const { sendShippedEmail, deliveryDate, ...rest } = parsed.data;
 
-      const order = await storage.updateOrder(req.params.orderId, req.params.id, req.body);
+      const order = await storage.updateOrder(req.params.orderId, req.params.id, {
+        ...rest,
+        ...(deliveryDate !== undefined
+          ? { deliveryDate: deliveryDate ? new Date(`${deliveryDate}T00:00:00`) : null }
+          : {}),
+      });
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
+
+      // Optional shipping-confirmation email with delivery date + tracking.
+      // Gated by emailSettings.shippingConfirmationEnabled inside the service.
+      if (sendShippedEmail && order.customerEmail) {
+        const sent = await emailService.sendOrderShipped(
+          order,
+          order.customerEmail,
+          website.deploymentUrl || undefined
+        );
+        if (sent) {
+          await storage.updateOrder(req.params.orderId, req.params.id, {
+            shippedEmailSentAt: new Date(),
+          });
+          order.shippedEmailSentAt = new Date();
+        }
+      }
+
       res.json(order);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1520,18 +1482,9 @@ export async function registerRoutes(
   });
 
   // Update a booking (status, reschedule, reassign, details)
-  app.patch("/api/websites/:id/bookings/:bookingId", requireAuth, async (req, res) => {
+  app.patch("/api/websites/:id/bookings/:bookingId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("booking.update", "booking", "bookingId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       // Get the original booking to check for status changes
       const originalBooking = await storage.getBooking(req.params.bookingId, req.params.id);
@@ -1678,18 +1631,9 @@ export async function registerRoutes(
   // ============ PRODUCTS ROUTES ============
 
   // Get products for a website
-  app.get("/api/websites/:id/products", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/products", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const products = await storage.getProducts(req.params.id);
       res.json(products);
@@ -1699,18 +1643,9 @@ export async function registerRoutes(
   });
 
   // Create a product
-  app.post("/api/websites/:id/products", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/products", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("product.create", "product"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       // Sanitize images array - remove empty strings
       const images = (req.body.images || []).map((img: string) => img?.trim()).filter((img: string) => img);
@@ -1735,18 +1670,9 @@ export async function registerRoutes(
   });
 
   // Update a product
-  app.patch("/api/websites/:id/products/:productId", requireAuth, async (req, res) => {
+  app.patch("/api/websites/:id/products/:productId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("product.update", "product", "productId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const product = await storage.updateProduct(req.params.productId, req.params.id, req.body);
       if (!product) {
@@ -1759,18 +1685,9 @@ export async function registerRoutes(
   });
 
   // Delete a product
-  app.delete("/api/websites/:id/products/:productId", requireAuth, async (req, res) => {
+  app.delete("/api/websites/:id/products/:productId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("product.delete", "product", "productId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const deleted = await storage.deleteProduct(req.params.productId, req.params.id);
       if (!deleted) {
@@ -1787,18 +1704,9 @@ export async function registerRoutes(
   // ============================================
 
   // Get all reviews for a product (authenticated)
-  app.get("/api/websites/:id/products/:productId/reviews", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/products/:productId/reviews", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const { productReviews } = await import("@shared/schema");
       const reviews = await db.select().from(productReviews)
@@ -1810,18 +1718,9 @@ export async function registerRoutes(
   });
 
   // Create a new review
-  app.post("/api/websites/:id/products/:productId/reviews", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/products/:productId/reviews", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("productReview.create", "productReview", "productId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const { name, rating, text, verified } = req.body;
       
@@ -1846,18 +1745,9 @@ export async function registerRoutes(
   });
 
   // Update a review
-  app.patch("/api/websites/:id/products/:productId/reviews/:reviewId", requireAuth, async (req, res) => {
+  app.patch("/api/websites/:id/products/:productId/reviews/:reviewId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("productReview.update", "productReview", "reviewId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const { name, rating, text, verified } = req.body;
       const { productReviews } = await import("@shared/schema");
@@ -1883,18 +1773,9 @@ export async function registerRoutes(
   });
 
   // Delete a review
-  app.delete("/api/websites/:id/products/:productId/reviews/:reviewId", requireAuth, async (req, res) => {
+  app.delete("/api/websites/:id/products/:productId/reviews/:reviewId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("productReview.delete", "productReview", "reviewId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const { productReviews } = await import("@shared/schema");
       const [deleted] = await db.delete(productReviews)
@@ -2908,18 +2789,9 @@ export async function registerRoutes(
   // ============ BOOKING SERVICES ROUTES ============
 
   // Get all booking services for a website
-  app.get("/api/websites/:id/booking-services", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/booking-services", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const services = await storage.getBookingServices(req.params.id);
       // Convert 'active' string to 'isActive' boolean for frontend
@@ -2934,18 +2806,9 @@ export async function registerRoutes(
   });
 
   // Create a booking service
-  app.post("/api/websites/:id/booking-services", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/booking-services", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("bookingService.create", "bookingService"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const { name, description, durationMinutes, price, currency, isActive } = req.body;
       if (!name) {
@@ -2970,18 +2833,9 @@ export async function registerRoutes(
   });
 
   // Update a booking service
-  app.patch("/api/websites/:id/booking-services/:serviceId", requireAuth, async (req, res) => {
+  app.patch("/api/websites/:id/booking-services/:serviceId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("bookingService.update", "bookingService", "serviceId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       // Convert isActive boolean to active string for database
       const { isActive, ...rest } = req.body;
@@ -3002,18 +2856,9 @@ export async function registerRoutes(
   });
 
   // Delete a booking service
-  app.delete("/api/websites/:id/booking-services/:serviceId", requireAuth, async (req, res) => {
+  app.delete("/api/websites/:id/booking-services/:serviceId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("bookingService.delete", "bookingService", "serviceId"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const deleted = await storage.deleteBookingService(req.params.serviceId, req.params.id);
       if (!deleted) {
@@ -5673,6 +5518,20 @@ export async function registerRoutes(
     }
   });
 
+
+  // Compact brand-guide context for AI prompts (empty string when the
+  // website has no brand guide yet). Free-text fields are sanitized and
+  // delimited inside buildBrandContext.
+  async function getBrandContextForWebsite(websiteId: string): Promise<string> {
+    try {
+      const bs = await storage.getBuilderState(websiteId);
+      const guide = (bs?.state as BuilderStateData | undefined)?.brandGuide;
+      return buildBrandContext(guide);
+    } catch {
+      return "";
+    }
+  }
+
   app.post("/api/websites/:id/ai/phased/structure", requireAuth, async (req, res) => {
     try {
       const website = await storage.getWebsite(req.params.id);
@@ -5689,7 +5548,8 @@ export async function registerRoutes(
       }
 
       const { generateStructure } = await import("./phasedArchitect");
-      const result = await generateStructure(prompt, sourceUrl);
+      const brandContext = await getBrandContextForWebsite(req.params.id);
+      const result = await generateStructure(prompt, sourceUrl, brandContext);
 
       if (!result.success || !result.plan) {
         return res.status(500).json({
@@ -5750,7 +5610,8 @@ export async function registerRoutes(
       }
 
       const { generateContent } = await import("./phasedArchitect");
-      const result = await generateContent(plan);
+      const brandContext = await getBrandContextForWebsite(req.params.id);
+      const result = await generateContent(plan, brandContext);
 
       if (!result.success || !result.content) {
         return res.status(500).json({
@@ -5795,7 +5656,8 @@ export async function registerRoutes(
       }
 
       const { generateStyling } = await import("./phasedArchitect");
-      const result = await generateStyling(plan, content || {});
+      const brandContext = await getBrandContextForWebsite(req.params.id);
+      const result = await generateStyling(plan, content || {}, brandContext);
 
       if (!result.success) {
         return res.status(500).json({
@@ -5987,7 +5849,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "websiteId, sessionId, and eventType are required" });
       }
 
-      const validEventTypes = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'checkout_success', 'order_created', 'booking_submit', 'booking_created'];
+      const validEventTypes = ['page_view', 'page_time', 'product_view', 'add_to_cart', 'checkout_start', 'checkout_success', 'order_created', 'booking_submit', 'booking_created'];
       if (!validEventTypes.includes(eventType)) {
         return res.status(400).json({ message: "Invalid event type" });
       }
@@ -6000,6 +5862,20 @@ export async function registerRoutes(
 
       // Privacy-first: Use centralized sanitization from shared schema
       const sanitizedEventData = sanitizeAnalyticsEventData(eventData);
+
+      // page_time beacons: durationSeconds must be a finite number in
+      // [1, 3600] - anything else is dropped so a hostile client cannot
+      // inflate averages or store junk.
+      if (eventType === 'page_time') {
+        const raw = sanitizedEventData?.durationSeconds;
+        const numeric = typeof raw === 'number' ? raw : Number(raw);
+        if (!Number.isFinite(numeric) || numeric < 1) {
+          return res.status(400).json({ message: "Invalid durationSeconds" });
+        }
+        sanitizedEventData!.durationSeconds = Math.min(Math.round(numeric), 3600);
+      } else if (sanitizedEventData && 'durationSeconds' in sanitizedEventData) {
+        delete sanitizedEventData.durationSeconds;
+      }
 
       // Classify the traffic source server-side. New trackers send the raw
       // document.referrer (possibly empty = direct); older ones only send a
@@ -6050,15 +5926,9 @@ export async function registerRoutes(
   });
 
   // Analytics - Get overview (authenticated, owner only)
-  app.get("/api/websites/:id/analytics/overview", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/analytics/overview", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const days = parseInt(req.query.days as string) || 30;
       const endDate = new Date();
@@ -6074,15 +5944,9 @@ export async function registerRoutes(
   });
 
   // Analytics - Get funnel data
-  app.get("/api/websites/:id/analytics/funnel", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/analytics/funnel", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const days = parseInt(req.query.days as string) || 30;
       const endDate = new Date();
@@ -6098,15 +5962,9 @@ export async function registerRoutes(
   });
 
   // Analytics - Get traffic sources
-  app.get("/api/websites/:id/analytics/traffic", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/analytics/traffic", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const days = parseInt(req.query.days as string) || 30;
       const endDate = new Date();
@@ -6122,15 +5980,9 @@ export async function registerRoutes(
   });
 
   // Analytics - Get top pages
-  app.get("/api/websites/:id/analytics/pages", requireAuth, async (req, res) => {
+  app.get("/api/websites/:id/analytics/pages", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
+      const website = getWebsiteAccess(req).website;
 
       const days = parseInt(req.query.days as string) || 30;
       const endDate = new Date();

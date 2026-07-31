@@ -8,7 +8,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Eye, Users, TrendingUp, Banknote, BarChart3 } from "lucide-react";
+import { Eye, Users, TrendingUp, Banknote, BarChart3, Timer } from "lucide-react";
 import type {
   AnalyticsOverview, FunnelStep, TrafficSource, TopPage,
   AnalyticsTimeseriesPoint, CountryVisitors, LiveVisitorStats,
@@ -70,6 +70,15 @@ function formatDayTick(date: string): string {
   const d = new Date(date + "T00:00:00");
   if (isNaN(d.getTime())) return date;
   return new Intl.DateTimeFormat("da-DK", { day: "numeric", month: "short" }).format(d);
+}
+
+
+/** Seconds -> "1m 32s" / "45s" / em dash when no beacons exist yet. */
+function formatVisitDuration(seconds: number | undefined): string {
+  if (!seconds || seconds <= 0) return "\u2014";
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? m + "m " + s + "s" : s + "s";
 }
 
 export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
@@ -169,7 +178,7 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 md:gap-4">
         <Card data-testid="kpi-pageviews">
           <CardContent className="p-4 md:p-5">
             <div className="flex items-center justify-between">
@@ -186,6 +195,17 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
               <Users className="w-4 h-4 text-muted-foreground/70" />
             </div>
             <p className="text-2xl font-bold mt-2">{nf.format(overview.uniqueSessions)}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="kpi-visit-duration">
+          <CardContent className="p-4 md:p-5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">Gns. besøgstid</p>
+              <Timer className="w-4 h-4 text-muted-foreground/70" />
+            </div>
+            <p className="text-2xl font-bold mt-2">
+              {formatVisitDuration(overview.avgVisitDurationSeconds)}
+            </p>
           </CardContent>
         </Card>
         <Card data-testid="kpi-conversion">

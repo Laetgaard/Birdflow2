@@ -24,8 +24,8 @@ export default function AdminEditingBanner({ adminContext }: Props) {
       <div className="flex items-center gap-2 min-w-0">
         <ShieldAlert className="h-4 w-4 shrink-0" />
         <p className="text-sm font-medium truncate">
-          You are editing {adminContext.ownerDisplayName}&apos;s website as an
-          administrator. Your changes are logged.
+          Du redigerer {adminContext.ownerDisplayName}s hjemmeside som
+          administrator. Dine ændringer logges.
         </p>
       </div>
       <Button
@@ -36,7 +36,7 @@ export default function AdminEditingBanner({ adminContext }: Props) {
         data-testid="button-back-to-admin"
       >
         <ArrowLeft className="mr-1 h-3.5 w-3.5" />
-        Back to admin
+        Til admin
       </Button>
     </div>
   );

@@ -1,5 +1,6 @@
 // Shared UI helpers for the manage dashboard sections: Danish status badges,
 // currency/date formatting, auth headers and consistent empty/loading states.
+import { activeAdminSessionHeaders } from "@/lib/adminSession";
 import { useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,13 +32,16 @@ export function formatDateDa(iso: string | Date, withTime = false): string {
 }
 
 export function authHeaders(accessToken: string): Record<string, string> {
-  return { Authorization: `Bearer ${accessToken}` };
+  // activeAdminSessionHeaders() is {} for owners; for administrators it tags
+  // requests with the editing-session id so audit entries can be grouped.
+  return { Authorization: `Bearer ${accessToken}`, ...activeAdminSessionHeaders() };
 }
 
 export function jsonAuthHeaders(accessToken: string): Record<string, string> {
   return {
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
+    ...activeAdminSessionHeaders(),
   };
 }
 

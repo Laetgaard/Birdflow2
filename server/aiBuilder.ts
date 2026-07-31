@@ -18,6 +18,7 @@ import {
   generateNodeId,
   generateComponentId,
   brandGuideToDesignTokens,
+  buildBrandContext,
   createDefaultBrandGuide,
   MAX_CUSTOM_TREE_NODES,
   MAX_CUSTOM_TREE_DEPTH,
@@ -1056,7 +1057,7 @@ function getCurrentStateContext(state: BuilderStateData): string {
   return `Current website state:
 - Pages: ${state.pages.length} (${state.pages.map(p => p.name).join(', ')})
 - Global styles: ${JSON.stringify(state.globalStyles)}
-- Brand guide: ${state.brandGuide ? JSON.stringify(state.brandGuide) : 'none defined yet — follow the user request and general design principles'}
+- Brand guide:\n${state.brandGuide ? buildBrandContext(state.brandGuide) : 'none defined yet — follow the user request and general design principles'}
 - Component library ("Mine komponenter"): ${library.length > 0 ? JSON.stringify(library) : 'empty'}
 - Page details: ${JSON.stringify(pages, null, 2)}`;
 }

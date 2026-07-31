@@ -6300,7 +6300,7 @@ function getDeviceType(): string {
 function sanitizeEventData(data?: Record<string, unknown>): Record<string, unknown> | null {
   if (!data) return null;
   const sanitized: Record<string, unknown> = {};
-  const allowedKeys = ['path', 'productId', 'productName', 'quantity', 'price', 'currency', 'serviceId', 'serviceName', 'orderId', 'bookingId', 'total', 'utm_source', 'utm_medium', 'utm_campaign'];
+  const allowedKeys = ['path', 'productId', 'productName', 'quantity', 'price', 'currency', 'serviceId', 'serviceName', 'orderId', 'bookingId', 'total', 'utm_source', 'utm_medium', 'utm_campaign', 'durationSeconds'];
   for (const key of allowedKeys) {
     if (data[key] !== undefined) {
       sanitized[key] = data[key];
@@ -6409,6 +6409,103 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
     trackedPaths.current.add(pathname);
     track('page_view', { path: pathname });
   }, [pathname, track, consent]);
+
+  // Time on page ("besoegstid"): accumulate VISIBLE time per path and flush
+  // it as a page_time beacon on route change and page hide. sendBeacon
+  // survives tab closes; fetch keepalive is the fallback.
+  const visibleSinceRef = useRef<number | null>(null);
+  const accumulatedMsRef = useRef<number>(0);
+  const currentPathRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (consent !== 'accepted') return;
+
+    const flush = (path: string | null) => {
+      let ms = accumulatedMsRef.current;
+      if (visibleSinceRef.current !== null) {
+        ms += performance.now() - visibleSinceRef.current;
+        visibleSinceRef.current = document.visibilityState === 'visible' ? performance.now() : null;
+      }
+      accumulatedMsRef.current = 0;
+      const seconds = Math.round(ms / 1000);
+      if (!path || seconds < 1 || seconds > 3600) return;
+
+      const sessionId = getOrCreateSession();
+      if (!sessionId || !websiteId) return;
+      const payload = JSON.stringify({
+        websiteId: websiteId,
+        sessionId: sessionId,
+        eventType: 'page_time',
+        pageUrl: path,
+        deviceType: getDeviceType(),
+        eventData: { path: path, durationSeconds: seconds },
+      });
+
+      if (BIRDFLOW_API_URL) {
+        const url = BIRDFLOW_API_URL + '/api/public/analytics/track';
+        let sent = false;
+        if (navigator.sendBeacon) {
+          // application/json triggers a CORS preflight for the beacon; the
+          // platform's OPTIONS handler allows Content-Type, so it goes
+          // through. If the browser refuses (returns false), fall back to
+          // fetch keepalive below.
+          sent = navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
+        }
+        if (!sent) {
+          fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } else if (supabase) {
+        supabase.from('analytics_events').insert({
+          website_id: websiteId,
+          session_id: sessionId,
+          event_type: 'page_time',
+          page_url: path,
+          device_type: getDeviceType(),
+          event_data: { path: path, durationSeconds: seconds },
+        }).then(() => {}, () => {});
+      }
+    };
+
+    // Path changed: flush time spent on the previous path
+    if (currentPathRef.current !== pathname) {
+      flush(currentPathRef.current);
+      currentPathRef.current = pathname;
+      if (document.visibilityState === 'visible') {
+        visibleSinceRef.current = performance.now();
+      }
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (visibleSinceRef.current !== null) {
+          accumulatedMsRef.current += performance.now() - visibleSinceRef.current;
+          visibleSinceRef.current = null;
+        }
+        flush(currentPathRef.current);
+      } else {
+        visibleSinceRef.current = performance.now();
+      }
+    };
+    const onPageHide = () => {
+      if (visibleSinceRef.current !== null) {
+        accumulatedMsRef.current += performance.now() - visibleSinceRef.current;
+        visibleSinceRef.current = null;
+      }
+      flush(currentPathRef.current);
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [pathname, consent, websiteId]);
 
   // Listen for custom analytics events
   useEffect(() => {

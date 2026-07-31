@@ -64,7 +64,7 @@ describe("buildWebsiteAccessContext", () => {
     expect(ctx!.adminSessionId).toBeNull();
   });
 
-  it("admin gets builder + media on a client website, nothing sensitive", () => {
+  it("admin gets builder + media + manage on a client website, nothing sensitive", () => {
     const ctx = buildWebsiteAccessContext({
       website,
       actorUserId: ADMIN_ID,
@@ -78,16 +78,16 @@ describe("buildWebsiteAccessContext", () => {
     expect(ctx!.permissions.readBuilder).toBe(true);
     expect(ctx!.permissions.updateBuilder).toBe(true);
     expect(ctx!.permissions.manageMedia).toBe(true);
+    // Manage dashboard access (orders, bookings, products, team, analytics)
+    expect(ctx!.permissions.readManage).toBe(true);
+    expect(ctx!.permissions.updateManage).toBe(true);
 
-    // Deliberately denied for administrators:
+    // Deliberately denied for administrators - these spend the client's
+    // money, deploy on their behalf, or touch account-level state:
     expect(ctx!.permissions.publish).toBe(false);
     expect(ctx!.permissions.manageBilling).toBe(false);
     expect(ctx!.permissions.manageDomains).toBe(false);
     expect(ctx!.permissions.usePaidAI).toBe(false);
-
-    // Not enabled until the manage-access milestone:
-    expect(ctx!.permissions.readManage).toBe(false);
-    expect(ctx!.permissions.updateManage).toBe(false);
     expect(ctx!.permissions.manageCustomComponents).toBe(false);
   });
 
@@ -338,6 +338,50 @@ describe("route wiring (source tripwires)", () => {
 
   it("the impersonation stub stays removed", () => {
     expect(routesSource).not.toContain("/api/admin/impersonate");
+  });
+
+  it("manage-resource routes go through requireWebsitePermission", () => {
+    // Sample across resource groups; the transform covered 31 routes total.
+    expect(routesSource).toContain(
+      'app.get("/api/websites/:id/orders", requireAuth, requireWebsitePermission("readManage")'
+    );
+    expect(routesSource).toContain(
+      'app.patch("/api/websites/:id/orders/:orderId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("order.update", "order", "orderId")'
+    );
+    expect(routesSource).toContain(
+      'app.post("/api/websites/:id/bookings", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("booking.create", "booking")'
+    );
+    expect(routesSource).toContain(
+      'app.delete("/api/websites/:id/team-members/:memberId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("teamMember.delete", "teamMember", "memberId")'
+    );
+    expect(routesSource).toContain(
+      'app.patch("/api/websites/:id/open-slots/:slotId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("openSlot.update", "openSlot", "slotId")'
+    );
+    expect(routesSource).toContain(
+      'app.get("/api/websites/:id/analytics/overview", requireAuth, requireWebsitePermission("readManage")'
+    );
+    expect(routesSource).toContain(
+      'app.delete("/api/websites/:id/products/:productId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("product.delete", "product", "productId")'
+    );
+  });
+
+  it("no converted manage handler still carries an inline owner check", () => {
+    // A permission-guarded handler with a leftover inline check would 403
+    // administrators despite the middleware having granted access.
+    const guarded = routesSource.split(/app\.(?=get|post|patch|delete)/).filter(
+      (chunk) => chunk.includes("requireWebsitePermission(") && chunk.includes("ownerId !==")
+    );
+    expect(guarded).toEqual([]);
+  });
+
+  it("orders PATCH whitelists fulfilment fields and never passes raw body", () => {
+    const idx = routesSource.indexOf('app.patch("/api/websites/:id/orders/:orderId"');
+    expect(idx).toBeGreaterThan(-1);
+    const handler = routesSource.slice(idx, idx + 3000);
+    expect(handler).toContain("deliveryDate");
+    expect(handler).toContain("trackingNumber");
+    expect(handler).toContain("sendShippedEmail");
+    expect(handler).not.toContain("updateOrder(req.params.orderId, req.params.id, req.body)");
   });
 
   it("publish keeps its owner-only inline check (not converted in M1)", () => {
