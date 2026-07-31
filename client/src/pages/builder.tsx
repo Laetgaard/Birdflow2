@@ -67,8 +67,7 @@ import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
-import AIBuilderPanel from "@/components/AIBuilderPanel";
-import PhasedArchitectPanel from "@/components/PhasedArchitectPanel";
+import AIAssistant from "@/components/AIAssistant";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import InspectorSidebar from "@/components/builder/InspectorSidebar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
@@ -1633,40 +1632,18 @@ export default function BuilderPage() {
 
             <TabsContent value="ai" className="flex-1 overflow-hidden flex flex-col">
               {session && builderState && id && (
-                <Tabs defaultValue="phased" className="flex-1 flex flex-col">
-                  <TabsList className="w-full shrink-0 grid grid-cols-2 mx-2 mt-2" style={{ width: 'calc(100% - 16px)' }}>
-                    <TabsTrigger value="phased" className="text-xs">
-                      Phased Builder
-                    </TabsTrigger>
-                    <TabsTrigger value="chat" className="text-xs">
-                      Chat Mode
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="phased" className="flex-1 overflow-hidden">
-                    <PhasedArchitectPanel
-                      websiteId={id}
-                      session={session}
-                      builderState={builderState}
-                      onStateChange={(newState, description) => {
-                        updateStateWithHistory(newState, description);
-                      }}
-                    />
-                  </TabsContent>
-                  <TabsContent value="chat" className="flex-1 overflow-hidden">
-                    <AIBuilderPanel
-                      websiteId={id}
-                      session={session}
-                      builderState={builderState}
-                      onStateChange={(newState, description) => {
-                        updateStateWithHistory(newState, description);
-                      }}
-                      history={history}
-                      hasPendingEdit={hasPendingEdit}
-                      onUndo={handleUndo}
-                      onRedo={handleRedo}
-                    />
-                  </TabsContent>
-                </Tabs>
+                <AIAssistant
+                  websiteId={id}
+                  session={session}
+                  builderState={builderState}
+                  onStateChange={(newState, description) => {
+                    updateStateWithHistory(newState, description);
+                  }}
+                  history={history}
+                  hasPendingEdit={hasPendingEdit}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                />
               )}
             </TabsContent>
 
