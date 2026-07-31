@@ -1,12 +1,8 @@
-import OpenAI from "openai";
 import type { BuilderStateData, BuilderPage, DesignTokens, StylePreset } from "@shared/schema";
 import type { BuilderComponentData, ComponentType } from "@shared/componentRegistry";
 import { componentRegistry } from "@shared/componentRegistry";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 export interface CloneResult {
   success: boolean;
@@ -98,7 +94,7 @@ export async function analyzeAndCloneWebsite(
   sourceUrl: string
 ): Promise<CloneResult> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       messages: [
         {

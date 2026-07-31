@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import type { 
   WebsitePlan, 
   DesignSystem, 
@@ -18,10 +17,7 @@ import {
   getMotionConfig 
 } from "@shared/designPresets";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 function generateId(): string {
   return 'c_' + Math.random().toString(36).substring(2, 11);
@@ -124,7 +120,7 @@ export async function generateStructure(prompt: string, sourceUrl?: string, bran
   error?: string;
 }> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       messages: [
         { role: "system", content: STRUCTURE_PROMPT },
@@ -280,7 +276,7 @@ export async function generateContent(
       }))
     ) || [];
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       messages: [
         { role: "system", content: CONTENT_PROMPT },
@@ -391,7 +387,7 @@ export async function generateStyling(
   error?: string;
 }> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       messages: [
         { role: "system", content: STYLING_PROMPT },
@@ -520,7 +516,7 @@ export async function generatePolish(
   error?: string;
 }> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       messages: [
         { role: "system", content: POLISH_PROMPT },

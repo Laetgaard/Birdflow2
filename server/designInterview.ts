@@ -11,17 +11,13 @@
  * globalStyles via brandGuideToDesignTokens).
  */
 
-import OpenAI from "openai";
 import { z } from "zod";
 import type { BuilderStateData, BrandGuide } from "@shared/schema";
 import type { PaletteProposal, FontPairProposal } from "@shared/aiBuilderSchema";
 import { readObjectImageAsDataUrl } from "./aiImages";
 import { contrastRatio } from "./selfCheck";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 /** Curated Google-font list — every proposal must stay inside it. */
 export const CURATED_GOOGLE_FONTS = [
@@ -106,7 +102,7 @@ export async function proposePalettes(
   feeling: string,
   state: BuilderStateData
 ): Promise<PaletteProposal[]> {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       {
@@ -144,7 +140,7 @@ export async function proposeFontPairs(
   palette: PaletteProposal,
   state: BuilderStateData
 ): Promise<FontPairProposal[]> {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       {
@@ -208,7 +204,7 @@ ${imageParts.length > 0 ? `Der er vedhæftet ${imageParts.length} inspirationsbi
 
 ${siteContext(state)}`;
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       {

@@ -13,7 +13,6 @@
  * and a Danish note is added to the build report instead.
  */
 
-import OpenAI from "openai";
 import sharp from "sharp";
 import { randomUUID } from "crypto";
 import {
@@ -24,10 +23,7 @@ import { storage } from "./storage";
 import type { BuilderMutation, AIPrimitiveNode } from "@shared/aiBuilderSchema";
 import type { BrandGuide } from "@shared/schema";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 export const AI_IMAGE_MARKER = "ai://";
 export const MAX_AI_IMAGES_PER_REQUEST = 3;
@@ -86,7 +82,7 @@ export async function generateAndStoreImage(
   brandGuide?: BrandGuide,
   aspect: ImageAspect = "landscape"
 ): Promise<{ url: string; mediaId: string }> {
-  const result = await openai.images.generate({
+  const result = await getOpenAI().images.generate({
     model: "gpt-image-1",
     prompt: buildImagePrompt(description, brandGuide),
     size: ASPECT_SIZE[aspect],

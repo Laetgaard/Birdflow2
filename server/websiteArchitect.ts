@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import type { WebsitePlan, DesignSystem, DesignTone } from "@shared/websitePlanSchema";
 import type { BuilderStateData, BuilderPage, DesignTokens } from "@shared/schema";
 import type { BuilderComponentData } from "@shared/componentRegistry";
@@ -13,10 +12,7 @@ import {
   getTypographyScale 
 } from "@shared/designPresets";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 export interface ArchitectResult {
   success: boolean;
@@ -254,7 +250,7 @@ You MUST include:
       });
     }
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       messages,
       max_tokens: 4096,
@@ -367,7 +363,7 @@ You MUST include:
 
 export async function buildFromPlan(plan: WebsitePlan): Promise<BuildResult> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       messages: [
         {

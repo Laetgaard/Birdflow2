@@ -30,10 +30,7 @@ import {
    (self-check → sanitize → save → report) exactly once, in order.
    ───────────────────────────────────────────────────────────── */
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 const MODEL = "gpt-5.1";
 export const MAX_STEPS = 12;
@@ -207,7 +204,7 @@ export async function runBuilderAgent(args: {
 
     let completion: OpenAI.Chat.ChatCompletion;
     try {
-      completion = await openai.chat.completions.create({
+      completion = await getOpenAI().chat.completions.create({
         model: MODEL,
         messages,
         tools: openAITools,
