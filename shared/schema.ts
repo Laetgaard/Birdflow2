@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { CustomComponentEntry, BrandGuide } from "./customComponents";
@@ -149,6 +149,10 @@ export const websites = pgTable("websites", {
   slug: text("slug").notNull(),
   status: text("status").notNull().default("draft"),
   setupType: text("setup_type").notNull(),
+  // The website's own trading currency, used by every money figure the
+  // owner sees in /manage. Orders and products carry their own currency
+  // for historical rows; this is the default and the display fallback.
+  currency: text("currency").notNull().default("DKK"),
   deploymentUrl: text("deployment_url"),
   deploymentId: text("deployment_id"),
   lastPublishedAt: timestamp("last_published_at"),
@@ -472,19 +476,38 @@ export const insertFormSubmissionSchema = createInsertSchema(formSubmissions).om
 export type InsertFormSubmission = z.infer<typeof insertFormSubmissionSchema>;
 export type FormSubmission = typeof formSubmissions.$inferSelect;
 
-// Customers table
-export const customers = pgTable("customers", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  websiteId: varchar("website_id").notNull(),
-  name: text("name").notNull(),
-  email: text("email").notNull(),
-  phone: text("phone"),
-  totalOrders: text("total_orders").notNull().default("0"),
-  totalSpent: text("total_spent").notNull().default("0"),
-  metadata: jsonb("metadata").$type<Record<string, any>>(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+// Customers table. A row is the *identity* of a shopper on one website,
+// upserted (websiteId, lower(email)) whenever an order or booking comes
+// in. Totals are NOT stored here - the legacy text columns below are
+// kept for migration safety but never read or written; real order
+// counts and lifetime spend are aggregated from `orders` at read time
+// (storage.getCustomersWithStats), so webhook retries and refunds can
+// never make a stored counter drift.
+export const customers = pgTable(
+  "customers",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    websiteId: varchar("website_id").notNull(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    phone: text("phone"),
+    /** @deprecated legacy text counter - unused, kept for rollback safety */
+    totalOrders: text("total_orders").notNull().default("0"),
+    /** @deprecated legacy text counter - unused, kept for rollback safety */
+    totalSpent: text("total_spent").notNull().default("0"),
+    metadata: jsonb("metadata").$type<Record<string, any>>(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    // Backs the identity upsert; lower() so Anna@x.dk and anna@x.dk are
+    // one customer.
+    uniqueIndex("customers_website_email_idx").on(
+      table.websiteId,
+      sql`lower(${table.email})`
+    ),
+  ]
+);
 
 export const insertCustomerSchema = createInsertSchema(customers).omit({
   id: true,
@@ -494,6 +517,22 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({
 
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type Customer = typeof customers.$inferSelect;
+
+// What the manage Customers section renders: identity plus live
+// aggregates computed from orders/bookings at read time.
+export type CustomerWithStats = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  createdAt: string;
+  /** Paid orders only. */
+  ordersCount: number;
+  /** Lifetime paid-order revenue, minor units. */
+  totalSpentCents: number;
+  bookingsCount: number;
+  lastActivityAt: string | null;
+};
 
 // Product variant types
 export type ProductVariantOption = {
@@ -1088,6 +1127,9 @@ export type AnalyticsOverview = {
   // Average visit duration in seconds ("besøgstid"), from page_time beacons.
   // 0 when no beacons exist yet (older deployed sites don't send them).
   avgVisitDurationSeconds: number;
+  // The website's trading currency (websites.currency) so revenue KPIs
+  // render with the right symbol instead of a hardcoded one.
+  currency: string;
 };
 
 export type FunnelStep = {
@@ -1109,8 +1151,8 @@ export type TopPage = {
   path: string;
   pageViews: number;
   uniqueVisitors: number;
-  avgTimeOnPage?: number;
-  bounceRate?: number;
+  // Mean page_time beacon for this path, seconds. 0 = no beacons yet.
+  avgTimeOnPage: number;
 };
 
 // Daily visits series point (dates are YYYY-MM-DD in Europe/Copenhagen)
@@ -1123,6 +1165,14 @@ export type AnalyticsTimeseriesPoint = {
 // Visitors per country over a period (country = ISO 3166-1 alpha-2 or null/unknown)
 export type CountryVisitors = {
   country: string | null;
+  visitors: number;
+  pageViews: number;
+};
+
+// Visitors per device class (deviceType is set on every tracked event:
+// desktop | mobile | tablet, null on very old rows)
+export type DeviceBreakdown = {
+  device: string | null;
   visitors: number;
   pageViews: number;
 };

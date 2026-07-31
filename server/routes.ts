@@ -277,6 +277,20 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 // Helper function to get or create a profile for authenticated user
+/**
+ * The website's trading currency, for checkout paths whose products
+ * carry no currency of their own. Falls back to DKK (the platform
+ * default) only when the website row itself is missing.
+ */
+async function websiteCurrency(websiteId: string): Promise<string> {
+  try {
+    const website = await storage.getWebsite(websiteId);
+    return website?.currency || "DKK";
+  } catch {
+    return "DKK";
+  }
+}
+
 async function getOrCreateProfile(userId: string, authUser: any): Promise<{ profile: Profile | null; error: string | null }> {
   // Try to get existing profile
   let profile = await storage.getProfile(userId);
@@ -901,11 +915,30 @@ export async function registerRoutes(
   });
 
   // Update website
+  // Owner-editable fields ONLY. This used to pass req.body straight to
+  // the update, which would have let an owner rewrite billing fields
+  // (plan, subscription ids) on their own row.
+  const updateWebsiteBodySchema = z
+    .object({
+      name: z.string().trim().min(1).max(120).optional(),
+      currency: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z]{3}$/, "Currency must be a 3-letter ISO code")
+        .optional(),
+    })
+    .strict();
+
   app.patch("/api/websites/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const website = await storage.updateWebsite(req.params.id, user.id, req.body);
-      
+      const parsed = updateWebsiteBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid fields", errors: parsed.error.flatten().fieldErrors });
+      }
+      const website = await storage.updateWebsite(req.params.id, user.id, parsed.data);
+
       if (!website) {
         return res.status(404).json({ message: "Website not found or access denied" });
       }
@@ -1416,13 +1449,15 @@ export async function registerRoutes(
     }
   });
 
-  // Get customers for a website
+  // Get customers for a website — identity rows plus live aggregates
+  // (paid-order count, lifetime spend, bookings) computed from orders
+  // and bookings at read time.
   app.get("/api/websites/:id/customers", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
       const website = getWebsiteAccess(req).website;
 
-      const customers = await storage.getCustomers(req.params.id);
-      res.json(customers);
+      const customers = await storage.getCustomersWithStats(req.params.id);
+      res.json({ customers, currency: website.currency });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1878,9 +1913,9 @@ export async function registerRoutes(
         });
       }
       
-      // Default to USD if no items (shouldn't happen due to earlier check)
+      // Products without a currency inherit the website's trading currency
       if (!primaryCurrency) {
-        primaryCurrency = 'USD';
+        primaryCurrency = await websiteCurrency(websiteId);
       }
 
       const stripe = await getUncachableStripeClient();
@@ -2077,7 +2112,7 @@ export async function registerRoutes(
         success: true,
         validatedItems,
         subtotalCents,
-        currency: primaryCurrency || 'USD',
+        currency: primaryCurrency || (await websiteCurrency(websiteId)),
         customer: { email: customerEmail, name: customerName, phone: customerPhone },
         shippingAddress,
       });
@@ -2196,7 +2231,10 @@ export async function registerRoutes(
       const totalAmountCents = subtotalCents + shippingCostCents;
 
       const stripe = await getUncachableStripeClient();
-      const stripeCurrency = (primaryCurrency || 'USD').toLowerCase();
+      if (!primaryCurrency) {
+        primaryCurrency = await websiteCurrency(websiteId);
+      }
+      const stripeCurrency = primaryCurrency.toLowerCase();
 
       const lineItems = validatedItems.map(item => ({
         price_data: {
@@ -2281,7 +2319,7 @@ export async function registerRoutes(
         totalAmountCents,
         subtotalCents,
         shippingCostCents,
-        currency: primaryCurrency || 'USD',
+        currency: primaryCurrency,
         items: validatedItems.map(item => ({
           id: item.productId,
           name: item.name,
@@ -2359,10 +2397,13 @@ export async function registerRoutes(
       // Calculate total from validated items
       const total = validatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
+      // Charge in the website's trading currency (was hardcoded 'usd')
+      const checkoutCurrency = await websiteCurrency(websiteId);
+
       // Create line items from validated cart
       const lineItems = validatedItems.map(item => ({
         price_data: {
-          currency: 'usd',
+          currency: checkoutCurrency.toLowerCase(),
           product_data: {
             name: item.name,
             metadata: { productId: item.productId },
@@ -2416,7 +2457,7 @@ export async function registerRoutes(
         paymentStatus: 'pending',
         stripeSessionId: session.id,
         total: total.toFixed(2),
-        currency: 'USD',
+        currency: checkoutCurrency,
         items: validatedItems.map(item => ({
           id: item.productId,
           name: item.name,
@@ -6157,6 +6198,23 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Analytics countries error:", error);
       res.status(500).json({ message: "Kunne ikke hente lande-statistik" });
+    }
+  });
+
+  // Analytics - Visitors by device class (desktop / mobile / tablet).
+  // deviceType has been captured on every event since launch; this is
+  // the first place it is surfaced.
+  app.get("/api/websites/:id/analytics/devices", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      const endDate = new Date();
+      const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
+
+      const devices = await storage.getDeviceBreakdown(req.params.id, startDate, endDate);
+      res.json({ devices });
+    } catch (error: any) {
+      console.error("Analytics devices error:", error);
+      res.status(500).json({ message: "Kunne ikke hente enheds-statistik" });
     }
   });
 

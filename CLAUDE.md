@@ -80,7 +80,12 @@ npm run check        # Run TypeScript compiler (tsc) with strict mode
 npm run db:push      # Push Drizzle schema changes to Supabase PostgreSQL
 ```
 
-### No test framework is configured. No linter is configured.
+### Tests
+```bash
+npm test             # Vitest (tests/, server/*.test.ts, shared/, client/src/)
+```
+Tests are mostly source tripwires + pure-function coverage; they run with
+no database and no OpenAI key. No linter is configured.
 
 ## Architecture Patterns
 

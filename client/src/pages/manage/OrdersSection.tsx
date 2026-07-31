@@ -34,7 +34,7 @@ function formatLongDateDa(iso: string): string {
   }).format(date);
 }
 
-export function OrdersSection({ websiteId, accessToken }: SectionProps) {
+export function OrdersSection({ websiteId, accessToken, website }: SectionProps) {
   const { toast } = useToast();
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -199,7 +199,7 @@ export function OrdersSection({ websiteId, accessToken }: SectionProps) {
                   </div>
                   <div className="text-right flex flex-col items-end gap-2 ml-4">
                     <p className="font-semibold text-lg">
-                      {formatCurrency(typeof order.total === 'number' ? order.total : parseFloat(order.total || '0'), order.currency || 'USD')}
+                      {formatCurrency(typeof order.total === 'number' ? order.total : parseFloat(order.total || '0'), order.currency || website.currency)}
                     </p>
                     <div className="flex gap-2 flex-wrap justify-end">
                       {order.paymentStatus && (
@@ -287,7 +287,7 @@ export function OrdersSection({ websiteId, accessToken }: SectionProps) {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">I alt</span>
                   <span className="font-medium text-lg">
-                    {formatCurrency(typeof selectedOrder.total === 'number' ? selectedOrder.total : parseFloat(selectedOrder.total || '0'), selectedOrder.currency || 'USD')}
+                    {formatCurrency(typeof selectedOrder.total === 'number' ? selectedOrder.total : parseFloat(selectedOrder.total || '0'), selectedOrder.currency || website.currency)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -316,7 +316,7 @@ export function OrdersSection({ websiteId, accessToken }: SectionProps) {
                       {selectedOrder.items.map((item, index) => (
                         <div key={index} className="flex justify-between text-sm bg-muted/50 p-2 rounded">
                           <span>{item.name} × {item.quantity}</span>
-                          <span className="font-medium">{formatCurrency(item.price * item.quantity, selectedOrder.currency || 'USD')}</span>
+                          <span className="font-medium">{formatCurrency(item.price * item.quantity, selectedOrder.currency || website.currency)}</span>
                         </div>
                       ))}
                     </div>

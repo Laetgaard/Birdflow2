@@ -10,11 +10,19 @@ import {
 } from "lucide-react";
 import { useUpload } from "@/hooks/use-upload";
 
-export function formatCurrency(amount: number, currency: string = 'USD'): string {
-  const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
-  const symbol = symbols[currency] || currency;
-  const formatted = amount.toFixed(currency === 'DKK' ? 0 : 2);
-  return currency === 'DKK' ? `${formatted} ${symbol}` : `${symbol}${formatted}`;
+export function formatCurrency(amount: number, currency: string = 'DKK'): string {
+  // Intl handles every ISO code (symbol, placement, decimals); DKK keeps
+  // the "123 kr." style owners expect. Fall back for junk codes.
+  try {
+    return new Intl.NumberFormat('da-DK', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: currency === 'DKK' && Number.isInteger(amount) ? 0 : undefined,
+      maximumFractionDigits: currency === 'DKK' && Number.isInteger(amount) ? 0 : undefined,
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
 }
 
 /** Ører/cents -> displayed amount. */

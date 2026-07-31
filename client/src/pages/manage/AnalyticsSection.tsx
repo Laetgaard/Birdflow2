@@ -8,10 +8,10 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Eye, Users, TrendingUp, Banknote, BarChart3, Timer } from "lucide-react";
+import { Eye, Users, TrendingUp, Banknote, BarChart3, Timer, Monitor, Smartphone, Tablet } from "lucide-react";
 import type {
   AnalyticsOverview, FunnelStep, TrafficSource, TopPage,
-  AnalyticsTimeseriesPoint, CountryVisitors, LiveVisitorStats,
+  AnalyticsTimeseriesPoint, CountryVisitors, LiveVisitorStats, DeviceBreakdown,
 } from "@shared/schema";
 import type { SectionProps } from "./types";
 import { authHeaders, formatCents, LoadingState, ErrorState } from "./shared";
@@ -66,6 +66,16 @@ function sourceLabel(source: string): string {
   return SOURCE_LABELS[source] || source;
 }
 
+const DEVICE_META: Record<string, { label: string; icon: typeof Monitor }> = {
+  desktop: { label: "Computer", icon: Monitor },
+  mobile: { label: "Mobil", icon: Smartphone },
+  tablet: { label: "Tablet", icon: Tablet },
+};
+
+function deviceMeta(device: string | null) {
+  return (device && DEVICE_META[device]) || { label: "Ukendt", icon: Monitor };
+}
+
 function formatDayTick(date: string): string {
   const d = new Date(date + "T00:00:00");
   if (isNaN(d.getTime())) return date;
@@ -89,6 +99,7 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
   const [pages, setPages] = useState<TopPage[]>([]);
   const [timeseries, setTimeseries] = useState<AnalyticsTimeseriesPoint[]>([]);
   const [countries, setCountries] = useState<CountryVisitors[]>([]);
+  const [devices, setDevices] = useState<DeviceBreakdown[]>([]);
   const [live, setLive] = useState<LiveVisitorStats>({ activeVisitors: 0, byCountry: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -99,13 +110,14 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
     try {
       const headers = authHeaders(accessToken);
       const base = `/api/websites/${websiteId}/analytics`;
-      const [ovRes, fuRes, trRes, pgRes, tsRes, coRes, liRes] = await Promise.all([
+      const [ovRes, fuRes, trRes, pgRes, tsRes, coRes, deRes, liRes] = await Promise.all([
         fetch(`${base}/overview?days=${days}`, { headers }),
         fetch(`${base}/funnel?days=${days}`, { headers }),
         fetch(`${base}/traffic?days=${days}`, { headers }),
         fetch(`${base}/pages?days=${days}`, { headers }),
         fetch(`${base}/timeseries?days=${days}`, { headers }),
         fetch(`${base}/countries?days=${days}`, { headers }),
+        fetch(`${base}/devices?days=${days}`, { headers }),
         fetch(`${base}/live`, { headers }),
       ]);
       if (!ovRes.ok) throw new Error("Kunne ikke hente statistik");
@@ -115,6 +127,7 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
       if (pgRes.ok) setPages(await pgRes.json());
       if (tsRes.ok) setTimeseries((await tsRes.json()).points || []);
       if (coRes.ok) setCountries((await coRes.json()).countries || []);
+      if (deRes.ok) setDevices((await deRes.json()).devices || []);
       if (liRes.ok) setLive(await liRes.json());
     } catch (e: any) {
       setError(e.message || "Kunne ikke hente statistik");
@@ -223,7 +236,7 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
               <p className="text-sm text-muted-foreground">Omsætning</p>
               <Banknote className="w-4 h-4 text-muted-foreground/70" />
             </div>
-            <p className="text-2xl font-bold mt-2">{formatCents(overview.totalRevenue, "DKK")}</p>
+            <p className="text-2xl font-bold mt-2">{formatCents(overview.totalRevenue, overview.currency)}</p>
           </CardContent>
         </Card>
       </div>
@@ -356,7 +369,15 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
                   <div key={p.path} data-testid={`row-page-${p.path}`}>
                     <div className="flex items-center justify-between text-sm mb-1">
                       <span className="truncate font-mono text-xs">{p.path || "/"}</span>
-                      <span className="text-muted-foreground shrink-0 ml-2">{nf.format(p.pageViews)} visninger</span>
+                      <span className="text-muted-foreground shrink-0 ml-2">
+                        {p.avgTimeOnPage > 0 && (
+                          <span className="mr-2 inline-flex items-center gap-1">
+                            <Timer className="w-3 h-3" />
+                            {formatVisitDuration(p.avgTimeOnPage)}
+                          </span>
+                        )}
+                        {nf.format(p.pageViews)} visninger
+                      </span>
                     </div>
                     <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                       <div
@@ -390,6 +411,46 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
               </div>
             ))}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-devices">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Enheder</CardTitle>
+          <CardDescription>Hvad dine besøgende bruger</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {devices.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">Ingen enhedsdata endnu</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {devices.map((d) => {
+                const meta = deviceMeta(d.device);
+                const Icon = meta.icon;
+                const totalVisitors = devices.reduce((sum, x) => sum + x.visitors, 0);
+                const share = totalVisitors > 0 ? Math.round((d.visitors / totalVisitors) * 100) : 0;
+                return (
+                  <div
+                    key={d.device || "unknown"}
+                    className="rounded-lg border p-4"
+                    data-testid={`row-device-${d.device || "unknown"}`}
+                  >
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Icon className="w-4 h-4" />
+                      {meta.label}
+                    </div>
+                    <p className="text-2xl font-bold mt-1.5">{nf.format(d.visitors)}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {share}% af besøgende · {nf.format(d.pageViews)} visninger
+                    </p>
+                    <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(4, share)}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 

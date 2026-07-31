@@ -69,6 +69,7 @@ import {
   analyticsEvents, type AnalyticsEvent, type InsertAnalyticsEvent,
   type AnalyticsOverview, type FunnelStep, type TrafficSource, type TopPage,
   type AnalyticsTimeseriesPoint, type CountryVisitors, type LiveVisitorStats, type ManageOverview,
+  type CustomerWithStats, type DeviceBreakdown,
   sanitizeAnalyticsEventData,
   billingLeads, type BillingLead, type InsertBillingLead,
   emailSettings, type EmailSettings, type InsertEmailSettings,
@@ -872,6 +873,69 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(customers).where(eq(customers.websiteId, websiteId));
   }
 
+  /**
+   * Customers with live aggregates. A customer row is pure identity —
+   * it is written by the sync_customer_from_order/_booking DB triggers
+   * (see supabase migration m12_customer_identity_triggers), which is
+   * the only mechanism that also catches published sites inserting
+   * orders/bookings straight into Supabase without touching this
+   * server. Totals are computed from orders and bookings here rather
+   * than stored on the row, so they are always consistent with what the
+   * Orders/Bookings tabs show — a replayed webhook or a refund can
+   * never leave a stale counter behind. Spend counts paid orders only,
+   * matching every revenue KPI.
+   */
+  async getCustomersWithStats(websiteId: string): Promise<CustomerWithStats[]> {
+    const rows = await db
+      .select({
+        id: customers.id,
+        name: customers.name,
+        email: customers.email,
+        phone: customers.phone,
+        createdAt: customers.createdAt,
+        ordersCount: sql<number>`coalesce(o.orders_count, 0)`,
+        totalSpentCents: sql<number>`coalesce(o.spent_cents, 0)`,
+        bookingsCount: sql<number>`coalesce(b.bookings_count, 0)`,
+        lastActivityAt: sql<string | null>`greatest(o.last_order_at, b.last_booking_at)`,
+      })
+      .from(customers)
+      .leftJoin(
+        sql`lateral (
+          select count(*) filter (where ${orders.paymentStatus} = 'paid') as orders_count,
+                 coalesce(sum(${orders.totalAmountCents}) filter (where ${orders.paymentStatus} = 'paid'), 0) as spent_cents,
+                 max(${orders.createdAt}) as last_order_at
+          from ${orders}
+          where ${orders.websiteId} = ${customers.websiteId}
+            and lower(${orders.customerEmail}) = lower(${customers.email})
+        ) o`,
+        sql`true`
+      )
+      .leftJoin(
+        sql`lateral (
+          select count(*) as bookings_count,
+                 max(${bookings.createdAt}) as last_booking_at
+          from ${bookings}
+          where ${bookings.websiteId} = ${customers.websiteId}
+            and lower(${bookings.customerEmail}) = lower(${customers.email})
+        ) b`,
+        sql`true`
+      )
+      .where(eq(customers.websiteId, websiteId))
+      .orderBy(desc(customers.createdAt));
+
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      phone: r.phone,
+      createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
+      ordersCount: Number(r.ordersCount),
+      totalSpentCents: Number(r.totalSpentCents),
+      bookingsCount: Number(r.bookingsCount),
+      lastActivityAt: r.lastActivityAt ? new Date(r.lastActivityAt).toISOString() : null,
+    }));
+  }
+
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
     const result = await db.insert(customers).values(customer as any).returning();
     return result[0];
@@ -1305,88 +1369,102 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  // The four period aggregates below used to select every event row in
+  // the window and reduce in JS - fine at launch, linear memory as sites
+  // grow. Each is now a single SQL aggregate, following the pattern of
+  // getAnalyticsTimeseries/getLiveVisitors further down.
+
   async getAnalyticsOverview(websiteId: string, startDate: Date, endDate: Date): Promise<AnalyticsOverview> {
-    const events = await db
-      .select()
-      .from(analyticsEvents)
-      .where(
-        and(
-          eq(analyticsEvents.websiteId, websiteId),
-          gte(analyticsEvents.timestamp, startDate),
-          sql`${analyticsEvents.timestamp} <= ${endDate}`
-        )
-      );
+    const scope = and(
+      eq(analyticsEvents.websiteId, websiteId),
+      gte(analyticsEvents.timestamp, startDate),
+      lte(analyticsEvents.timestamp, endDate)
+    );
 
-    const pageViews = events.filter(e => e.eventType === 'page_view').length;
-    const uniqueSessions = new Set(events.map(e => e.sessionId)).size;
-    const orderEvents = events.filter(e => e.eventType === 'order_created');
-    const totalOrders = orderEvents.length;
-    const totalRevenue = orderEvents.reduce((sum, e) => sum + (e.eventData?.orderTotal || 0), 0);
-    const bookingEvents = events.filter(e => e.eventType === 'booking_created');
-    const totalBookings = bookingEvents.length;
+    const [totalsRows, durationRows, websiteRows] = await Promise.all([
+      db
+        .select({
+          pageViews: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+          uniqueSessions: countDistinct(analyticsEvents.sessionId),
+          totalOrders: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'order_created')`,
+          totalRevenue: sql<number>`coalesce(sum((${analyticsEvents.eventData} ->> 'orderTotal')::numeric) filter (where ${analyticsEvents.eventType} = 'order_created'), 0)`,
+          totalBookings: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'booking_created')`,
+          sessionsWithPageView: sql<number>`count(distinct ${analyticsEvents.sessionId}) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+          sessionsWithOrder: sql<number>`count(distinct ${analyticsEvents.sessionId}) filter (where ${analyticsEvents.eventType} = 'order_created')`,
+        })
+        .from(analyticsEvents)
+        .where(scope),
+      // Visit duration: sum each session's page_time beacons (clamped on
+      // ingest; re-clamped here so a legacy oversized row can't skew the
+      // mean), then average per session.
+      db
+        .select({
+          avgSeconds: sql<number>`coalesce(avg(session_seconds), 0)`,
+        })
+        .from(
+          sql`(
+            select sum(least((${analyticsEvents.eventData} ->> 'durationSeconds')::numeric, 3600)) as session_seconds
+            from ${analyticsEvents}
+            where ${scope}
+              and ${analyticsEvents.eventType} = 'page_time'
+              and (${analyticsEvents.eventData} ->> 'durationSeconds') ~ '^[0-9.]+$'
+            group by ${analyticsEvents.sessionId}
+          ) per_session`
+        ),
+      db
+        .select({ currency: websites.currency })
+        .from(websites)
+        .where(eq(websites.id, websiteId)),
+    ]);
 
-    const sessionsWithPageView = new Set(events.filter(e => e.eventType === 'page_view').map(e => e.sessionId)).size;
-    const sessionsWithOrder = new Set(orderEvents.map(e => e.sessionId)).size;
+    const t = totalsRows[0];
+    const totalOrders = Number(t?.totalOrders) || 0;
+    const totalRevenue = Number(t?.totalRevenue) || 0;
+    const sessionsWithPageView = Number(t?.sessionsWithPageView) || 0;
+    const sessionsWithOrder = Number(t?.sessionsWithOrder) || 0;
     const conversionRate = sessionsWithPageView > 0 ? (sessionsWithOrder / sessionsWithPageView) * 100 : 0;
-    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
-    // Average visit duration: sum each session's page_time beacons (one per
-    // page leave, clamped server-side on ingest), then average per session.
-    const durationBySession = new Map<string, number>();
-    for (const e of events) {
-      if (e.eventType !== 'page_time') continue;
-      const raw = (e.eventData as Record<string, unknown> | null)?.durationSeconds;
-      const seconds = typeof raw === 'number' && Number.isFinite(raw) ? Math.min(raw, 3600) : 0;
-      if (seconds <= 0 || !e.sessionId) continue;
-      durationBySession.set(e.sessionId, (durationBySession.get(e.sessionId) || 0) + seconds);
-    }
-    let totalDuration = 0;
-    durationBySession.forEach((seconds) => { totalDuration += seconds; });
-    const avgVisitDurationSeconds = durationBySession.size > 0
-      ? Math.round(totalDuration / durationBySession.size)
-      : 0;
 
     return {
-      totalPageViews: pageViews,
-      uniqueSessions,
+      totalPageViews: Number(t?.pageViews) || 0,
+      uniqueSessions: Number(t?.uniqueSessions) || 0,
       totalOrders,
       totalRevenue,
       conversionRate: Math.round(conversionRate * 100) / 100,
-      avgOrderValue: Math.round(avgOrderValue),
-      totalBookings,
-      avgVisitDurationSeconds,
+      avgOrderValue: totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0,
+      totalBookings: Number(t?.totalBookings) || 0,
+      avgVisitDurationSeconds: Math.round(Number(durationRows[0]?.avgSeconds) || 0),
+      currency: websiteRows[0]?.currency || "DKK",
     };
   }
 
   async getAnalyticsFunnel(websiteId: string, startDate: Date, endDate: Date): Promise<FunnelStep[]> {
-    const events = await db
-      .select()
+    const funnelSteps = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'order_created'];
+    const stepNames = ['Page Views', 'Product Views', 'Add to Cart', 'Checkout Started', 'Orders Completed'];
+
+    const rows = await db
+      .select({
+        eventType: analyticsEvents.eventType,
+        sessions: countDistinct(analyticsEvents.sessionId),
+      })
       .from(analyticsEvents)
       .where(
         and(
           eq(analyticsEvents.websiteId, websiteId),
           gte(analyticsEvents.timestamp, startDate),
-          sql`${analyticsEvents.timestamp} <= ${endDate}`
+          lte(analyticsEvents.timestamp, endDate),
+          sql`${analyticsEvents.eventType} in ('page_view','product_view','add_to_cart','checkout_start','order_created')`
         )
-      );
+      )
+      .groupBy(analyticsEvents.eventType);
 
-    const funnelSteps = ['page_view', 'product_view', 'add_to_cart', 'checkout_start', 'order_created'];
-    const stepNames = ['Page Views', 'Product Views', 'Add to Cart', 'Checkout Started', 'Orders Completed'];
+    const countByStep = new Map(rows.map(r => [r.eventType, Number(r.sessions) || 0]));
+    const baseCount = countByStep.get('page_view') || 1;
 
-    const sessionsByStep: Record<string, Set<string>> = {};
-    funnelSteps.forEach(step => {
-      sessionsByStep[step] = new Set(
-        events.filter(e => e.eventType === step).map(e => e.sessionId)
-      );
-    });
-
-    const baseCount = sessionsByStep['page_view'].size || 1;
-    
     return funnelSteps.map((step, index) => {
-      const currentCount = sessionsByStep[step].size;
-      const previousCount = index > 0 ? sessionsByStep[funnelSteps[index - 1]].size : currentCount;
+      const currentCount = countByStep.get(step) || 0;
+      const previousCount = index > 0 ? (countByStep.get(funnelSteps[index - 1]) || 0) : currentCount;
       const dropoff = previousCount > 0 ? Math.round(((previousCount - currentCount) / previousCount) * 100) : 0;
-      
+
       return {
         name: stepNames[index],
         count: currentCount,
@@ -1397,74 +1475,99 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTrafficSources(websiteId: string, startDate: Date, endDate: Date): Promise<TrafficSource[]> {
-    const events = await db
-      .select()
+    const sourceExpr = sql<string>`coalesce(${analyticsEvents.trafficSource}, 'direct')`;
+    const rows = await db
+      .select({
+        source: sourceExpr,
+        sessions: countDistinct(analyticsEvents.sessionId),
+        pageViews: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+        conversions: sql<number>`count(*) filter (where ${analyticsEvents.eventType} in ('order_created','booking_created'))`,
+      })
       .from(analyticsEvents)
       .where(
         and(
           eq(analyticsEvents.websiteId, websiteId),
           gte(analyticsEvents.timestamp, startDate),
-          sql`${analyticsEvents.timestamp} <= ${endDate}`
+          lte(analyticsEvents.timestamp, endDate)
         )
-      );
+      )
+      .groupBy(sourceExpr);
 
-    const sourceMap: Record<string, { sessions: Set<string>; pageViews: number; conversions: number }> = {};
-    
-    events.forEach(event => {
-      const source = event.trafficSource || 'direct';
-      if (!sourceMap[source]) {
-        sourceMap[source] = { sessions: new Set(), pageViews: 0, conversions: 0 };
-      }
-      sourceMap[source].sessions.add(event.sessionId);
-      if (event.eventType === 'page_view') {
-        sourceMap[source].pageViews++;
-      }
-      if (event.eventType === 'order_created' || event.eventType === 'booking_created') {
-        sourceMap[source].conversions++;
-      }
-    });
-
-    return Object.entries(sourceMap).map(([source, data]) => ({
-      source,
-      sessions: data.sessions.size,
-      pageViews: data.pageViews,
-      conversions: data.conversions,
-      conversionRate: data.sessions.size > 0 ? Math.round((data.conversions / data.sessions.size) * 10000) / 100 : 0,
-    })).sort((a, b) => b.sessions - a.sessions);
+    return rows
+      .map(r => {
+        const sessions = Number(r.sessions) || 0;
+        const conversions = Number(r.conversions) || 0;
+        return {
+          source: r.source,
+          sessions,
+          pageViews: Number(r.pageViews) || 0,
+          conversions,
+          conversionRate: sessions > 0 ? Math.round((conversions / sessions) * 10000) / 100 : 0,
+        };
+      })
+      .sort((a, b) => b.sessions - a.sessions);
   }
 
   async getTopPages(websiteId: string, startDate: Date, endDate: Date): Promise<TopPage[]> {
-    const events = await db
-      .select()
+    // page_view and page_time beacons carry the same path key, so one
+    // grouped pass produces views, distinct visitors AND the mean time
+    // on page (which the old implementation typed but never computed).
+    const pathExpr = sql<string>`coalesce(${analyticsEvents.eventData} ->> 'path', ${analyticsEvents.pageUrl}, '/')`;
+    const rows = await db
+      .select({
+        path: pathExpr,
+        pageViews: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+        uniqueVisitors: sql<number>`count(distinct ${analyticsEvents.sessionId}) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+        avgTimeOnPage: sql<number>`coalesce(avg(least((${analyticsEvents.eventData} ->> 'durationSeconds')::numeric, 3600)) filter (where ${analyticsEvents.eventType} = 'page_time' and (${analyticsEvents.eventData} ->> 'durationSeconds') ~ '^[0-9.]+$'), 0)`,
+      })
       .from(analyticsEvents)
       .where(
         and(
           eq(analyticsEvents.websiteId, websiteId),
-          eq(analyticsEvents.eventType, 'page_view'),
+          sql`${analyticsEvents.eventType} in ('page_view','page_time')`,
           gte(analyticsEvents.timestamp, startDate),
-          sql`${analyticsEvents.timestamp} <= ${endDate}`
+          lte(analyticsEvents.timestamp, endDate)
         )
-      );
+      )
+      .groupBy(pathExpr)
+      .orderBy(sql`count(*) filter (where ${analyticsEvents.eventType} = 'page_view') desc`)
+      .limit(10);
 
-    const pageMap: Record<string, { views: number; sessions: Set<string> }> = {};
-    
-    events.forEach(event => {
-      const path = event.eventData?.path || event.pageUrl || '/';
-      if (!pageMap[path]) {
-        pageMap[path] = { views: 0, sessions: new Set() };
-      }
-      pageMap[path].views++;
-      pageMap[path].sessions.add(event.sessionId);
-    });
-
-    return Object.entries(pageMap)
-      .map(([path, data]) => ({
-        path,
-        pageViews: data.views,
-        uniqueVisitors: data.sessions.size,
+    return rows
+      .map(r => ({
+        path: r.path,
+        pageViews: Number(r.pageViews) || 0,
+        uniqueVisitors: Number(r.uniqueVisitors) || 0,
+        avgTimeOnPage: Math.round(Number(r.avgTimeOnPage) || 0),
       }))
-      .sort((a, b) => b.pageViews - a.pageViews)
-      .slice(0, 10);
+      // a path with only page_time beacons and zero views is noise
+      .filter(r => r.pageViews > 0);
+  }
+
+  async getDeviceBreakdown(websiteId: string, startDate: Date, endDate: Date): Promise<DeviceBreakdown[]> {
+    const rows = await db
+      .select({
+        device: analyticsEvents.deviceType,
+        visitors: countDistinct(analyticsEvents.sessionId),
+        pageViews: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+      })
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          gte(analyticsEvents.timestamp, startDate),
+          lte(analyticsEvents.timestamp, endDate)
+        )
+      )
+      .groupBy(analyticsEvents.deviceType);
+
+    return rows
+      .map(r => ({
+        device: r.device,
+        visitors: Number(r.visitors) || 0,
+        pageViews: Number(r.pageViews) || 0,
+      }))
+      .sort((a, b) => b.visitors - a.visitors);
   }
 
   // Website analytics (manage dashboard) methods
@@ -1573,6 +1676,7 @@ export class DatabaseStorage implements IStorage {
       orderTodayRows,
       pendingOrderRows,
       revenue30Rows,
+      websiteCurrencyRows,
       unreadRows,
       customerRows,
       traffic7Rows,
@@ -1604,11 +1708,11 @@ export class DatabaseStorage implements IStorage {
       )),
       db.select({
         revenue: sql<number>`coalesce(sum(${orders.totalAmountCents}) filter (where ${orders.paymentStatus} = 'paid'), 0)`,
-        currency: sql<string | null>`mode() within group (order by ${orders.currency})`,
       }).from(orders).where(and(
         eq(orders.websiteId, websiteId),
         gte(orders.createdAt, days30)
       )),
+      db.select({ currency: websites.currency }).from(websites).where(eq(websites.id, websiteId)),
       db.select({ n: count() }).from(formSubmissions).where(and(
         eq(formSubmissions.websiteId, websiteId),
         eq(formSubmissions.read, 'false')
@@ -1639,7 +1743,7 @@ export class DatabaseStorage implements IStorage {
       pendingOrders: Number(pendingOrderRows[0]?.n) || 0,
       revenueTodayCents: Number(orderTodayRows[0]?.revenue) || 0,
       revenue30dCents: Number(revenue30Rows[0]?.revenue) || 0,
-      currency: revenue30Rows[0]?.currency || 'DKK',
+      currency: websiteCurrencyRows[0]?.currency || 'DKK',
       unreadSubmissions: Number(unreadRows[0]?.n) || 0,
       totalCustomers: Number(customerRows[0]?.n) || 0,
       activeVisitors: live.activeVisitors,

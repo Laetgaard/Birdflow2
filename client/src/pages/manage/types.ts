@@ -8,6 +8,8 @@ export type ManageWebsite = {
   status: string;
   setupType: string;
   ownerId: string;
+  /** 3-letter ISO trading currency, e.g. "DKK". */
+  currency: string;
   // Present only when an administrator manages someone else's website
   // (set server-side on GET /api/websites/:id). UI state only.
   adminContext?: {
@@ -105,14 +107,20 @@ export type FormSubmission = {
   read: boolean;
 };
 
+// Mirrors CustomerWithStats in shared/schema.ts: identity row plus
+// aggregates the server computes from orders/bookings at read time.
 export type Customer = {
   id: string;
   name: string;
   email: string;
-  phone?: string;
-  totalOrders: number;
-  totalSpent: number;
+  phone: string | null;
   createdAt: string;
+  /** Paid orders only. */
+  ordersCount: number;
+  /** Lifetime paid-order revenue, minor units. */
+  totalSpentCents: number;
+  bookingsCount: number;
+  lastActivityAt: string | null;
 };
 
 export type ProductVariantOption = {
