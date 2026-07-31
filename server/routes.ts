@@ -466,10 +466,18 @@ export async function registerRoutes(
         return website;
       });
 
-      res.status(201).json({ 
+      // Link the draft into the walkthrough session so uploads and the
+      // agent have a website to attach to from the next turn on.
+      try {
+        await storage.upsertOnboardingSession(user.id, { websiteId: result.id, answers: { path: "ai" } });
+      } catch (sessionErr) {
+        console.error("Onboarding session link failed (non-fatal):", sessionErr);
+      }
+
+      res.status(201).json({
         websiteId: result.id,
         slug: uniqueSlug,
-        message: "Website created successfully" 
+        message: "Website created successfully"
       });
     } catch (error: any) {
       console.error("Onboarding error:", error);
@@ -526,6 +534,202 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Complete onboarding error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ ONBOARDING WALKTHROUGH (AI agent) ============
+  // The session (transcript + answers + generation status) lives in
+  // onboarding_sessions, so the walkthrough survives cleared browsers,
+  // device switches and server restarts.
+
+  // Resume point for the client.
+  app.get("/api/onboarding/session", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const session = await storage.getOnboardingSession(userId);
+      res.json({
+        websiteId: session?.websiteId ?? null,
+        transcript: session?.transcript ?? [],
+        answers: session?.answers ?? {},
+        genStatus: session?.genStatus ?? null,
+      });
+    } catch (error: any) {
+      console.error("Onboarding session error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Deterministic writes: palette/font choices, uploads and the DIY
+  // fork are recorded by the CLIENT the moment the user clicks — they
+  // never round-trip through the model, so a hex code or URL can't get
+  // mangled in conversation.
+  const recordHex = z.string().regex(/^#[0-9a-fA-F]{3,8}$/);
+  const recordBodySchema = z
+    .object({
+      path: z.enum(["ai", "diy"]).optional(),
+      websiteId: z.string().max(64).optional(),
+      palette: z
+        .object({
+          id: z.string().max(64),
+          name: z.string().max(120),
+          description: z.string().max(600).default(""),
+          colors: z.object({
+            primary: recordHex,
+            secondary: recordHex,
+            accent: recordHex,
+            background: recordHex,
+            surface: recordHex,
+            text: recordHex,
+          }),
+        })
+        .optional(),
+      fontPair: z
+        .object({
+          id: z.string().max(64),
+          name: z.string().max(120),
+          heading: z.string().max(80),
+          body: z.string().max(80),
+          scale: z.enum(["modern", "editorial", "classic", "bold"]),
+          description: z.string().max(600).default(""),
+        })
+        .optional(),
+      logo: z.object({ url: z.string().max(512), mediaId: z.string().max(64) }).optional(),
+      ownImageUrls: z.array(z.string().max(512)).max(4).optional(),
+      inspirationUrls: z.array(z.string().max(512)).max(3).optional(),
+    })
+    .strict();
+
+  app.post("/api/onboarding/session/record", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const parsed = recordBodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Ugyldige felter" });
+      }
+      const body = parsed.data;
+
+      const session = await storage.getOnboardingSession(userId);
+      const patch: Record<string, unknown> = {};
+      let websiteId = session?.websiteId ?? null;
+
+      if (body.websiteId) {
+        // The session may only point at a website this user owns.
+        const website = await storage.getWebsite(body.websiteId);
+        if (!website || website.ownerId !== userId) {
+          return res.status(403).json({ message: "Ikke din hjemmeside." });
+        }
+        websiteId = body.websiteId;
+      }
+
+      if (body.path) patch.path = body.path;
+      if (body.palette) patch.palette = body.palette;
+      if (body.fontPair) patch.fontPair = body.fontPair;
+
+      // Upload URLs must be media registered to the session's website —
+      // the same ownership rule as the design-interview and the builder
+      // agent's analyze_reference_image.
+      if (body.logo || body.ownImageUrls || body.inspirationUrls) {
+        if (!websiteId) {
+          return res.status(400).json({ message: "Opret hjemmesiden før du uploader." });
+        }
+        const assets = await storage.getMediaAssets(websiteId);
+        const owned = new Set(assets.map((a) => a.storagePath));
+        const keepOwned = (urls: string[]) => urls.filter((u) => owned.has(u));
+        if (body.logo) {
+          if (!owned.has(body.logo.url)) {
+            return res.status(403).json({ message: "Logoet tilhører ikke denne hjemmeside." });
+          }
+          patch.logoUrl = body.logo.url;
+          patch.logoMediaId = body.logo.mediaId;
+        }
+        if (body.ownImageUrls) patch.ownImageUrls = keepOwned(body.ownImageUrls);
+        if (body.inspirationUrls) patch.inspirationUrls = keepOwned(body.inspirationUrls);
+      }
+
+      const updated = await storage.upsertOnboardingSession(userId, {
+        ...(body.websiteId ? { websiteId: body.websiteId } : {}),
+        answers: patch as any,
+      });
+      res.json({ success: true, answers: updated.answers });
+    } catch (error: any) {
+      console.error("Onboarding record error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // One turn of the walkthrough agent (SSE, same event shape and client
+  // transport as the builder agent).
+  const onboardingAgentHits = new Map<string, number[]>();
+  app.post("/api/onboarding/agent", requireAuth, async (req, res) => {
+    const userId = (req as any).user?.id;
+    const now = Date.now();
+    const recentRuns = (onboardingAgentHits.get(userId) ?? []).filter((t) => now - t < 10 * 60 * 1000);
+    if (recentRuns.length >= 20) {
+      onboardingAgentHits.set(userId, recentRuns);
+      return res.status(429).json({
+        message: "For mange beskeder på kort tid. Vent et øjeblik og prøv igen.",
+      });
+    }
+    recentRuns.push(now);
+    onboardingAgentHits.set(userId, recentRuns);
+
+    const bodySchema = z.object({ message: z.string().trim().min(1).max(4000) });
+    const parsed = bodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Ugyldig besked" });
+    }
+
+    try {
+      const session = await storage.getOnboardingSession(userId);
+      const transcript = [...(session?.transcript ?? [])];
+      transcript.push({ role: "user", content: parsed.data.message });
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      const send = (payload: unknown) => {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      };
+
+      const { runOnboardingAgent } = await import("./onboardingAgent");
+      const outcome = await runOnboardingAgent({
+        userId,
+        websiteId: session?.websiteId ?? null,
+        transcript,
+        answers: session?.answers ?? {},
+        onEvent: send,
+      });
+
+      if (outcome.status === "failed") {
+        send({ type: "error", message: outcome.message ?? "Agenten fejlede" });
+        return res.end();
+      }
+
+      transcript.push({
+        role: "assistant",
+        content: outcome.reply,
+        ...(outcome.displays.length > 0 ? { displays: outcome.displays } : {}),
+      });
+      await storage.upsertOnboardingSession(userId, { transcript });
+
+      send({
+        type: "result",
+        status: "completed",
+        reply: outcome.reply,
+        displays: outcome.displays,
+        answers: outcome.answers,
+        buildStarted: outcome.buildStarted,
+      });
+      res.end();
+    } catch (error: any) {
+      console.error("Onboarding agent error:", error);
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ type: "error", message: error?.message ?? "Agenten fejlede" })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({ message: error?.message ?? "Agenten fejlede" });
+      }
     }
   });
 
@@ -5234,8 +5438,16 @@ export async function registerRoutes(
       if (status) {
         return res.json({ success: true, active: isOnboardingGenRunning(req.params.id), status });
       }
-      // No job in memory (e.g. server restarted mid-flow) — report whether the
-      // site already has content so the client can move on instead of hanging.
+      // No job in memory (e.g. server restarted mid-flow). The generator
+      // write-throughs every phase to onboarding_sessions.gen_status, so
+      // serve the persisted snapshot — a finished/failed run keeps its
+      // report and fallback flag across restarts.
+      const session = await storage.getOnboardingSessionByWebsiteId(req.params.id);
+      if (session?.genStatus) {
+        return res.json({ success: true, active: false, status: session.genStatus });
+      }
+      // Nothing persisted either — report whether the site already has
+      // content so the client can move on instead of hanging.
       const builderData = await storage.getBuilderState(req.params.id);
       const state = builderData?.state as BuilderStateData | undefined;
       const built = !!state && state.pages.reduce((sum, p) => sum + (p.components?.length ?? 0), 0) > 0;
@@ -6422,12 +6634,13 @@ export async function registerRoutes(
       }
       
       const session = await stripe.checkout.sessions.create(sessionParams);
-      
-      // Mark onboarding as complete when user clicks subscribe and goes to Stripe checkout
-      await db.update(profiles)
-        .set({ onboardingCompleted: true })
-        .where(eq(profiles.id, userId));
-      
+
+      // NOTE deliberately no onboardingCompleted here. It used to be set
+      // at this point — BEFORE the Stripe redirect — which permanently
+      // marked users who abandoned checkout as onboarded, locking them
+      // out of /onboarding forever. The flag is now set when the session
+      // actually completes: in the checkout.session.completed webhook,
+      // and belt-and-braces in verify-session after the success redirect.
       res.json({ url: session.url });
     } catch (error: any) {
       console.error("Create onboarding checkout session error:", error);
@@ -6456,11 +6669,19 @@ export async function registerRoutes(
       if (session.payment_status !== 'paid' && session.status !== 'complete') {
         return res.status(400).json({ message: "Payment not completed" });
       }
-      
-      res.json({ 
-        success: true, 
+
+      // Verified completion of an onboarding checkout finishes onboarding.
+      // (The webhook does the same; this covers webhook lag on redirect.)
+      if (session.metadata?.type === 'onboarding') {
+        await db.update(profiles)
+          .set({ onboardingCompleted: true })
+          .where(eq(profiles.id, userId));
+      }
+
+      res.json({
+        success: true,
         planId: session.metadata?.planId,
-        subscriptionId: session.subscription 
+        subscriptionId: session.subscription
       });
     } catch (error: any) {
       console.error("Verify session error:", error);

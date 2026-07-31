@@ -4,16 +4,19 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { uploadImage } from "@/lib/builderUpload";
+import { runOnboardingTurn, type AgentStreamEvent } from "@/lib/aiAgentStream";
 import type { PaletteProposal, FontPairProposal, BuildReport } from "@shared/aiBuilderSchema";
+import type { OnboardingAnswers, OnboardingChatMessage } from "@shared/schema";
+import { websiteTemplates } from "@shared/websiteTemplates";
 import {
   ArrowRight,
-  ArrowLeft,
   Check,
   Loader2,
   Sparkles,
@@ -21,68 +24,60 @@ import {
   Gift,
   Zap,
   HelpCircle,
-  Building2,
   Wand2,
   ImagePlus,
-  X,
+  Send,
   Type,
-  ShieldCheck,
   PlusCircle,
   PenLine,
+  ListChecks,
   AlertTriangle,
-  Rocket,
+  CheckCircle2,
+  AlertCircle,
+  LayoutTemplate,
 } from "lucide-react";
 import { subscriptionPlans, formatPrice, getYearlySavings } from "@shared/subscriptionPlans";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-type Step =
-  | "business"
-  | "wishes"
-  | "uploads"
-  | "feeling"
-  | "palettes"
-  | "fonts"
-  | "generating"
-  | "report"
-  | "payment";
+/* ─────────────────────────────────────────────────────────────
+   The onboarding walkthrough: ONE conversation with Birdflows
+   AI-guide, matching the builder's chat patterns. The agent asks;
+   answers, palette/font cards, uploads and the DIY fork render
+   inline. Everything persists server-side in onboarding_sessions
+   (transcript + answers + generation status), so a cleared browser
+   or a device switch resumes exactly where the user left off.
 
-type UploadedFile = { url: string; mediaId: string };
+   Deterministic data (palette hexes, fonts, upload URLs) is written
+   through POST /api/onboarding/session/record at the moment of the
+   click — never round-tripped through the model.
+   ───────────────────────────────────────────────────────────── */
+
+type View = "chat" | "generating" | "report" | "payment";
+
+type AgentStep = { label: string; ok: boolean };
+
+type DisplayCard = { kind: string; value: unknown; chosenId?: string };
+
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  error?: boolean;
+  working?: boolean;
+  steps?: AgentStep[];
+  displays?: DisplayCard[];
+};
 
 type GenStatus = {
   websiteId: string;
   phase: string;
   phasesDone: string[];
   detail?: string;
-  startedAt: number;
-  updatedAt: number;
   done: boolean;
   fallback: boolean;
   report?: BuildReport;
   summary?: string;
   error?: string;
 };
-
-const GOAL_CHIPS: { id: string; label: string }[] = [
-  { id: "booking", label: "Online booking" },
-  { id: "webshop", label: "Webshop" },
-  { id: "portfolio", label: "Portfolio / galleri" },
-  { id: "blog", label: "Blog / nyheder" },
-  { id: "kontakt", label: "Kontaktformular" },
-  { id: "nyhedsbrev", label: "Nyhedsbrev" },
-];
-
-const FEELING_CHIPS = [
-  "Roligt & nordisk",
-  "Professionelt & troværdigt",
-  "Legende & farverigt",
-  "Eksklusivt & minimalistisk",
-  "Varmt & personligt",
-  "Moderne & teknisk",
-];
 
 const GEN_PHASES: { id: string; label: string }[] = [
   { id: "brandguide", label: "Skaber din brandguide" },
@@ -101,17 +96,17 @@ const RAIL: { label: string }[] = [
   { label: "Betaling" },
 ];
 
-const STEP_GROUP: Record<Step, number> = {
-  business: 0,
-  wishes: 1,
-  uploads: 2,
-  feeling: 3,
-  palettes: 3,
-  fonts: 3,
-  generating: 4,
-  report: 4,
-  payment: 5,
-};
+/** Which rail group the walkthrough has reached, derived from state. */
+function railProgress(answers: OnboardingAnswers, view: View): number {
+  if (view === "payment") return 5;
+  if (view === "generating" || view === "report") return 4;
+  if (answers.fontPair) return 4;
+  if (answers.feeling || answers.palette) return 3;
+  if (answers.logoUrl || answers.inspirationUrls?.length || answers.ownImageUrls?.length) return 3;
+  if (answers.goals?.length || answers.notes) return 2;
+  if (answers.businessName) return 1;
+  return 0;
+}
 
 /** Load Google fonts on the fly so typography proposals preview in their real font. */
 function ensureGoogleFonts(fonts: string[]) {
@@ -128,11 +123,11 @@ function ensureGoogleFonts(fonts: string[]) {
 
 function ProgressRail({ current }: { current: number }) {
   return (
-    <div className="w-full max-w-3xl mx-auto mb-12">
+    <div className="w-full max-w-3xl mx-auto mb-8">
       <div className="relative">
         <div className="absolute top-5 left-0 right-0 h-0.5 bg-muted">
           <motion.div
-            className="h-full bg-gradient-to-r from-indigo-500 to-purple-600"
+            className="h-full bg-primary"
             initial={{ width: "0%" }}
             animate={{ width: `${(current / (RAIL.length - 1)) * 100}%` }}
             transition={{ duration: 0.5, ease: "easeInOut" }}
@@ -147,9 +142,9 @@ function ProgressRail({ current }: { current: number }) {
                 <motion.div
                   className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold border-2 transition-colors z-10 ${
                     isCompleted
-                      ? "bg-gradient-to-r from-indigo-500 to-purple-600 border-transparent text-white"
+                      ? "bg-primary border-transparent text-primary-foreground"
                       : isCurrent
-                      ? "bg-background border-indigo-500 text-indigo-600"
+                      ? "bg-background border-primary text-primary"
                       : "bg-background border-muted text-muted-foreground"
                   }`}
                   initial={{ scale: 0.8 }}
@@ -159,8 +154,8 @@ function ProgressRail({ current }: { current: number }) {
                   {isCompleted ? <Check className="w-5 h-5" /> : index + 1}
                 </motion.div>
                 <span
-                  className={`mt-2 text-xs font-medium ${
-                    isCurrent ? "text-foreground" : "text-muted-foreground"
+                  className={`mt-2 text-xs hidden sm:block ${
+                    isCurrent ? "text-foreground font-medium" : "text-muted-foreground"
                   }`}
                 >
                   {item.label}
@@ -175,108 +170,226 @@ function ProgressRail({ current }: { current: number }) {
 }
 
 function ReportCard({ report }: { report: BuildReport }) {
-  const groups: { title: string; icon: React.ReactNode; lines: string[]; color: string }[] = [
-    { title: "Oprettet", icon: <PlusCircle className="w-4 h-4" />, lines: report.oprettet, color: "text-emerald-600" },
-    { title: "Ændret", icon: <PenLine className="w-4 h-4" />, lines: report.aendret, color: "text-blue-600" },
-    { title: "Tjek", icon: <ShieldCheck className="w-4 h-4" />, lines: report.tjek, color: "text-amber-600" },
+  const groups: Array<{ title: string; icon: React.ReactNode; lines: string[]; color: string }> = [
+    { title: "Oprettet", icon: <PlusCircle className="w-3.5 h-3.5" />, lines: report.oprettet, color: "text-green-600 dark:text-green-400" },
+    { title: "Ændret", icon: <PenLine className="w-3.5 h-3.5" />, lines: report.aendret, color: "text-primary" },
+    { title: "Tjek", icon: <ListChecks className="w-3.5 h-3.5" />, lines: report.tjek, color: "text-amber-600 dark:text-amber-400" },
   ];
+  const visible = groups.filter((g) => g.lines.length > 0);
+  if (visible.length === 0) return null;
   return (
-    <Card className="p-6 text-left space-y-5">
-      {groups
-        .filter((g) => g.lines.length > 0)
-        .map((g) => (
-          <div key={g.title}>
-            <div className={`flex items-center gap-2 font-semibold text-sm mb-2 ${g.color}`}>
-              {g.icon}
-              {g.title}
-            </div>
-            <ul className="space-y-1.5">
-              {g.lines.map((line, i) => (
-                <li key={i} className="text-sm text-muted-foreground flex gap-2">
-                  <span className="text-muted-foreground/50 select-none">•</span>
-                  <span>{line}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+    <Card className="divide-y overflow-hidden" data-testid="onboarding-report">
+      {visible.map((group) => (
+        <div key={group.title} className="px-4 py-3">
+          <p className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${group.color}`}>
+            {group.icon}
+            {group.title}
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {group.lines.slice(0, 8).map((line, idx) => (
+              <li key={idx} className="text-sm leading-snug text-muted-foreground">{line}</li>
+            ))}
+            {group.lines.length > 8 && (
+              <li className="text-sm leading-snug text-muted-foreground/70 italic">
+                + {group.lines.length - 8} mere...
+              </li>
+            )}
+          </ul>
+        </div>
+      ))}
     </Card>
   );
 }
 
-function UploadZone({
-  title,
-  hint,
-  files,
-  max,
-  uploading,
-  onPick,
-  onRemove,
-  testId,
+/* ============ Inline cards ============ */
+
+function PaletteCards({
+  palettes,
+  chosenId,
+  disabled,
+  onChoose,
 }: {
-  title: string;
-  hint: string;
-  files: UploadedFile[];
-  max: number;
-  uploading: boolean;
-  onPick: (files: FileList) => void;
-  onRemove: (index: number) => void;
-  testId: string;
+  palettes: PaletteProposal[];
+  chosenId?: string;
+  disabled: boolean;
+  onChoose: (palette: PaletteProposal) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between gap-4 mb-3">
-        <div>
-          <h3 className="font-semibold">{title}</h3>
-          <p className="text-sm text-muted-foreground">{hint}</p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={uploading || files.length >= max}
-          onClick={() => inputRef.current?.click()}
-          data-testid={`button-upload-${testId}`}
-        >
-          {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImagePlus className="w-4 h-4 mr-2" />}
-          Vælg {max > 1 ? "billeder" : "billede"}
-        </Button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          multiple={max > 1}
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) onPick(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </div>
-      {files.length > 0 && (
-        <div className="flex flex-wrap gap-3">
-          {files.map((f, i) => (
-            <div key={f.mediaId} className="relative group">
-              <img
-                src={f.url}
-                alt=""
-                className="w-20 h-20 object-cover rounded-lg border bg-muted"
-              />
-              <button
-                type="button"
-                onClick={() => onRemove(i)}
-                className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-foreground text-background flex items-center justify-center shadow opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="Fjern billede"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2" data-testid="palette-cards">
+      {palettes.map((palette) => {
+        const chosen = chosenId === palette.id;
+        return (
+          <button
+            key={palette.id}
+            className={`rounded-lg border p-3 text-left transition-colors bg-card ${
+              chosen ? "border-primary ring-1 ring-primary" : "hover:border-primary/50"
+            } ${chosenId && !chosen ? "opacity-50" : ""}`}
+            disabled={disabled || !!chosenId}
+            onClick={() => onChoose(palette)}
+            data-testid={`palette-card-${palette.id}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold truncate">{palette.name}</span>
+              {chosen && <Check className="w-4 h-4 text-primary shrink-0" />}
             </div>
-          ))}
-        </div>
-      )}
-    </Card>
+            <div className="mt-2 flex gap-1">
+              {Object.values(palette.colors).map((color, i) => (
+                <span key={i} className="h-6 flex-1 rounded border border-black/10" style={{ backgroundColor: color }} />
+              ))}
+            </div>
+            {palette.description && (
+              <p className="mt-2 text-xs text-muted-foreground leading-snug">{palette.description}</p>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 }
+
+function FontPairCards({
+  pairs,
+  chosenId,
+  disabled,
+  onChoose,
+}: {
+  pairs: FontPairProposal[];
+  chosenId?: string;
+  disabled: boolean;
+  onChoose: (pair: FontPairProposal) => void;
+}) {
+  useEffect(() => {
+    ensureGoogleFonts(pairs.flatMap((p) => [p.heading, p.body]));
+  }, [pairs]);
+  return (
+    <div className="grid grid-cols-1 gap-2 mt-2" data-testid="font-pair-cards">
+      {pairs.map((pair) => {
+        const chosen = chosenId === pair.id;
+        return (
+          <button
+            key={pair.id}
+            className={`rounded-lg border p-3 text-left transition-colors bg-card ${
+              chosen ? "border-primary ring-1 ring-primary" : "hover:border-primary/50"
+            } ${chosenId && !chosen ? "opacity-50" : ""}`}
+            disabled={disabled || !!chosenId}
+            onClick={() => onChoose(pair)}
+            data-testid={`font-pair-card-${pair.id}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold truncate">{pair.name}</span>
+              {chosen && <Check className="w-4 h-4 text-primary shrink-0" />}
+            </div>
+            <p className="mt-1.5 text-xl leading-tight" style={{ fontFamily: `'${pair.heading}', sans-serif` }}>
+              Overskrift der fanger
+            </p>
+            <p className="text-sm text-muted-foreground" style={{ fontFamily: `'${pair.body}', sans-serif` }}>
+              Brødtekst som er behagelig at læse — {pair.heading} + {pair.body}
+            </p>
+            <Badge variant="outline" className="mt-1.5 text-[10px] py-0 font-normal">
+              <Type className="w-3 h-3 mr-1" />
+              {pair.scale}
+            </Badge>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function UploadRequestCard({
+  kind,
+  uploading,
+  disabled,
+  onPick,
+}: {
+  kind: "logo" | "images" | "inspiration";
+  uploading: boolean;
+  disabled: boolean;
+  onPick: (kind: "logo" | "images" | "inspiration") => void;
+}) {
+  const labels: Record<string, { title: string; hint: string }> = {
+    logo: { title: "Upload dit logo", hint: "PNG/SVG/JPG — det bedste du har" },
+    images: { title: "Upload egne billeder", hint: "Op til 4 billeder af jer, jeres produkter eller arbejde" },
+    inspiration: { title: "Upload inspirationsbilleder", hint: "Op til 3 screenshots af sider du kan lide" },
+  };
+  const meta = labels[kind];
+  return (
+    <div className="mt-2 rounded-lg border border-dashed p-4 bg-card" data-testid={`upload-card-${kind}`}>
+      <p className="text-sm font-medium flex items-center gap-2">
+        <ImagePlus className="w-4 h-4 text-primary" />
+        {meta.title}
+      </p>
+      <p className="text-xs text-muted-foreground mt-0.5">{meta.hint}</p>
+      <div className="mt-2.5 flex gap-2">
+        <Button size="sm" variant="outline" disabled={disabled || uploading} onClick={() => onPick(kind)} data-testid={`button-upload-${kind}`}>
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <ImagePlus className="w-3.5 h-3.5 mr-1.5" />}
+          Vælg fil{kind === "logo" ? "" : "er"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** DIY branch: pick a template, name the site, straight to payment. */
+function TemplatePickerCard({
+  disabled,
+  onPick,
+}: {
+  disabled: boolean;
+  onPick: (templateId: string, name: string) => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const templates = websiteTemplates.filter((t) => t.id !== "blank").slice(0, 4);
+  return (
+    <div className="mt-2 rounded-lg border p-3 bg-card" data-testid="template-picker-card">
+      <p className="text-sm font-medium flex items-center gap-2">
+        <LayoutTemplate className="w-4 h-4 text-primary" />
+        Vælg en skabelon at bygge videre på
+      </p>
+      <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {templates.map((t) => (
+          <button
+            key={t.id}
+            className={`rounded-lg border p-2.5 text-left transition-colors ${
+              selected === t.id ? "border-primary ring-1 ring-primary" : "hover:border-primary/50"
+            }`}
+            disabled={disabled}
+            onClick={() => setSelected(t.id)}
+            data-testid={`template-option-${t.id}`}
+          >
+            <span className="text-xs font-semibold block truncate">{t.name}</span>
+            <span className="text-[11px] text-muted-foreground leading-snug block mt-0.5 line-clamp-2">
+              {t.description}
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="mt-2.5 flex gap-2">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Hvad skal din hjemmeside hedde?"
+          className="h-9 text-sm"
+          disabled={disabled}
+          data-testid="input-diy-name"
+        />
+        <Button
+          size="sm"
+          className="h-9 shrink-0"
+          disabled={disabled || !selected || name.trim().length < 2}
+          onClick={() => selected && onPick(selected, name.trim())}
+          data-testid="button-diy-create"
+        >
+          Fortsæt
+          <ArrowRight className="w-3.5 h-3.5 ml-1" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ============ Page ============ */
 
 export default function OnboardingPage() {
   const [, navigate] = useLocation();
@@ -284,191 +397,90 @@ export default function OnboardingPage() {
   const { toast } = useToast();
 
   const [booting, setBooting] = useState(true);
-  const [step, setStep] = useState<Step>("business");
+  const [view, setView] = useState<View>("chat");
   const [websiteId, setWebsiteId] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<OnboardingAnswers>({});
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Step 1-2: business + wishes
-  const [business, setBusiness] = useState({ name: "", industry: "", description: "" });
-  const [goals, setGoals] = useState<string[]>([]);
-  const [wishNotes, setWishNotes] = useState("");
-  const [creatingProject, setCreatingProject] = useState(false);
+  // Uploads
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadKindRef = useRef<"logo" | "images" | "inspiration">("logo");
+  const [uploading, setUploading] = useState(false);
 
-  // Step 3: uploads
-  const [logo, setLogo] = useState<UploadedFile | null>(null);
-  const [ownImages, setOwnImages] = useState<UploadedFile[]>([]);
-  const [inspiration, setInspiration] = useState<UploadedFile[]>([]);
-  const [uploadingZone, setUploadingZone] = useState<string | null>(null);
-
-  // Step 4-6: design picks
-  const [feeling, setFeeling] = useState("");
-  const [palettes, setPalettes] = useState<PaletteProposal[]>([]);
-  const [selectedPalette, setSelectedPalette] = useState<PaletteProposal | null>(null);
-  const [fontPairs, setFontPairs] = useState<FontPairProposal[]>([]);
-  const [selectedFontPair, setSelectedFontPair] = useState<FontPairProposal | null>(null);
-  const [styleLoading, setStyleLoading] = useState(false);
-
-  // Step 7-8: generation
+  // Generation
   const [genStatus, setGenStatus] = useState<GenStatus | null>(null);
-  const [genError, setGenError] = useState<string | null>(null);
-  const [genStartedAt, setGenStartedAt] = useState<number | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const genPostedRef = useRef(false);
-  const [report, setReport] = useState<BuildReport | null>(null);
+  const [genStalled, setGenStalled] = useState(false);
+  const report = genStatus?.report ?? null;
 
-  // Step 9: payment
+  // Payment
   const [isYearly, setIsYearly] = useState(false);
   const [isRedirectingToStripe, setIsRedirectingToStripe] = useState(false);
-
   const plan = subscriptionPlans[0];
   const yearlySavings = getYearlySavings(plan);
   const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, view]);
 
   const authHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
   };
 
-  // ---- Wizard persistence: answers survive refresh and server restarts ----
-  const storageKey = user ? `bf-ai-onboarding-${user.id}` : null;
-
+  /* ---- Auth gates ---- */
   useEffect(() => {
-    if (!storageKey || booting) return;
-    if (step === "report" || step === "payment") {
-      try {
-        localStorage.removeItem(storageKey);
-      } catch {}
-      return;
-    }
-    try {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          websiteId,
-          business,
-          goals,
-          wishNotes,
-          logo,
-          ownImages,
-          inspiration,
-          feeling,
-          selectedPalette,
-          selectedFontPair,
-        })
-      );
-    } catch {}
-  }, [storageKey, booting, step, websiteId, business, goals, wishNotes, logo, ownImages, inspiration, feeling, selectedPalette, selectedFontPair]);
-
-  // ---- Bootstrap: auth gates + resume detection ----
-  const bootedRef = useRef(false);
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      navigate("/auth?mode=signup");
-    }
+    if (!authLoading && !user) navigate("/auth?mode=signup");
   }, [authLoading, user, navigate]);
 
   useEffect(() => {
-    if (!authLoading && profile?.onboardingCompleted && step !== "payment") {
+    if (!authLoading && profile?.onboardingCompleted && view !== "payment") {
       navigate("/dashboard");
     }
-  }, [authLoading, profile, navigate, step]);
+  }, [authLoading, profile, navigate, view]);
 
+  /* ---- Boot: resume from the server-side session ---- */
+  const bootedRef = useRef(false);
   useEffect(() => {
     if (authLoading || !user || !token || bootedRef.current) return;
     bootedRef.current = true;
     let cancelled = false;
     (async () => {
       try {
+        // Stripe cancel URL jumps straight back to payment.
         const params = new URLSearchParams(window.location.search);
-        const wantsPayment = params.get("step") === "payment";
-        if (wantsPayment) window.history.replaceState({}, "", "/onboarding");
-
-        const res = await fetch("/api/websites", { headers: { Authorization: `Bearer ${token}` } });
-        const sites: any[] = res.ok ? await res.json() : [];
-        const draft = Array.isArray(sites)
-          ? sites.find((w) => w.setupType === "ai" && w.status === "draft")
-          : null;
+        const res = await fetch("/api/onboarding/session", { headers: authHeaders });
+        const session = res.ok
+          ? await res.json()
+          : { websiteId: null, transcript: [], answers: {}, genStatus: null };
         if (cancelled) return;
 
-        let stored: any = null;
-        try {
-          stored = JSON.parse(localStorage.getItem(`bf-ai-onboarding-${user.id}`) ?? "null");
-        } catch {}
+        setWebsiteId(session.websiteId ?? null);
+        setAnswers(session.answers ?? {});
+        setMessages(
+          (session.transcript ?? []).map((m: OnboardingChatMessage) => ({
+            role: m.role,
+            content: m.content,
+            displays: m.displays as DisplayCard[] | undefined,
+          }))
+        );
 
-        if (wantsPayment) {
-          const target = draft ?? (Array.isArray(sites) ? sites[0] : null);
-          if (target) setWebsiteId(target.id);
-          setStep("payment");
-          return;
-        }
-
-        if (draft) {
-          setWebsiteId(draft.id);
-          if (draft.name) setBusiness((b) => ({ ...b, name: draft.name }));
-
-          // Restore stored wizard answers for this draft (refresh/restart-safe).
-          const restored = stored && stored.websiteId === draft.id ? stored : null;
-          if (restored) {
-            if (restored.business?.name) setBusiness(restored.business);
-            if (Array.isArray(restored.goals)) setGoals(restored.goals);
-            if (typeof restored.wishNotes === "string") setWishNotes(restored.wishNotes);
-            if (restored.logo?.url) setLogo(restored.logo);
-            if (Array.isArray(restored.ownImages)) setOwnImages(restored.ownImages);
-            if (Array.isArray(restored.inspiration)) setInspiration(restored.inspiration);
-            if (typeof restored.feeling === "string") setFeeling(restored.feeling);
-            if (restored.selectedPalette) setSelectedPalette(restored.selectedPalette);
-            if (restored.selectedFontPair) setSelectedFontPair(restored.selectedFontPair);
-          }
-
-          const stRes = await fetch(`/api/websites/${draft.id}/onboarding/generate/status`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (stRes.ok) {
-            const data = await stRes.json();
-            if (cancelled) return;
-            if (data.status && !data.status.done) {
-              // A build is running right now — jump straight back into it.
-              setGenStatus(data.status);
-              setGenStartedAt(data.status.startedAt ?? Date.now());
-              genPostedRef.current = true;
-              setStep("generating");
-              return;
-            }
-            if (data.status?.done && !data.status.error && data.status.report) {
-              setGenStatus(data.status);
-              setReport(data.status.report);
-              setStep("report");
-              return;
-            }
-            if (data.built) {
-              setStep("payment");
-              return;
-            }
-          }
-
-          // Nothing built and no running job (e.g. server restarted mid-build):
-          // resume from the furthest step the stored answers allow.
-          if (restored?.selectedPalette && restored?.selectedFontPair && restored?.feeling) {
-            genPostedRef.current = false;
-            setStep("generating");
-            return;
-          }
-          if (restored?.feeling) {
-            setStep("feeling");
-            return;
-          }
-          setStep(restored ? "uploads" : "business");
-          return;
-        }
-
-        if (stored) {
-          // Stored answers without a matching draft are stale.
-          try {
-            localStorage.removeItem(`bf-ai-onboarding-${user.id}`);
-          } catch {}
+        const gs = session.genStatus as GenStatus | null;
+        if (params.get("step") === "payment") {
+          setGenStatus(gs);
+          setView("payment");
+        } else if (gs?.done && gs.report) {
+          setGenStatus(gs);
+          setView("report");
+        } else if (gs && !gs.done) {
+          setGenStatus(gs);
+          setView("generating");
         }
       } catch {
-        // Fall through to a fresh start — the flow is resume-safe server-side.
+        // Fresh start is fine.
       } finally {
         if (!cancelled) setBooting(false);
       }
@@ -478,242 +490,260 @@ export default function OnboardingPage() {
     };
   }, [authLoading, user, token]);
 
-  // ---- Step transitions ----
-
-  const generateSlug = (name: string) =>
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .substring(0, 50);
-
-  const createProjectAndContinue = async () => {
-    if (!token || !business.name.trim()) return;
-    if (websiteId) {
-      setStep("uploads");
-      return;
+  /* ---- Deterministic writes (clicks and uploads, never the model) ---- */
+  const record = async (patch: Record<string, unknown>): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/onboarding/session/record", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Kunne ikke gemme dit valg");
+      }
+      const data = await res.json();
+      setAnswers(data.answers ?? {});
+      return true;
+    } catch (error: any) {
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+      return false;
     }
-    setCreatingProject(true);
+  };
+
+  /* ---- One agent turn ---- */
+  const sendMessage = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isLoading || !token) return;
+    setInput("");
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: trimmed },
+      { role: "assistant", content: "", working: true, steps: [], displays: [] },
+    ]);
+    setIsLoading(true);
+
+    const patchLast = (patch: (m: ChatMessage) => ChatMessage) => {
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = patch(next[next.length - 1]);
+        return next;
+      });
+    };
+
+    const onEvent = (event: AgentStreamEvent) => {
+      if (event.type === "tool") {
+        patchLast((m) => ({
+          ...m,
+          steps: [...(m.steps ?? []), { label: event.summary, ok: event.ok }],
+          displays: event.display ? [...(m.displays ?? []), event.display as DisplayCard] : m.displays,
+        }));
+      } else if (event.type === "note") {
+        patchLast((m) => ({ ...m, steps: [...(m.steps ?? []), { label: event.text, ok: true }] }));
+      }
+    };
+
+    try {
+      const result = await runOnboardingTurn({ accessToken: token, message: trimmed, onEvent });
+      patchLast((m) => ({ ...m, working: false, content: result.reply }));
+      setAnswers((result.answers ?? {}) as OnboardingAnswers);
+      if (result.buildStarted) {
+        setView("generating");
+      }
+    } catch (error: any) {
+      patchLast((m) => ({
+        ...m,
+        working: false,
+        error: true,
+        content: `Beklager, noget gik galt: ${error.message}. Prøv igen.`,
+      }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /* ---- The fork (first choice, client-rendered) ---- */
+  const chooseAiPath = async () => {
+    if (isLoading) return;
+    await record({ path: "ai" });
+    await sendMessage("Jeg vil gerne have, at AI'en bygger min hjemmeside sammen med mig.");
+  };
+
+  const [diyMode, setDiyMode] = useState(false);
+  const chooseDiyPath = async () => {
+    if (isLoading) return;
+    await record({ path: "diy" });
+    setDiyMode(true);
+  };
+
+  const createDiyWebsite = async (templateId: string, name: string) => {
+    setIsLoading(true);
     try {
       const res = await fetch("/api/onboarding/create-website", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({
-          name: business.name.trim(),
-          slug: generateSlug(business.name),
-          mode: "ai",
-          websiteType: "ai",
-        }),
+        body: JSON.stringify({ name, templateId }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "Kunne ikke oprette dit projekt");
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Kunne ikke oprette hjemmesiden");
       }
       const data = await res.json();
       setWebsiteId(data.websiteId);
-      setStep("uploads");
+      await record({ websiteId: data.websiteId, path: "diy" });
+      setView("payment");
     } catch (error: any) {
       toast({ title: "Fejl", description: error.message, variant: "destructive" });
     } finally {
-      setCreatingProject(false);
+      setIsLoading(false);
     }
   };
 
-  const handleUpload = async (
-    zone: "logo" | "own" | "inspiration",
-    fileList: FileList
-  ) => {
-    if (!websiteId || !token) return;
-    const caps = { logo: 1, own: 4, inspiration: 3 };
-    const current = zone === "logo" ? (logo ? 1 : 0) : zone === "own" ? ownImages.length : inspiration.length;
-    const files = Array.from(fileList).slice(0, Math.max(0, caps[zone] - current));
-    if (files.length === 0) return;
-    setUploadingZone(zone);
-    try {
-      for (const file of files) {
-        const uploaded = await uploadImage(websiteId, token, file);
-        if (zone === "logo") setLogo(uploaded);
-        else if (zone === "own") setOwnImages((prev) => [...prev, uploaded].slice(0, 4));
-        else setInspiration((prev) => [...prev, uploaded].slice(0, 3));
+  /* ---- Create the draft website once the agent knows the name ---- */
+  const creatingRef = useRef(false);
+  useEffect(() => {
+    if (booting || creatingRef.current) return;
+    if (answers.path !== "ai" || !answers.businessName || websiteId) return;
+    creatingRef.current = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/onboarding/create-website", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({ name: answers.businessName, mode: "ai" }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setWebsiteId(data.websiteId);
+        }
+      } catch {
+        // The agent keeps working; build_site will complain if it is missing.
+      } finally {
+        creatingRef.current = false;
       }
-    } catch {
+    })();
+  }, [booting, answers.path, answers.businessName, websiteId]);
+
+  /* ---- Card interactions ---- */
+  const markChosen = (msgIndex: number, cardIndex: number, chosenId: string) => {
+    setMessages((prev) =>
+      prev.map((m, i) =>
+        i === msgIndex
+          ? {
+              ...m,
+              displays: m.displays?.map((d, j) => (j === cardIndex ? { ...d, chosenId } : d)),
+            }
+          : m
+      )
+    );
+  };
+
+  const choosePalette = async (msgIndex: number, cardIndex: number, palette: PaletteProposal) => {
+    if (!(await record({ palette }))) return;
+    markChosen(msgIndex, cardIndex, palette.id);
+    await sendMessage(`Jeg vælger farvepaletten "${palette.name}".`);
+  };
+
+  const chooseFontPair = async (msgIndex: number, cardIndex: number, pair: FontPairProposal) => {
+    if (!(await record({ fontPair: pair }))) return;
+    markChosen(msgIndex, cardIndex, pair.id);
+    await sendMessage(`Jeg vælger skrifttyperne "${pair.name}".`);
+  };
+
+  const pickUpload = (kind: "logo" | "images" | "inspiration") => {
+    uploadKindRef.current = kind;
+    if (fileInputRef.current) {
+      fileInputRef.current.multiple = kind !== "logo";
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !token) return;
+    if (!websiteId) {
       toast({
-        title: "Upload fejlede",
-        description: "Billedet kunne ikke uploades. Prøv igen — eller spring dette trin over.",
-        variant: "destructive",
+        title: "Vent et øjeblik",
+        description: "Fortæl mig først hvad din virksomhed hedder, så jeg kan oprette dit projekt.",
       });
-    } finally {
-      setUploadingZone(null);
-    }
-  };
-
-  const interviewFetch = async (body: Record<string, unknown>) => {
-    const res = await fetch(`/api/websites/${websiteId}/ai/design-interview`, {
-      method: "POST",
-      headers: authHeaders,
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || "AI-forslaget kunne ikke hentes. Prøv igen.");
-    }
-    return res.json();
-  };
-
-  const fetchPalettes = async () => {
-    if (!websiteId || !feeling.trim()) return;
-    setStyleLoading(true);
-    setPalettes([]);
-    setSelectedPalette(null);
-    try {
-      const data = await interviewFetch({ step: "palettes", feeling: feeling.trim() });
-      setPalettes(data.palettes ?? []);
-    } catch (error: any) {
-      toast({ title: "Fejl", description: error.message, variant: "destructive" });
-      setStep("feeling");
-    } finally {
-      setStyleLoading(false);
-    }
-  };
-
-  const fetchFontPairs = async () => {
-    if (!websiteId || !selectedPalette) return;
-    setStyleLoading(true);
-    setFontPairs([]);
-    setSelectedFontPair(null);
-    try {
-      const data = await interviewFetch({
-        step: "typography",
-        feeling: feeling.trim(),
-        palette: selectedPalette,
-      });
-      const pairs: FontPairProposal[] = data.fontPairs ?? [];
-      ensureGoogleFonts(pairs.flatMap((p) => [p.heading, p.body]));
-      setFontPairs(pairs);
-    } catch (error: any) {
-      toast({ title: "Fejl", description: error.message, variant: "destructive" });
-      setStep("palettes");
-    } finally {
-      setStyleLoading(false);
-    }
-  };
-
-  // ---- Generation ----
-
-  const buildGenerationPayload = () => {
-    if (!selectedPalette || !selectedFontPair) return null;
-    return {
-      business: {
-        name: business.name.trim(),
-        industry: business.industry.trim(),
-        description: business.description.trim(),
-      },
-      wishes: { goals, notes: wishNotes.trim() },
-      feeling: feeling.trim(),
-      palette: selectedPalette,
-      fontPair: selectedFontPair,
-      ...(logo ? { logoUrl: logo.url, logoMediaId: logo.mediaId } : {}),
-      inspirationUrls: inspiration.map((f) => f.url),
-      ownImageUrls: ownImages.map((f) => f.url),
-    };
-  };
-
-  const startGeneration = async () => {
-    if (!websiteId || !token) return;
-    const payload = buildGenerationPayload();
-    if (!payload) {
-      setGenError("Dine designvalg mangler. Gå tilbage og vælg farver og typografi igen.");
       return;
     }
-    setGenError(null);
-    setGenStartedAt(Date.now());
+    const kind = uploadKindRef.current;
+    const max = kind === "logo" ? 1 : kind === "images" ? 4 : 3;
+    setUploading(true);
     try {
-      const res = await fetch(`/api/websites/${websiteId}/onboarding/generate`, {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify(payload),
-      });
-      if (res.status === 409) {
-        const data = await res.json().catch(() => ({}));
-        if (data.status?.report) {
-          setGenStatus(data.status);
-          setReport(data.status.report);
-          setStep("report");
-        } else {
-          setStep("payment");
-        }
-        return;
+      const uploaded: Array<{ url: string; mediaId: string }> = [];
+      for (const file of Array.from(files).slice(0, max)) {
+        uploaded.push(await uploadImage(websiteId, token, file));
       }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "AI-opbygningen kunne ikke startes.");
+      if (kind === "logo") {
+        await record({ logo: uploaded[0] });
+        await sendMessage("Jeg har uploadet mit logo.");
+      } else if (kind === "images") {
+        const merged = [...(answers.ownImageUrls ?? []), ...uploaded.map((u) => u.url)].slice(0, 4);
+        await record({ ownImageUrls: merged });
+        await sendMessage(`Jeg har uploadet ${uploaded.length} af mine egne billeder.`);
+      } else {
+        const merged = [...(answers.inspirationUrls ?? []), ...uploaded.map((u) => u.url)].slice(0, 3);
+        await record({ inspirationUrls: merged });
+        await sendMessage(`Jeg har uploadet ${uploaded.length} inspirationsbilleder.`);
       }
-      const data = await res.json();
-      setGenStatus(data.status);
     } catch (error: any) {
-      setGenError(error.message || "AI-opbygningen kunne ikke startes.");
+      toast({ title: "Upload fejlede", description: error.message, variant: "destructive" });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  // Kick off generation exactly once when the step is entered from the wizard.
+  /* ---- Generation polling ---- */
   useEffect(() => {
-    if (step !== "generating" || genPostedRef.current) return;
-    genPostedRef.current = true;
-    startGeneration();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
-
-  // Poll progress while generating.
-  useEffect(() => {
-    if (step !== "generating" || !websiteId || !token || genError) return;
+    if (view !== "generating" || !websiteId || !token) return;
     let cancelled = false;
+    let misses = 0;
     const tick = async () => {
       try {
         const res = await fetch(`/api/websites/${websiteId}/onboarding/generate/status`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: authHeaders,
         });
-        if (!res.ok || cancelled) return;
+        if (!res.ok) return;
         const data = await res.json();
         if (cancelled) return;
         if (data.status) {
           setGenStatus(data.status);
           if (data.status.done) {
-            if (data.status.error) {
-              setGenError(data.status.error);
-            } else {
-              setReport(data.status.report ?? null);
-              setStep("report");
-            }
+            setView(data.status.report ? "report" : "payment");
+            return;
+          }
+          // Persisted-but-inactive = the server restarted mid-build.
+          if (data.active === false) {
+            misses += 1;
+            if (misses >= 3) setGenStalled(true);
+          } else {
+            misses = 0;
+            setGenStalled(false);
           }
         } else if (data.built) {
-          // Job memory was lost (e.g. redeploy) but the site is built — move on.
-          setStep("report");
-          setReport(null);
-        } else if (genStartedAt && Date.now() - genStartedAt > 15000) {
-          // No job and nothing built — the start request never landed.
-          setGenError("Forbindelsen til AI-opbygningen gik tabt. Prøv igen.");
+          setView("payment");
         }
       } catch {
-        // Transient network error — keep polling.
+        // next tick retries
       }
     };
-    const interval = setInterval(tick, 2000);
     tick();
+    const interval = setInterval(tick, 2000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [step, websiteId, token, genError, genStartedAt]);
+  }, [view, websiteId, token]);
 
-  // Elapsed timer for the generation screen.
-  useEffect(() => {
-    if (step !== "generating" || !genStartedAt) return;
-    const interval = setInterval(() => setElapsed(Math.floor((Date.now() - genStartedAt) / 1000)), 1000);
-    return () => clearInterval(interval);
-  }, [step, genStartedAt]);
+  const restartBuild = async () => {
+    setGenStalled(false);
+    setView("chat");
+    await sendMessage("Serveren genstartede — fortsæt med at bygge min hjemmeside, tak.");
+  };
 
-  // ---- Payment (preserved from the previous onboarding) ----
-
+  /* ---- Payment ---- */
   const handleStartPayment = async () => {
     if (!token) return;
     setIsRedirectingToStripe(true);
@@ -730,908 +760,440 @@ export default function OnboardingPage() {
       });
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || "Failed to create checkout session");
+        throw new Error(error.message || "Kunne ikke starte betalingen");
       }
       const { url } = await response.json();
       window.location.href = url;
     } catch (error: any) {
       setIsRedirectingToStripe(false);
-      toast({
-        title: "Fejl",
-        description: error.message || "Kunne ikke starte betaling",
-        variant: "destructive",
-      });
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
     }
   };
 
+  /* ---- Render ---- */
   if (authLoading || booting) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
-  const activePhaseIndex = genStatus
-    ? GEN_PHASES.findIndex((p) => p.id === genStatus.phase)
-    : 0;
+  const showFork = messages.length === 0 && !diyMode && answers.path !== "ai";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/20">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-indigo-200/30 dark:bg-indigo-900/20 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-200/30 dark:bg-purple-900/20 rounded-full blur-3xl" />
-      </div>
-
-      <div className="relative z-10 container mx-auto px-4 py-8 min-h-screen">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 font-bold text-xl mb-4">
-            <div className="w-8 h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            BirdFlow
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Wordmark */}
+      <header className="py-5 px-6">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-primary-foreground" />
           </div>
+          <span className="font-bold text-lg tracking-tight">Birdflow</span>
         </div>
+      </header>
 
-        {step !== "payment" && <ProgressRail current={STEP_GROUP[step]} />}
+      <div className="flex-1 w-full max-w-3xl mx-auto px-4 pb-8 flex flex-col">
+        <ProgressRail current={railProgress(answers, view)} />
 
-        <div className="max-w-4xl mx-auto pb-16">
-          <AnimatePresence mode="wait">
-            {/* Step 1: Business info */}
-            {step === "business" && (
-              <motion.div
-                key="business"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="max-w-xl mx-auto"
-              >
-                <div className="text-center mb-8">
-                  <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                    <Building2 className="w-7 h-7 text-white" />
-                  </div>
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Fortæl om din virksomhed
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    Vores AI bygger din hjemmeside ud fra dine svar — jo mere du fortæller, jo bedre bliver resultatet.
-                  </p>
-                </div>
-
-                <Card className="p-8 mb-8 space-y-5">
-                  <div>
-                    <Label htmlFor="business-name" className="text-base font-medium">
-                      Virksomhedens navn *
-                    </Label>
-                    <Input
-                      id="business-name"
-                      placeholder="f.eks. Klinik Nordlys"
-                      className="h-12 mt-2"
-                      value={business.name}
-                      onChange={(e) => setBusiness({ ...business, name: e.target.value })}
-                      data-testid="input-business-name"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="business-industry" className="text-base font-medium">
-                      Branche
-                    </Label>
-                    <Input
-                      id="business-industry"
-                      placeholder="f.eks. Fysioterapi, Tømrer, Café…"
-                      className="h-12 mt-2"
-                      value={business.industry}
-                      onChange={(e) => setBusiness({ ...business, industry: e.target.value })}
-                      data-testid="input-business-industry"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="business-description" className="text-base font-medium">
-                      Beskriv virksomheden *
-                    </Label>
-                    <Textarea
-                      id="business-description"
-                      placeholder="Hvad laver I? Hvem er jeres kunder? Hvad gør jer særlige?"
-                      className="mt-2 min-h-28"
-                      value={business.description}
-                      onChange={(e) => setBusiness({ ...business, description: e.target.value })}
-                      data-testid="input-business-description"
-                    />
-                  </div>
-                </Card>
-
-                <div className="flex justify-end">
-                  <Button
-                    size="lg"
-                    disabled={!business.name.trim() || business.description.trim().length < 10}
-                    onClick={() => setStep("wishes")}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    data-testid="button-continue-business"
-                  >
-                    Fortsæt
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Step 2: Wishes */}
-            {step === "wishes" && (
-              <motion.div
-                key="wishes"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="max-w-xl mx-auto"
-              >
-                <div className="text-center mb-8">
-                  <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                    <Wand2 className="w-7 h-7 text-white" />
-                  </div>
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Hvad skal din hjemmeside kunne?
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    Vælg det der passer — og tilføj gerne dine egne ønsker.
-                  </p>
-                </div>
-
-                <Card className="p-8 mb-8 space-y-6">
-                  <div className="flex flex-wrap gap-2">
-                    {GOAL_CHIPS.map((chip) => {
-                      const active = goals.includes(chip.id);
-                      return (
-                        <button
-                          key={chip.id}
-                          type="button"
-                          onClick={() =>
-                            setGoals((prev) =>
-                              prev.includes(chip.id)
-                                ? prev.filter((g) => g !== chip.id)
-                                : [...prev, chip.id]
-                            )
-                          }
-                          className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
-                            active
-                              ? "bg-indigo-600 border-indigo-600 text-white"
-                              : "bg-background border-input hover:border-indigo-400"
-                          }`}
-                          data-testid={`chip-goal-${chip.id}`}
-                        >
-                          {active && <Check className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />}
-                          {chip.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div>
-                    <Label htmlFor="wish-notes" className="text-base font-medium">
-                      Andre ønsker
-                    </Label>
-                    <Textarea
-                      id="wish-notes"
-                      placeholder="f.eks. bestemte sider, tekster, priser der skal med, eller noget helt tredje…"
-                      className="mt-2 min-h-24"
-                      value={wishNotes}
-                      onChange={(e) => setWishNotes(e.target.value)}
-                      data-testid="input-wish-notes"
-                    />
-                  </div>
-                </Card>
-
-                <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={() => setStep("business")} data-testid="button-back-wishes">
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Tilbage
-                  </Button>
-                  <Button
-                    size="lg"
-                    disabled={creatingProject}
-                    onClick={createProjectAndContinue}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    data-testid="button-continue-wishes"
-                  >
-                    {creatingProject ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Opretter dit projekt…
-                      </>
-                    ) : (
-                      <>
-                        Fortsæt
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Step 3: Uploads */}
-            {step === "uploads" && (
-              <motion.div
-                key="uploads"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="max-w-xl mx-auto"
-              >
-                <div className="text-center mb-8">
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Har du materiale, vi kan bruge?
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    Logo, egne billeder og inspiration hjælper AI'en med at ramme din stil. Alt er valgfrit.
-                  </p>
-                </div>
-
-                <div className="space-y-4 mb-8">
-                  <UploadZone
-                    title="Logo"
-                    hint="Dit logo bliver en del af din brandguide."
-                    files={logo ? [logo] : []}
-                    max={1}
-                    uploading={uploadingZone === "logo"}
-                    onPick={(files) => handleUpload("logo", files)}
-                    onRemove={() => setLogo(null)}
-                    testId="logo"
-                  />
-                  <UploadZone
-                    title="Egne billeder"
-                    hint="Billeder af jer, jeres lokaler eller produkter (op til 4)."
-                    files={ownImages}
-                    max={4}
-                    uploading={uploadingZone === "own"}
-                    onPick={(files) => handleUpload("own", files)}
-                    onRemove={(i) => setOwnImages((prev) => prev.filter((_, idx) => idx !== i))}
-                    testId="own"
-                  />
-                  <UploadZone
-                    title="Inspiration"
-                    hint="Screenshots af hjemmesider, du godt kan lide (op til 3)."
-                    files={inspiration}
-                    max={3}
-                    uploading={uploadingZone === "inspiration"}
-                    onPick={(files) => handleUpload("inspiration", files)}
-                    onRemove={(i) => setInspiration((prev) => prev.filter((_, idx) => idx !== i))}
-                    testId="inspiration"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={() => setStep("wishes")} data-testid="button-back-uploads">
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Tilbage
-                  </Button>
-                  <Button
-                    size="lg"
-                    disabled={uploadingZone !== null}
-                    onClick={() => setStep("feeling")}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    data-testid="button-continue-uploads"
-                  >
-                    Fortsæt
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Step 4: Feeling */}
-            {step === "feeling" && (
-              <motion.div
-                key="feeling"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="max-w-xl mx-auto"
-              >
-                <div className="text-center mb-8">
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Hvilken følelse skal din hjemmeside give?
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    Vælg en stemning — eller beskriv den med dine egne ord.
-                  </p>
-                </div>
-
-                <Card className="p-8 mb-8 space-y-6">
-                  <div className="flex flex-wrap gap-2">
-                    {FEELING_CHIPS.map((chip) => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => setFeeling(chip)}
-                        className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
-                          feeling === chip
-                            ? "bg-indigo-600 border-indigo-600 text-white"
-                            : "bg-background border-input hover:border-indigo-400"
-                        }`}
-                        data-testid={`chip-feeling-${chip.replace(/[^a-zA-Z]+/g, "-").toLowerCase()}`}
-                      >
-                        {chip}
-                      </button>
-                    ))}
-                  </div>
-                  <div>
-                    <Label htmlFor="feeling-custom" className="text-base font-medium">
-                      Eller med dine egne ord
-                    </Label>
-                    <Input
-                      id="feeling-custom"
-                      placeholder="f.eks. Jordnært men moderne, med ro og overskud"
-                      className="h-12 mt-2"
-                      value={feeling}
-                      onChange={(e) => setFeeling(e.target.value)}
-                      data-testid="input-feeling-custom"
-                    />
-                  </div>
-                </Card>
-
-                <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={() => setStep("uploads")} data-testid="button-back-feeling">
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Tilbage
-                  </Button>
-                  <Button
-                    size="lg"
-                    disabled={!feeling.trim()}
-                    onClick={() => {
-                      setStep("palettes");
-                      fetchPalettes();
-                    }}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    data-testid="button-continue-feeling"
-                  >
-                    Fortsæt
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Step 5: Palettes */}
-            {step === "palettes" && (
-              <motion.div
-                key="palettes"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="text-center mb-8">
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Vælg dine farver
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    AI'en har sammensat fire paletter ud fra stemningen "{feeling}".
-                  </p>
-                </div>
-
-                {styleLoading ? (
-                  <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-                    <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-                    AI'en sammensætter farvepaletter til dig…
-                  </div>
-                ) : (
-                  <div className="grid sm:grid-cols-2 gap-4 mb-8">
-                    {palettes.map((palette) => {
-                      const isSelected = selectedPalette?.id === palette.id;
-                      return (
-                        <Card
-                          key={palette.id}
-                          onClick={() => setSelectedPalette(palette)}
-                          className={`cursor-pointer overflow-hidden transition-all ${
-                            isSelected
-                              ? "border-2 border-primary shadow-lg ring-2 ring-primary/20"
-                              : "border hover:border-primary/50 hover:shadow-md"
-                          }`}
-                          data-testid={`card-palette-${palette.id}`}
-                        >
-                          <div
-                            className="px-5 py-6"
-                            style={{ backgroundColor: palette.colors.background }}
-                          >
-                            <div
-                              className="text-xl font-bold mb-2"
-                              style={{ color: palette.colors.text }}
-                            >
-                              Aa Overskrift
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span
-                                className="inline-block text-xs font-semibold px-3 py-1.5 rounded-md"
-                                style={{
-                                  backgroundColor: palette.colors.primary,
-                                  color: palette.colors.background,
-                                }}
-                              >
-                                Knap
-                              </span>
-                              <span
-                                className="inline-block text-xs px-3 py-1.5 rounded-md"
-                                style={{
-                                  backgroundColor: palette.colors.surface,
-                                  color: palette.colors.text,
-                                }}
-                              >
-                                Kort
-                              </span>
-                            </div>
-                          </div>
-                          <div className="p-4">
-                            <div className="flex items-center justify-between mb-1">
-                              <h3 className="font-semibold">{palette.name}</h3>
-                              {isSelected && (
-                                <span className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                                  <Check className="w-3.5 h-3.5 text-white" />
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-muted-foreground mb-3">{palette.description}</p>
-                            <div className="flex gap-1.5">
-                              {Object.values(palette.colors).map((color, i) => (
-                                <span
-                                  key={i}
-                                  className="w-6 h-6 rounded-full border border-black/10"
-                                  style={{ backgroundColor: color }}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between">
-                  <div className="flex gap-2">
-                    <Button variant="ghost" onClick={() => setStep("feeling")} data-testid="button-back-palettes">
-                      <ArrowLeft className="w-4 h-4 mr-2" />
-                      Tilbage
-                    </Button>
-                    {!styleLoading && palettes.length > 0 && (
-                      <Button variant="outline" onClick={fetchPalettes} data-testid="button-refresh-palettes">
-                        Foreslå nye
-                      </Button>
-                    )}
-                  </div>
-                  <Button
-                    size="lg"
-                    disabled={!selectedPalette || styleLoading}
-                    onClick={() => {
-                      setStep("fonts");
-                      fetchFontPairs();
-                    }}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    data-testid="button-continue-palettes"
-                  >
-                    Fortsæt
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Step 6: Typography */}
-            {step === "fonts" && (
-              <motion.div
-                key="fonts"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="text-center mb-8">
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Vælg din typografi
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    Tre skrifttype-par der passer til dine farver.
-                  </p>
-                </div>
-
-                {styleLoading ? (
-                  <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-                    <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-                    AI'en finder skrifttyper, der matcher…
-                  </div>
-                ) : (
-                  <div className="grid sm:grid-cols-3 gap-4 mb-8">
-                    {fontPairs.map((pair) => {
-                      const isSelected = selectedFontPair?.id === pair.id;
-                      return (
-                        <Card
-                          key={pair.id}
-                          onClick={() => setSelectedFontPair(pair)}
-                          className={`cursor-pointer p-5 transition-all ${
-                            isSelected
-                              ? "border-2 border-primary shadow-lg ring-2 ring-primary/20"
-                              : "border hover:border-primary/50 hover:shadow-md"
-                          }`}
-                          data-testid={`card-fontpair-${pair.id}`}
-                        >
-                          <div className="flex items-center justify-between mb-3">
-                            <Type className="w-4 h-4 text-muted-foreground" />
-                            {isSelected && (
-                              <span className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                                <Check className="w-3.5 h-3.5 text-white" />
-                              </span>
-                            )}
-                          </div>
-                          <div
-                            className="text-2xl font-bold mb-1 leading-tight"
-                            style={{ fontFamily: `'${pair.heading}', sans-serif` }}
-                          >
-                            {pair.heading}
-                          </div>
-                          <p
-                            className="text-sm text-muted-foreground mb-3"
-                            style={{ fontFamily: `'${pair.body}', sans-serif` }}
-                          >
-                            Brødtekst i {pair.body}. Sådan kommer dine afsnit til at se ud.
-                          </p>
-                          <h3 className="font-semibold text-sm">{pair.name}</h3>
-                          <p className="text-xs text-muted-foreground">{pair.description}</p>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={() => setStep("palettes")} data-testid="button-back-fonts">
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Tilbage
-                  </Button>
-                  <Button
-                    size="lg"
-                    disabled={!selectedFontPair || styleLoading}
-                    onClick={() => {
-                      genPostedRef.current = false;
-                      setGenStatus(null);
-                      setReport(null);
-                      setStep("generating");
-                    }}
-                    className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                    data-testid="button-continue-fonts"
-                  >
-                    Byg min hjemmeside
-                    <Sparkles className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* Step 7: Generating */}
-            {step === "generating" && (
-              <motion.div
-                key="generating"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="max-w-xl mx-auto"
-              >
-                {genError ? (
-                  <div className="text-center">
-                    <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                      <AlertTriangle className="w-8 h-8 text-amber-600" />
-                    </div>
-                    <h1 className="text-3xl font-bold mb-3">Der opstod et problem</h1>
-                    <p className="text-muted-foreground mb-8">{genError}</p>
-                    <div className="flex items-center justify-center gap-3">
-                      <Button
-                        size="lg"
-                        onClick={() => {
-                          setGenError(null);
-                          startGeneration();
-                        }}
-                        className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700"
-                        data-testid="button-retry-generation"
-                      >
-                        Prøv igen
-                      </Button>
-                      <Button
-                        size="lg"
-                        variant="outline"
-                        onClick={() => setStep("payment")}
-                        data-testid="button-skip-generation"
-                      >
-                        Fortsæt til betaling
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-4">
-                      Du kan altid bygge videre med AI-assistenten inde i editoren.
+        <AnimatePresence mode="wait">
+          {view === "chat" && (
+            <motion.div
+              key="chat"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="flex-1 flex flex-col min-h-0"
+            >
+              <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 pb-4" data-testid="onboarding-thread">
+                {/* Standing welcome + fork */}
+                <div className="flex justify-start">
+                  <div className="max-w-[92%] bg-muted/70 rounded-2xl rounded-bl-md px-4 py-3">
+                    <p className="text-sm leading-relaxed">
+                      Hej{user?.email ? ` ${user.email.split("@")[0]}` : ""}! Jeg er din AI-guide hos
+                      Birdflow. Sammen bygger vi din hjemmeside — jeg spørger, du svarer, og til sidst
+                      bygger jeg det hele for dig. Vil du have, at jeg bygger den, eller vil du hellere
+                      selv bygge ud fra en skabelon?
                     </p>
+                    {showFork && (
+                      <div className="mt-3 flex flex-wrap gap-2" data-testid="onboarding-fork">
+                        <Button size="sm" onClick={chooseAiPath} disabled={isLoading} data-testid="button-fork-ai">
+                          <Wand2 className="w-4 h-4 mr-1.5" />
+                          AI bygger den
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={chooseDiyPath} disabled={isLoading} data-testid="button-fork-diy">
+                          <LayoutTemplate className="w-4 h-4 mr-1.5" />
+                          Jeg bygger selv
+                        </Button>
+                      </div>
+                    )}
+                    {diyMode && !websiteId && (
+                      <TemplatePickerCard disabled={isLoading} onPick={createDiyWebsite} />
+                    )}
                   </div>
-                ) : (
-                  <div className="text-center">
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                      className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25"
+                </div>
+
+                {messages.map((message, msgIndex) => (
+                  <div key={msgIndex} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[92%] ${
+                        message.role === "user"
+                          ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md px-4 py-2.5"
+                          : message.error
+                          ? "bg-destructive/10 border border-destructive/30 text-destructive rounded-2xl rounded-bl-md px-4 py-2.5"
+                          : "bg-muted/70 rounded-2xl rounded-bl-md px-4 py-2.5 w-full"
+                      }`}
                     >
-                      <Rocket className="w-10 h-10 text-white" />
-                    </motion.div>
-                    <h1 className="text-3xl font-bold mb-2">
-                      AI'en bygger din hjemmeside
-                    </h1>
-                    <p className="text-muted-foreground mb-1">
-                      Brandguide, sider, tekster og billeder — skabt til {business.name || "din virksomhed"}.
-                    </p>
-                    <p className="text-sm text-muted-foreground mb-10">
-                      Tager typisk 1-3 minutter · {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}
-                    </p>
+                      {message.content && (
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                      )}
 
-                    <Card className="p-6 text-left">
-                      <div className="space-y-4">
-                        {GEN_PHASES.map((phase, index) => {
-                          const isDone =
-                            !!genStatus &&
-                            (genStatus.phasesDone.includes(phase.id) || genStatus.done);
-                          const isActive = !isDone && !!genStatus && genStatus.phase === phase.id;
-                          const isPending = !isDone && !isActive;
-                          return (
-                            <div key={phase.id} className="flex items-start gap-3">
-                              <div
-                                className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                  isDone
-                                    ? "bg-emerald-500"
-                                    : isActive
-                                    ? "bg-indigo-500"
-                                    : "bg-muted"
-                                }`}
-                              >
-                                {isDone ? (
-                                  <Check className="w-4 h-4 text-white" />
-                                ) : isActive ? (
-                                  <Loader2 className="w-4 h-4 text-white animate-spin" />
-                                ) : (
-                                  <span className="w-2 h-2 rounded-full bg-muted-foreground/50" />
-                                )}
-                              </div>
-                              <div className="min-w-0">
-                                <div
-                                  className={`font-medium ${
-                                    isPending ? "text-muted-foreground" : "text-foreground"
-                                  }`}
-                                >
-                                  {phase.label}
-                                </div>
-                                {isActive && genStatus?.detail && (
-                                  <motion.div
-                                    key={genStatus.detail}
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    className="text-sm text-muted-foreground"
-                                  >
-                                    {genStatus.detail}
-                                  </motion.div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </Card>
+                      {(message.steps?.length ?? 0) > 0 && message.working && (
+                        <ol className="mt-1 space-y-1 list-none p-0 m-0">
+                          {message.steps!.map((step, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs leading-snug">
+                              {step.ok ? (
+                                <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-green-500" />
+                              ) : (
+                                <AlertCircle className="w-3 h-3 mt-0.5 shrink-0 text-amber-500" />
+                              )}
+                              <span className={step.ok ? "text-muted-foreground" : "text-amber-600"}>{step.label}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                      {message.working && (
+                        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Tænker…
+                        </p>
+                      )}
 
-                    <p className="text-xs text-muted-foreground mt-6">
-                      Du kan roligt blive på siden — vi gemmer alt undervejs.
-                    </p>
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {/* Step 8: Report */}
-            {step === "report" && (
-              <motion.div
-                key="report"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="max-w-xl mx-auto"
-              >
-                <div className="text-center mb-8">
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", stiffness: 200, damping: 12 }}
-                    className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/25"
-                  >
-                    <Check className="w-9 h-9 text-white" />
-                  </motion.div>
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Din hjemmeside er klar
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    {genStatus?.summary ||
-                      `Vi har bygget første version af ${business.name || "din hjemmeside"} — klar til at blive gjort helt til din egen.`}
-                  </p>
-                </div>
-
-                {genStatus?.fallback && (
-                  <div className="flex gap-3 items-start bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-4 mb-6 text-sm text-amber-800 dark:text-amber-200">
-                    <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-                    <span>
-                      AI'en kunne ikke nå hele vejen denne gang, så vi har bygget en solid startside ud fra dine
-                      svar. AI-assistenten i editoren kender din brand guide og kan bygge videre.
-                    </span>
-                  </div>
-                )}
-
-                {selectedPalette && selectedFontPair && (
-                  <Card className="p-4 mb-4 flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex gap-1">
-                        {Object.values(selectedPalette.colors).slice(0, 4).map((color, i) => (
-                          <span
-                            key={i}
-                            className="w-5 h-5 rounded-full border border-black/10"
-                            style={{ backgroundColor: color }}
-                          />
-                        ))}
-                      </div>
-                      <div className="text-sm min-w-0">
-                        <div className="font-medium truncate">{selectedPalette.name}</div>
-                        <div className="text-muted-foreground truncate">
-                          {selectedFontPair.heading} + {selectedFontPair.body}
+                      {message.displays?.map((display, cardIndex) => (
+                        <div key={cardIndex}>
+                          {display.kind === "palettes" && (
+                            <PaletteCards
+                              palettes={display.value as PaletteProposal[]}
+                              chosenId={display.chosenId ?? (answers.palette && (display.value as PaletteProposal[]).some((p) => p.id === answers.palette!.id) ? answers.palette.id : undefined)}
+                              disabled={isLoading}
+                              onChoose={(p) => choosePalette(msgIndex, cardIndex, p)}
+                            />
+                          )}
+                          {display.kind === "fontPairs" && (
+                            <FontPairCards
+                              pairs={display.value as FontPairProposal[]}
+                              chosenId={display.chosenId ?? (answers.fontPair && (display.value as FontPairProposal[]).some((f) => f.id === answers.fontPair!.id) ? answers.fontPair.id : undefined)}
+                              disabled={isLoading}
+                              onChoose={(f) => chooseFontPair(msgIndex, cardIndex, f)}
+                            />
+                          )}
+                          {display.kind === "uploadRequest" && (
+                            <UploadRequestCard
+                              kind={(display.value as { kind: "logo" | "images" | "inspiration" }).kind}
+                              uploading={uploading}
+                              disabled={isLoading}
+                              onPick={pickUpload}
+                            />
+                          )}
                         </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Composer */}
+              {!showFork && !diyMode && (
+                <div className="pt-3 border-t">
+                  <div className="flex gap-2 items-end">
+                    <Textarea
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      placeholder="Skriv dit svar…"
+                      className="min-h-[48px] max-h-[120px] resize-none text-sm rounded-xl"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage(input);
+                        }
+                      }}
+                      data-testid="input-onboarding-message"
+                    />
+                    <Button
+                      size="icon"
+                      className="h-[48px] w-[48px] rounded-xl shrink-0"
+                      onClick={() => sendMessage(input)}
+                      disabled={!input.trim() || isLoading}
+                      data-testid="button-onboarding-send"
+                    >
+                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {view === "generating" && (
+            <motion.div
+              key="generating"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="max-w-xl mx-auto w-full"
+            >
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary flex items-center justify-center">
+                  <Wand2 className="w-8 h-8 text-primary-foreground animate-pulse" />
+                </div>
+                <h1 className="text-3xl font-bold tracking-tight mb-2">Jeg bygger din hjemmeside</h1>
+                <p className="text-muted-foreground">
+                  {genStatus?.detail || "Det tager typisk et par minutter — bliv endelig på siden."}
+                </p>
+              </div>
+
+              <Card className="p-5 space-y-3" data-testid="generation-checklist">
+                {GEN_PHASES.map((phase) => {
+                  const isDone = genStatus?.phasesDone?.includes(phase.id) || genStatus?.done;
+                  const isActive = genStatus?.phase === phase.id && !genStatus?.done;
+                  return (
+                    <div key={phase.id} className="flex items-center gap-3">
+                      <div
+                        className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+                          isDone
+                            ? "bg-primary text-primary-foreground"
+                            : isActive
+                            ? "border-2 border-primary"
+                            : "border-2 border-muted"
+                        }`}
+                      >
+                        {isDone ? (
+                          <Check className="w-3.5 h-3.5" />
+                        ) : isActive ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                        ) : null}
+                      </div>
+                      <span className={`text-sm ${isDone || isActive ? "text-foreground" : "text-muted-foreground"}`}>
+                        {phase.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </Card>
+
+              {genStalled && (
+                <div className="mt-4 flex gap-3 items-start bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-4 text-sm text-amber-800 dark:text-amber-200">
+                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <p>Opbygningen ser ud til at være afbrudt (serveren kan være genstartet).</p>
+                    <Button size="sm" variant="outline" className="mt-2" onClick={restartBuild} data-testid="button-restart-build">
+                      Genstart opbygningen
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {genStatus?.error && (
+                <div className="mt-4 flex gap-3 items-start bg-destructive/10 border border-destructive/30 rounded-lg p-4 text-sm text-destructive">
+                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <p>{genStatus.error}</p>
+                    <Button size="sm" variant="outline" className="mt-2" onClick={restartBuild}>
+                      Prøv igen
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {view === "report" && (
+            <motion.div
+              key="report"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="max-w-xl mx-auto w-full"
+            >
+              <div className="text-center mb-8">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 12 }}
+                  className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/25"
+                >
+                  <Check className="w-9 h-9 text-white" />
+                </motion.div>
+                <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">Din hjemmeside er klar</h1>
+                <p className="text-lg text-muted-foreground">
+                  {genStatus?.summary ||
+                    `Vi har bygget første version af ${answers.businessName || "din hjemmeside"} — klar til at blive gjort helt til din egen.`}
+                </p>
+              </div>
+
+              {genStatus?.fallback && (
+                <div className="flex gap-3 items-start bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-4 mb-6 text-sm text-amber-800 dark:text-amber-200">
+                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <span>
+                    AI'en kunne ikke nå hele vejen denne gang, så vi har bygget en solid startside ud fra dine
+                    svar. AI-assistenten i editoren kender din brand guide og kan bygge videre.
+                  </span>
+                </div>
+              )}
+
+              {answers.palette && answers.fontPair && (
+                <Card className="p-4 mb-4 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex gap-1">
+                      {Object.values(answers.palette.colors).slice(0, 4).map((color, i) => (
+                        <span key={i} className="w-5 h-5 rounded-full border border-black/10" style={{ backgroundColor: color }} />
+                      ))}
+                    </div>
+                    <div className="text-sm min-w-0">
+                      <div className="font-medium truncate">{answers.palette.name}</div>
+                      <div className="text-muted-foreground truncate">
+                        {answers.fontPair.heading} + {answers.fontPair.body}
                       </div>
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0">Din brandguide</span>
-                  </Card>
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">Din brandguide</span>
+                </Card>
+              )}
+
+              {report ? (
+                <div className="mb-8">
+                  <ReportCard report={report} />
+                </div>
+              ) : (
+                <Card className="p-6 mb-8 text-sm text-muted-foreground">
+                  Dit website er bygget og gemt. Du finder alle detaljer i editoren.
+                </Card>
+              )}
+
+              <Button
+                size="lg"
+                className="w-full h-14 text-lg"
+                onClick={() => setView("payment")}
+                data-testid="button-continue-report"
+              >
+                Fortsæt
+                <ArrowRight className="w-5 h-5 ml-2" />
+              </Button>
+            </motion.div>
+          )}
+
+          {view === "payment" && (
+            <motion.div
+              key="payment"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.25 }}
+              className="max-w-xl mx-auto w-full"
+            >
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary flex items-center justify-center">
+                  <CreditCard className="w-8 h-8 text-primary-foreground" />
+                </div>
+                <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">Aktiver dit abonnement</h1>
+                <p className="text-lg text-muted-foreground">Start din 31 dages gratis prøveperiode</p>
+              </div>
+
+              <div className="flex items-center justify-center gap-4 mb-8">
+                <Label htmlFor="billing-toggle" className={`text-base ${!isYearly ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
+                  Månedlig
+                </Label>
+                <Switch id="billing-toggle" checked={isYearly} onCheckedChange={setIsYearly} data-testid="switch-billing-toggle" />
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="billing-toggle" className={`text-base ${isYearly ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
+                    Årlig
+                  </Label>
+                  <span className="bg-emerald-500/10 text-emerald-600 text-xs font-semibold px-2 py-1 rounded-full">
+                    Spar {formatPrice(yearlySavings)}
+                  </span>
+                </div>
+              </div>
+
+              <Card className="p-8 border-2 border-primary shadow-lg mb-8">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <Zap className="w-7 h-7 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold">{plan.name}</h2>
+                    <p className="text-muted-foreground">{plan.description}</p>
+                  </div>
+                </div>
+
+                <div className="mb-2">
+                  <span className="text-5xl font-bold">{formatPrice(currentPrice)}</span>
+                  <span className="text-muted-foreground ml-2">{isYearly ? "/år" : "/md"}</span>
+                </div>
+
+                {isYearly && (
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Svarer til {formatPrice(Math.round(plan.yearlyPrice / 12))}/md
+                  </p>
                 )}
 
-                {report ? (
-                  <div className="mb-8">
-                    <ReportCard report={report} />
-                  </div>
-                ) : (
-                  <Card className="p-6 mb-8 text-sm text-muted-foreground">
-                    Dit website er bygget og gemt. Du finder alle detaljer i editoren.
-                  </Card>
-                )}
+                <div className="flex items-center gap-2 text-emerald-600 font-medium mb-6">
+                  <Gift className="w-5 h-5" />
+                  31 dages gratis prøveperiode
+                </div>
+
+                <ul className="space-y-3 mb-8">
+                  {plan.features.map((feature, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <Check className="w-5 h-5 shrink-0 mt-0.5 text-emerald-500" />
+                      <span className={feature.highlight ? "font-medium text-emerald-600" : ""}>
+                        {feature.text}
+                        {feature.tooltip && (
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>{feature.tooltip}</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
 
                 <Button
                   size="lg"
-                  className="w-full h-14 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
-                  onClick={() => setStep("payment")}
-                  data-testid="button-continue-report"
+                  className="w-full h-14 text-lg"
+                  onClick={handleStartPayment}
+                  disabled={isRedirectingToStripe}
+                  data-testid="button-start-payment"
                 >
-                  Fortsæt
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
-              </motion.div>
-            )}
-
-            {/* Step 9: Payment (preserved) */}
-            {step === "payment" && (
-              <motion.div
-                key="payment"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="max-w-xl mx-auto"
-              >
-                <div className="text-center mb-8">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center">
-                    <CreditCard className="w-8 h-8 text-white" />
-                  </div>
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
-                    Aktiver dit abonnement
-                  </h1>
-                  <p className="text-lg text-muted-foreground">
-                    Start din 31 dages gratis prøveperiode
-                  </p>
-                </div>
-
-                {/* Billing Toggle */}
-                <div className="flex items-center justify-center gap-4 mb-8">
-                  <Label htmlFor="billing-toggle" className={`text-base ${!isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
-                    Månedlig
-                  </Label>
-                  <Switch
-                    id="billing-toggle"
-                    checked={isYearly}
-                    onCheckedChange={setIsYearly}
-                    data-testid="switch-billing-toggle"
-                  />
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="billing-toggle" className={`text-base ${isYearly ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
-                      Årlig
-                    </Label>
-                    <span className="bg-emerald-500/10 text-emerald-600 text-xs font-semibold px-2 py-1 rounded-full">
-                      Spar {formatPrice(yearlySavings)}
-                    </span>
-                  </div>
-                </div>
-
-                <Card className="p-8 border-2 border-primary shadow-lg mb-8">
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 flex items-center justify-center">
-                      <Zap className="w-7 h-7 text-indigo-500" />
-                    </div>
-                    <div>
-                      <h2 className="text-2xl font-bold">{plan.name}</h2>
-                      <p className="text-muted-foreground">{plan.description}</p>
-                    </div>
-                  </div>
-
-                  <div className="mb-2">
-                    <span className="text-5xl font-bold">{formatPrice(currentPrice)}</span>
-                    <span className="text-muted-foreground ml-2">
-                      {isYearly ? "/år" : "/md"}
-                    </span>
-                  </div>
-
-                  {isYearly && (
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Svarer til {formatPrice(Math.round(plan.yearlyPrice / 12))}/md
-                    </p>
+                  {isRedirectingToStripe ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Omdirigerer til betaling...
+                    </>
+                  ) : (
+                    <>
+                      Start gratis prøveperiode
+                      <ArrowRight className="w-5 h-5 ml-2" />
+                    </>
                   )}
+                </Button>
+              </Card>
 
-                  <div className="flex items-center gap-2 text-emerald-600 font-medium mb-6">
-                    <Gift className="w-5 h-5" />
-                    31 dages gratis prøveperiode
-                  </div>
-
-                  <ul className="space-y-3 mb-8">
-                    {plan.features.map((feature, i) => (
-                      <li key={i} className="flex items-start gap-3">
-                        <Check className={`w-5 h-5 shrink-0 mt-0.5 ${feature.highlight ? "text-emerald-500" : "text-emerald-500"}`} />
-                        <span className={feature.highlight ? "font-medium text-emerald-600" : ""}>
-                          {feature.text}
-                          {feature.tooltip && (
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
-                              </TooltipTrigger>
-                              <TooltipContent>{feature.tooltip}</TooltipContent>
-                            </Tooltip>
-                          )}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <Button
-                    size="lg"
-                    className="w-full h-14 text-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg"
-                    onClick={handleStartPayment}
-                    disabled={isRedirectingToStripe}
-                    data-testid="button-start-payment"
-                  >
-                    {isRedirectingToStripe ? (
-                      <>
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        Omdirigerer til betaling...
-                      </>
-                    ) : (
-                      <>
-                        Start gratis prøveperiode
-                        <ArrowRight className="w-5 h-5 ml-2" />
-                      </>
-                    )}
-                  </Button>
-                </Card>
-
-                <p className="text-center text-sm text-muted-foreground">
-                  Du bliver først opkrævet efter din prøveperiode udløber. Annuller når som helst.
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+              <p className="text-center text-sm text-muted-foreground">
+                Du bliver først opkrævet efter din prøveperiode udløber. Annuller når som helst.
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+
+      {/* Hidden shared file input */}
+      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFiles(e.target.files)} />
     </div>
   );
 }

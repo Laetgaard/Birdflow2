@@ -70,6 +70,7 @@ import {
   type AnalyticsOverview, type FunnelStep, type TrafficSource, type TopPage,
   type AnalyticsTimeseriesPoint, type CountryVisitors, type LiveVisitorStats, type ManageOverview,
   type CustomerWithStats, type DeviceBreakdown,
+  onboardingSessions, type OnboardingSession, type OnboardingChatMessage, type OnboardingAnswers,
   sanitizeAnalyticsEventData,
   billingLeads, type BillingLead, type InsertBillingLead,
   emailSettings, type EmailSettings, type InsertEmailSettings,
@@ -296,6 +297,20 @@ export interface IStorage {
 
   // Profile onboarding methods
   completeOnboarding(userId: string): Promise<Profile | undefined>;
+
+  // Onboarding walkthrough sessions
+  getOnboardingSession(userId: string): Promise<OnboardingSession | undefined>;
+  getOnboardingSessionByWebsiteId(websiteId: string): Promise<OnboardingSession | undefined>;
+  upsertOnboardingSession(
+    userId: string,
+    patch: {
+      websiteId?: string;
+      transcript?: OnboardingChatMessage[];
+      answers?: Partial<OnboardingAnswers>;
+      genStatus?: Record<string, unknown> | null;
+    }
+  ): Promise<OnboardingSession>;
+  persistOnboardingGenStatus(websiteId: string, status: Record<string, unknown>): Promise<void>;
 
   // Admin methods
   getAdminOverviewStats(): Promise<AdminOverviewStats>;
@@ -1908,6 +1923,82 @@ export class DatabaseStorage implements IStorage {
       .where(eq(profiles.id, userId))
       .returning();
     return result[0];
+  }
+
+  // ---- Onboarding walkthrough sessions ----
+  // Transcript + structured answers used to live only in localStorage,
+  // and generation status only in an in-memory Map. Both persist here
+  // so the walkthrough survives device switches and server restarts.
+
+  async getOnboardingSession(userId: string): Promise<OnboardingSession | undefined> {
+    const result = await db
+      .select()
+      .from(onboardingSessions)
+      .where(eq(onboardingSessions.userId, userId));
+    return result[0];
+  }
+
+  async getOnboardingSessionByWebsiteId(websiteId: string): Promise<OnboardingSession | undefined> {
+    const result = await db
+      .select()
+      .from(onboardingSessions)
+      .where(eq(onboardingSessions.websiteId, websiteId));
+    return result[0];
+  }
+
+  /**
+   * Merge-write the user's onboarding session. `answers` merges shallowly
+   * over what is stored; `transcript` and `genStatus` replace wholesale
+   * (the caller always holds the full transcript for its turn).
+   */
+  async upsertOnboardingSession(
+    userId: string,
+    patch: {
+      websiteId?: string;
+      transcript?: OnboardingChatMessage[];
+      answers?: Partial<OnboardingAnswers>;
+      genStatus?: Record<string, unknown> | null;
+    }
+  ): Promise<OnboardingSession> {
+    const existing = await this.getOnboardingSession(userId);
+    if (!existing) {
+      const result = await db
+        .insert(onboardingSessions)
+        .values({
+          userId,
+          websiteId: patch.websiteId ?? null,
+          transcript: patch.transcript ?? [],
+          answers: (patch.answers ?? {}) as OnboardingAnswers,
+          genStatus: patch.genStatus ?? null,
+        } as any)
+        .onConflictDoNothing({ target: onboardingSessions.userId })
+        .returning();
+      if (result[0]) return result[0];
+      // Lost a concurrent-insert race: fall through to the update path.
+    }
+
+    const merged: Record<string, unknown> = { updatedAt: new Date() };
+    if (patch.websiteId !== undefined) merged.websiteId = patch.websiteId;
+    if (patch.transcript !== undefined) merged.transcript = patch.transcript;
+    if (patch.genStatus !== undefined) merged.genStatus = patch.genStatus;
+    if (patch.answers !== undefined) {
+      const current = (await this.getOnboardingSession(userId))?.answers ?? {};
+      merged.answers = { ...current, ...patch.answers };
+    }
+    const result = await db
+      .update(onboardingSessions)
+      .set(merged as any)
+      .where(eq(onboardingSessions.userId, userId))
+      .returning();
+    return result[0];
+  }
+
+  /** Fire-and-forget mirror of a generation status, keyed by website. */
+  async persistOnboardingGenStatus(websiteId: string, status: Record<string, unknown>): Promise<void> {
+    await db
+      .update(onboardingSessions)
+      .set({ genStatus: status, updatedAt: new Date() } as any)
+      .where(eq(onboardingSessions.websiteId, websiteId));
   }
 
   // Admin methods

@@ -27,6 +27,19 @@ export class WebhookHandlers {
       if (event.type === 'checkout.session.completed') {
         console.log(`[Stripe Webhook] Processing checkout.session.completed event`);
         const session = event.data?.object;
+
+        // Onboarding subscription completed → the user is now onboarded.
+        // Deliberately here and not at session creation: an abandoned
+        // checkout must NOT lock the user out of /onboarding.
+        if (session?.metadata?.type === 'onboarding' && session.metadata.userId) {
+          try {
+            await storage.completeOnboarding(session.metadata.userId);
+            console.log(`[Stripe Webhook] Onboarding completed for user ${session.metadata.userId}`);
+          } catch (err) {
+            console.error('[Stripe Webhook] Failed to mark onboarding complete:', err);
+          }
+        }
+
         if (session?.id) {
           const sessionId = session.id;
           const paymentIntentId = session.payment_intent;

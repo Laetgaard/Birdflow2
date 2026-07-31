@@ -212,6 +212,52 @@ export const insertWebsiteInputsSchema = createInsertSchema(websiteInputs).omit(
 export type InsertWebsiteInputs = z.infer<typeof insertWebsiteInputsSchema>;
 export type WebsiteInputs = typeof websiteInputs.$inferSelect;
 
+// One chat message in the onboarding walkthrough, as stored/restored.
+export type OnboardingChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  /** Inline tool cards (palettes, font pairs, upload requests...). */
+  displays?: Array<{ kind: string; value: unknown; chosenId?: string }>;
+};
+
+// Structured answers the onboarding agent collects. Everything is
+// optional until build time; deterministic fields (palette, fontPair,
+// uploads) are written by the client via /api/onboarding/session/record,
+// never round-tripped through the model.
+export type OnboardingAnswers = {
+  path?: "ai" | "diy";
+  businessName?: string;
+  industry?: string;
+  description?: string;
+  goals?: string[];
+  notes?: string;
+  feeling?: string;
+  palette?: { id: string; name: string; description: string; colors: Record<string, string> };
+  fontPair?: { id: string; name: string; heading: string; body: string; scale: string; description: string };
+  logoUrl?: string;
+  logoMediaId?: string;
+  ownImageUrls?: string[];
+  inspirationUrls?: string[];
+};
+
+// The onboarding walkthrough's server-side home. The old wizard kept
+// everything in localStorage — clear the browser or switch device and
+// the answers were gone — and generation status lived in an in-memory
+// Map that a redeploy wiped. Both now live here.
+export const onboardingSessions = pgTable("onboarding_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique(),
+  websiteId: varchar("website_id"),
+  transcript: jsonb("transcript").$type<OnboardingChatMessage[]>().notNull().default(sql`'[]'::jsonb`),
+  answers: jsonb("answers").$type<OnboardingAnswers>().notNull().default(sql`'{}'::jsonb`),
+  /** Mirror of the generation job status, written through on each phase. */
+  genStatus: jsonb("gen_status").$type<Record<string, unknown> | null>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type OnboardingSession = typeof onboardingSessions.$inferSelect;
+
 // Phased build state for AI Website Architect
 export const phasedBuildState = pgTable("phased_build_state", {
   id: serial("id").primaryKey(),
