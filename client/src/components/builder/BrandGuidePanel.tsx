@@ -12,6 +12,7 @@ import type {
   BrandGuideImageryStyle,
   BrandGuideTypographyScale,
 } from "@shared/customComponents";
+import { getContrastRatio } from "@shared/customComponents";
 import { uploadImage } from "@/lib/builderUpload";
 
 type Props = {
@@ -163,6 +164,7 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             </div>
           ))}
         </div>
+        <ContrastChecks colors={draft.colors} />
       </div>
 
       <Separator />
@@ -394,6 +396,53 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
       <p className="text-[11px] text-muted-foreground -mt-2">
         Opdaterer globale farver, skrifttyper og hjørner ud fra brand guiden.
       </p>
+    </div>
+  );
+}
+
+/**
+ * WCAG AA contrast checks for the pairs that actually meet on the site:
+ * text/background, text/surface and white-on-primary (buttons). 4.5:1 is
+ * the AA threshold for normal text; 0 means a color could not be parsed
+ * and the pair is skipped.
+ */
+function ContrastChecks({ colors }: { colors: BrandGuideColors }) {
+  const pairs: { label: string; a: string; b: string }[] = [
+    { label: "Tekst på baggrund", a: colors.text, b: colors.background },
+    { label: "Tekst på flade", a: colors.text, b: colors.surface },
+    { label: "Hvid på primær (knapper)", a: "#ffffff", b: colors.primary },
+  ];
+
+  const checks = pairs
+    .map((pair) => ({ ...pair, ratio: getContrastRatio(pair.a, pair.b) }))
+    .filter((c) => c.ratio > 0);
+
+  if (checks.length === 0) return null;
+
+  return (
+    <div className="space-y-1" data-testid="brand-contrast-checks">
+      {checks.map((check) => {
+        const passes = check.ratio >= 4.5;
+        return (
+          <div
+            key={check.label}
+            className="flex items-center justify-between rounded border px-2 py-1 text-[11px]"
+          >
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span
+                className="inline-flex h-4 w-7 shrink-0 items-center justify-center rounded-sm border text-[9px] font-bold"
+                style={{ backgroundColor: check.b, color: check.a }}
+              >
+                Aa
+              </span>
+              <span className="truncate text-muted-foreground">{check.label}</span>
+            </span>
+            <span className={passes ? "font-medium text-green-600" : "font-medium text-amber-600"}>
+              {check.ratio.toFixed(1)}:1 {passes ? "OK" : "Lav kontrast"}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

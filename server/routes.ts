@@ -40,7 +40,7 @@ import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
 import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
-import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens } from "@shared/customComponents";
+import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
 import { emailService } from "./email/service";
 
 // Helper to migrate legacy element-based state to component-based state
@@ -5518,6 +5518,20 @@ export async function registerRoutes(
     }
   });
 
+
+  // Compact brand-guide context for AI prompts (empty string when the
+  // website has no brand guide yet). Free-text fields are sanitized and
+  // delimited inside buildBrandContext.
+  async function getBrandContextForWebsite(websiteId: string): Promise<string> {
+    try {
+      const bs = await storage.getBuilderState(websiteId);
+      const guide = (bs?.state as BuilderStateData | undefined)?.brandGuide;
+      return buildBrandContext(guide);
+    } catch {
+      return "";
+    }
+  }
+
   app.post("/api/websites/:id/ai/phased/structure", requireAuth, async (req, res) => {
     try {
       const website = await storage.getWebsite(req.params.id);
@@ -5534,7 +5548,8 @@ export async function registerRoutes(
       }
 
       const { generateStructure } = await import("./phasedArchitect");
-      const result = await generateStructure(prompt, sourceUrl);
+      const brandContext = await getBrandContextForWebsite(req.params.id);
+      const result = await generateStructure(prompt, sourceUrl, brandContext);
 
       if (!result.success || !result.plan) {
         return res.status(500).json({
@@ -5595,7 +5610,8 @@ export async function registerRoutes(
       }
 
       const { generateContent } = await import("./phasedArchitect");
-      const result = await generateContent(plan);
+      const brandContext = await getBrandContextForWebsite(req.params.id);
+      const result = await generateContent(plan, brandContext);
 
       if (!result.success || !result.content) {
         return res.status(500).json({
@@ -5640,7 +5656,8 @@ export async function registerRoutes(
       }
 
       const { generateStyling } = await import("./phasedArchitect");
-      const result = await generateStyling(plan, content || {});
+      const brandContext = await getBrandContextForWebsite(req.params.id);
+      const result = await generateStyling(plan, content || {}, brandContext);
 
       if (!result.success) {
         return res.status(500).json({
