@@ -8,6 +8,12 @@ export type ManageWebsite = {
   status: string;
   setupType: string;
   ownerId: string;
+  // Present only when an administrator manages someone else's website
+  // (set server-side on GET /api/websites/:id). UI state only.
+  adminContext?: {
+    ownerId: string;
+    ownerDisplayName: string;
+  };
 };
 
 /** Props every manage section receives from the shell. */
@@ -23,11 +29,19 @@ export type Order = {
   id: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string | null;
   status: 'pending' | 'processing' | 'completed' | 'cancelled' | 'confirmed';
   paymentStatus?: 'unpaid' | 'pending' | 'paid' | 'refunded';
   total: number;
   currency?: string;
   items?: Array<{ id: string; name: string; price: number; quantity: number }>;
+  shippingAddress?: { street: string; city: string; state: string; zip: string; country: string } | null;
+  shippingName?: string | null;
+  // Fulfilment (set from the order detail dialog)
+  deliveryDate?: string | null;
+  trackingNumber?: string | null;
+  trackingCarrier?: string | null;
+  shippedEmailSentAt?: string | null;
   createdAt: string;
 };
 

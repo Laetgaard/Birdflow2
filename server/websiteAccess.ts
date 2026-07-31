@@ -90,16 +90,16 @@ const OWNER_PERMISSIONS: Record<WebsitePermission, boolean> = {
   manageDomains: true,
 };
 
-// Administrators editing a client site: builder + media only for now.
-// readManage/updateManage flip on in the manage-access milestone.
-// publish, billing, domains and paid AI stay owner-only on purpose:
-// they spend the client's money, deploy on their behalf, or affect
-// account-level state.
+// Administrators editing a client site: builder, media and the manage
+// dashboard's business resources (orders, bookings, products, services,
+// team, submissions, customers, analytics). publish, billing, domains
+// and paid AI stay owner-only on purpose: they spend the client's money,
+// deploy on their behalf, or affect account-level state.
 const ADMIN_PERMISSIONS: Record<WebsitePermission, boolean> = {
   readBuilder: true,
   updateBuilder: true,
-  readManage: false,
-  updateManage: false,
+  readManage: true,
+  updateManage: true,
   manageMedia: true,
   manageCustomComponents: false,
   publish: false,

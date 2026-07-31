@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Package, CheckCircle, XCircle } from "lucide-react";
+import { Package, CheckCircle, XCircle, Truck, Mail, Phone, MapPin, Loader2 } from "lucide-react";
 import type { SectionProps, Order } from "./types";
 import {
   formatCurrency,
@@ -41,6 +43,55 @@ export function OrdersSection({ websiteId, accessToken }: SectionProps) {
 
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isOrderDetailOpen, setIsOrderDetailOpen] = useState(false);
+
+  // Fulfilment form (delivery date + tracking), prefilled when a detail opens
+  const [fulfilment, setFulfilment] = useState({ deliveryDate: "", trackingNumber: "", trackingCarrier: "" });
+  const [isSavingFulfilment, setIsSavingFulfilment] = useState(false);
+
+  const openOrderDetail = (order: Order) => {
+    setSelectedOrder(order);
+    setFulfilment({
+      deliveryDate: order.deliveryDate ? order.deliveryDate.slice(0, 10) : "",
+      trackingNumber: order.trackingNumber || "",
+      trackingCarrier: order.trackingCarrier || "",
+    });
+    setIsOrderDetailOpen(true);
+  };
+
+  /** Save delivery date + tracking; optionally send the shipping email. */
+  const saveFulfilment = async (sendEmail: boolean) => {
+    if (!selectedOrder || !accessToken || !websiteId) return;
+    setIsSavingFulfilment(true);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/orders/${selectedOrder.id}`, {
+        method: "PATCH",
+        headers: jsonAuthHeaders(accessToken),
+        body: JSON.stringify({
+          deliveryDate: fulfilment.deliveryDate || null,
+          trackingNumber: fulfilment.trackingNumber.trim() || null,
+          trackingCarrier: fulfilment.trackingCarrier.trim() || null,
+          sendShippedEmail: sendEmail,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Kunne ikke gemme levering (${res.status})`);
+      }
+      const updated: Order = await res.json();
+      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+      setSelectedOrder(updated);
+      toast({
+        title: sendEmail ? "Gemt og sendt" : "Levering gemt",
+        description: sendEmail
+          ? `Kunden har fået besked på ${updated.customerEmail}.`
+          : "Leveringsoplysningerne er gemt.",
+      });
+    } catch (error: any) {
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setIsSavingFulfilment(false);
+    }
+  };
 
   const fetchOrders = useCallback(async () => {
     if (!websiteId || !accessToken) return;
@@ -134,7 +185,7 @@ export function OrdersSection({ websiteId, accessToken }: SectionProps) {
                   key={order.id}
                   className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
                   data-testid={`order-${order.id}`}
-                  onClick={() => { setSelectedOrder(order); setIsOrderDetailOpen(true); }}
+                  onClick={() => openOrderDetail(order)}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -191,11 +242,38 @@ export function OrdersSection({ websiteId, accessToken }: SectionProps) {
                 }`}>
                   {selectedOrder.customerName.charAt(0).toUpperCase()}
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <h3 className="font-semibold text-lg">{selectedOrder.customerName}</h3>
-                  <p className="text-sm text-muted-foreground">{selectedOrder.customerEmail}</p>
+                  <p className="text-sm text-muted-foreground truncate">{selectedOrder.customerEmail}</p>
+                  {selectedOrder.customerPhone && (
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Phone className="w-3 h-3" /> {selectedOrder.customerPhone}
+                    </p>
+                  )}
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  data-testid="btn-contact-customer"
+                >
+                  <a href={`mailto:${selectedOrder.customerEmail}?subject=${encodeURIComponent(`Vedr. ordre #${selectedOrder.id.slice(0, 8)}`)}`}>
+                    <Mail className="w-4 h-4 mr-1" /> Kontakt
+                  </a>
+                </Button>
               </div>
+
+              {selectedOrder.shippingAddress && (
+                <div className="flex items-start gap-2 rounded-md bg-muted/50 p-2 text-sm">
+                  <MapPin className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+                  <span>
+                    {selectedOrder.shippingAddress.street}, {selectedOrder.shippingAddress.zip}{" "}
+                    {selectedOrder.shippingAddress.city}
+                    {selectedOrder.shippingAddress.country ? `, ${selectedOrder.shippingAddress.country}` : ""}
+                    {selectedOrder.shippingName ? ` · ${selectedOrder.shippingName}` : ""}
+                  </span>
+                </div>
+              )}
 
               <Separator />
 
@@ -247,6 +325,67 @@ export function OrdersSection({ websiteId, accessToken }: SectionProps) {
               )}
 
               <Separator />
+
+              {/* Levering: promised date + track & trace, with send-to-customer */}
+              <div className="space-y-3 rounded-md border p-3">
+                <h4 className="flex items-center gap-1.5 font-medium text-sm">
+                  <Truck className="w-4 h-4" /> Levering
+                </h4>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-xs">Leveringsdato</Label>
+                    <Input
+                      type="date"
+                      value={fulfilment.deliveryDate}
+                      onChange={(e) => setFulfilment((f) => ({ ...f, deliveryDate: e.target.value }))}
+                      data-testid="input-delivery-date"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Track & trace-nr.</Label>
+                    <Input
+                      value={fulfilment.trackingNumber}
+                      onChange={(e) => setFulfilment((f) => ({ ...f, trackingNumber: e.target.value }))}
+                      placeholder="Valgfrit"
+                      data-testid="input-tracking-number"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Fragtfirma</Label>
+                    <Input
+                      value={fulfilment.trackingCarrier}
+                      onChange={(e) => setFulfilment((f) => ({ ...f, trackingCarrier: e.target.value }))}
+                      placeholder="GLS, PostNord..."
+                      data-testid="input-tracking-carrier"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => saveFulfilment(false)}
+                    disabled={isSavingFulfilment}
+                    data-testid="btn-save-fulfilment"
+                  >
+                    {isSavingFulfilment ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                    Gem
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => saveFulfilment(true)}
+                    disabled={isSavingFulfilment}
+                    data-testid="btn-save-and-send-fulfilment"
+                  >
+                    <Mail className="w-4 h-4 mr-1" /> Gem & send til kunde
+                  </Button>
+                  {selectedOrder.shippedEmailSentAt && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      Sendt {formatLongDateDa(selectedOrder.shippedEmailSentAt)}
+                    </span>
+                  )}
+                </div>
+              </div>
 
               <div className="flex gap-2 flex-wrap">
                 {selectedOrder.status === 'pending' && (

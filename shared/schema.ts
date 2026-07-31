@@ -377,6 +377,11 @@ export const orders = pgTable("orders", {
   shippingMethodId: varchar("shipping_method_id"),
   shippingName: text("shipping_name"),
   shippingPrice: text("shipping_price"),
+  // Fulfilment fields set by the owner from the order detail dialog
+  deliveryDate: timestamp("delivery_date"), // promised delivery date
+  trackingNumber: text("tracking_number"),
+  trackingCarrier: text("tracking_carrier"), // e.g. GLS, PostNord, UPS
+  shippedEmailSentAt: timestamp("shipped_email_sent_at"),
   metadata: jsonb("metadata").$type<Record<string, any>>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -927,7 +932,7 @@ export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
 export type EmailSettings = typeof emailSettings.$inferSelect;
 
 // Email templates table (per website, per email type)
-export type EmailTemplateType = 'order_confirmation' | 'booking_confirmation' | 'booking_updated' | 'booking_cancelled' | 'booking_reminder' | 'booking_followup';
+export type EmailTemplateType = 'order_confirmation' | 'order_shipped' | 'booking_confirmation' | 'booking_updated' | 'booking_cancelled' | 'booking_reminder' | 'booking_followup';
 
 export const emailTemplates = pgTable("email_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

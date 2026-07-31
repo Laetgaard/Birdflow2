@@ -18,6 +18,11 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; body
     bodyText: 'We have received your order and are processing it. You will receive another email when your order ships.',
     buttonText: 'View Order',
   },
+  order_shipped: {
+    subject: 'Din ordre er på vej - #{{orderId}}',
+    heading: 'Din ordre er afsendt!',
+    bodyText: 'Din ordre er nu på vej til dig. Forventet levering: {{deliveryDate}}. {{trackingLine}}',
+  },
   booking_confirmation: {
     subject: 'Booking Confirmation - {{serviceName}}',
     heading: 'Your booking is confirmed!',
@@ -285,6 +290,8 @@ export class EmailService {
     switch (templateType) {
       case 'order_confirmation':
         return settings.orderConfirmationEnabled;
+      case 'order_shipped':
+        return settings.shippingConfirmationEnabled;
       case 'booking_confirmation':
         return settings.bookingConfirmationEnabled;
       case 'booking_updated':
@@ -370,6 +377,37 @@ export class EmailService {
         total: `$${(totalCents / 100).toFixed(2)}`,
         status: order.status,
         customerName: order.customerName || 'Customer',
+      },
+      buttonUrl: websiteUrl ? `${websiteUrl}/orders/${order.id}` : undefined,
+    });
+  }
+
+  /**
+   * Shipping confirmation with promised delivery date and optional tracking.
+   * Gated by emailSettings.shippingConfirmationEnabled.
+   */
+  async sendOrderShipped(order: Order, customerEmail: string, websiteUrl?: string): Promise<boolean> {
+    const deliveryDate = order.deliveryDate
+      ? new Date(order.deliveryDate).toLocaleDateString('da-DK', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        })
+      : 'snarest muligt';
+    const trackingLine = order.trackingNumber
+      ? `Track & trace${order.trackingCarrier ? ` (${order.trackingCarrier})` : ''}: ${order.trackingNumber}.`
+      : '';
+    return this.sendEmail({
+      to: customerEmail,
+      websiteId: order.websiteId,
+      templateType: 'order_shipped',
+      variables: {
+        orderId: order.id,
+        customerName: order.customerName || 'Kunde',
+        deliveryDate,
+        trackingLine,
+        trackingNumber: order.trackingNumber || '',
+        carrier: order.trackingCarrier || '',
       },
       buttonUrl: websiteUrl ? `${websiteUrl}/orders/${order.id}` : undefined,
     });

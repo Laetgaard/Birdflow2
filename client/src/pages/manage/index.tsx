@@ -15,6 +15,8 @@ import {
   Loader2, UserRound, type LucideIcon,
 } from "lucide-react";
 import type { ManageWebsite } from "./types";
+import AdminEditingBanner from "@/components/AdminEditingBanner";
+import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import { OverviewSection } from "./OverviewSection";
 import { BookingsSection } from "./BookingsSection";
 import { ServicesSection } from "./ServicesSection";
@@ -190,16 +192,13 @@ export default function ManagePage() {
         }
         const data = await res.json();
 
-        // Administrators can read website metadata (for the builder) but have
-        // no manage permissions, so every sub-resource would 403.
+        // Administrators have manage access (readManage/updateManage) and get
+        // a persistent banner instead of a redirect. The banner state comes
+        // from the server-set adminContext - never from client-side flags.
         if (data.adminContext) {
-          toast({
-            title: "Ikke tilgængelig for administratorer",
-            description: "Administrator-adgang dækker kun hjemmeside-builderen.",
-            variant: "destructive",
-          });
-          setLocation(`/builder/${id}`);
-          return;
+          startAdminSession(id!);
+        } else {
+          clearAdminSession(id!);
         }
         setWebsite(data);
       } catch (error: any) {
@@ -330,6 +329,7 @@ export default function ManagePage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {website?.adminContext && <AdminEditingBanner adminContext={website.adminContext} />}
       <aside className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-60 flex-col border-r bg-background">
         {sidebarContent}
       </aside>

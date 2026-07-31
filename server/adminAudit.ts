@@ -1,5 +1,7 @@
+import type { NextFunction, Request, Response } from "express";
 import type { BuilderStateData, InsertAdminAuditEntry } from "@shared/schema";
 import type { WebsiteAccessContext } from "./websiteAccess";
+import { getWebsiteAccess } from "./websiteAccess";
 import { storage } from "./storage";
 
 // ============================================================
@@ -70,6 +72,50 @@ export async function recordAdminAudit(
       error
     );
   }
+}
+
+/**
+ * Middleware for the many uniform manage-resource mutations (orders,
+ * products, team members, ...): after the response finishes with a 2xx
+ * status, record an audit entry when the actor was an administrator.
+ * Must be mounted AFTER requireWebsitePermission. The summary carries the
+ * request body's field NAMES only - never values.
+ *
+ * Prefer explicit recordAdminAudit calls when a route needs a real
+ * structural summary (builder saves, media deletes); this hook exists so
+ * three dozen CRUD routes get uniform coverage without three dozen
+ * hand-written call sites.
+ */
+export function auditManageMutation(
+  action: string,
+  resourceType: string,
+  resourceIdParam?: string
+) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    res.on("finish", () => {
+      if (res.statusCode < 200 || res.statusCode >= 300) return;
+      try {
+        const ctx = getWebsiteAccess(req);
+        if (ctx.mode !== "admin") return;
+        const bodyKeys =
+          req.body && typeof req.body === "object"
+            ? Object.keys(req.body).sort().slice(0, 50)
+            : [];
+        void recordAdminAudit(ctx, {
+          action,
+          resourceType,
+          resourceId: resourceIdParam ? req.params[resourceIdParam] ?? null : null,
+          httpMethod: req.method,
+          route: (req.baseUrl || "") + (req.route?.path ?? req.path),
+          changedSummary: bodyKeys.length > 0 ? { bodyFields: bodyKeys } : null,
+        });
+      } catch {
+        // getWebsiteAccess throws only if the permission middleware did not
+        // run; never let the audit hook break a finished response.
+      }
+    });
+    next();
+  };
 }
 
 type PageLike = { id?: string; name?: string; components?: unknown[] };
