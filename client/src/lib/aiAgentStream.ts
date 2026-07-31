@@ -13,7 +13,14 @@ import { adminSessionHeaders } from "@/lib/adminSession";
 
 export type AgentStreamEvent =
   | { type: "step"; step: number; label: string }
-  | { type: "tool"; name: string; summary: string; ok: boolean }
+  | {
+      type: "tool";
+      name: string;
+      summary: string;
+      ok: boolean;
+      /** Rich payload for inline rendering (palette cards, a site plan…). */
+      display?: { kind: string; value: unknown };
+    }
   | { type: "note"; text: string }
   | { type: "approval_required"; reason: string; summary: string[]; mutations: BuilderMutation[] }
   | { type: "done"; summary: string }

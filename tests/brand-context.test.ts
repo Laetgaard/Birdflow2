@@ -95,24 +95,9 @@ describe("getContrastRatio (WCAG)", () => {
 });
 
 describe("brand context wiring (source tripwires)", () => {
-  const routesSource = readFileSync(join(__dirname, "..", "server", "routes.ts"), "utf8");
-  const phasedSource = readFileSync(join(__dirname, "..", "server", "phasedArchitect.ts"), "utf8");
+  // The phased architect this block used to cover was deleted in M14;
+  // the agent (which reads the guide via get_brand_guide) replaced it.
   const aiBuilderSource = readFileSync(join(__dirname, "..", "server", "aiBuilder.ts"), "utf8");
-
-  it("phased architect receives brand context in all three prompt phases", () => {
-    expect(phasedSource).toContain(
-      "generateStructure(prompt: string, sourceUrl?: string, brandContext?: string)"
-    );
-    // content + styling signatures and the three usages inside user messages
-    expect(phasedSource.match(/\$\{brandContext \?/g)?.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it("phased routes load the guide and pass it through", () => {
-    expect(routesSource).toContain("getBrandContextForWebsite");
-    expect(routesSource).toContain("generateStructure(prompt, sourceUrl, brandContext)");
-    expect(routesSource).toContain("generateContent(plan, brandContext)");
-    expect(routesSource).toContain("generateStyling(plan, content || {}, brandContext)");
-  });
 
   it("aiBuilder injects the sanitized context, not raw JSON", () => {
     expect(aiBuilderSource).toContain("buildBrandContext(state.brandGuide)");

@@ -67,7 +67,7 @@ import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
-import AIAssistant from "@/components/AIAssistant";
+import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import InspectorSidebar from "@/components/builder/InspectorSidebar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
@@ -1632,7 +1632,7 @@ export default function BuilderPage() {
 
             <TabsContent value="ai" className="flex-1 overflow-hidden flex flex-col">
               {session && builderState && id && (
-                <AIAssistant
+                <AIBuilderPanel
                   websiteId={id}
                   session={session}
                   builderState={builderState}

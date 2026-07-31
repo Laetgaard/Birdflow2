@@ -15,14 +15,14 @@ import { join } from "node:path";
  * The client now comes from a memoised getOpenAI() in server/openaiClient.ts.
  */
 
+// phasedArchitect and aiVisionCloner were in this list until M14
+// deleted both modules along with their routes.
 const AI_MODULES = [
   "aiBuilder",
   "aiAgent",
   "designInterview",
   "aiImages",
   "websiteArchitect",
-  "phasedArchitect",
-  "aiVisionCloner",
 ] as const;
 
 const serverDir = join(__dirname, "..", "server");
@@ -71,7 +71,6 @@ describe("importing AI modules without credentials", () => {
   it("does not throw", async () => {
     await expect(import("../server/designInterview")).resolves.toBeDefined();
     await expect(import("../server/websiteArchitect")).resolves.toBeDefined();
-    await expect(import("../server/aiVisionCloner")).resolves.toBeDefined();
   });
 
   it("only fails when the client is actually used", async () => {
