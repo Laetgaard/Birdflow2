@@ -236,8 +236,14 @@ export type OnboardingAnswers = {
   fontPair?: { id: string; name: string; heading: string; body: string; scale: string; description: string };
   logoUrl?: string;
   logoMediaId?: string;
+  /** True when the logo came from the AI generator, not an upload. */
+  logoGenerated?: boolean;
   ownImageUrls?: string[];
   inspirationUrls?: string[];
+  /** WebsitePlan the user approved in the design preview (built as-is). */
+  plan?: unknown;
+  /** Domain the user wants; connected from /manage after payment. */
+  desiredDomain?: string;
 };
 
 // The onboarding walkthrough's server-side home. The old wizard kept

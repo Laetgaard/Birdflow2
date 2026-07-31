@@ -201,3 +201,76 @@ describe("the client walkthrough", () => {
     expect(pageSource).not.toContain("to-purple-600");
   });
 });
+
+describe("M16: preview, logo, feedback and domain", () => {
+  const tools = buildOnboardingTools();
+  const pageSource = read("client/src/pages/onboarding.tsx");
+  const imagesSource = read("server/aiImages.ts");
+  const generatorSource = read("server/onboardingGenerator.ts");
+  const routesSource = read("server/routes.ts");
+
+  it("the catalogue gained generate_logo and preview_design", () => {
+    const names = tools.map((t: any) => t.name);
+    expect(names).toContain("generate_logo");
+    expect(names).toContain("preview_design");
+  });
+
+  it("generateLogo has its own prompt path — content images still forbid logos", () => {
+    expect(imagesSource).toContain("export async function generateLogo");
+    // the content-image prompt keeps its guard clause
+    expect(imagesSource).toContain("No text, no words, no logos, no watermarks in the image");
+    // the logo prompt is the one place that wants a wordmark
+    expect(imagesSource).toContain("wordmark");
+  });
+
+  it("generate_logo refuses without a website or business name", async () => {
+    const tool = tools.find((t: any) => t.name === "generate_logo")!;
+    const result = await tool.run({}, {
+      userId: "u1",
+      websiteId: null,
+      answers: {},
+      state: null,
+      buildStarted: false,
+    } as any);
+    expect(result.ok).toBe(false);
+  });
+
+  it("preview_design refuses until the basics are collected", async () => {
+    const tool = tools.find((t: any) => t.name === "preview_design")!;
+    const result = await tool.run({}, {
+      userId: "u1",
+      websiteId: "w1",
+      answers: {},
+      state: null,
+      buildStarted: false,
+    } as any);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("følelse");
+  });
+
+  it("an approved plan is built as-is instead of re-planned", () => {
+    expect(generatorSource).toContain("if (input.plan)");
+    expect(generatorSource).toContain("Bruger den godkendte plan");
+    // build_site forwards the approved plan
+    const agentSource = read("server/onboardingAgent.ts");
+    expect(agentSource).toContain("plan: a.plan as WebsitePlan | undefined");
+  });
+
+  it("the report view offers the feedback loop through the builder agent", () => {
+    expect(pageSource).toContain("button-send-feedback");
+    expect(pageSource).toContain("runAgent({");
+  });
+
+  it("the report view checks domains and records the wish", () => {
+    expect(pageSource).toContain("button-check-domain");
+    expect(pageSource).toContain("domains/check-availability");
+    expect(pageSource).toContain("desiredDomain");
+    // the record endpoint accepts and validates the wish
+    expect(routesSource).toContain("desiredDomain");
+  });
+
+  it("the plan preview and generated logo render inline", () => {
+    expect(pageSource).toContain("plan-preview-card");
+    expect(pageSource).toContain("logo-generated-card");
+  });
+});

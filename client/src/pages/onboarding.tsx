@@ -11,9 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { uploadImage } from "@/lib/builderUpload";
-import { runOnboardingTurn, type AgentStreamEvent } from "@/lib/aiAgentStream";
+import { runOnboardingTurn, runAgent, type AgentStreamEvent } from "@/lib/aiAgentStream";
 import type { PaletteProposal, FontPairProposal, BuildReport } from "@shared/aiBuilderSchema";
 import type { OnboardingAnswers, OnboardingChatMessage } from "@shared/schema";
+import type { WebsitePlan } from "@shared/websitePlanSchema";
 import { websiteTemplates } from "@shared/websiteTemplates";
 import {
   ArrowRight,
@@ -35,6 +36,9 @@ import {
   CheckCircle2,
   AlertCircle,
   LayoutTemplate,
+  Globe,
+  MessageSquare,
+  Layout,
 } from "lucide-react";
 import { subscriptionPlans, formatPrice, getYearlySavings } from "@shared/subscriptionPlans";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -330,6 +334,57 @@ function UploadRequestCard({
   );
 }
 
+function LogoCard({ url, businessName }: { url: string; businessName: string }) {
+  return (
+    <div className="mt-2 rounded-lg border p-3 bg-card inline-block" data-testid="logo-generated-card">
+      <img src={url} alt={`${businessName} logo`} className="w-32 h-32 object-contain rounded" />
+      <p className="mt-1.5 text-xs text-muted-foreground text-center">Dit nye logo — gemt i mediebiblioteket</p>
+    </div>
+  );
+}
+
+/** The concrete plan the agent proposes before the long build. */
+function PlanPreviewCard({ plan }: { plan: WebsitePlan }) {
+  return (
+    <div className="mt-2 rounded-xl border bg-card overflow-hidden" data-testid="plan-preview-card">
+      <div className="p-3 bg-accent/60 flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
+          <Layout className="w-4 h-4 text-primary-foreground" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold truncate">{plan.siteName}</p>
+          <p className="text-xs text-muted-foreground truncate">{plan.tagline}</p>
+        </div>
+      </div>
+      <div className="p-3 space-y-2">
+        {plan.pages.map((page) => (
+          <div key={page.id} className="rounded-lg bg-muted/50 p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">{page.name}</span>
+              <span className="text-[10px] text-muted-foreground font-mono">{page.path}</span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {page.sections.map((section, idx) => (
+                <Badge key={idx} variant="outline" className="text-[9px] py-0 font-normal">
+                  {section.pattern}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className="flex items-center gap-1.5 pt-1">
+          {Object.values(plan.designSystem.colors).map((color, i) => (
+            <span key={i} className="w-4 h-4 rounded-full border border-black/10" style={{ backgroundColor: color }} />
+          ))}
+          <span className="text-[10px] text-muted-foreground ml-1">
+            {plan.designSystem.typography.headingFont} + {plan.designSystem.typography.bodyFont} · {plan.designSystem.tone}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** DIY branch: pick a template, name the site, straight to payment. */
 function TemplatePickerCard({
   disabled,
@@ -413,6 +468,20 @@ export default function OnboardingPage() {
   const [genStatus, setGenStatus] = useState<GenStatus | null>(null);
   const [genStalled, setGenStalled] = useState(false);
   const report = genStatus?.report ?? null;
+
+  // Post-build feedback loop (runs through the BUILDER agent on the
+  // freshly built site, so adjustments land before the user ever
+  // leaves onboarding).
+  const [feedbackInput, setFeedbackInput] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackRounds, setFeedbackRounds] = useState<
+    Array<{ wish: string; steps: AgentStep[]; summary?: string; report?: BuildReport; error?: string; working: boolean }>
+  >([]);
+
+  // Domain wish (connected from /manage after payment)
+  const [domainInput, setDomainInput] = useState("");
+  const [domainBusy, setDomainBusy] = useState(false);
+  const [domainResult, setDomainResult] = useState<{ domain: string; available: boolean; price?: number } | null>(null);
 
   // Payment
   const [isYearly, setIsYearly] = useState(false);
@@ -743,6 +812,78 @@ export default function OnboardingPage() {
     await sendMessage("Serveren genstartede — fortsæt med at bygge min hjemmeside, tak.");
   };
 
+  /* ---- Post-build feedback: adjustments via the builder agent ---- */
+  const sendFeedback = async () => {
+    const wish = feedbackInput.trim();
+    if (!wish || feedbackBusy || !websiteId || !token) return;
+    setFeedbackInput("");
+    setFeedbackBusy(true);
+    const roundIndex = feedbackRounds.length;
+    setFeedbackRounds((prev) => [...prev, { wish, steps: [], working: true }]);
+
+    const patchRound = (patch: (r: (typeof feedbackRounds)[number]) => (typeof feedbackRounds)[number]) => {
+      setFeedbackRounds((prev) => prev.map((r, i) => (i === roundIndex ? patch(r) : r)));
+    };
+
+    try {
+      const result = await runAgent({
+        websiteId,
+        accessToken: token,
+        prompt: wish,
+        // Onboarding adjustments are the user's explicit wish — skip the
+        // large-change gate rather than strand them on an approval card.
+        approvedLargeChanges: true,
+        onEvent: (event) => {
+          if (event.type === "tool") {
+            patchRound((r) => ({ ...r, steps: [...r.steps, { label: event.summary, ok: event.ok }] }));
+          } else if (event.type === "note") {
+            patchRound((r) => ({ ...r, steps: [...r.steps, { label: event.text, ok: true }] }));
+          }
+        },
+      });
+      if (result.status === "completed") {
+        patchRound((r) => ({
+          ...r,
+          working: false,
+          summary: result.summary || "Ændringerne er gennemført!",
+          report: result.report as BuildReport | undefined,
+        }));
+      } else if (result.status === "no_changes") {
+        patchRound((r) => ({ ...r, working: false, summary: result.summary || "Ingen ændringer var nødvendige." }));
+      } else {
+        patchRound((r) => ({ ...r, working: false, summary: "Ændringen krævede godkendelse og blev sprunget over — brug editoren bagefter." }));
+      }
+    } catch (error: any) {
+      patchRound((r) => ({ ...r, working: false, error: error.message }));
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
+
+  /* ---- Domain wish ---- */
+  const checkDomain = async () => {
+    const domain = domainInput.trim().toLowerCase();
+    if (!domain || domainBusy || !websiteId || !token) return;
+    setDomainBusy(true);
+    setDomainResult(null);
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/domains/check-availability?domain=${encodeURIComponent(domain)}`,
+        { headers: authHeaders }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Kunne ikke tjekke domænet");
+      setDomainResult({ domain: data.domain ?? domain, available: !!data.available, price: data.price });
+      if (data.available) {
+        await record({ desiredDomain: data.domain ?? domain });
+      }
+    } catch (error: any) {
+      toast({ title: "Domænetjek fejlede", description: error.message, variant: "destructive" });
+    } finally {
+      setDomainBusy(false);
+    }
+  };
+
   /* ---- Payment ---- */
   const handleStartPayment = async () => {
     if (!token) return;
@@ -895,6 +1036,15 @@ export default function OnboardingPage() {
                               disabled={isLoading}
                               onPick={pickUpload}
                             />
+                          )}
+                          {display.kind === "logoGenerated" && (
+                            <LogoCard
+                              url={(display.value as { url: string }).url}
+                              businessName={answers.businessName ?? ""}
+                            />
+                          )}
+                          {display.kind === "sitePlan" && (
+                            <PlanPreviewCard plan={(display.value as { plan: WebsitePlan }).plan} />
                           )}
                         </div>
                       ))}
@@ -1064,14 +1214,142 @@ export default function OnboardingPage() {
               )}
 
               {report ? (
-                <div className="mb-8">
+                <div className="mb-6">
                   <ReportCard report={report} />
                 </div>
               ) : (
-                <Card className="p-6 mb-8 text-sm text-muted-foreground">
+                <Card className="p-6 mb-6 text-sm text-muted-foreground">
                   Dit website er bygget og gemt. Du finder alle detaljer i editoren.
                 </Card>
               )}
+
+              {/* Post-build feedback: adjustments before leaving onboarding */}
+              <Card className="p-4 mb-4" data-testid="feedback-card">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-primary" />
+                  Skal jeg justere noget med det samme?
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Fx "gør forsiden mere rolig", "tilføj et afsnit om priser" eller "flyt kontakt op".
+                </p>
+
+                {feedbackRounds.map((round, i) => (
+                  <div key={i} className="mt-3 rounded-lg border p-3">
+                    <p className="text-xs font-medium">"{round.wish}"</p>
+                    {round.steps.length > 0 && round.working && (
+                      <ol className="mt-1.5 space-y-1 list-none p-0 m-0">
+                        {round.steps.map((step, j) => (
+                          <li key={j} className="flex items-start gap-1.5 text-xs leading-snug">
+                            {step.ok ? (
+                              <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-green-500" />
+                            ) : (
+                              <AlertCircle className="w-3 h-3 mt-0.5 shrink-0 text-amber-500" />
+                            )}
+                            <span className={step.ok ? "text-muted-foreground" : "text-amber-600"}>{step.label}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                    {round.working && (
+                      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Justerer…
+                      </p>
+                    )}
+                    {round.summary && <p className="mt-1.5 text-xs text-muted-foreground">{round.summary}</p>}
+                    {round.error && <p className="mt-1.5 text-xs text-destructive">{round.error}</p>}
+                    {round.report && (
+                      <div className="mt-2">
+                        <ReportCard report={round.report} />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                <div className="mt-3 flex gap-2 items-end">
+                  <Textarea
+                    value={feedbackInput}
+                    onChange={(e) => setFeedbackInput(e.target.value)}
+                    placeholder="Beskriv din justering…"
+                    className="min-h-[44px] max-h-[100px] resize-none text-sm rounded-lg"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        sendFeedback();
+                      }
+                    }}
+                    data-testid="input-feedback"
+                  />
+                  <Button
+                    size="icon"
+                    className="h-[44px] w-[44px] rounded-lg shrink-0"
+                    onClick={sendFeedback}
+                    disabled={!feedbackInput.trim() || feedbackBusy}
+                    data-testid="button-send-feedback"
+                  >
+                    {feedbackBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  </Button>
+                </div>
+              </Card>
+
+              {/* Domain wish: checked now, connected from /manage after payment */}
+              <Card className="p-4 mb-6" data-testid="domain-card">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-primary" />
+                  Skal siden have sit eget domæne?
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Tjek om det er ledigt nu — du køber eller forbinder det under "Indstillinger", når dit
+                  abonnement er aktivt.
+                </p>
+                <div className="mt-2.5 flex gap-2">
+                  <Input
+                    value={domainInput}
+                    onChange={(e) => setDomainInput(e.target.value)}
+                    placeholder="fx dinvirksomhed.dk"
+                    className="h-9 text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        checkDomain();
+                      }
+                    }}
+                    data-testid="input-domain"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 shrink-0"
+                    onClick={checkDomain}
+                    disabled={!domainInput.trim() || domainBusy}
+                    data-testid="button-check-domain"
+                  >
+                    {domainBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Tjek"}
+                  </Button>
+                </div>
+                {domainResult && (
+                  <p
+                    className={`mt-2 text-xs flex items-center gap-1.5 ${
+                      domainResult.available ? "text-green-600 dark:text-green-400" : "text-destructive"
+                    }`}
+                    data-testid="text-domain-result"
+                  >
+                    {domainResult.available ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {domainResult.domain} er ledigt
+                        {typeof domainResult.price === "number" ? ` (~$${domainResult.price}/år)` : ""} — gemt som dit
+                        ønske.
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {domainResult.domain} er optaget — du kan forbinde et domæne, du ejer, under Indstillinger.
+                      </>
+                    )}
+                  </p>
+                )}
+              </Card>
 
               <Button
                 size="lg"

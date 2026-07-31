@@ -596,6 +596,13 @@ export async function registerRoutes(
       logo: z.object({ url: z.string().max(512), mediaId: z.string().max(64) }).optional(),
       ownImageUrls: z.array(z.string().max(512)).max(4).optional(),
       inspirationUrls: z.array(z.string().max(512)).max(3).optional(),
+      desiredDomain: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .max(253)
+        .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/, "Ugyldigt domænenavn")
+        .optional(),
     })
     .strict();
 
@@ -622,6 +629,7 @@ export async function registerRoutes(
       }
 
       if (body.path) patch.path = body.path;
+      if (body.desiredDomain) patch.desiredDomain = body.desiredDomain;
       if (body.palette) patch.palette = body.palette;
       if (body.fontPair) patch.fontPair = body.fontPair;
 

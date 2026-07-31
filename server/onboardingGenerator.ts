@@ -51,6 +51,12 @@ export type OnboardingGenInput = {
   logoMediaId?: string;
   inspirationUrls: string[];
   ownImageUrls: string[];
+  /**
+   * A plan the user already previewed and approved in the walkthrough.
+   * When present, phase 2 builds THIS plan instead of planning again —
+   * what was approved is what gets built.
+   */
+  plan?: WebsitePlan;
 };
 
 // ============ Status registry ============
@@ -239,16 +245,24 @@ async function runPipeline(
   // ---- Phase 2: plan ----
   setPhase(status, "plan", "Planlægger sider, sektioner og indhold…");
   let plan: WebsitePlan | undefined;
-  try {
-    const planResult = await analyzeAndPlanWebsite(buildPlanPrompt(input));
-    if (planResult.success && planResult.plan) {
-      plan = planResult.plan;
-      plan.siteName = input.business.name;
-      plan.designSystem = designSystemFromGuide(plan.designSystem, guide);
-      status.detail = `${plan.pages.length} sider planlagt — bygger nu…`;
+  if (input.plan) {
+    // The user approved this exact plan in the walkthrough preview.
+    plan = structuredClone(input.plan);
+    status.detail = `Bruger den godkendte plan (${plan.pages.length} sider) — bygger nu…`;
+  } else {
+    try {
+      const planResult = await analyzeAndPlanWebsite(buildPlanPrompt(input));
+      if (planResult.success && planResult.plan) {
+        plan = planResult.plan;
+        status.detail = `${plan.pages.length} sider planlagt — bygger nu…`;
+      }
+    } catch (error) {
+      console.error(`[OnboardingGen] Plan failed for ${websiteId}:`, error);
     }
-  } catch (error) {
-    console.error(`[OnboardingGen] Plan failed for ${websiteId}:`, error);
+  }
+  if (plan) {
+    plan.siteName = input.business.name;
+    plan.designSystem = designSystemFromGuide(plan.designSystem, guide);
   }
 
   // ---- Phase 3: build ----

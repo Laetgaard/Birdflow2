@@ -6,7 +6,9 @@ import type { PaletteProposal, FontPairProposal } from "@shared/aiBuilderSchema"
 import { storage } from "./storage";
 import { getOpenAI } from "./openaiClient";
 import { proposePalettes, proposeFontPairs } from "./designInterview";
-import { readObjectImageAsDataUrl } from "./aiImages";
+import { readObjectImageAsDataUrl, generateLogo } from "./aiImages";
+import { analyzeAndPlanWebsite } from "./websiteArchitect";
+import type { WebsitePlan } from "@shared/websitePlanSchema";
 import {
   startOnboardingGeneration,
   isOnboardingGenRunning,
@@ -80,16 +82,18 @@ function buildSystemPrompt(): string {
 ## Forløbet (spring intet over, men følg brugerens tempo)
 1. Virksomheden: navn, branche, og hvad de laver (et par sætninger).
 2. Ønsker: hvad skal siden kunne? (booking, webshop, portfolio, blog, kontaktformular, nyhedsbrev) + frie ønsker.
-3. Materiale (valgfrit): logo, egne billeder, inspirationsbilleder — brug request_upload, og pres aldrig.
+3. Materiale (valgfrit): logo, egne billeder, inspirationsbilleder — brug request_upload, og pres aldrig. Har brugeren intet logo, så tilbyd ÉN gang at lave et med generate_logo.
 4. Følelse: hvordan skal siden føles? (fx "roligt og nordisk").
 5. Farver: kald propose_palettes med følelsen. Brugeren klikker på et kort — valget kommer som deres næste besked.
 6. Typografi: kald propose_font_pairs med følelsen og den valgte palet.
-7. Opsummér alt kort, og når brugeren bekræfter: kald build_site.
+7. Designudkast: kald preview_design, så brugeren ser den konkrete plan (sider, sektioner, designsystem) FØR den lange opbygning. Spørg om noget skal justeres.
+8. Når brugeren godkender udkastet: kald build_site.
 
 ## Regler
 - Gem ALT hvad brugeren fortæller dig med save_answers, i samme tur som de fortæller det.
 - Paletter, skrifttyper og uploads gemmes automatisk, når brugeren klikker — du skal IKKE gengive hex-koder eller URL'er i save_answers.
-- Når du har foreslået paletter eller skrifttyper, AFSLUT din tur (kald finish) — brugerens klik kommer som næste besked.
+- Når du har foreslået paletter, skrifttyper eller et designudkast, AFSLUT din tur (kald finish) — brugerens svar kommer som næste besked.
+- Vil brugeren justere designudkastet, så kald preview_design igen med deres ønsker i adjustments.
 - Efter build_site: sig at du bygger nu, og kald finish. Byg ALDRIG selv videre.
 - Alt er på dansk. Vær konkret, aldrig fyldtekst.
 - Hvis brugeren allerede har svaret på noget (se "Status"), så spørg ikke igen — fortsæt hvor I slap.`;
@@ -104,8 +108,9 @@ function buildStatusContext(ctx: OnboardingAgentContext): string {
     `Følelse: ${a.feeling ?? "?"}`,
     `Palet: ${a.palette ? `"${a.palette.name}" valgt` : "ikke valgt"}`,
     `Skrifttyper: ${a.fontPair ? `"${a.fontPair.name}" valgt` : "ikke valgt"}`,
-    `Logo: ${a.logoUrl ? "uploadet" : "ikke uploadet"}`,
+    `Logo: ${a.logoUrl ? (a.logoGenerated ? "AI-genereret" : "uploadet") : "intet"}`,
     `Egne billeder: ${a.ownImageUrls?.length ?? 0}, inspirationsbilleder: ${a.inspirationUrls?.length ?? 0}`,
+    `Designudkast: ${a.plan ? "godkendelses-klar plan findes" : "ikke lavet endnu"}`,
     `Website oprettet: ${ctx.websiteId ? "ja" : "nej"}`,
   ];
   return `Status på indsamlede svar:\n${lines.join("\n")}`;
@@ -260,6 +265,94 @@ export function buildOnboardingTools(): OnboardingTool[] {
   });
 
   tools.push({
+    name: "generate_logo",
+    description:
+      "Generate a logo for the business with AI (mark + wordmark, brand colours). Offer it ONCE when the " +
+      "user has no logo; only call after they say yes. The result shows inline and is saved automatically.",
+    parameters: z.object({
+      notes: z.string().max(300).optional(),
+    }),
+    run: async ({ notes }, ctx) => {
+      if (!ctx.websiteId) {
+        return { ok: false, error: "Websitet er ikke oprettet endnu — få virksomhedsnavnet først." };
+      }
+      if (!ctx.answers.businessName) {
+        return { ok: false, error: "Jeg mangler virksomhedens navn, før jeg kan lave et logo." };
+      }
+      try {
+        const { url, mediaId } = await generateLogo(ctx.websiteId, ctx.answers.businessName, {
+          feeling: ctx.answers.feeling,
+          primaryColor: ctx.answers.palette?.colors?.primary,
+          accentColor: ctx.answers.palette?.colors?.accent,
+          notes,
+        });
+        // The URL comes from OUR server, not the model — safe to persist.
+        const patch = { logoUrl: url, logoMediaId: mediaId, logoGenerated: true };
+        ctx.answers = { ...ctx.answers, ...patch };
+        await storage.upsertOnboardingSession(ctx.userId, { answers: patch });
+        return {
+          ok: true,
+          summary: "Genererede et logo",
+          data: { url },
+          display: { kind: "logoGenerated", value: { url, businessName: ctx.answers.businessName } },
+        };
+      } catch (err: any) {
+        return { ok: false, error: `Logo-generering fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  tools.push({
+    name: "preview_design",
+    description:
+      "Create the concrete website plan (pages, sections, design system) and show it for approval BEFORE " +
+      "the long build. Call once everything is collected; call again with `adjustments` if the user wants " +
+      "changes. The approved plan is built exactly as shown.",
+    parameters: z.object({
+      adjustments: z.string().max(1000).optional(),
+    }),
+    run: async ({ adjustments }, ctx) => {
+      const a = ctx.answers;
+      if (!a.businessName || !a.description || !a.feeling) {
+        return { ok: false, error: "Saml virksomhed, beskrivelse og følelse, før du laver udkastet." };
+      }
+      try {
+        const goals = a.goals?.join(", ") || "en professionel hjemmeside";
+        const prompt = [
+          `Lav en komplet dansk hjemmeside-plan for "${a.businessName}" (${a.industry || "virksomhed"}).`,
+          `Om virksomheden: ${a.description}`,
+          `Skal kunne: ${goals}.`,
+          a.notes ? `Øvrige ønsker: ${a.notes}` : "",
+          `Følelsen: ${a.feeling}.`,
+          adjustments ? `VIGTIGE JUSTERINGER fra brugeren til forrige udkast: ${adjustments}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const result = await analyzeAndPlanWebsite(prompt);
+        if (!result.success || !result.plan) {
+          return { ok: false, error: result.error ?? "Kunne ikke lave designudkastet" };
+        }
+        const plan = result.plan;
+        plan.siteName = a.businessName;
+        const patch = { plan: plan as unknown };
+        ctx.answers = { ...ctx.answers, ...patch };
+        await storage.upsertOnboardingSession(ctx.userId, { answers: patch });
+        return {
+          ok: true,
+          summary: `Lavede designudkast: ${plan.pages.length} sider`,
+          data: {
+            pages: plan.pages.map((p) => ({ name: p.name, path: p.path, sections: p.sections.length })),
+            tone: plan.designSystem.tone,
+          },
+          display: { kind: "sitePlan", value: { plan } },
+        };
+      } catch (err: any) {
+        return { ok: false, error: `Designudkastet fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  tools.push({
     name: "build_site",
     description:
       "Start building the website from everything collected. Only call when business name, description, " +
@@ -295,6 +388,8 @@ export function buildOnboardingTools(): OnboardingTool[] {
         logoMediaId: a.logoMediaId,
         inspirationUrls: a.inspirationUrls ?? [],
         ownImageUrls: a.ownImageUrls ?? [],
+        // What the user approved in the preview is what gets built.
+        plan: a.plan as WebsitePlan | undefined,
       };
       startOnboardingGeneration(ctx.websiteId!, input);
       ctx.buildStarted = true;
