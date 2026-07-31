@@ -66,6 +66,7 @@ import {
   websitePaymentSettings, type WebsitePaymentSettings, type InsertWebsitePaymentSettings,
   analyticsEvents, type AnalyticsEvent, type InsertAnalyticsEvent,
   type AnalyticsOverview, type FunnelStep, type TrafficSource, type TopPage,
+  type AnalyticsTimeseriesPoint, type CountryVisitors, type LiveVisitorStats, type ManageOverview,
   sanitizeAnalyticsEventData,
   billingLeads, type BillingLead, type InsertBillingLead,
   emailSettings, type EmailSettings, type InsertEmailSettings,
@@ -83,6 +84,7 @@ import {
   type AdminUserSubscription
 } from "@shared/schema";
 import { sql, gte, lte, desc, count, countDistinct, and } from "drizzle-orm";
+import { copenhagenDayRange, fillDailySeries } from "./analytics";
 
 // Use Supabase database as primary storage
 // Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
@@ -298,6 +300,12 @@ export interface IStorage {
   getAdminAnalyticsOverview(startDate: Date, endDate: Date): Promise<AdminAnalyticsOverview>;
   getAdminTrafficSources(startDate: Date, endDate: Date): Promise<AdminTrafficSource[]>;
   getAdminDailyVisitors(startDate: Date, endDate: Date): Promise<AdminDailyVisitors[]>;
+
+  // Website analytics (manage dashboard) methods
+  getAnalyticsTimeseries(websiteId: string, startDate: Date, endDate: Date): Promise<AnalyticsTimeseriesPoint[]>;
+  getLiveVisitors(websiteId: string, windowMinutes?: number): Promise<LiveVisitorStats>;
+  getCountryBreakdown(websiteId: string, startDate: Date, endDate: Date): Promise<CountryVisitors[]>;
+  getManageOverview(websiteId: string): Promise<ManageOverview>;
   
   // Subscription methods
   updateWebsiteAdmin(id: string, data: Partial<InsertWebsite>): Promise<Website | undefined>;
@@ -1225,6 +1233,196 @@ export class DatabaseStorage implements IStorage {
       }))
       .sort((a, b) => b.pageViews - a.pageViews)
       .slice(0, 10);
+  }
+
+  // Website analytics (manage dashboard) methods
+
+  async getAnalyticsTimeseries(websiteId: string, startDate: Date, endDate: Date): Promise<AnalyticsTimeseriesPoint[]> {
+    // Bucket by Copenhagen-local day in SQL so a visit at 00:30 local lands
+    // on the right day. Column is timestamp-without-tz holding UTC instants.
+    const dayExpr = sql<string>`to_char(timezone('Europe/Copenhagen', timezone('UTC', ${analyticsEvents.timestamp})), 'YYYY-MM-DD')`;
+    const rows = await db
+      .select({
+        date: dayExpr,
+        pageViews: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+        visitors: countDistinct(analyticsEvents.sessionId),
+      })
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          gte(analyticsEvents.timestamp, startDate),
+          lte(analyticsEvents.timestamp, endDate)
+        )
+      )
+      .groupBy(dayExpr);
+
+    const normalized = rows.map(r => ({
+      date: r.date,
+      pageViews: Number(r.pageViews) || 0,
+      visitors: Number(r.visitors) || 0,
+    }));
+    return fillDailySeries(normalized, startDate, endDate);
+  }
+
+  async getLiveVisitors(websiteId: string, windowMinutes: number = 5): Promise<LiveVisitorStats> {
+    const since = new Date(Date.now() - windowMinutes * 60 * 1000);
+    const rows = await db
+      .select({
+        country: analyticsEvents.country,
+        visitors: countDistinct(analyticsEvents.sessionId),
+      })
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          gte(analyticsEvents.timestamp, since)
+        )
+      )
+      .groupBy(analyticsEvents.country);
+
+    // A session that sent events with and without a country would be counted
+    // twice across groups; the distinct total below avoids that inflation.
+    const totalRows = await db
+      .select({ total: countDistinct(analyticsEvents.sessionId) })
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          gte(analyticsEvents.timestamp, since)
+        )
+      );
+
+    const byCountry = rows
+      .map(r => ({ country: r.country, visitors: Number(r.visitors) || 0 }))
+      .sort((a, b) => b.visitors - a.visitors);
+
+    return {
+      activeVisitors: Number(totalRows[0]?.total) || 0,
+      byCountry,
+    };
+  }
+
+  async getCountryBreakdown(websiteId: string, startDate: Date, endDate: Date): Promise<CountryVisitors[]> {
+    const rows = await db
+      .select({
+        country: analyticsEvents.country,
+        visitors: countDistinct(analyticsEvents.sessionId),
+        pageViews: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+      })
+      .from(analyticsEvents)
+      .where(
+        and(
+          eq(analyticsEvents.websiteId, websiteId),
+          gte(analyticsEvents.timestamp, startDate),
+          lte(analyticsEvents.timestamp, endDate)
+        )
+      )
+      .groupBy(analyticsEvents.country);
+
+    return rows
+      .map(r => ({
+        country: r.country,
+        visitors: Number(r.visitors) || 0,
+        pageViews: Number(r.pageViews) || 0,
+      }))
+      .sort((a, b) => b.visitors - a.visitors);
+  }
+
+  async getManageOverview(websiteId: string): Promise<ManageOverview> {
+    const now = new Date();
+    const { start: todayStart, end: todayEnd } = copenhagenDayRange(now);
+    const days30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const days7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      todayBookingRows,
+      upcomingRows,
+      orderTodayRows,
+      pendingOrderRows,
+      revenue30Rows,
+      unreadRows,
+      customerRows,
+      traffic7Rows,
+      recentOrderRows,
+      live,
+    ] = await Promise.all([
+      db.select({ n: count() }).from(bookings).where(and(
+        eq(bookings.websiteId, websiteId),
+        gte(bookings.date, todayStart),
+        sql`${bookings.date} < ${todayEnd}`,
+        sql`${bookings.status} != 'cancelled'`
+      )),
+      db.select().from(bookings).where(and(
+        eq(bookings.websiteId, websiteId),
+        gte(bookings.date, todayStart),
+        sql`${bookings.status} != 'cancelled'`
+      )).orderBy(bookings.date).limit(5),
+      db.select({
+        n: count(),
+        revenue: sql<number>`coalesce(sum(${orders.totalAmountCents}) filter (where ${orders.paymentStatus} = 'paid'), 0)`,
+      }).from(orders).where(and(
+        eq(orders.websiteId, websiteId),
+        gte(orders.createdAt, todayStart),
+        sql`${orders.createdAt} < ${todayEnd}`
+      )),
+      db.select({ n: count() }).from(orders).where(and(
+        eq(orders.websiteId, websiteId),
+        eq(orders.status, 'pending')
+      )),
+      db.select({
+        revenue: sql<number>`coalesce(sum(${orders.totalAmountCents}) filter (where ${orders.paymentStatus} = 'paid'), 0)`,
+        currency: sql<string | null>`mode() within group (order by ${orders.currency})`,
+      }).from(orders).where(and(
+        eq(orders.websiteId, websiteId),
+        gte(orders.createdAt, days30)
+      )),
+      db.select({ n: count() }).from(formSubmissions).where(and(
+        eq(formSubmissions.websiteId, websiteId),
+        eq(formSubmissions.read, 'false')
+      )),
+      db.select({ n: count() }).from(customers).where(eq(customers.websiteId, websiteId)),
+      db.select({
+        visitors: countDistinct(analyticsEvents.sessionId),
+        pageViews: sql<number>`count(*) filter (where ${analyticsEvents.eventType} = 'page_view')`,
+      }).from(analyticsEvents).where(and(
+        eq(analyticsEvents.websiteId, websiteId),
+        gte(analyticsEvents.timestamp, days7)
+      )),
+      db.select().from(orders).where(eq(orders.websiteId, websiteId)).orderBy(desc(orders.createdAt)).limit(5),
+      this.getLiveVisitors(websiteId),
+    ]);
+
+    return {
+      todayBookings: Number(todayBookingRows[0]?.n) || 0,
+      upcomingBookings: upcomingRows.map(b => ({
+        id: b.id,
+        customerName: b.customerName,
+        service: b.service,
+        date: b.date instanceof Date ? b.date.toISOString() : String(b.date),
+        time: b.time,
+        status: b.status,
+      })),
+      newOrdersToday: Number(orderTodayRows[0]?.n) || 0,
+      pendingOrders: Number(pendingOrderRows[0]?.n) || 0,
+      revenueTodayCents: Number(orderTodayRows[0]?.revenue) || 0,
+      revenue30dCents: Number(revenue30Rows[0]?.revenue) || 0,
+      currency: revenue30Rows[0]?.currency || 'DKK',
+      unreadSubmissions: Number(unreadRows[0]?.n) || 0,
+      totalCustomers: Number(customerRows[0]?.n) || 0,
+      activeVisitors: live.activeVisitors,
+      visitors7d: Number(traffic7Rows[0]?.visitors) || 0,
+      pageViews7d: Number(traffic7Rows[0]?.pageViews) || 0,
+      recentOrders: recentOrderRows.map(o => ({
+        id: o.id,
+        customerName: o.customerName,
+        totalAmountCents: o.totalAmountCents,
+        currency: o.currency,
+        status: o.status,
+        paymentStatus: o.paymentStatus,
+        createdAt: o.createdAt instanceof Date ? o.createdAt.toISOString() : String(o.createdAt),
+      })),
+    };
   }
 
   // Billing methods

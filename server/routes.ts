@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
+import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange } from "./adminAudit";
 import { isAllowedMediaStoragePath } from "./mediaPaths";
 import { eq, sql } from "drizzle-orm";
@@ -5355,7 +5356,7 @@ export async function registerRoutes(
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     
     try {
-      let { websiteId, sessionId, eventType, pageUrl, trafficSource, deviceType, country, eventData } = req.body;
+      let { websiteId, sessionId, eventType, pageUrl, trafficSource, deviceType, country, eventData, referrer } = req.body;
       
       // If websiteId is missing, try to resolve from referer/origin header
       if (!websiteId) {
@@ -5429,6 +5430,36 @@ export async function registerRoutes(
 
       // Privacy-first: Use centralized sanitization from shared schema
       const sanitizedEventData = sanitizeAnalyticsEventData(eventData);
+
+      // Classify the traffic source server-side. New trackers send the raw
+      // document.referrer (possibly empty = direct); older ones only send a
+      // precomputed trafficSource, which we keep as-is.
+      let pageHost: string | null = null;
+      try {
+        const originHeader = (req.headers.origin || req.headers.referer) as string | undefined;
+        if (originHeader) pageHost = new URL(originHeader).hostname;
+      } catch {
+        pageHost = null;
+      }
+      const utmSource =
+        (typeof sanitizedEventData?.utm_source === "string" ? sanitizedEventData.utm_source : null) ||
+        extractUtmSource(typeof pageUrl === "string" ? pageUrl : null);
+      if (typeof referrer === "string" || utmSource) {
+        trafficSource = classifyTrafficSource({
+          referrer: typeof referrer === "string" ? referrer : null,
+          utmSource,
+          pageHost,
+        });
+      }
+
+      // GDPR: resolve country from the request IP in-process and store only
+      // the ISO 3166-1 alpha-2 code. The IP itself is never persisted.
+      if (typeof country === "string" && country) {
+        country = /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : null;
+      }
+      if (!country) {
+        country = await lookupCountry(getClientIp(req));
+      }
 
       await storage.createAnalyticsEvent({
         websiteId,
@@ -5541,6 +5572,60 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Analytics pages error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Analytics - Daily visits series for the line chart
+  app.get("/api/websites/:id/analytics/timeseries", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      const endDate = new Date();
+      // Align the window start to a Copenhagen calendar day so the first
+      // bucket of the chart is a complete local day.
+      const startDate = copenhagenDayStart(new Date(endDate.getTime() - (days - 1) * 24 * 60 * 60 * 1000));
+
+      const points = await storage.getAnalyticsTimeseries(req.params.id, startDate, endDate);
+      res.json({ points });
+    } catch (error: any) {
+      console.error("Analytics timeseries error:", error);
+      res.status(500).json({ message: "Kunne ikke hente besøgsdata" });
+    }
+  });
+
+  // Analytics - Live visitors right now (distinct sessions, last 5 minutes)
+  app.get("/api/websites/:id/analytics/live", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      const live = await storage.getLiveVisitors(req.params.id);
+      res.json(live);
+    } catch (error: any) {
+      console.error("Analytics live error:", error);
+      res.status(500).json({ message: "Kunne ikke hente live-besøgende" });
+    }
+  });
+
+  // Analytics - Visitors by country for the world map
+  app.get("/api/websites/:id/analytics/countries", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      const endDate = new Date();
+      const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
+
+      const countries = await storage.getCountryBreakdown(req.params.id, startDate, endDate);
+      res.json({ countries });
+    } catch (error: any) {
+      console.error("Analytics countries error:", error);
+      res.status(500).json({ message: "Kunne ikke hente lande-statistik" });
+    }
+  });
+
+  // Manage dashboard - aggregated overview numbers for the home section
+  app.get("/api/websites/:id/manage/overview", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      const overview = await storage.getManageOverview(req.params.id);
+      res.json(overview);
+    } catch (error: any) {
+      console.error("Manage overview error:", error);
+      res.status(500).json({ message: "Kunne ikke hente overblik" });
     }
   });
 

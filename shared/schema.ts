@@ -1032,6 +1032,58 @@ export type TopPage = {
   bounceRate?: number;
 };
 
+// Daily visits series point (dates are YYYY-MM-DD in Europe/Copenhagen)
+export type AnalyticsTimeseriesPoint = {
+  date: string;
+  pageViews: number;
+  visitors: number;
+};
+
+// Visitors per country over a period (country = ISO 3166-1 alpha-2 or null/unknown)
+export type CountryVisitors = {
+  country: string | null;
+  visitors: number;
+  pageViews: number;
+};
+
+// Live visitors = distinct sessions with events in the last few minutes
+export type LiveVisitorStats = {
+  activeVisitors: number;
+  byCountry: Array<{ country: string | null; visitors: number }>;
+};
+
+// Aggregated numbers for the manage Overview home
+export type ManageOverview = {
+  todayBookings: number;
+  upcomingBookings: Array<{
+    id: string;
+    customerName: string;
+    service: string;
+    date: string;
+    time: string | null;
+    status: string;
+  }>;
+  newOrdersToday: number;
+  pendingOrders: number;
+  revenueTodayCents: number;
+  revenue30dCents: number;
+  currency: string;
+  unreadSubmissions: number;
+  totalCustomers: number;
+  activeVisitors: number;
+  visitors7d: number;
+  pageViews7d: number;
+  recentOrders: Array<{
+    id: string;
+    customerName: string;
+    totalAmountCents: number;
+    currency: string;
+    status: string;
+    paymentStatus: string;
+    createdAt: string;
+  }>;
+};
+
 export type CustomerJourney = {
   entryPage: string;
   exitPage: string;

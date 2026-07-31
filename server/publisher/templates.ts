@@ -5665,6 +5665,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+// BirdFlow API endpoint. When configured, events are sent there so the server
+// can classify the traffic source and resolve the visitor's country from the
+// IP (only the ISO country code is stored - never the IP).
+const BIRDFLOW_API_URL = (process.env.NEXT_PUBLIC_BIRDFLOW_API_URL || '').replace(/\\/+$/, '');
+
 function getOrCreateSession(): string {
   if (typeof window === 'undefined') return '';
   
@@ -5723,13 +5728,31 @@ function getDeviceType(): string {
 function sanitizeEventData(data?: Record<string, unknown>): Record<string, unknown> | null {
   if (!data) return null;
   const sanitized: Record<string, unknown> = {};
-  const allowedKeys = ['path', 'productId', 'productName', 'quantity', 'price', 'currency', 'serviceId', 'serviceName', 'orderId', 'bookingId', 'total'];
+  const allowedKeys = ['path', 'productId', 'productName', 'quantity', 'price', 'currency', 'serviceId', 'serviceName', 'orderId', 'bookingId', 'total', 'utm_source', 'utm_medium', 'utm_campaign'];
   for (const key of allowedKeys) {
     if (data[key] !== undefined) {
       sanitized[key] = data[key];
     }
   }
   return Object.keys(sanitized).length > 0 ? sanitized : null;
+}
+
+// Campaign parameters from the current URL, so paid/social/email campaigns
+// are attributed correctly by the server-side classifier.
+function getUtmParams(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const utm: Record<string, string> = {};
+    const keys = ['utm_source', 'utm_medium', 'utm_campaign'];
+    for (let i = 0; i < keys.length; i++) {
+      const value = params.get(keys[i]);
+      if (value) utm[keys[i]] = value;
+    }
+    return utm;
+  } catch {
+    return {};
+  }
 }
 
 export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
@@ -5754,14 +5777,39 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
   const track = useCallback(async (eventType: string, eventData?: Record<string, unknown>) => {
     // Only track if user has accepted cookies
     if (consent !== 'accepted') return;
-    if (!supabase) {
-      console.warn('[Analytics] Supabase not configured');
-      return;
-    }
     
     try {
       const sessionId = getOrCreateSession();
       if (!sessionId || !websiteId) return;
+      
+      const mergedData = sanitizeEventData({ ...(eventData || {}), ...getUtmParams() });
+      
+      if (BIRDFLOW_API_URL) {
+        // Preferred path: the BirdFlow API classifies the traffic source from
+        // the raw referrer and resolves the country server-side.
+        await fetch(BIRDFLOW_API_URL + '/api/public/analytics/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            websiteId,
+            sessionId,
+            eventType,
+            pageUrl: typeof window !== 'undefined' ? window.location.pathname : null,
+            referrer: typeof document !== 'undefined' ? document.referrer : '',
+            deviceType: getDeviceType(),
+            eventData: mergedData,
+          }),
+          keepalive: true,
+        });
+        return;
+      }
+      
+      // Fallback for sites published without an API URL: direct insert with
+      // client-side source classification (no country available).
+      if (!supabase) {
+        console.warn('[Analytics] Supabase not configured');
+        return;
+      }
       
       const { error } = await supabase.from('analytics_events').insert({
         website_id: websiteId,
@@ -5770,7 +5818,7 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
         page_url: typeof window !== 'undefined' ? window.location.pathname : null,
         traffic_source: getTrafficSource(),
         device_type: getDeviceType(),
-        event_data: sanitizeEventData(eventData),
+        event_data: mergedData,
       });
       
       if (error) {
