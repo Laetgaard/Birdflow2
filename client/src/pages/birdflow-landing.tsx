@@ -103,6 +103,42 @@ function RevealOnView({
   );
 }
 
+/** Renders an image from /public; falls back to the provided artwork until the
+    file exists (drop the file in client/public and the photo appears). */
+function ImgWithFallback({
+  src,
+  alt,
+  className,
+  style,
+  fallback,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: CSSProperties;
+  fallback: ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  if (failed) return <>{fallback}</>;
+  // The image is always in layout (no display:none) so it actually loads; the
+  // fallback simply renders behind it until the real pixels paint over. Every
+  // usage positions both absolutely over the same box, so they overlap cleanly.
+  return (
+    <>
+      {!loaded && fallback}
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        style={style}
+        onError={() => setFailed(true)}
+        onLoad={() => setLoaded(true)}
+      />
+    </>
+  );
+}
+
 /* ─────────── the Birdflow bird ─────────── */
 
 const BIRD_PATH =
@@ -252,6 +288,19 @@ function PortraitArt({ className }: { className?: string }) {
         opacity="0.5"
       />
     </svg>
+  );
+}
+
+/** Image inside the example practice-site mockups. Drop a photo at
+    client/public/landing/klinik.jpg to replace the illustrated placeholder. */
+function PortraitSlot({ className }: { className?: string }) {
+  return (
+    <ImgWithFallback
+      src="/landing/klinik.png"
+      alt=""
+      className={`${className ?? ""} object-cover`}
+      fallback={<PortraitArt className={className} />}
+    />
   );
 }
 
@@ -628,7 +677,7 @@ function Hero() {
                     className="relative h-[200px] lg:h-[270px] overflow-hidden"
                     style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
                   >
-                    <PortraitArt className="absolute inset-0 w-full h-full" />
+                    <PortraitSlot className="absolute inset-0 w-full h-full" />
                   </div>
                 </div>
               </div>
@@ -876,7 +925,7 @@ function JourneySiteCard() {
               className="relative h-[140px] sm:h-[196px] overflow-hidden"
               style={{ borderRadius: "999px 999px 12px 12px", background: "#EDE6D8" }}
             >
-              <PortraitArt className="absolute inset-0 w-full h-full" />
+              <PortraitSlot className="absolute inset-0 w-full h-full" />
             </div>
           </div>
         </div>
@@ -1418,7 +1467,14 @@ function CloudScene({ lifted, showFinale }: { lifted: boolean; showFinale: boole
         }}
       />
       <div className="relative w-full h-full" style={{ animation: "bf2Float 9s ease-in-out -3s infinite" }}>
-        <CloudManArt className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[86%] max-w-[520px] h-auto" />
+        <ImgWithFallback
+          src="/landing/cloud-man.png"
+          alt=""
+          className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[74%] max-w-[460px] h-auto"
+          fallback={
+            <CloudManArt className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[86%] max-w-[520px] h-auto" />
+          }
+        />
         <Bird
           className="absolute left-[21%] bottom-[13%] w-[42px] h-[34px]"
           style={{
@@ -1972,7 +2028,7 @@ function EditorMockup() {
                     className="relative h-[180px] lg:h-[238px] overflow-hidden"
                     style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
                   >
-                    <PortraitArt className="absolute inset-0 w-full h-full" />
+                    <PortraitSlot className="absolute inset-0 w-full h-full" />
                   </div>
                   <div
                     className="absolute -left-3.5 bottom-3 bg-white rounded-[9px] px-3 py-2"
@@ -2632,7 +2688,7 @@ function WorkspaceMockup() {
                   className="relative h-[150px] lg:h-[186px] overflow-hidden"
                   style={{ borderRadius: "999px 999px 12px 12px", background: "#EDE6D8" }}
                 >
-                  <PortraitArt className="absolute inset-0 w-full h-full" />
+                  <PortraitSlot className="absolute inset-0 w-full h-full" />
                 </div>
               </div>
             </div>
@@ -2828,106 +2884,6 @@ function Process() {
 
 /* ─────────── 07 · AMALIE CASE ─────────── */
 
-/** Stylised preview of Amalie's practice site (stands in for a live screenshot) */
-function AmalieSiteArt() {
-  return (
-    <div style={{ background: "#F7F3EC", fontFamily: "Georgia, serif", color: "#33302B" }}>
-      <div className="flex items-center gap-3 px-5 lg:px-7 py-3.5 border-b" style={{ borderColor: "rgba(51,48,43,0.09)" }}>
-        <span className="text-[14px] lg:text-[15px] font-semibold whitespace-nowrap">
-          Amalie Veber{" "}
-          <span className="italic text-[11.5px]" style={{ color: "rgba(51,48,43,0.55)" }}>· Psykolog</span>
-        </span>
-        <span
-          className="ml-auto hidden sm:flex gap-3.5 text-[10.5px] font-bold"
-          style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(51,48,43,0.6)" }}
-        >
-          <span>Terapi</span><span>Om mig</span><span>Priser</span><span>Kontakt</span>
-        </span>
-        <span
-          className="ml-auto sm:ml-0 text-[10.5px] font-extrabold rounded-full px-3.5 py-[7px] whitespace-nowrap"
-          style={{ fontFamily: "'Nunito', sans-serif", color: "#F7F3EC", background: "#5F7263" }}
-        >
-          Book en samtale
-        </span>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.9fr] gap-6 px-5 lg:px-7 py-7 lg:py-9 items-center">
-        <div>
-          <p
-            className="m-0 text-[9px] lg:text-[10px] font-extrabold tracking-[0.18em]"
-            style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(51,48,43,0.5)" }}
-          >
-            AUTORISERET PSYKOLOG · ROSKILDE
-          </p>
-          <p className="mt-3.5 mb-0 text-[24px] lg:text-[30px] leading-[1.25] max-w-[320px]">
-            Ro til at finde fodfæste igen.
-          </p>
-          <p className="mt-3.5 mb-0 text-[12.5px] lg:text-[13.5px] leading-[1.65] max-w-[320px]" style={{ color: "rgba(51,48,43,0.72)" }}>
-            Samtaleterapi for voksne — ved stress, angst, sorg og livets overgange. I trygge rammer
-            i Roskilde eller online.
-          </p>
-          <div className="flex items-center gap-4 mt-5 flex-wrap">
-            <span
-              className="text-[12px] font-extrabold rounded-full px-[18px] py-2.5"
-              style={{ fontFamily: "'Nunito', sans-serif", color: "#F7F3EC", background: "#5F7263" }}
-            >
-              Book en indledende samtale
-            </span>
-            <span className="italic text-[12px] pb-px" style={{ color: "#C4756B", borderBottom: "1px solid rgba(196,117,107,0.5)" }}>
-              Læs om terapien
-            </span>
-          </div>
-        </div>
-        <div className="relative pt-2 pr-2 max-w-[230px] sm:max-w-none mx-auto sm:mx-0 w-full">
-          <svg viewBox="0 0 200 200" className="absolute -right-5 -top-5 w-[110px] h-auto" aria-hidden="true">
-            <circle cx="100" cy="100" r="96" fill="none" stroke="#C4756B" strokeWidth="1.4" opacity="0.5" />
-            <circle cx="100" cy="100" r="70" fill="none" stroke="#5F7263" strokeWidth="1.4" opacity="0.4" />
-          </svg>
-          <div
-            className="absolute -right-2 -top-[2px] w-[84%] h-[97%]"
-            style={{ borderRadius: "999px 999px 16px 16px", background: "#E7DECF" }}
-          />
-          <div
-            className="relative h-[210px] lg:h-[250px] overflow-hidden"
-            style={{ borderRadius: "999px 999px 14px 14px", background: "#EFE8DA" }}
-          >
-            <PortraitArt className="absolute inset-0 w-full h-full" />
-          </div>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 border-t" style={{ borderColor: "rgba(51,48,43,0.09)" }}>
-        {[
-          ["Individuel terapi", "50 min. · Roskilde & online"],
-          ["Stress & udbrændthed", "Forløb med fast struktur"],
-          ["Sorg & kriser", "Støtte når livet ændrer sig"],
-        ].map(([t, s], i) => (
-          <div
-            key={t}
-            className={`px-5 lg:px-6 py-3.5 ${i < 2 ? "border-b sm:border-b-0 sm:border-r" : ""}`}
-            style={{ borderColor: "rgba(51,48,43,0.08)" }}
-          >
-            <p className="m-0 text-[13px] lg:text-[13.5px] font-bold">{t}</p>
-            <p className="mt-[3px] mb-0 text-[10px] lg:text-[10.5px] font-bold" style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(51,48,43,0.55)" }}>
-              {s}
-            </p>
-          </div>
-        ))}
-      </div>
-      <div
-        className="flex items-center gap-2 px-5 lg:px-7 py-3 border-t"
-        style={{ borderColor: "rgba(51,48,43,0.09)", fontFamily: "'Nunito', sans-serif" }}
-      >
-        <Bird className="w-3.5 h-3" style={{ color: PURPLE }} />
-        <span className="text-[10px] font-extrabold" style={{ color: PURPLE }}>
-          Bygget med Birdflow
-        </span>
-        <span className="ml-auto text-[10px] font-bold" style={{ color: "rgba(51,48,43,0.5)" }}>
-          psykologamalieveber.laet.dk
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function CaseStudy() {
   const [fullQuote, setFullQuote] = useState(false);
   return (
@@ -2935,23 +2891,13 @@ function CaseStudy() {
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-[90px] lg:pb-[130px]">
         <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-10 lg:gap-14 items-center">
           <RevealOnView className="order-2 lg:order-1">
-            <div
-              className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
-              style={{ boxShadow: "0 30px 70px rgba(20,5,40,0.16)" }}
-            >
-              <div className="flex items-center gap-[5px] px-4 py-2.5 border-b border-black/[0.07]">
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span
-                  className="mx-auto text-[10.5px] font-bold rounded-md px-4 sm:px-6 py-1 truncate"
-                  style={{ color: "rgba(0,0,0,0.45)", background: "rgba(0,0,0,0.045)" }}
-                >
-                  psykologamalieveber.laet.dk
-                </span>
-              </div>
-              <AmalieSiteArt />
-            </div>
+            <img
+              src="/landing/amalie-mockup.webp"
+              alt="Amalie Vebers hjemmeside på laptop og mobil, bygget med Birdflow"
+              className="block w-full max-w-[560px] mx-auto lg:max-w-none h-auto"
+              style={{ mixBlendMode: "multiply" }}
+              loading="lazy"
+            />
           </RevealOnView>
           <RevealOnView delay={0.1} className="order-1 lg:order-2">
             <span
