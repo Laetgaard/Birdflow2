@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import type { BuilderStateData } from '../../shared/schema';
+import { sanitizeBuilderStateCustomContent } from '../../shared/customComponents';
 import type { ThemeConfig } from '../../shared/rendering/types';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
@@ -212,7 +213,11 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     // Replace URLs in builder state
     processedBuilderState = replaceObjectStorageUrls(builderState, urlMappings) as BuilderStateData;
   }
-  
+
+  // Defense in depth: strip unsafe SVG markup from custom components even if
+  // an unsanitized tree made it into the stored state.
+  processedBuilderState = sanitizeBuilderStateCustomContent(processedBuilderState);
+
   const globalStyles = processedBuilderState.globalStyles || {};
   const theme: ThemeConfig = {
     primaryColor: globalStyles.primaryColor || '#4f46e5',

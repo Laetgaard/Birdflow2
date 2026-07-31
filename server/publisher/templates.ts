@@ -2195,6 +2195,7 @@ type ComponentProps = {
   showCart?: boolean | string;
   gap?: string;
   children?: string[];
+  customTree?: any;
   [key: string]: any; // Allow additional properties
 };
 
@@ -4403,6 +4404,209 @@ function ContainerSection({ props, styles }: { props: ComponentProps; styles: Co
   );
 }
 
+// ============ Custom components (primitive node trees) ============
+// Mirrors the builder's CustomComponentRenderer: base styles apply always,
+// tabletStyles <= 1024px, mobileStyles <= 640px. All SVG markup is
+// sanitized server-side before the site is generated.
+
+type PrimitiveNode = {
+  id: string;
+  type: 'box' | 'text' | 'image' | 'button' | 'svg';
+  name?: string;
+  styles?: Record<string, string>;
+  tabletStyles?: Record<string, string>;
+  mobileStyles?: Record<string, string>;
+  text?: string;
+  tag?: string;
+  src?: string;
+  alt?: string;
+  label?: string;
+  href?: string;
+  variant?: string;
+  svg?: string;
+  children?: PrimitiveNode[];
+};
+
+function toKebabCase(key: string): string {
+  return key.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase());
+}
+
+function nodeClassName(node: PrimitiveNode): string {
+  return 'pn-' + String(node.id).replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function customButtonBaseStyles(variant?: string): Record<string, string> {
+  const primary = theme.primaryColor || '#4f46e5';
+  const secondary = (theme as any).secondaryColor || '#06b6d4';
+  const radius = (theme as any).borderRadius || '8px';
+  const base: Record<string, string> = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '12px 24px',
+    borderRadius: radius,
+    fontWeight: '600',
+    fontSize: '15px',
+    lineHeight: '1.2',
+    textDecoration: 'none',
+    border: '2px solid transparent',
+    cursor: 'pointer',
+    transition: 'opacity 0.15s ease, transform 0.15s ease',
+  };
+  switch (variant) {
+    case 'secondary':
+      return { ...base, backgroundColor: secondary, color: '#ffffff' };
+    case 'outline':
+      return { ...base, backgroundColor: 'transparent', color: primary, borderColor: primary };
+    case 'ghost':
+      return { ...base, backgroundColor: 'transparent', color: primary };
+    case 'link':
+      return { ...base, backgroundColor: 'transparent', color: primary, padding: '0', textDecoration: 'underline' };
+    default:
+      return { ...base, backgroundColor: primary, color: '#ffffff' };
+  }
+}
+
+// Defaults merged under user styles so per-node overrides always win.
+function customNodeBaseStyles(node: PrimitiveNode): Record<string, string> {
+  switch (node.type) {
+    case 'box':
+      return { display: 'flex', flexDirection: 'column', ...(node.styles || {}) };
+    case 'text':
+      return { margin: '0', ...(node.styles || {}) };
+    case 'image':
+      return { display: 'block', maxWidth: '100%', ...(node.styles || {}) };
+    case 'button':
+      return { ...customButtonBaseStyles(node.variant), ...(node.styles || {}) };
+    case 'svg':
+      return { display: 'block', lineHeight: '0', ...(node.styles || {}) };
+    default:
+      return node.styles || {};
+  }
+}
+
+// Defense in depth: state is sanitized server-side before generation, but
+// the emitter still refuses any key/value that could escape a CSS rule.
+const SAFE_STYLE_KEY = /^[a-zA-Z]+$/;
+
+function safeStyleValue(value: unknown): string | null {
+  if (value == null) return null;
+  const str = String(value).trim();
+  if (!str || str.length > 300) return null;
+  if (/[<>{}@;]/.test(str)) return null;
+  if (str.indexOf('\\\\') >= 0) return null;
+  if (/expression\\s*\\(|javascript:/i.test(str)) return null;
+  return str;
+}
+
+function customStyleBlock(selector: string, styles?: Record<string, string>): string {
+  if (!styles) return '';
+  const decls: string[] = [];
+  for (const [k, v] of Object.entries(styles)) {
+    if (!SAFE_STYLE_KEY.test(k)) continue;
+    const val = safeStyleValue(v);
+    if (val == null) continue;
+    decls.push(toKebabCase(k) + ':' + val + ';');
+  }
+  if (!decls.length) return '';
+  return selector + '{' + decls.join('') + '}';
+}
+
+function collectCustomCss(node: PrimitiveNode, base: string[], tablet: string[], mobile: string[]) {
+  const cls = '.' + nodeClassName(node);
+  const b = customStyleBlock(cls, customNodeBaseStyles(node));
+  if (b) base.push(b);
+  const t = customStyleBlock(cls, node.tabletStyles);
+  if (t) tablet.push(t);
+  const m = customStyleBlock(cls, node.mobileStyles);
+  if (m) mobile.push(m);
+  (node.children || []).forEach((child) => collectCustomCss(child, base, tablet, mobile));
+}
+
+function fitCustomSvg(svg: string): string {
+  const rootMatch = svg.match(/^<svg\\b[^>]*>/i);
+  if (!rootMatch) return svg;
+  if (/style="/i.test(rootMatch[0])) {
+    return svg.replace(/^(<svg\\b[^>]*?)style="([^"]*)"/i, '$1style="$2;width:100%;height:100%;display:block"');
+  }
+  return svg.replace(/^<svg\\b/i, '<svg style="width:100%;height:100%;display:block"');
+}
+
+const CUSTOM_TEXT_TAGS = ['h1', 'h2', 'h3', 'h4', 'p', 'span', 'blockquote'];
+
+function safeCustomHref(href?: string): string {
+  if (!href) return '#';
+  const t = href.trim();
+  if (!t || t.length > 2000) return '#';
+  if (/[\\u0000-\\u001f\\u007f<>"']/.test(t)) return '#';
+  if (t.charAt(0) === '#' || t.charAt(0) === '?') return t;
+  if (t.slice(0, 2) === '//') return '#';
+  if (t.charAt(0) === '/' || t.slice(0, 2) === './' || t.slice(0, 3) === '../') return t;
+  if (/^(https?:|mailto:|tel:)/i.test(t)) return t;
+  const colon = t.indexOf(':');
+  if (colon === -1) return t;
+  const slash = t.indexOf('/');
+  if (slash !== -1 && colon > slash) return t;
+  return '#';
+}
+
+function CustomNode({ node }: { node: PrimitiveNode }) {
+  const cls = nodeClassName(node);
+  switch (node.type) {
+    case 'box':
+      return (
+        <div className={cls}>
+          {(node.children || []).map((child) => (
+            <CustomNode key={child.id} node={child} />
+          ))}
+        </div>
+      );
+    case 'text': {
+      const rawTag = node.tag || 'p';
+      const Tag = (CUSTOM_TEXT_TAGS.indexOf(rawTag) >= 0 ? rawTag : 'p') as any;
+      return <Tag className={cls}>{node.text || ''}</Tag>;
+    }
+    case 'image': {
+      const src = node.src ? safeCustomHref(node.src) : '';
+      if (!src || src === '#') return null;
+      return <img className={cls} src={src} alt={node.alt || ''} />;
+    }
+    case 'button':
+      return (
+        <a className={cls} href={safeCustomHref(node.href)}>
+          {node.label || ''}
+        </a>
+      );
+    case 'svg':
+      if (!node.svg) return null;
+      return <div className={cls} dangerouslySetInnerHTML={{ __html: fitCustomSvg(node.svg) }} />;
+    default:
+      return null;
+  }
+}
+
+function CustomComponentSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const tree = props.customTree as PrimitiveNode | undefined;
+  if (!tree) return null;
+
+  const base: string[] = [];
+  const tablet: string[] = [];
+  const mobile: string[] = [];
+  collectCustomCss(tree, base, tablet, mobile);
+
+  let css = base.join('\\n');
+  if (tablet.length) css += '\\n@media (max-width: 1024px){' + tablet.join('') + '}';
+  if (mobile.length) css += '\\n@media (max-width: 640px){' + mobile.join('') + '}';
+
+  return (
+    <section style={{ backgroundColor: (styles.backgroundColor as string) || 'transparent', padding: (styles.padding as string) || '0px' }}>
+      {css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null}
+      <CustomNode node={tree} />
+    </section>
+  );
+}
+
 export default function ComponentRenderer({ component, products = [], pages = [] }: { component: ComponentData; products?: any[]; pages?: BuilderPage[] }) {
   const renderComponent = () => {
     switch (component.type) {
@@ -4464,6 +4668,8 @@ export default function ComponentRenderer({ component, products = [], pages = []
         return <RichTextSection props={component.props} styles={component.styles} />;
       case 'container':
         return <ContainerSection props={component.props} styles={component.styles} />;
+      case 'custom':
+        return <CustomComponentSection props={component.props} styles={component.styles} />;
       default:
         return null;
     }

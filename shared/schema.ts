@@ -2,6 +2,9 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { CustomComponentEntry, BrandGuide } from "./customComponents";
+
+export type { CustomComponentEntry, BrandGuide } from "./customComponents";
 
 // Platform subscription plans
 export type PlatformPlanSlug = 'basic' | 'starter' | 'professional';
@@ -319,6 +322,10 @@ export type BuilderStateData = {
   bookingConfig?: BookingConfig;
   checkoutConfig?: CheckoutConfig;
   productGridConfig?: ProductGridConfig;
+  /** Per-website library of reusable components ("Mine komponenter"). */
+  customComponents?: CustomComponentEntry[];
+  /** Per-website brand guide (drives the Brand tab and AI grounding). */
+  brandGuide?: BrandGuide;
 };
 
 // Builder state table

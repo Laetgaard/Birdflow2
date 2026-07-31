@@ -38,6 +38,12 @@ The `shared/` directory centralizes database schemas, Zod validation schemas, Ty
 ### Component System
 A registry-based component system for the website builder defining 20 component types with editable properties. Includes a `ComponentRenderer` and `PropertiesPanel`. Per-component entrance animations are configurable with triggers and duration.
 
+### Custom Components (Egne komponenter)
+User-built components stored as data trees of primitive nodes (box/text/image/button/svg) defined in `shared/customComponents.ts` — never runtime-compiled code. The tree lives in `ComponentProps.customTree` on components of type `custom`; reusable copies are saved to `builderState.customComponents` as library entries ("Mine komponenter" in the palette) and deep-cloned with fresh node ids on insert. Any section can also be saved to the library. Per-breakpoint styling cascades base `styles` → `tabletStyles` (≤1024px) → `mobileStyles` (≤640px). The builder edits trees via `CustomComponentEditor` (layer tree, element editors, per-device style fields) and `CustomComponentRenderer` (canvas rendering, node selection, inline text editing via `node:<id>:<field>` editing fields). Published sites render trees with per-node CSS classes (`pn-<id>`) plus media queries generated inside the Next.js ComponentRenderer template. SVG markup is sanitized with the allowlist-based `shared/svgSanitizer.ts` at three points: builder save (PATCH route), builder render, and publish generation.
+
+### Brand Guide
+Per-website brand guide persisted at `builderState.brandGuide` (types in `shared/customComponents.ts`): colors (primary/secondary/accent/background/surface/text), typography (heading/body font + scale), logo, imagery style + notes, tone of voice + keywords, and spacing/radius/shadow/motion levels. Edited in the builder's "Brand" tab (`BrandGuidePanel`); "Anvend på hjemmesiden" maps the guide onto global styles via `brandGuideToDesignTokens()`.
+
 ### AI Builder Assistant
 AI-powered website modification through structured JSON mutations supporting "Build Mode", "Thinking Mode", and "Design Analysis Mode". It includes "Creative Mode" (full CSS freedom) and "Safe Mode" (restricted styling), along with undo/redo functionality. Mutations cover components, pages, global styles, style presets, and section-based composition. Professional UI/UX capabilities include a Design Tokens System, 5 Style Presets, and a Section Registry (15 types with variants) for rapid page creation. AI Design Analysis scores design quality and provides recommendations.
 

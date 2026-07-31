@@ -1,4 +1,7 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container' | 'custom';
+
+import type { PrimitiveNode } from './customComponents';
+import { createDefaultCustomTree } from './customComponents';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text' | 'boolean';
 
@@ -319,6 +322,9 @@ export const editableTextFields: Record<ComponentType, string[]> = {
   'timeline': ['title'],
   'services': ['title', 'subtitle'],
   'container': [],
+  // Custom components edit text via node paths (node:<nodeId>:<field>),
+  // not via this registry map.
+  'custom': [],
 };
 
 export type FieldDefinition = {
@@ -449,6 +455,9 @@ export type ComponentProps = {
   styledTitle?: StyledText;
   styledSubtitle?: StyledText;
   styledDescription?: StyledText;
+  // Custom component: tree of primitive nodes (data, never code).
+  // See shared/customComponents.ts
+  customTree?: PrimitiveNode;
   // Product detail props
   showReviews?: boolean;
   showRelated?: boolean;
@@ -1600,6 +1609,22 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'maxWidth', label: 'Max Width', type: 'select', group: 'style', options: ['100%', '800px', '1000px', '1200px', '1400px'] },
     ],
   },
+  custom: {
+    type: 'custom',
+    name: 'Egen komponent',
+    icon: 'puzzle',
+    defaultProps: {},
+    defaultStyles: {
+      backgroundColor: 'transparent',
+      padding: '0px',
+    },
+    // Content editing happens in the dedicated node editor; only
+    // section-level style fields are exposed through the generic panel.
+    fields: [
+      { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '0px' },
+    ],
+  },
 };
 
 export function getComponentDefinition(type: ComponentType): ComponentDefinition {
@@ -1607,15 +1632,23 @@ export function getComponentDefinition(type: ComponentType): ComponentDefinition
 }
 
 export function getComponentTypes(): ComponentType[] {
-  return Object.keys(componentRegistry) as ComponentType[];
+  // 'custom' is excluded from the generic palette — custom components are
+  // inserted from the per-website library ("Mine komponenter") or created
+  // blank via the dedicated affordance in the builder.
+  return (Object.keys(componentRegistry) as ComponentType[]).filter((t) => t !== 'custom');
 }
 
 export function createComponent(type: ComponentType): BuilderComponentData {
   const def = componentRegistry[type];
+  const props = { ...def.defaultProps };
+  // Each custom component instance gets its own fresh node tree (unique ids)
+  if (type === 'custom' && !props.customTree) {
+    props.customTree = createDefaultCustomTree();
+  }
   return {
     id: Math.random().toString(36).substring(2, 9),
     type,
-    props: { ...def.defaultProps },
+    props,
     styles: { ...def.defaultStyles },
   };
 }

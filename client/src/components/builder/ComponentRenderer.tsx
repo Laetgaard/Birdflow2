@@ -4,6 +4,7 @@ import { editableTextFields, type ComponentType } from '@shared/componentRegistr
 import BookingWidget from './BookingWidget';
 import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
 import ImageResizer from './ImageResizer';
+import CustomComponentRenderer from './CustomComponentRenderer';
 
 function getStyledTextStyle(styledText: StyledText | undefined, defaultStyle?: React.CSSProperties): React.CSSProperties {
   if (!styledText) return defaultStyle || {};
@@ -374,6 +375,9 @@ type RenderProps = {
   deviceMode?: DeviceMode;
   onComponentClick?: (componentId: string) => void;
   globalStyles?: GlobalStyles;
+  /** Node selection inside custom components (primitive node trees). */
+  selectedNodeId?: string | null;
+  onNodeSelect?: (nodeId: string | null) => void;
 };
 
 type EditableTextProps = {
@@ -4008,7 +4012,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles }: RenderProps) {
+export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect }: RenderProps) {
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -4124,6 +4128,22 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
         return <ServicesComponent {...commonProps} />;
       case 'container':
         return <ContainerComponent {...commonProps} allComponents={allComponents} onComponentClick={onComponentClick} />;
+      case 'custom':
+        return (
+          <CustomComponentRenderer
+            component={component}
+            isSelected={isSelected}
+            onClick={handleClick}
+            isPreview={isPreview}
+            deviceMode={deviceMode}
+            selectedNodeId={selectedNodeId}
+            onNodeSelect={onNodeSelect}
+            onTextChange={onTextChange as ((field: string, value: string) => void) | undefined}
+            editingField={editingField}
+            onEditField={onEditField}
+            globalStyles={globalStyles}
+          />
+        );
       default:
         return null;
     }

@@ -789,6 +789,9 @@ function expandSectionToComponents(
 
   // Generate components for required component types
   for (const componentType of blueprint.requiredComponents) {
+    // Custom components are user-built primitive trees; section blueprints
+    // never generate them (AI generation of custom trees is a separate flow).
+    if (componentType === 'custom') continue;
     const componentDef = componentRegistry[componentType];
     if (!componentDef) continue;
 

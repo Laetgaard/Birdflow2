@@ -20,7 +20,8 @@ import {
   Settings, LogOut, Sparkles,
   Monitor, Tablet, Smartphone, Plus, Layout, Image,
   Type, MousePointer, ChevronRight, User, FileText, X, Pencil, Trash2, ShoppingBag,
-  Undo2, Redo2, Menu, PanelRightClose, PanelRight, ExternalLink, Link2
+  Undo2, Redo2, Menu, PanelRightClose, PanelRight, ExternalLink, Link2,
+  Puzzle, BookmarkPlus, Palette, MoreVertical
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -51,6 +52,17 @@ import {
   type ComponentStyles
 } from "@shared/componentRegistry";
 import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext } from "@shared/schema";
+import {
+  cloneLibrarySource,
+  clonePrimitiveTree,
+  createDefaultBrandGuide,
+  brandGuideToDesignTokens,
+  generateLibraryEntryId,
+  updatePrimitiveNode,
+  type CustomComponentEntry,
+  type PrimitiveNode,
+} from "@shared/customComponents";
+import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
@@ -127,7 +139,15 @@ export default function BuilderPage() {
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
   const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai">("components");
+  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai" | "brand">("components");
+  // Node selection inside custom components (primitive node trees)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Custom component library dialogs
+  const [saveComponentOpen, setSaveComponentOpen] = useState(false);
+  const [saveComponentName, setSaveComponentName] = useState("");
+  const [renameEntry, setRenameEntry] = useState<CustomComponentEntry | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
   const [device, setDevice] = useState<DeviceType>('desktop');
   const [pageDialogOpen, setPageDialogOpen] = useState(false);
   const [editingPage, setEditingPage] = useState<BuilderPage | null>(null);
@@ -354,6 +374,16 @@ export default function BuilderPage() {
       props: { ...originalComponent.props },
       styles: { ...originalComponent.styles },
     };
+
+    // Custom trees need fresh node ids — published sites emit per-node CSS
+    // classes, so shared ids across duplicates would make their styles collide.
+    const customTree = (duplicatedComponent.props as { customTree?: PrimitiveNode }).customTree;
+    if (customTree) {
+      duplicatedComponent.props = {
+        ...duplicatedComponent.props,
+        customTree: clonePrimitiveTree(customTree),
+      };
+    }
 
     const newComponents = [...activePage.components];
     newComponents.splice(componentIndex + 1, 0, duplicatedComponent);
@@ -729,11 +759,26 @@ export default function BuilderPage() {
           page.id === prev.activePage
             ? {
                 ...page,
-                components: page.components.map(comp =>
-                  comp.id === componentId
-                    ? { ...comp, props: updateNested(comp.props, field, value) }
-                    : comp
-                ),
+                components: page.components.map(comp => {
+                  if (comp.id !== componentId) return comp;
+                  // Inline edits inside custom components address primitive
+                  // nodes by id: field format "node:<nodeId>:<text|label>"
+                  if (field.startsWith('node:')) {
+                    const [, nodeId, nodeKey] = field.split(':');
+                    const tree = comp.props.customTree;
+                    if (!tree || !nodeId) return comp;
+                    const textValue = typeof value === 'string' ? value : ((value as any)?.text ?? '');
+                    const key = nodeKey === 'label' ? 'label' : 'text';
+                    return {
+                      ...comp,
+                      props: {
+                        ...comp.props,
+                        customTree: updatePrimitiveNode(tree, nodeId, (n) => ({ ...n, [key]: textValue })),
+                      },
+                    };
+                  }
+                  return { ...comp, props: updateNested(comp.props, field, value) };
+                }),
               }
             : page
         ),
@@ -786,6 +831,75 @@ export default function BuilderPage() {
     const activePage = builderState.pages.find(p => p.id === builderState.activePage);
     return activePage?.components.find(c => c.id === selectedComponentId) || null;
   })();
+
+  // Clear node selection whenever the selected component changes
+  useEffect(() => {
+    setSelectedNodeId(null);
+  }, [selectedComponentId]);
+
+  // ============ Custom component library ("Mine komponenter") ============
+
+  const insertLibraryEntry = useCallback((entry: CustomComponentEntry) => {
+    if (!builderState) return;
+    const instance = cloneLibrarySource(entry.source);
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map(page =>
+        page.id === builderState.activePage
+          ? { ...page, components: [...page.components, instance] }
+          : page
+      ),
+    };
+    updateStateWithHistory(newState, `Indsæt komponent: ${entry.name}`);
+    setSelectedComponentId(instance.id);
+    setSidebarTab("properties");
+  }, [builderState, updateStateWithHistory]);
+
+  const saveSelectionAsComponent = () => {
+    if (!builderState || !selectedComponent) return;
+    const name = saveComponentName.trim();
+    if (!name) return;
+    const entry: CustomComponentEntry = {
+      id: generateLibraryEntryId(),
+      name,
+      source: JSON.parse(JSON.stringify(selectedComponent)),
+      createdAt: new Date().toISOString(),
+    };
+    updateStateWithHistory(
+      { ...builderState, customComponents: [...(builderState.customComponents ?? []), entry] },
+      `Gem komponent: ${name}`
+    );
+    setSaveComponentOpen(false);
+    setSaveComponentName("");
+    toast({ title: "Komponent gemt", description: `"${name}" ligger nu under Mine komponenter.` });
+  };
+
+  const renameLibraryEntry = () => {
+    if (!builderState || !renameEntry) return;
+    const name = renameValue.trim();
+    if (!name) return;
+    updateStateWithHistory(
+      {
+        ...builderState,
+        customComponents: (builderState.customComponents ?? []).map(e =>
+          e.id === renameEntry.id ? { ...e, name, updatedAt: new Date().toISOString() } : e
+        ),
+      },
+      `Omdøb komponent: ${name}`
+    );
+    setRenameEntry(null);
+  };
+
+  const deleteLibraryEntry = (entryId: string) => {
+    if (!builderState) return;
+    const entry = (builderState.customComponents ?? []).find(e => e.id === entryId);
+    updateStateWithHistory(
+      { ...builderState, customComponents: (builderState.customComponents ?? []).filter(e => e.id !== entryId) },
+      `Slet komponent${entry ? `: ${entry.name}` : ''}`
+    );
+    setDeleteEntryId(null);
+    toast({ title: "Komponent slettet", description: entry ? `"${entry.name}" er fjernet fra Mine komponenter.` : undefined });
+  };
 
   useEffect(() => {
     if (!selectedComponentId || !previewContainerRef.current) {
@@ -1276,6 +1390,12 @@ export default function BuilderPage() {
                         onHover={setHoveredComponentId}
                         deviceMode={device}
                         globalStyles={builderState?.globalStyles}
+                        selectedNodeId={selectedComponentId === comp.id ? selectedNodeId : null}
+                        onNodeSelect={(nodeId) => {
+                          setSelectedComponentId(comp.id);
+                          setSelectedNodeId(nodeId);
+                          if (nodeId) setSidebarTab("properties");
+                        }}
                       />
                       {/* Insert point after each component */}
                       <SectionInsertPoint index={idx + 1} onAddComponent={addComponentAtIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
@@ -1337,18 +1457,22 @@ export default function BuilderPage() {
               </Button>
             </div>
           <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid w-full grid-cols-3 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
-              <TabsTrigger value="components" data-testid="tab-components">
+            <TabsList className="grid w-full grid-cols-4 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
+              <TabsTrigger value="components" data-testid="tab-components" className="px-1">
                 <Plus className="w-4 h-4 mr-1" />
                 Add
               </TabsTrigger>
-              <TabsTrigger value="properties" data-testid="tab-properties">
+              <TabsTrigger value="properties" data-testid="tab-properties" className="px-1">
                 <Settings className="w-4 h-4 mr-1" />
                 Edit
               </TabsTrigger>
-              <TabsTrigger value="ai" data-testid="tab-ai">
+              <TabsTrigger value="ai" data-testid="tab-ai" className="px-1">
                 <Sparkles className="w-4 h-4 mr-1" />
                 AI
+              </TabsTrigger>
+              <TabsTrigger value="brand" data-testid="tab-brand" className="px-1">
+                <Palette className="w-4 h-4 mr-1" />
+                Brand
               </TabsTrigger>
             </TabsList>
 
@@ -1401,6 +1525,60 @@ export default function BuilderPage() {
                     );
                   })}
                 </div>
+
+                <Separator />
+
+                {/* Custom component library */}
+                <h3 className="font-semibold text-sm">Mine komponenter</h3>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2 border-dashed border-2 hover:border-primary hover:bg-primary/5"
+                  onClick={() => addComponent('custom')}
+                  data-testid="add-blank-custom-component"
+                >
+                  <Puzzle className="w-4 h-4 text-primary" />
+                  <span className="font-medium">Ny tom komponent</span>
+                </Button>
+                {(builderState?.customComponents?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Vælg en sektion og klik "Gem som komponent" — så kan du genbruge den her på alle sider.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {(builderState?.customComponents ?? []).map((entry) => (
+                      <div key={entry.id} className="flex items-center gap-1">
+                        <button
+                          onClick={() => insertLibraryEntry(entry)}
+                          className="flex-1 min-w-0 flex items-center gap-2 p-2.5 rounded-lg border bg-background hover:bg-primary/5 hover:border-primary/30 transition-all text-left"
+                          data-testid={`insert-custom-component-${entry.id}`}
+                        >
+                          <Puzzle className="w-4 h-4 text-primary shrink-0" />
+                          <span className="text-xs font-medium truncate">{entry.name}</span>
+                        </button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" data-testid={`custom-component-menu-${entry.id}`}>
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => { setRenameEntry(entry); setRenameValue(entry.name); }}>
+                              <Pencil className="w-4 h-4 mr-2" />
+                              Omdøb
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => setDeleteEntryId(entry.id)}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Slet
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </TabsContent>
 
@@ -1411,14 +1589,35 @@ export default function BuilderPage() {
                   style={{ paddingTop: selectedComponent ? `${propertiesPaddingTop + 8}px` : '8px' }}
                 >
                   {selectedComponent ? (
-                    <PropertiesPanel
-                      component={selectedComponent}
-                      onUpdate={(updates) => updateComponent(selectedComponent.id, updates)}
-                      onDelete={() => deleteComponent(selectedComponent.id)}
-                      onMove={(dir) => moveComponent(selectedComponent.id, dir)}
-                      websiteId={id || ''}
-                      accessToken={session?.access_token || ''}
-                    />
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-2 mb-3"
+                        onClick={() => {
+                          setSaveComponentName(
+                            selectedComponent.type === 'custom'
+                              ? 'Min komponent'
+                              : componentRegistry[selectedComponent.type]?.name ?? 'Min komponent'
+                          );
+                          setSaveComponentOpen(true);
+                        }}
+                        data-testid="save-as-component"
+                      >
+                        <BookmarkPlus className="w-4 h-4" />
+                        Gem som komponent
+                      </Button>
+                      <PropertiesPanel
+                        component={selectedComponent}
+                        onUpdate={(updates) => updateComponent(selectedComponent.id, updates)}
+                        onDelete={() => deleteComponent(selectedComponent.id)}
+                        onMove={(dir) => moveComponent(selectedComponent.id, dir)}
+                        websiteId={id || ''}
+                        accessToken={session?.access_token || ''}
+                        selectedNodeId={selectedNodeId}
+                        onNodeSelect={setSelectedNodeId}
+                      />
+                    </>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground px-6">
                       <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
@@ -1468,6 +1667,31 @@ export default function BuilderPage() {
                     />
                   </TabsContent>
                 </Tabs>
+              )}
+            </TabsContent>
+
+            <TabsContent value="brand" className="flex-1 overflow-auto p-4 pt-2">
+              {builderState && (
+                <BrandGuidePanel
+                  brandGuide={builderState.brandGuide ?? createDefaultBrandGuide(builderState.globalStyles)}
+                  onChange={(guide) => updateStateWithHistory({ ...builderState, brandGuide: guide }, 'Opdater brand guide')}
+                  onApplyToSite={(guide) => {
+                    updateStateWithHistory(
+                      {
+                        ...builderState,
+                        brandGuide: guide,
+                        globalStyles: { ...builderState.globalStyles, ...brandGuideToDesignTokens(guide) },
+                      },
+                      'Anvend brand guide på hjemmesiden'
+                    );
+                    toast({
+                      title: "Brand guide anvendt",
+                      description: "Farver og skrifttyper er opdateret på hele hjemmesiden.",
+                    });
+                  }}
+                  websiteId={id || ''}
+                  accessToken={session?.access_token || ''}
+                />
               )}
             </TabsContent>
           </Tabs>
@@ -1563,6 +1787,79 @@ export default function BuilderPage() {
               data-testid="button-confirm-delete-page"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Save selection as custom component */}
+      <Dialog open={saveComponentOpen} onOpenChange={setSaveComponentOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Gem som komponent</DialogTitle>
+            <DialogDescription>
+              Komponenten gemmes i "Mine komponenter", så du kan genbruge den på alle sider.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Navn på komponent"
+              value={saveComponentName}
+              onChange={(e) => setSaveComponentName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && saveSelectionAsComponent()}
+              data-testid="input-component-name"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveComponentOpen(false)}>Annuller</Button>
+            <Button onClick={saveSelectionAsComponent} disabled={!saveComponentName.trim()} data-testid="button-save-component">
+              Gem komponent
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename custom component */}
+      <Dialog open={!!renameEntry} onOpenChange={(open) => !open && setRenameEntry(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Omdøb komponent</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Navn på komponent"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && renameLibraryEntry()}
+              data-testid="input-rename-component"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameEntry(null)}>Annuller</Button>
+            <Button onClick={renameLibraryEntry} disabled={!renameValue.trim()} data-testid="button-rename-component">
+              Gem
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete custom component confirmation */}
+      <AlertDialog open={!!deleteEntryId} onOpenChange={(open) => !open && setDeleteEntryId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Slet komponent?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Komponenten fjernes fra "Mine komponenter". Sektioner du allerede har indsat på dine sider, påvirkes ikke.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuller</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteEntryId && deleteLibraryEntry(deleteEntryId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-component"
+            >
+              Slet
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -36,6 +36,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
 import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
+import { sanitizeBuilderStateCustomContent } from "@shared/customComponents";
 import { emailService } from "./email/service";
 
 // Helper to migrate legacy element-based state to component-based state
@@ -1000,6 +1001,10 @@ export async function registerRoutes(
       if (!state) {
         return res.status(400).json({ message: "State is required" });
       }
+
+      // Strip unsafe SVG markup and enforce node limits inside custom
+      // components before anything is persisted.
+      sanitizeBuilderStateCustomContent(state);
 
       const previous = await storage.getBuilderState(req.params.id);
 
