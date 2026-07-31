@@ -6,7 +6,7 @@ import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./web
 import { recordAdminAudit, summarizeBuilderStateChange } from "./adminAudit";
 import { isAllowedMediaStoragePath } from "./mediaPaths";
 import { eq, sql } from "drizzle-orm";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
@@ -34,9 +34,12 @@ import {
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
-import { processAIBuildRequest, processAIThinkingRequest, applyMutations, type CreativeMode } from "./aiBuilder";
+import { processAIBuildRequest, processAIThinkingRequest, applyMutations, assertSaneJsonDepth, type CreativeMode } from "./aiBuilder";
+import { resolveAiImageMarkers } from "./aiImages";
+import { runSelfCheck } from "./selfCheck";
+import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
-import { sanitizeBuilderStateCustomContent } from "@shared/customComponents";
+import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens } from "@shared/customComponents";
 import { emailService } from "./email/service";
 
 // Helper to migrate legacy element-based state to component-based state
@@ -323,7 +326,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   
   // Register object storage routes for file uploads
-  registerObjectStorageRoutes(app);
+  registerObjectStorageRoutes(app, requireAuth);
   
   // Inject Supabase config into HTML for client (anon key only - safe for client)
   app.get("/api/config", (req, res) => {
@@ -4369,15 +4372,32 @@ export async function registerRoutes(
 
       const currentState = builderData.state as BuilderStateData;
       const aiResponse = await processAIBuildRequest(prompt, currentState, creativeMode);
-      const newState = applyMutations(currentState, aiResponse.mutations);
-      
+
+      // Generate any "ai://" images and swap markers for hosted URLs
+      const resolved = await resolveAiImageMarkers(req.params.id, aiResponse.mutations, currentState.brandGuide);
+
+      let newState = applyMutations(currentState, resolved.mutations);
+
+      // Deterministic self-check: links, WCAG contrast, responsive hazards
+      const check = runSelfCheck(newState);
+      newState = check.state;
+      sanitizeBuilderStateCustomContent(newState);
+
       await storage.updateBuilderState(req.params.id, newState);
+
+      const report = buildReport(
+        resolved.mutations,
+        newState,
+        [...resolved.notes, ...check.notes],
+        resolved.created
+      );
 
       res.json({
         success: true,
         explanation: aiResponse.explanation,
-        mutations: aiResponse.mutations,
+        mutations: resolved.mutations,
         newState,
+        report,
       });
     } catch (error: any) {
       console.error("AI Build error:", error);
@@ -4437,6 +4457,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Mutations array is required" });
       }
 
+      // Depth-guard raw client JSON before the recursive z.lazy schema walks it.
+      assertSaneJsonDepth(mutations);
       const validatedMutations = mutations.map(m => BuilderMutationSchema.parse(m));
 
       const builderData = await storage.getBuilderState(req.params.id);
@@ -4445,16 +4467,158 @@ export async function registerRoutes(
       }
 
       const currentState = builderData.state as BuilderStateData;
-      const newState = applyMutations(currentState, validatedMutations);
-      
+
+      // Generate any "ai://" images and swap markers for hosted URLs
+      const resolved = await resolveAiImageMarkers(req.params.id, validatedMutations, currentState.brandGuide);
+
+      let newState = applyMutations(currentState, resolved.mutations);
+
+      // Deterministic self-check: links, WCAG contrast, responsive hazards
+      const check = runSelfCheck(newState);
+      newState = check.state;
+      sanitizeBuilderStateCustomContent(newState);
+
       await storage.updateBuilderState(req.params.id, newState);
+
+      const report = buildReport(
+        resolved.mutations,
+        newState,
+        [...resolved.notes, ...check.notes],
+        resolved.created
+      );
 
       res.json({
         success: true,
         newState,
+        report,
       });
     } catch (error: any) {
       console.error("AI Apply error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // AI Builder - Design interview (guided brand-guide wizard)
+  const designInterviewHits = new Map<string, number[]>();
+  const diHex = z.string().regex(/^#[0-9a-fA-F]{3,8}$/);
+  const diPaletteSchema = z.object({
+    id: z.string().max(64),
+    name: z.string().max(120),
+    description: z.string().max(600),
+    colors: z.object({
+      primary: diHex,
+      secondary: diHex,
+      accent: diHex,
+      background: diHex,
+      surface: diHex,
+      text: diHex,
+    }),
+  });
+  const diFontPairSchema = z.object({
+    id: z.string().max(64),
+    name: z.string().max(120),
+    heading: z.string().max(80),
+    body: z.string().max(80),
+    scale: z.enum(["modern", "editorial", "classic", "bold"]),
+    description: z.string().max(600),
+  });
+  const diBodySchema = z.discriminatedUnion("step", [
+    z.object({ step: z.literal("palettes"), feeling: z.string().min(1).max(200) }),
+    z.object({ step: z.literal("typography"), feeling: z.string().min(1).max(200), palette: diPaletteSchema }),
+    z.object({
+      step: z.literal("finalize"),
+      feeling: z.string().min(1).max(200),
+      palette: diPaletteSchema,
+      fontPair: diFontPairSchema,
+      imageUrls: z.array(z.string().max(512)).max(5).optional(),
+      notes: z.string().max(1000).optional(),
+      applyToGlobalStyles: z.boolean().optional(),
+    }),
+  ]);
+
+  app.post("/api/websites/:id/ai/design-interview", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      // Lightweight per-user rate limit: each step is a model call.
+      const userId = (req as any).user?.id ?? req.params.id;
+      const now = Date.now();
+      const recentHits = (designInterviewHits.get(userId) ?? []).filter((t) => now - t < 10 * 60 * 1000);
+      if (recentHits.length >= 30) {
+        designInterviewHits.set(userId, recentHits);
+        return res.status(429).json({ message: "For mange design-interview-forespørgsler. Vent et par minutter og prøv igen." });
+      }
+      recentHits.push(now);
+      designInterviewHits.set(userId, recentHits);
+
+      const parsedBody = diBodySchema.safeParse(req.body ?? {});
+      if (!parsedBody.success) {
+        return res.status(400).json({ message: "Ugyldigt input til design-interviewet" });
+      }
+      const body = parsedBody.data;
+
+      const builderData = await storage.getBuilderState(req.params.id);
+      if (!builderData) {
+        return res.status(404).json({ message: "Builder state not found" });
+      }
+      const currentState = builderData.state as BuilderStateData;
+
+      const { proposePalettes, proposeFontPairs, finalizeBrandGuide, CURATED_GOOGLE_FONTS } = await import("./designInterview");
+
+      if (body.step === "palettes") {
+        const palettes = await proposePalettes(body.feeling, currentState);
+        return res.json({ success: true, palettes });
+      }
+
+      if (body.step === "typography") {
+        const fontPairs = await proposeFontPairs(body.feeling, body.palette, currentState);
+        return res.json({ success: true, fontPairs });
+      }
+
+      // finalize
+      const fontAllowlist = new Set<string>(CURATED_GOOGLE_FONTS);
+      if (!fontAllowlist.has(body.fontPair.heading) || !fontAllowlist.has(body.fontPair.body)) {
+        return res.status(400).json({ message: "Ugyldig skrifttype" });
+      }
+
+      // Only analyze images registered in THIS website's media library —
+      // prevents reading other tenants' objects via guessed /objects/ paths.
+      let safeImageUrls: string[] = [];
+      if (body.imageUrls && body.imageUrls.length > 0) {
+        const assets = await storage.getMediaAssets(req.params.id);
+        const owned = new Set(assets.map((a) => a.storagePath));
+        safeImageUrls = body.imageUrls.filter((u) => owned.has(u)).slice(0, 5);
+      }
+
+      const { guide, analyzedImages, summary } = await finalizeBrandGuide(
+        {
+          feeling: body.feeling,
+          palette: body.palette,
+          fontPair: body.fontPair,
+          imageUrls: safeImageUrls,
+          notes: body.notes,
+        },
+        currentState
+      );
+
+      const newState = structuredClone(currentState);
+      newState.brandGuide = guide;
+      if (body.applyToGlobalStyles !== false) {
+        newState.globalStyles = { ...newState.globalStyles, ...brandGuideToDesignTokens(guide) };
+      }
+      await storage.updateBuilderState(req.params.id, newState);
+
+      const report = {
+        oprettet: ["Brand guide oprettet ud fra design-interviewet."],
+        aendret: body.applyToGlobalStyles !== false
+          ? ["Farver og typografi anvendt på hele sitet."]
+          : [],
+        tjek: analyzedImages > 0
+          ? [`${analyzedImages} inspirationsbillede(r) analyseret og omsat til billedstil og stemning.`]
+          : ["Ingen inspirationsbilleder — brand guiden bygger på dine valg i interviewet."],
+      };
+
+      return res.json({ success: true, brandGuide: guide, newState, report, summary });
+    } catch (error: any) {
+      console.error("Design interview error:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -4607,13 +4771,26 @@ export async function registerRoutes(
         });
       }
 
+      // Deterministic self-check on the freshly built site
+      const check = runSelfCheck(result.builderState);
+      const newState = check.state;
+      sanitizeBuilderStateCustomContent(newState);
+
       // Save the new builder state
-      await storage.updateBuilderState(req.params.id, result.builderState);
+      await storage.updateBuilderState(req.params.id, newState);
+
+      const report = buildReport(
+        [],
+        newState,
+        check.notes,
+        newState.pages.map((p: any) => `Side "${p.name}" bygget med ${p.components.length} sektioner.`)
+      );
 
       res.json({
         success: true,
-        newState: result.builderState,
+        newState,
         phasesCompleted: result.phasesCompleted,
+        report,
       });
     } catch (error: any) {
       console.error("AI Architect Build error:", error);
@@ -6160,8 +6337,12 @@ export async function registerRoutes(
       // Just update a flag or leave it as-is since user still has access
       console.log(`[Subscription] User ${userId} set subscription ${profile.subscriptionId} to cancel at period end`);
       
-      const periodEnd = subscription.current_period_end 
-        ? new Date(subscription.current_period_end * 1000) 
+      // Stripe's newer typings moved current_period_end off the Subscription
+      // root; the runtime response on this account's API version still carries
+      // it. Read defensively without changing behavior.
+      const currentPeriodEnd = (subscription as unknown as { current_period_end?: number | null }).current_period_end;
+      const periodEnd = currentPeriodEnd
+        ? new Date(currentPeriodEnd * 1000)
         : null;
       
       res.json({ 

@@ -40,9 +40,14 @@ import {
   MessageSquare,
   ArrowRight,
   RotateCcw,
+  Upload,
+  PlusCircle,
+  PenLine,
+  ListChecks,
 } from "lucide-react";
 import type { BuilderStateData } from "@shared/schema";
-import type { BuilderMutation, AIThinkingResponse } from "@shared/aiBuilderSchema";
+import type { BuilderMutation, AIThinkingResponse, BuildReport, PaletteProposal, FontPairProposal } from "@shared/aiBuilderSchema";
+import { uploadImage } from "@/lib/builderUpload";
 import type { WebsitePlan } from "@shared/websitePlanSchema";
 import {
   canUndo,
@@ -64,6 +69,7 @@ type Message = {
   applied?: boolean;
   status?: AIStatus;
   detectedUrl?: string;
+  report?: BuildReport;
 };
 
 type AIBuilderPanelProps = {
@@ -78,23 +84,62 @@ type AIBuilderPanelProps = {
 };
 
 const STATUS_CONFIG: Record<AIStatus, { label: string; icon: React.ReactNode; color: string; bg: string }> = {
-  idle: { label: "Ready to help", icon: <Sparkles className="w-3.5 h-3.5" />, color: "text-muted-foreground", bg: "bg-muted/50" },
-  analyzing: { label: "Analyzing your request...", icon: <Eye className="w-3.5 h-3.5 animate-pulse" />, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-950/30" },
-  planning: { label: "Creating your design plan...", icon: <Brain className="w-3.5 h-3.5 animate-pulse" />, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-50 dark:bg-purple-950/30" },
-  designing: { label: "Designing layout...", icon: <Paintbrush className="w-3.5 h-3.5 animate-pulse" />, color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-50 dark:bg-pink-950/30" },
-  building: { label: "Building your website...", icon: <Wand2 className="w-3.5 h-3.5 animate-spin" />, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/30" },
-  complete: { label: "All done!", icon: <CheckCircle2 className="w-3.5 h-3.5" />, color: "text-green-600 dark:text-green-400", bg: "bg-green-50 dark:bg-green-950/30" },
-  error: { label: "Something went wrong", icon: <AlertCircle className="w-3.5 h-3.5" />, color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/30" },
+  idle: { label: "Klar til at hjælpe", icon: <Sparkles className="w-3.5 h-3.5" />, color: "text-muted-foreground", bg: "bg-muted/50" },
+  analyzing: { label: "Analyserer din forespørgsel...", icon: <Eye className="w-3.5 h-3.5 animate-pulse" />, color: "text-blue-600 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-950/30" },
+  planning: { label: "Lægger en designplan...", icon: <Brain className="w-3.5 h-3.5 animate-pulse" />, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-50 dark:bg-purple-950/30" },
+  designing: { label: "Designer layout...", icon: <Paintbrush className="w-3.5 h-3.5 animate-pulse" />, color: "text-pink-600 dark:text-pink-400", bg: "bg-pink-50 dark:bg-pink-950/30" },
+  building: { label: "Bygger dit website...", icon: <Wand2 className="w-3.5 h-3.5 animate-spin" />, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/30" },
+  complete: { label: "Færdig!", icon: <CheckCircle2 className="w-3.5 h-3.5" />, color: "text-green-600 dark:text-green-400", bg: "bg-green-50 dark:bg-green-950/30" },
+  error: { label: "Noget gik galt", icon: <AlertCircle className="w-3.5 h-3.5" />, color: "text-red-600 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/30" },
 };
 
 const SUGGESTIONS = [
-  { label: "Spa & Wellness", icon: Coffee, prompt: "Create a luxury spa website with booking, services, and a calming design" },
-  { label: "SaaS Landing", icon: Rocket, prompt: "Build a modern SaaS landing page with pricing, features, and CTA sections" },
-  { label: "Online Store", icon: Store, prompt: "Create an ecommerce store with product grid, featured items, and checkout" },
-  { label: "Portfolio", icon: Camera, prompt: "Design a creative portfolio with gallery, about me, and contact sections" },
-  { label: "Agency", icon: Briefcase, prompt: "Build a professional agency site with case studies, team, and services" },
-  { label: "Restaurant", icon: Coffee, prompt: "Create a restaurant website with menu, reservations, and gallery" },
+  { label: "Spa & wellness", icon: Coffee, prompt: "Lav et luksuriøst spa-website med booking, behandlinger og et roligt design" },
+  { label: "SaaS-landingsside", icon: Rocket, prompt: "Byg en moderne SaaS-landingsside med priser, features og CTA-sektioner" },
+  { label: "Webshop", icon: Store, prompt: "Lav en webshop med produktgitter, udvalgte varer og checkout" },
+  { label: "Portfolio", icon: Camera, prompt: "Design et kreativt portfolio med galleri, om mig og kontaktsektioner" },
+  { label: "Bureau", icon: Briefcase, prompt: "Byg et professionelt bureau-website med cases, team og ydelser" },
+  { label: "Restaurant", icon: Coffee, prompt: "Lav et restaurant-website med menukort, bordbestilling og galleri" },
 ];
+
+const FEELING_SUGGESTIONS = [
+  "Roligt & nordisk",
+  "Professionelt & troværdigt",
+  "Legende & farverigt",
+  "Eksklusivt & minimalistisk",
+  "Varmt & personligt",
+  "Moderne & teknisk",
+];
+
+type InterviewStep = "feeling" | "palettes" | "fonts" | "images";
+
+type InterviewState = {
+  active: boolean;
+  step: InterviewStep;
+  feeling: string;
+  palettes: PaletteProposal[];
+  selectedPalette: PaletteProposal | null;
+  fontPairs: FontPairProposal[];
+  selectedFontPair: FontPairProposal | null;
+  imageUrls: string[];
+  notes: string;
+  loading: boolean;
+  uploading: boolean;
+};
+
+const INITIAL_INTERVIEW: InterviewState = {
+  active: false,
+  step: "feeling",
+  feeling: "",
+  palettes: [],
+  selectedPalette: null,
+  fontPairs: [],
+  selectedFontPair: null,
+  imageUrls: [],
+  notes: "",
+  loading: false,
+  uploading: false,
+};
 
 function extractUrls(text: string): string[] {
   const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`[\]]+)/gi;
@@ -163,14 +208,21 @@ export default function AIBuilderPanel({
     setCurrentStatus("analyzing");
 
     try {
+      const lowerInput = input.toLowerCase();
       const isCloneRequest = hasUrl && (
-        input.toLowerCase().includes("clone") ||
-        input.toLowerCase().includes("copy") ||
-        input.toLowerCase().includes("recreate") ||
-        input.toLowerCase().includes("like this") ||
-        input.toLowerCase().includes("similar to") ||
-        input.toLowerCase().includes("based on") ||
-        input.toLowerCase().includes("inspire") ||
+        lowerInput.includes("clone") ||
+        lowerInput.includes("klon") ||
+        lowerInput.includes("copy") ||
+        lowerInput.includes("kopier") ||
+        lowerInput.includes("recreate") ||
+        lowerInput.includes("genskab") ||
+        lowerInput.includes("like this") ||
+        lowerInput.includes("ligesom") ||
+        lowerInput.includes("similar to") ||
+        lowerInput.includes("magen til") ||
+        lowerInput.includes("based on") ||
+        lowerInput.includes("baseret på") ||
+        lowerInput.includes("inspire") ||
         input.match(/^https?:\/\//)
       );
 
@@ -191,7 +243,7 @@ export default function AIBuilderPanel({
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || "Failed to analyze website");
+          throw new Error(errorData.message || "Kunne ikke analysere websitet");
         }
 
         setCurrentStatus("planning");
@@ -201,7 +253,7 @@ export default function AIBuilderPanel({
           const planMessage: Message = {
             id: `assistant-${Date.now()}`,
             role: "assistant",
-            content: `I've analyzed ${formatUrl(detectedUrls[0])} and created a plan to recreate it. Review and apply when ready.`,
+            content: `Jeg har analyseret ${formatUrl(detectedUrls[0])} og lavet en plan for at genskabe det. Gennemgå planen og byg, når du er klar.`,
             type: "architect-plan",
             architectPlan: data.plan,
             screenshotBase64: data.screenshotBase64,
@@ -225,7 +277,7 @@ export default function AIBuilderPanel({
         });
 
         if (!response.ok) {
-          throw new Error("Failed to create plan");
+          throw new Error("Kunne ikke lave en plan");
         }
 
         const data = await response.json();
@@ -234,7 +286,7 @@ export default function AIBuilderPanel({
           const planMessage: Message = {
             id: `assistant-${Date.now()}`,
             role: "assistant",
-            content: `Here's my plan for your request. Review it and click "Build" when ready.`,
+            content: `Her er min plan for din forespørgsel. Gennemgå den og klik "Byg", når du er klar.`,
             type: "architect-plan",
             architectPlan: data.plan,
             applied: false,
@@ -259,7 +311,8 @@ export default function AIBuilderPanel({
         });
 
         if (!response.ok) {
-          throw new Error("Failed to apply changes");
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || "Kunne ikke gennemføre ændringerne");
         }
 
         const data = await response.json();
@@ -267,11 +320,12 @@ export default function AIBuilderPanel({
         const assistantMessage: Message = {
           id: `assistant-${Date.now()}`,
           role: "assistant",
-          content: data.explanation || data.summary || "Changes applied successfully!",
+          content: data.explanation || data.summary || "Ændringerne er gennemført!",
           type: "text",
           mutations: data.mutations,
           applied: true,
           status: "complete",
+          report: data.report,
         };
         setMessages(prev => [...prev, assistantMessage]);
 
@@ -281,8 +335,8 @@ export default function AIBuilderPanel({
 
         setCurrentStatus("complete");
         toast({
-          title: "Changes applied",
-          description: `Made ${data.mutations?.length || 0} updates to your website`,
+          title: "Ændringer gennemført",
+          description: `${data.mutations?.length || 0} opdatering(er) af dit website`,
         });
       }
     } catch (error: any) {
@@ -290,7 +344,7 @@ export default function AIBuilderPanel({
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
         role: "assistant",
-        content: `Sorry, something went wrong: ${error.message}. Please try again.`,
+        content: `Beklager, noget gik galt: ${error.message}. Prøv igen.`,
         type: "text",
         status: "error",
       };
@@ -316,30 +370,41 @@ export default function AIBuilderPanel({
       });
 
       if (!response.ok) {
-        throw new Error("Failed to build website");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Kunne ikke bygge websitet");
       }
 
       const data = await response.json();
 
       if (data.newState) {
-        onStateChange(data.newState, `AI Architect: Built ${plan.siteName}`);
+        onStateChange(data.newState, `AI-arkitekt: Byggede ${plan.siteName}`);
       }
 
       setMessages(prev => prev.map(m =>
         m.id === messageId ? { ...m, applied: true } : m
       ));
 
+      if (data.report) {
+        setMessages(prev => [...prev, {
+          id: `report-${Date.now()}`,
+          role: "assistant" as const,
+          content: "Dit website er bygget! Her er et overblik:",
+          type: "text" as const,
+          report: data.report as BuildReport,
+        }]);
+      }
+
       setPendingPlan(null);
       setCurrentStatus("complete");
 
       toast({
-        title: "Website built!",
-        description: `Created ${plan.pages.length} pages with professional design`,
+        title: "Website bygget!",
+        description: `${plan.pages.length} sider oprettet med professionelt design`,
       });
     } catch (error: any) {
       setCurrentStatus("error");
       toast({
-        title: "Error",
+        title: "Fejl",
         description: error.message,
         variant: "destructive",
       });
@@ -354,6 +419,136 @@ export default function AIBuilderPanel({
     setCurrentStatus("idle");
   };
 
+  // ============ Design interview (brand guide wizard) ============
+
+  const [interview, setInterview] = useState<InterviewState>(INITIAL_INTERVIEW);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Bumped on start/cancel so late async responses can't advance a stale wizard session.
+  const interviewSessionRef = useRef(0);
+
+  const interviewFetch = async (body: Record<string, unknown>) => {
+    const response = await fetch(`/api/websites/${websiteId}/ai/design-interview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || "Design-interviewet fejlede");
+    }
+    return response.json();
+  };
+
+  const startInterview = () => {
+    interviewSessionRef.current += 1;
+    setInterview({ ...INITIAL_INTERVIEW, active: true });
+  };
+
+  const cancelInterview = () => {
+    interviewSessionRef.current += 1;
+    setInterview(INITIAL_INTERVIEW);
+  };
+
+  const submitFeeling = async (feeling: string) => {
+    const trimmed = feeling.trim();
+    if (!trimmed) return;
+    const sid = interviewSessionRef.current;
+    setInterview(prev => ({ ...prev, feeling: trimmed, loading: true }));
+    try {
+      const data = await interviewFetch({ step: "palettes", feeling: trimmed });
+      if (interviewSessionRef.current !== sid) return;
+      setInterview(prev => ({ ...prev, palettes: data.palettes ?? [], step: "palettes", loading: false }));
+    } catch (error: any) {
+      if (interviewSessionRef.current !== sid) return;
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+      setInterview(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const choosePalette = async (palette: PaletteProposal) => {
+    const sid = interviewSessionRef.current;
+    setInterview(prev => ({ ...prev, selectedPalette: palette, loading: true }));
+    try {
+      const data = await interviewFetch({ step: "typography", feeling: interview.feeling, palette });
+      if (interviewSessionRef.current !== sid) return;
+      setInterview(prev => ({ ...prev, fontPairs: data.fontPairs ?? [], step: "fonts", loading: false }));
+    } catch (error: any) {
+      if (interviewSessionRef.current !== sid) return;
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+      setInterview(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const chooseFontPair = (fontPair: FontPairProposal) => {
+    setInterview(prev => ({ ...prev, selectedFontPair: fontPair, step: "images" }));
+  };
+
+  const uploadInspiration = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const sid = interviewSessionRef.current;
+    setInterview(prev => ({ ...prev, uploading: true }));
+    try {
+      const uploads = Array.from(files).slice(0, 5);
+      for (const file of uploads) {
+        const { url } = await uploadImage(websiteId, session.access_token, file);
+        if (interviewSessionRef.current !== sid) return;
+        // Cap enforced atomically against the latest state, not a stale closure.
+        setInterview(prev => ({
+          ...prev,
+          imageUrls: prev.imageUrls.length >= 5 ? prev.imageUrls : [...prev.imageUrls, url],
+        }));
+      }
+    } catch (error: any) {
+      if (interviewSessionRef.current !== sid) return;
+      toast({ title: "Upload fejlede", description: error.message, variant: "destructive" });
+    } finally {
+      if (interviewSessionRef.current === sid) {
+        setInterview(prev => ({ ...prev, uploading: false }));
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const finalizeInterview = async () => {
+    if (!interview.selectedPalette || !interview.selectedFontPair) return;
+    setInterview(prev => ({ ...prev, loading: true }));
+    try {
+      const data = await interviewFetch({
+        step: "finalize",
+        feeling: interview.feeling,
+        palette: interview.selectedPalette,
+        fontPair: interview.selectedFontPair,
+        imageUrls: interview.imageUrls,
+        notes: interview.notes,
+        applyToGlobalStyles: true,
+      });
+
+      if (data.newState) {
+        onStateChange(data.newState, "Brand guide oprettet via design-interview");
+      }
+
+      setMessages(prev => [...prev, {
+        id: `interview-${Date.now()}`,
+        role: "assistant" as const,
+        content: data.summary || `Jeres brand guide er klar! Farverne fra "${interview.selectedPalette?.name}" og typografien er nu gemt — alt hvad jeg bygger fremover, følger den automatisk.`,
+        type: "text" as const,
+        report: data.report as BuildReport | undefined,
+      }]);
+
+      setInterview(INITIAL_INTERVIEW);
+      toast({
+        title: "Brand guide oprettet",
+        description: "Du finder den under fanen Brand guide — og AI'en følger den fremover.",
+      });
+    } catch (error: any) {
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+      setInterview(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   const statusConfig = STATUS_CONFIG[currentStatus];
 
   return (
@@ -366,12 +561,27 @@ export default function AIBuilderPanel({
               <Sparkles className="w-4.5 h-4.5 text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-sm leading-tight">AI Architect</h3>
-              <p className="text-[11px] text-muted-foreground leading-tight">Describe it, I'll build it</p>
+              <h3 className="font-semibold text-sm leading-tight">AI-arkitekt</h3>
+              <p className="text-[11px] text-muted-foreground leading-tight">Beskriv det — jeg bygger det</p>
             </div>
           </div>
           <div className="flex items-center gap-0.5">
             <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    onClick={startInterview}
+                    disabled={isLoading || interview.active}
+                    data-testid="button-design-interview"
+                  >
+                    <Palette className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">Design-interview</TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -385,7 +595,7 @@ export default function AIBuilderPanel({
                     <Undo2 className="w-3.5 h-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">Undo</TooltipContent>
+                <TooltipContent side="bottom" className="text-xs">Fortryd</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -400,7 +610,7 @@ export default function AIBuilderPanel({
                     <Redo2 className="w-3.5 h-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">Redo</TooltipContent>
+                <TooltipContent side="bottom" className="text-xs">Annuller fortryd</TooltipContent>
               </Tooltip>
               {messages.length > 0 && (
                 <Tooltip>
@@ -415,7 +625,7 @@ export default function AIBuilderPanel({
                       <RotateCcw className="w-3.5 h-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs">Clear chat</TooltipContent>
+                  <TooltipContent side="bottom" className="text-xs">Ryd chatten</TooltipContent>
                 </Tooltip>
               )}
             </TooltipProvider>
@@ -428,10 +638,10 @@ export default function AIBuilderPanel({
             <Brain className={`w-4 h-4 transition-colors ${thinkingMode ? 'text-violet-500' : 'text-muted-foreground'}`} />
             <div>
               <Label htmlFor="thinking-mode" className="text-xs font-medium cursor-pointer leading-tight block">
-                {thinkingMode ? "Architect Mode" : "Quick Mode"}
+                {thinkingMode ? "Arkitekt-tilstand" : "Hurtig tilstand"}
               </Label>
               <p className="text-[10px] text-muted-foreground leading-tight">
-                {thinkingMode ? "Plans first for best results" : "Instant changes, no planning"}
+                {thinkingMode ? "Planlægger først — bedst resultat" : "Ændringer med det samme"}
               </p>
             </div>
           </div>
@@ -453,8 +663,20 @@ export default function AIBuilderPanel({
         )}
       </div>
 
-      {/* Messages Area */}
+      {/* Messages Area / Design Interview */}
       <ScrollArea className="flex-1 px-4" ref={scrollRef}>
+        {interview.active ? (
+          <DesignInterviewWizard
+            interview={interview}
+            setInterview={setInterview}
+            onCancel={cancelInterview}
+            onSubmitFeeling={submitFeeling}
+            onChoosePalette={choosePalette}
+            onChooseFontPair={chooseFontPair}
+            onUpload={() => fileInputRef.current?.click()}
+            onFinalize={finalizeInterview}
+          />
+        ) : (
         <div className="space-y-4 pb-4">
           {messages.length === 0 && (
             <div className="py-6">
@@ -463,9 +685,9 @@ export default function AIBuilderPanel({
                 <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-violet-100 to-fuchsia-100 dark:from-violet-900/30 dark:to-fuchsia-900/30 flex items-center justify-center">
                   <MessageSquare className="w-6 h-6 text-violet-500" />
                 </div>
-                <p className="font-medium text-sm">What would you like to build?</p>
+                <p className="font-medium text-sm">Hvad vil du bygge?</p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-[240px] mx-auto leading-relaxed">
-                  Describe your vision, pick a template below, or paste a URL to clone
+                  Beskriv din idé, vælg en skabelon nedenfor, eller indsæt en URL for at klone
                 </p>
               </div>
 
@@ -486,14 +708,24 @@ export default function AIBuilderPanel({
                 ))}
               </div>
 
+              {/* Design interview entry */}
+              <button
+                className="w-full mt-2 flex items-center justify-center gap-2 p-2.5 rounded-lg border border-dashed border-fuchsia-200 dark:border-fuchsia-800 bg-fuchsia-50/50 dark:bg-fuchsia-950/20 hover:bg-fuchsia-100/50 dark:hover:bg-fuchsia-950/40 transition-all text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400"
+                onClick={startInterview}
+                data-testid="suggestion-design-interview"
+              >
+                <Palette className="w-3.5 h-3.5" />
+                Design-interview — find jeres visuelle stil
+              </button>
+
               {/* Clone from URL */}
               <button
                 className="w-full mt-2 flex items-center justify-center gap-2 p-2.5 rounded-lg border border-dashed border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/20 hover:bg-violet-100/50 dark:hover:bg-violet-950/40 transition-all text-xs font-medium text-violet-600 dark:text-violet-400"
-                onClick={() => setInput("Clone from https://")}
+                onClick={() => setInput("Klon https://")}
                 data-testid="suggestion-clone"
               >
                 <Link2 className="w-3.5 h-3.5" />
-                Clone from URL
+                Klon fra URL
               </button>
             </div>
           )}
@@ -542,8 +774,12 @@ export default function AIBuilderPanel({
                 {message.type === "text" && message.role === "assistant" && message.mutations && message.mutations.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-border/30 flex items-center gap-1.5">
                     <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
-                    <span className="text-[11px] text-muted-foreground">{message.mutations.length} changes applied</span>
+                    <span className="text-[11px] text-muted-foreground">{message.mutations.length} ændring(er) gennemført</span>
                   </div>
+                )}
+
+                {message.role === "assistant" && message.report && (
+                  <BuildReportCard report={message.report} />
                 )}
               </div>
             </div>
@@ -558,24 +794,36 @@ export default function AIBuilderPanel({
                   <div className="w-1.5 h-1.5 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  {currentStatus === "analyzing" && "Analyzing..."}
-                  {currentStatus === "planning" && "Planning design..."}
-                  {currentStatus === "designing" && "Designing..."}
-                  {currentStatus === "building" && "Building pages..."}
+                  {currentStatus === "analyzing" && "Analyserer..."}
+                  {currentStatus === "planning" && "Planlægger design..."}
+                  {currentStatus === "designing" && "Designer..."}
+                  {currentStatus === "building" && "Bygger sider..."}
                 </span>
               </div>
             </div>
           )}
         </div>
+        )}
       </ScrollArea>
 
+      {/* Hidden file input for inspiration uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => uploadInspiration(e.target.files)}
+      />
+
       {/* Input Area */}
+      {!interview.active && (
       <div className="p-3 border-t bg-background/95 backdrop-blur-sm">
         <div className="flex gap-2 items-end">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={thinkingMode ? "Describe your website idea..." : "What changes would you like?"}
+            placeholder={thinkingMode ? "Beskriv din website-idé..." : "Hvilke ændringer ønsker du?"}
             className="min-h-[44px] max-h-[100px] resize-none text-[13px] rounded-xl border-muted-foreground/20 focus-visible:ring-violet-500/30"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -600,9 +848,10 @@ export default function AIBuilderPanel({
           </Button>
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-          Enter to send {thinkingMode ? "- Architect mode plans before building" : "- Quick mode for instant changes"}
+          Enter for at sende {thinkingMode ? "· Arkitekt-tilstand planlægger før den bygger" : "· Hurtig tilstand ændrer med det samme"}
         </p>
       </div>
+      )}
     </div>
   );
 }
@@ -657,7 +906,7 @@ function ArchitectPlanDisplay({
           </p>
           <img
             src={`data:image/jpeg;base64,${screenshotBase64}`}
-            alt="Website reference"
+            alt="Website-reference"
             className="w-full h-24 object-cover object-top rounded-lg border"
           />
         </div>
@@ -667,22 +916,22 @@ function ArchitectPlanDisplay({
       <div className="grid grid-cols-3 divide-x border-b">
         <div className="text-center py-3">
           <p className="text-lg font-bold text-violet-600 dark:text-violet-400">{plan.pages.length}</p>
-          <p className="text-[10px] text-muted-foreground">Pages</p>
+          <p className="text-[10px] text-muted-foreground">Sider</p>
         </div>
         <div className="text-center py-3">
           <p className="text-lg font-bold text-fuchsia-600 dark:text-fuchsia-400">{totalSections}</p>
-          <p className="text-[10px] text-muted-foreground">Sections</p>
+          <p className="text-[10px] text-muted-foreground">Sektioner</p>
         </div>
         <div className="text-center py-3">
           <p className="text-lg font-bold text-amber-600 dark:text-amber-400">{plan.buildPhases.length}</p>
-          <p className="text-[10px] text-muted-foreground">Phases</p>
+          <p className="text-[10px] text-muted-foreground">Faser</p>
         </div>
       </div>
 
       {/* Collapsible Sections */}
       <div className="divide-y">
         <CollapsibleSection
-          title="Pages & Structure"
+          title="Sider & struktur"
           icon={<Layout className="w-3.5 h-3.5" />}
           isExpanded={expandedSection === "pages"}
           onToggle={() => toggleSection("pages")}
@@ -708,25 +957,25 @@ function ArchitectPlanDisplay({
         </CollapsibleSection>
 
         <CollapsibleSection
-          title="Design System"
+          title="Designsystem"
           icon={<Palette className="w-3.5 h-3.5" />}
           isExpanded={expandedSection === "design"}
           onToggle={() => toggleSection("design")}
         >
           <div className="space-y-3">
             <div>
-              <p className="text-[10px] text-muted-foreground mb-2 font-medium">Colors</p>
+              <p className="text-[10px] text-muted-foreground mb-2 font-medium">Farver</p>
               <div className="flex gap-1.5 flex-wrap">
-                <ColorSwatch color={plan.designSystem.colors.primary} label="Primary" />
-                <ColorSwatch color={plan.designSystem.colors.secondary} label="Secondary" />
+                <ColorSwatch color={plan.designSystem.colors.primary} label="Primær" />
+                <ColorSwatch color={plan.designSystem.colors.secondary} label="Sekundær" />
                 <ColorSwatch color={plan.designSystem.colors.accent} label="Accent" />
-                <ColorSwatch color={plan.designSystem.colors.background} label="Bg" />
-                <ColorSwatch color={plan.designSystem.colors.surface} label="Surface" />
-                <ColorSwatch color={plan.designSystem.colors.text} label="Text" />
+                <ColorSwatch color={plan.designSystem.colors.background} label="Baggrund" />
+                <ColorSwatch color={plan.designSystem.colors.surface} label="Flade" />
+                <ColorSwatch color={plan.designSystem.colors.text} label="Tekst" />
               </div>
             </div>
             <div>
-              <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">Typography</p>
+              <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">Typografi</p>
               <div className="flex gap-1.5 flex-wrap">
                 <Badge variant="outline" className="text-[10px] font-normal">
                   <Type className="w-3 h-3 mr-1" />
@@ -738,30 +987,30 @@ function ArchitectPlanDisplay({
               </div>
             </div>
             <div>
-              <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">Style</p>
+              <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">Stil</p>
               <div className="flex gap-1.5 flex-wrap">
                 <Badge variant="secondary" className="text-[10px] font-normal">{plan.designSystem.tone}</Badge>
-                <Badge variant="secondary" className="text-[10px] font-normal">{plan.designSystem.radius} radius</Badge>
-                <Badge variant="secondary" className="text-[10px] font-normal">{plan.designSystem.motion.style} motion</Badge>
+                <Badge variant="secondary" className="text-[10px] font-normal">{plan.designSystem.radius} hjørner</Badge>
+                <Badge variant="secondary" className="text-[10px] font-normal">{plan.designSystem.motion.style} bevægelse</Badge>
               </div>
             </div>
           </div>
         </CollapsibleSection>
 
         <CollapsibleSection
-          title="Goals & Strategy"
+          title="Mål & strategi"
           icon={<Target className="w-3.5 h-3.5" />}
           isExpanded={expandedSection === "goals"}
           onToggle={() => toggleSection("goals")}
         >
           <div className="space-y-3">
             <div>
-              <p className="text-[10px] text-muted-foreground mb-1 font-medium">Audience</p>
+              <p className="text-[10px] text-muted-foreground mb-1 font-medium">Målgruppe</p>
               <p className="text-xs leading-relaxed">{plan.analysis.targetAudience}</p>
             </div>
             {plan.analysis.uniqueSellingPoints.length > 0 && (
               <div>
-                <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">Key Selling Points</p>
+                <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">Vigtigste salgsargumenter</p>
                 <ul className="space-y-1">
                   {plan.analysis.uniqueSellingPoints.slice(0, 3).map((usp, idx) => (
                     <li key={idx} className="flex items-start gap-1.5 text-xs">
@@ -774,7 +1023,7 @@ function ArchitectPlanDisplay({
             )}
             {plan.conversionGoals.length > 0 && (
               <div>
-                <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">Conversion Goals</p>
+                <p className="text-[10px] text-muted-foreground mb-1.5 font-medium">Konverteringsmål</p>
                 <div className="flex flex-wrap gap-1">
                   {plan.conversionGoals.map((goal, idx) => (
                     <Badge key={idx} variant="outline" className="text-[9px] font-normal">{goal}</Badge>
@@ -786,7 +1035,7 @@ function ArchitectPlanDisplay({
         </CollapsibleSection>
 
         <CollapsibleSection
-          title="Build Phases"
+          title="Byggefaser"
           icon={<Rocket className="w-3.5 h-3.5" />}
           isExpanded={expandedSection === "phases"}
           onToggle={() => toggleSection("phases")}
@@ -812,7 +1061,7 @@ function ArchitectPlanDisplay({
         {applied ? (
           <div className="flex items-center justify-center gap-2 py-2 text-green-600 dark:text-green-400">
             <CheckCircle2 className="w-4 h-4" />
-            <span className="text-sm font-medium">Website built successfully!</span>
+            <span className="text-sm font-medium">Websitet er bygget!</span>
           </div>
         ) : (
           <div className="space-y-2">
@@ -825,12 +1074,12 @@ function ArchitectPlanDisplay({
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Building your website...
+                  Bygger dit website...
                 </>
               ) : (
                 <>
                   <Rocket className="w-4 h-4" />
-                  Apply Plan & Build
+                  Byg websitet
                 </>
               )}
             </Button>
@@ -842,11 +1091,288 @@ function ArchitectPlanDisplay({
               data-testid="button-dismiss-architect-plan"
             >
               <X className="w-3 h-3" />
-              Dismiss
+              Afvis
             </Button>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ============ Build report (Oprettet / Ændret / Tjek) ============
+
+function BuildReportCard({ report }: { report: BuildReport }) {
+  const groups: Array<{ title: string; icon: React.ReactNode; lines: string[]; color: string }> = [
+    { title: "Oprettet", icon: <PlusCircle className="w-3 h-3" />, lines: report.oprettet, color: "text-green-600 dark:text-green-400" },
+    { title: "Ændret", icon: <PenLine className="w-3 h-3" />, lines: report.aendret, color: "text-blue-600 dark:text-blue-400" },
+    { title: "Tjek", icon: <ListChecks className="w-3 h-3" />, lines: report.tjek, color: "text-amber-600 dark:text-amber-400" },
+  ];
+  const visible = groups.filter(g => g.lines.length > 0);
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="mt-2.5 rounded-lg border bg-background/60 divide-y" data-testid="build-report">
+      {visible.map(group => (
+        <div key={group.title} className="px-2.5 py-2">
+          <p className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide ${group.color}`}>
+            {group.icon}
+            {group.title}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {group.lines.slice(0, 8).map((line, idx) => (
+              <li key={idx} className="text-[11px] leading-snug text-muted-foreground">
+                {line}
+              </li>
+            ))}
+            {group.lines.length > 8 && (
+              <li className="text-[11px] leading-snug text-muted-foreground/70 italic">
+                + {group.lines.length - 8} mere...
+              </li>
+            )}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============ Design interview wizard ============
+
+function DesignInterviewWizard({
+  interview,
+  setInterview,
+  onCancel,
+  onSubmitFeeling,
+  onChoosePalette,
+  onChooseFontPair,
+  onUpload,
+  onFinalize,
+}: {
+  interview: InterviewState;
+  setInterview: React.Dispatch<React.SetStateAction<InterviewState>>;
+  onCancel: () => void;
+  onSubmitFeeling: (feeling: string) => void;
+  onChoosePalette: (palette: PaletteProposal) => void;
+  onChooseFontPair: (fontPair: FontPairProposal) => void;
+  onUpload: () => void;
+  onFinalize: () => void;
+}) {
+  const [customFeeling, setCustomFeeling] = useState("");
+
+  const stepNumber = { feeling: 1, palettes: 2, fonts: 3, images: 4 }[interview.step];
+
+  return (
+    <div className="py-4 space-y-4" data-testid="design-interview-wizard">
+      {/* Wizard header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-violet-500 flex items-center justify-center">
+            <Palette className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold leading-tight">Design-interview</p>
+            <p className="text-[10px] text-muted-foreground leading-tight">Trin {stepNumber} af 4</p>
+          </div>
+        </div>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCancel} data-testid="button-cancel-interview">
+          <X className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+
+      {/* Progress */}
+      <div className="flex gap-1">
+        {[1, 2, 3, 4].map(n => (
+          <div key={n} className={`h-1 flex-1 rounded-full ${n <= stepNumber ? "bg-fuchsia-500" : "bg-muted"}`} />
+        ))}
+      </div>
+
+      {interview.loading ? (
+        <div className="py-10 text-center space-y-3">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-fuchsia-500" />
+          <p className="text-xs text-muted-foreground">
+            {interview.step === "feeling" && "Sammensætter farvepaletter..."}
+            {interview.step === "palettes" && "Finder typografi der passer..."}
+            {interview.step === "fonts" && "Arbejder..."}
+            {interview.step === "images" && "Analyserer og skriver jeres brand guide..."}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Step 1: Feeling */}
+          {interview.step === "feeling" && (
+            <div className="space-y-3">
+              <p className="text-[13px] leading-relaxed">
+                Hvilken følelse skal jeres website give besøgende?
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {FEELING_SUGGESTIONS.map(feeling => (
+                  <button
+                    key={feeling}
+                    className="px-2.5 py-1.5 rounded-full border text-xs hover:border-fuchsia-300 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950/30 transition-colors"
+                    onClick={() => onSubmitFeeling(feeling)}
+                    data-testid={`feeling-${feeling.toLowerCase().replace(/[^a-zæøå]+/g, "-")}`}
+                  >
+                    {feeling}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Textarea
+                  value={customFeeling}
+                  onChange={(e) => setCustomFeeling(e.target.value)}
+                  placeholder="...eller beskriv det med dine egne ord"
+                  className="min-h-[40px] max-h-[80px] resize-none text-xs rounded-lg"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      onSubmitFeeling(customFeeling);
+                    }
+                  }}
+                />
+                <Button
+                  size="icon"
+                  className="h-10 w-10 rounded-lg shrink-0 bg-fuchsia-600 hover:bg-fuchsia-700"
+                  onClick={() => onSubmitFeeling(customFeeling)}
+                  disabled={!customFeeling.trim()}
+                >
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Palettes */}
+          {interview.step === "palettes" && (
+            <div className="space-y-3">
+              <p className="text-[13px] leading-relaxed">
+                Stemning: <span className="font-medium">"{interview.feeling}"</span>. Vælg den palette der rammer bedst:
+              </p>
+              <div className="space-y-2">
+                {interview.palettes.map(palette => (
+                  <button
+                    key={palette.id}
+                    className="w-full p-3 rounded-xl border bg-card hover:border-fuchsia-300 dark:hover:border-fuchsia-700 transition-all text-left"
+                    onClick={() => onChoosePalette(palette)}
+                    data-testid={`palette-${palette.id}`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold">{palette.name}</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                    <div className="flex gap-1 mb-1.5">
+                      {[palette.colors.primary, palette.colors.secondary, palette.colors.accent, palette.colors.background, palette.colors.surface, palette.colors.text].map((color, idx) => (
+                        <div
+                          key={idx}
+                          className="h-6 flex-1 rounded-md border ring-1 ring-black/5"
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug">{palette.description}</p>
+                  </button>
+                ))}
+              </div>
+              <button className="text-[11px] text-muted-foreground underline" onClick={() => setInterview(prev => ({ ...prev, step: "feeling" }))}>
+                ← Vælg en anden stemning
+              </button>
+            </div>
+          )}
+
+          {/* Step 3: Fonts */}
+          {interview.step === "fonts" && (
+            <div className="space-y-3">
+              <p className="text-[13px] leading-relaxed">Vælg typografien:</p>
+              <div className="space-y-2">
+                {interview.fontPairs.map(pair => (
+                  <button
+                    key={pair.id}
+                    className="w-full p-3 rounded-xl border bg-card hover:border-fuchsia-300 dark:hover:border-fuchsia-700 transition-all text-left"
+                    onClick={() => onChooseFontPair(pair)}
+                    data-testid={`fontpair-${pair.id}`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold">{pair.name}</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
+                    </div>
+                    <p className="text-base leading-tight" style={{ fontFamily: `'${pair.heading}', sans-serif` }}>
+                      {pair.heading}
+                    </p>
+                    <p className="text-xs text-muted-foreground" style={{ fontFamily: `'${pair.body}', sans-serif` }}>
+                      Brødtekst i {pair.body} — Hurtige brune ræve springer over dovne hunde.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{pair.description}</p>
+                  </button>
+                ))}
+              </div>
+              <button className="text-[11px] text-muted-foreground underline" onClick={() => setInterview(prev => ({ ...prev, step: "palettes" }))}>
+                ← Tilbage til paletter
+              </button>
+            </div>
+          )}
+
+          {/* Step 4: Inspiration images + notes */}
+          {interview.step === "images" && (
+            <div className="space-y-3">
+              <p className="text-[13px] leading-relaxed">
+                Har I billeder der viser stilen? Upload inspiration, screenshots eller egne billeder — så analyserer jeg dem og bygger dem ind i brand guiden. (Valgfrit)
+              </p>
+
+              {interview.imageUrls.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {interview.imageUrls.map((url, idx) => (
+                    <div key={idx} className="relative group">
+                      <img src={url} alt={`Inspiration ${idx + 1}`} className="w-full h-16 object-cover rounded-lg border" />
+                      <button
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-background border shadow-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => setInterview(prev => ({ ...prev, imageUrls: prev.imageUrls.filter((_, i) => i !== idx) }))}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {interview.imageUrls.length < 5 && (
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 h-9 text-xs border-dashed"
+                  onClick={onUpload}
+                  disabled={interview.uploading}
+                  data-testid="button-upload-inspiration"
+                >
+                  {interview.uploading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                  {interview.uploading ? "Uploader..." : "Upload billeder"}
+                </Button>
+              )}
+
+              <Textarea
+                value={interview.notes}
+                onChange={(e) => setInterview(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="Noter til stilen? (fx 'ingen stockfotos', 'gerne håndtegnede illustrationer')"
+                className="min-h-[56px] max-h-[100px] resize-none text-xs rounded-lg"
+              />
+
+              <Button
+                className="w-full gap-2 h-10 font-semibold bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700 text-sm"
+                onClick={onFinalize}
+                data-testid="button-finalize-interview"
+              >
+                <Sparkles className="w-4 h-4" />
+                Færdiggør brand guiden
+              </Button>
+              <button className="w-full text-[11px] text-muted-foreground underline" onClick={() => setInterview(prev => ({ ...prev, step: "fonts" }))}>
+                ← Tilbage til typografi
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

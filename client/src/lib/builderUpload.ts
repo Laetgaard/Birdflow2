@@ -15,6 +15,7 @@ export async function uploadImage(
 
   const optimizedRes = await fetch('/api/uploads/optimized-image', {
     method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
     body: formData,
   });
 

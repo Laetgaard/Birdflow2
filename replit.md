@@ -45,7 +45,13 @@ User-built components stored as data trees of primitive nodes (box/text/image/bu
 Per-website brand guide persisted at `builderState.brandGuide` (types in `shared/customComponents.ts`): colors (primary/secondary/accent/background/surface/text), typography (heading/body font + scale), logo, imagery style + notes, tone of voice + keywords, and spacing/radius/shadow/motion levels. Edited in the builder's "Brand" tab (`BrandGuidePanel`); "Anvend på hjemmesiden" maps the guide onto global styles via `brandGuideToDesignTokens()`.
 
 ### AI Builder Assistant
-AI-powered website modification through structured JSON mutations supporting "Build Mode", "Thinking Mode", and "Design Analysis Mode". It includes "Creative Mode" (full CSS freedom) and "Safe Mode" (restricted styling), along with undo/redo functionality. Mutations cover components, pages, global styles, style presets, and section-based composition. Professional UI/UX capabilities include a Design Tokens System, 5 Style Presets, and a Section Registry (15 types with variants) for rapid page creation. AI Design Analysis scores design quality and provides recommendations.
+AI-powered website modification through structured JSON mutations supporting "Build Mode", "Thinking Mode", and "Design Analysis Mode". It includes "Creative Mode" (full CSS freedom) and "Safe Mode" (restricted styling), along with undo/redo functionality. Mutations cover components, pages, global styles, style presets, section-based composition, custom components (`add_custom_component` / `update_custom_component` — data trees only, optional library save), and brand-guide edits (`update_brand_guide`, deep partial merge with optional design-token application). The AI panel (`AIBuilderPanel.tsx`) is fully in Danish.
+
+**AI images**: image fields may contain `ai://<description>` markers; `server/aiImages.ts` resolves them before mutations are applied (brand-grounded prompts, gpt-image-1, sharp→webp, stored in object storage as `/objects/uploads/*.webp` + media asset row, max 3 unique images per request; failures collapse to `''` with Danish notes).
+
+**Pipeline** (in `/ai/build`, `/ai/apply`, `/ai/architect-build`): AI response → resolve `ai://` markers → apply mutations → deterministic self-check (`server/selfCheck.ts`: broken internal links → `/`, WCAG 4.5:1 contrast fixes, custom-tree responsive auto-fixes) → sanitize custom content → save → respond with a server-derived Danish build report (`server/aiReport.ts`, groups: Oprettet / Ændret / Tjek) rendered as a card in the panel.
+
+**Design interview** (`POST /api/websites/:id/ai/design-interview`, wizard in the AI panel): feeling → 4 AI palettes (readability-enforced) → 3 font pairs (24 curated Google fonts) → optional inspiration image uploads (vision analysis, only website-owned media) + notes → writes `builderState.brandGuide` (+ global styles unless opted out). Guarded by `requireWebsitePermission("updateBuilder")`, strict zod body validation, and a per-user rate limit.
 
 ### AI Website Architect System
 A professional 2-mode website building system that creates Webflow/Framer quality websites with complete design systems:
@@ -149,7 +155,7 @@ Professional subscription management for the platform, offering Free/Starter, Pr
 - **Stripe**: For e-commerce checkout sessions, webhooks, and subscription billing.
 
 ### File Storage
-- **Replit Object Storage**: For image uploads.
+- **Replit Object Storage**: For image uploads. The upload endpoints (`/api/uploads/request-url`, `/api/uploads/optimized-image`) require an authenticated user (Bearer token); all client upload helpers send it.
 
 ### Email Service
 - **Resend**: Transactional email service (via Replit connector).

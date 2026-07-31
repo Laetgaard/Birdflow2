@@ -1,3 +1,3 @@
 # Memory index
 
-- [Builder custom components](builder-custom-components.md) — data-tree components, breakpoint cascade, 3-point SVG sanitize, templates.ts escaping pitfall, tsc baseline failures.
+- [Builder custom components](builder-custom-components.md) — data trees, breakpoint cascade, SVG sanitize, AI image/mutation pipeline order, styles schema-type sync, upload auth, tsc quirks.

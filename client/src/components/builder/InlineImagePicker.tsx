@@ -33,6 +33,7 @@ export default function InlineImagePicker({
       formData.append("image", file);
       const res = await fetch("/api/uploads/optimized-image", {
         method: "POST",
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
         body: formData,
       });
       if (!res.ok) throw new Error("Upload failed");

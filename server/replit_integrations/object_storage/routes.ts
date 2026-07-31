@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, RequestHandler } from "express";
 import multer from "multer";
 import sharp from "sharp";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "./objectStorage";
@@ -30,7 +30,7 @@ const upload = multer({
  * - Add file metadata storage (save to database after upload)
  * - Add ACL policies for access control
  */
-export function registerObjectStorageRoutes(app: Express): void {
+export function registerObjectStorageRoutes(app: Express, requireAuth?: RequestHandler): void {
   const objectStorageService = new ObjectStorageService();
 
   /**
@@ -52,7 +52,7 @@ export function registerObjectStorageRoutes(app: Express): void {
    * IMPORTANT: The client should NOT send the file to this endpoint.
    * Send JSON metadata only, then upload the file directly to uploadURL.
    */
-  app.post("/api/uploads/request-url", async (req, res) => {
+  app.post("/api/uploads/request-url", ...(requireAuth ? [requireAuth] : []), async (req, res) => {
     try {
       const { name, size, contentType } = req.body;
 
@@ -98,7 +98,7 @@ export function registerObjectStorageRoutes(app: Express): void {
    *   "savings": "98%"
    * }
    */
-  app.post("/api/uploads/optimized-image", upload.single('image'), async (req, res) => {
+  app.post("/api/uploads/optimized-image", ...(requireAuth ? [requireAuth] : []), upload.single('image'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No image file provided" });

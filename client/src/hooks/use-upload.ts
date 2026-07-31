@@ -1,5 +1,13 @@
 import { useState, useCallback } from "react";
 import type { UppyFile } from "@uppy/core";
+import { getSupabase } from "@/lib/supabaseClient";
+
+/** Upload endpoints require an authenticated user. */
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await getSupabase().auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 interface UploadMetadata {
   name: string;
@@ -73,6 +81,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(await authHeaders()),
         },
         body: JSON.stringify({
           name: file.name,
@@ -173,6 +182,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(await authHeaders()),
         },
         body: JSON.stringify({
           name: file.name,
@@ -225,6 +235,7 @@ export function useUpload(options: UseUploadOptions = {}) {
 
         const response = await fetch('/api/uploads/optimized-image', {
           method: 'POST',
+          headers: await authHeaders(),
           body: formData,
         });
 
