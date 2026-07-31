@@ -69,14 +69,14 @@ export function SubmissionsSection({ websiteId, accessToken }: SectionProps) {
                   key={submission.id}
                   data-testid={`card-submission-${submission.id}`}
                   className={`p-5 border rounded-lg transition-colors ${
-                    !submission.read ? 'bg-blue-50/50 border-blue-200' : 'bg-card'
+                    !submission.read ? 'bg-accent/60 border-primary/30' : 'bg-card'
                   }`}
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-2">
                       {!submission.read && (
                         <span
-                          className="w-2 h-2 rounded-full bg-blue-500"
+                          className="w-2 h-2 rounded-full bg-primary"
                           title="Ulæst"
                           data-testid={`badge-unread-${submission.id}`}
                         />

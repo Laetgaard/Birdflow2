@@ -284,9 +284,9 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
                 )}
               </div>
             ) : (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">Forbind din Stripe-konto</h4>
-                <p className="text-sm text-blue-800">
+              <div className="bg-accent/60 border border-primary/20 rounded-lg p-4">
+                <h4 className="font-medium text-accent-foreground mb-2">Forbind din Stripe-konto</h4>
+                <p className="text-sm text-muted-foreground">
                   Klik på "Forbind Stripe-konto" for sikkert at koble din Stripe-konto til.
                   Du bliver sendt videre til Stripe for at godkende forbindelsen. Når den er oprettet,
                   kan kunder betale online, og pengene går direkte til din konto.

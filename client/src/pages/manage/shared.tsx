@@ -84,7 +84,7 @@ export function StatusBadge({ status }: { status: string }) {
     case 'unpaid':
       return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100"><Clock className="w-3 h-3 mr-1" />{label}</Badge>;
     case 'processing':
-      return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100"><AlertCircle className="w-3 h-3 mr-1" />{label}</Badge>;
+      return <Badge className="bg-primary/10 text-primary hover:bg-primary/10"><AlertCircle className="w-3 h-3 mr-1" />{label}</Badge>;
     case 'cancelled':
     case 'refunded':
       return <Badge className="bg-red-100 text-red-800 hover:bg-red-100"><XCircle className="w-3 h-3 mr-1" />{label}</Badge>;
