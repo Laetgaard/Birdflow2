@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import type { BuilderStateData } from "@shared/schema";
 import type { BuilderMutation, AIThinkingResponse, BuildReport, PaletteProposal, FontPairProposal } from "@shared/aiBuilderSchema";
+import { runAgent, applyApprovedMutations, type AgentStreamEvent } from "@/lib/aiAgentStream";
 import { uploadImage } from "@/lib/builderUpload";
 import type { WebsitePlan } from "@shared/websitePlanSchema";
 import {
@@ -61,7 +62,7 @@ type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  type: "text" | "plan" | "architect-plan";
+  type: "text" | "plan" | "architect-plan" | "agent";
   plan?: AIThinkingResponse;
   architectPlan?: WebsitePlan;
   screenshotBase64?: string;
@@ -70,7 +71,14 @@ type Message = {
   status?: AIStatus;
   detectedUrl?: string;
   report?: BuildReport;
+  /** Live tool steps streamed by the agent. */
+  steps?: AgentStep[];
+  /** Set when the agent stopped on a large change and needs a decision. */
+  approval?: { reason: string; summary: string[]; mutations: BuilderMutation[] };
 };
+
+/** One line in the agent's live activity list. */
+type AgentStep = { label: string; ok: boolean };
 
 type AIBuilderPanelProps = {
   websiteId: string;
@@ -187,6 +195,159 @@ export default function AIBuilderPanel({
     }
   }, [currentStatus]);
 
+  /**
+   * One turn of the tool-using agent. Streams its steps into a live
+   * assistant message, then either applies the result as a single undo
+   * entry or parks it behind an approval card.
+   */
+  const runAgentTurn = async (userInput: string, approvedLargeChanges = false) => {
+    if (!session) return;
+
+    const messageId = `agent-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: messageId,
+        role: "assistant",
+        content: "",
+        type: "agent",
+        status: "building",
+        steps: [],
+      },
+    ]);
+
+    const pushStep = (label: string, ok: boolean) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, steps: [...(m.steps ?? []), { label, ok }] } : m
+        )
+      );
+    };
+
+    const onEvent = (event: AgentStreamEvent) => {
+      switch (event.type) {
+        case "tool":
+          pushStep(event.summary, event.ok);
+          break;
+        case "note":
+          pushStep(event.text, true);
+          break;
+        case "error":
+          pushStep(event.message, false);
+          break;
+        default:
+          break;
+      }
+    };
+
+    const result = await runAgent({
+      websiteId,
+      accessToken: session.access_token,
+      prompt: userInput,
+      approvedLargeChanges,
+      onEvent,
+    });
+
+    if (result.status === "needs_approval") {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                content: `Det her er en større ændring: ${result.reason}. Skal jeg gennemføre den?`,
+                status: "complete",
+                approval: {
+                  reason: result.reason,
+                  summary: result.summary,
+                  mutations: result.mutations,
+                },
+              }
+            : m
+        )
+      );
+      setCurrentStatus("complete");
+      return;
+    }
+
+    if (result.status === "no_changes") {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, content: result.summary || "Ingen ændringer var nødvendige.", status: "complete" }
+            : m
+        )
+      );
+      setCurrentStatus("complete");
+      return;
+    }
+
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? {
+              ...m,
+              content: result.summary || "Ændringerne er gennemført!",
+              status: "complete",
+              applied: true,
+              report: result.report as BuildReport | undefined,
+            }
+          : m
+      )
+    );
+
+    // One history entry for the whole run, so a single undo reverts it.
+    onStateChange(result.newState, `AI-agent: ${userInput.slice(0, 30)}...`);
+    setCurrentStatus("complete");
+    toast({
+      title: "Ændringer gennemført",
+      description: `Agenten brugte ${result.steps} trin`,
+    });
+  };
+
+  /** User approved a gated run: replay its mutations through /ai/apply. */
+  const approveAgentRun = async (messageId: string, mutations: BuilderMutation[]) => {
+    if (!session) return;
+    setIsLoading(true);
+    setCurrentStatus("building");
+    try {
+      const data = await applyApprovedMutations({
+        websiteId,
+        accessToken: session.access_token,
+        mutations,
+      });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                approval: undefined,
+                applied: true,
+                content: data.explanation || "Ændringerne er gennemført!",
+                report: data.report as BuildReport | undefined,
+              }
+            : m
+        )
+      );
+      onStateChange(data.newState, "AI-agent: godkendt ændring");
+      setCurrentStatus("complete");
+    } catch (error: any) {
+      setCurrentStatus("error");
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const dismissAgentApproval = (messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? { ...m, approval: undefined, content: "Ændringen blev ikke gennemført." }
+          : m
+      )
+    );
+  };
+
   const handleSubmit = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -297,47 +458,7 @@ export default function AIBuilderPanel({
         }
       } else {
         setCurrentStatus("designing");
-
-        const response = await fetch(`/api/websites/${websiteId}/ai/build`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            prompt: userInput,
-            mode: "creative",
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || "Kunne ikke gennemføre ændringerne");
-        }
-
-        const data = await response.json();
-
-        const assistantMessage: Message = {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: data.explanation || data.summary || "Ændringerne er gennemført!",
-          type: "text",
-          mutations: data.mutations,
-          applied: true,
-          status: "complete",
-          report: data.report,
-        };
-        setMessages(prev => [...prev, assistantMessage]);
-
-        if (data.newState) {
-          onStateChange(data.newState, `AI: ${userInput.slice(0, 30)}...`);
-        }
-
-        setCurrentStatus("complete");
-        toast({
-          title: "Ændringer gennemført",
-          description: `${data.mutations?.length || 0} opdatering(er) af dit website`,
-        });
+        await runAgentTurn(userInput);
       }
     } catch (error: any) {
       setCurrentStatus("error");
@@ -768,7 +889,67 @@ export default function AIBuilderPanel({
                     }}
                   />
                 ) : (
-                  <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                  message.content && (
+                    <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                  )
+                )}
+
+                {/* Live agent activity: what it is actually doing, step by step */}
+                {message.type === "agent" && (message.steps?.length ?? 0) > 0 && (
+                  <ol className="mt-1 space-y-1 list-none p-0 m-0" data-testid="agent-steps">
+                    {message.steps!.map((step, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-[11.5px] leading-snug">
+                        {step.ok ? (
+                          <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-green-500" />
+                        ) : (
+                          <AlertCircle className="w-3 h-3 mt-0.5 shrink-0 text-amber-500" />
+                        )}
+                        <span className={step.ok ? "text-muted-foreground" : "text-amber-600"}>
+                          {step.label}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+
+                {/* Large change: nothing was saved until the user decides */}
+                {message.approval && (
+                  <div
+                    className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-900 dark:bg-amber-950/40"
+                    data-testid="agent-approval-card"
+                  >
+                    <p className="text-[11.5px] font-semibold text-amber-900 dark:text-amber-200 m-0">
+                      Kræver din godkendelse
+                    </p>
+                    {message.approval.summary.length > 0 && (
+                      <ul className="mt-1.5 mb-0 pl-4 text-[11.5px] text-amber-900/80 dark:text-amber-200/80">
+                        {message.approval.summary.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="mt-2.5 flex gap-1.5">
+                      <Button
+                        size="sm"
+                        className="h-7 text-[11.5px]"
+                        disabled={isLoading}
+                        onClick={() => approveAgentRun(message.id, message.approval!.mutations)}
+                        data-testid="button-approve-agent-run"
+                      >
+                        Gennemfør
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[11.5px]"
+                        disabled={isLoading}
+                        onClick={() => dismissAgentApproval(message.id)}
+                        data-testid="button-dismiss-agent-run"
+                      >
+                        Annullér
+                      </Button>
+                    </div>
+                  </div>
                 )}
 
                 {message.type === "text" && message.role === "assistant" && message.mutations && message.mutations.length > 0 && (
@@ -823,7 +1004,7 @@ export default function AIBuilderPanel({
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={thinkingMode ? "Beskriv din website-idé..." : "Hvilke ændringer ønsker du?"}
+            placeholder={thinkingMode ? "Beskriv din website-idé..." : "Hvad skal agenten lave?"}
             className="min-h-[44px] max-h-[100px] resize-none text-[13px] rounded-xl border-muted-foreground/20 focus-visible:ring-violet-500/30"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -848,7 +1029,7 @@ export default function AIBuilderPanel({
           </Button>
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-          Enter for at sende {thinkingMode ? "· Arkitekt-tilstand planlægger før den bygger" : "· Hurtig tilstand ændrer med det samme"}
+          Enter for at sende {thinkingMode ? "· Arkitekt-tilstand planlægger før den bygger" : "· Agenten arbejder selv og spørger ved store ændringer"}
         </p>
       </div>
       )}
