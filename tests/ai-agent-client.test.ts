@@ -192,7 +192,7 @@ describe("panel + route wiring (source tripwires)", () => {
   });
 
   it("the whole run is a single undo entry", () => {
-    expect(panel).toContain('onStateChange(result.newState, `AI-agent:');
+    expect(panel).toContain('onStateChange(result.newState, `AI:');
   });
 
   it("approval replays through the existing /ai/apply", () => {

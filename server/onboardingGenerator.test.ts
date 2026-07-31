@@ -8,11 +8,15 @@ const updateBuilderStateMock = vi.fn(async () => undefined);
 const getBuilderStateMock = vi.fn();
 const getMediaAssetsMock = vi.fn(async () => []);
 
+const persistGenStatusMock = vi.fn(async () => {});
+
 vi.mock("./storage", () => ({
   storage: {
     getBuilderState: (...args: unknown[]) => getBuilderStateMock(...args),
     updateBuilderState: (...args: unknown[]) => updateBuilderStateMock(...args),
     getMediaAssets: (...args: unknown[]) => getMediaAssetsMock(...args),
+    // M15: every phase change mirrors into onboarding_sessions
+    persistOnboardingGenStatus: (...args: unknown[]) => persistGenStatusMock(...args),
   },
 }));
 

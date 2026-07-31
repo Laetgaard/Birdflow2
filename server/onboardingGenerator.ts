@@ -51,6 +51,12 @@ export type OnboardingGenInput = {
   logoMediaId?: string;
   inspirationUrls: string[];
   ownImageUrls: string[];
+  /**
+   * A plan the user already previewed and approved in the walkthrough.
+   * When present, phase 2 builds THIS plan instead of planning again —
+   * what was approved is what gets built.
+   */
+  plan?: WebsitePlan;
 };
 
 // ============ Status registry ============
@@ -114,6 +120,18 @@ function setPhase(status: OnboardingGenStatus, phase: OnboardingGenPhase, detail
   status.phase = phase;
   status.detail = detail;
   status.updatedAt = Date.now();
+  persistStatus(status);
+}
+
+/**
+ * Fire-and-forget mirror into onboarding_sessions.gen_status, so a
+ * server restart mid-build doesn't strand the user: the status route
+ * falls back to the DB row when this in-memory registry misses.
+ */
+function persistStatus(status: OnboardingGenStatus): void {
+  storage
+    .persistOnboardingGenStatus(status.websiteId, status as unknown as Record<string, unknown>)
+    .catch((err) => console.error(`[OnboardingGen] Failed to persist status for ${status.websiteId}:`, err));
 }
 
 // ============ Public entry ============
@@ -143,6 +161,7 @@ export function startOnboardingGeneration(
   };
   jobs.set(websiteId, status);
   runningJobs.add(websiteId);
+  persistStatus(status);
 
   runPipeline(websiteId, input, status)
     .catch((error) => {
@@ -154,6 +173,7 @@ export function startOnboardingGeneration(
       status.error =
         "Noget gik galt under opbygningen. Din konto og dit projekt er sikre — prøv igen, eller fortsæt og byg videre med AI-assistenten i editoren.";
       status.updatedAt = Date.now();
+      persistStatus(status);
     })
     .finally(() => {
       runningJobs.delete(websiteId);
@@ -225,16 +245,24 @@ async function runPipeline(
   // ---- Phase 2: plan ----
   setPhase(status, "plan", "Planlægger sider, sektioner og indhold…");
   let plan: WebsitePlan | undefined;
-  try {
-    const planResult = await analyzeAndPlanWebsite(buildPlanPrompt(input));
-    if (planResult.success && planResult.plan) {
-      plan = planResult.plan;
-      plan.siteName = input.business.name;
-      plan.designSystem = designSystemFromGuide(plan.designSystem, guide);
-      status.detail = `${plan.pages.length} sider planlagt — bygger nu…`;
+  if (input.plan) {
+    // The user approved this exact plan in the walkthrough preview.
+    plan = structuredClone(input.plan);
+    status.detail = `Bruger den godkendte plan (${plan.pages.length} sider) — bygger nu…`;
+  } else {
+    try {
+      const planResult = await analyzeAndPlanWebsite(buildPlanPrompt(input));
+      if (planResult.success && planResult.plan) {
+        plan = planResult.plan;
+        status.detail = `${plan.pages.length} sider planlagt — bygger nu…`;
+      }
+    } catch (error) {
+      console.error(`[OnboardingGen] Plan failed for ${websiteId}:`, error);
     }
-  } catch (error) {
-    console.error(`[OnboardingGen] Plan failed for ${websiteId}:`, error);
+  }
+  if (plan) {
+    plan.siteName = input.business.name;
+    plan.designSystem = designSystemFromGuide(plan.designSystem, guide);
   }
 
   // ---- Phase 3: build ----
@@ -300,6 +328,7 @@ async function runPipeline(
   );
   setPhase(status, "done");
   status.done = true;
+  persistStatus(status);
 }
 
 // ============ Fallback: deterministic Danish starter site ============
@@ -334,6 +363,7 @@ async function applyFallback(
   status.fallback = true;
   setPhase(status, "done");
   status.done = true;
+  persistStatus(status);
 }
 
 function deterministicGuide(input: OnboardingGenInput): BrandGuide {

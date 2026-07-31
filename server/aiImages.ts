@@ -13,7 +13,6 @@
  * and a Danish note is added to the build report instead.
  */
 
-import OpenAI from "openai";
 import sharp from "sharp";
 import { randomUUID } from "crypto";
 import {
@@ -24,10 +23,7 @@ import { storage } from "./storage";
 import type { BuilderMutation, AIPrimitiveNode } from "@shared/aiBuilderSchema";
 import type { BrandGuide } from "@shared/schema";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 export const AI_IMAGE_MARKER = "ai://";
 export const MAX_AI_IMAGES_PER_REQUEST = 3;
@@ -86,7 +82,7 @@ export async function generateAndStoreImage(
   brandGuide?: BrandGuide,
   aspect: ImageAspect = "landscape"
 ): Promise<{ url: string; mediaId: string }> {
-  const result = await openai.images.generate({
+  const result = await getOpenAI().images.generate({
     model: "gpt-image-1",
     prompt: buildImagePrompt(description, brandGuide),
     size: ASPECT_SIZE[aspect],
@@ -120,6 +116,69 @@ export async function generateAndStoreImage(
     width: meta.width,
     height: meta.height,
     altText: truncate(description, 250),
+  });
+
+  return { url: objectPath, mediaId: asset.id };
+}
+
+/**
+ * Generate a logo for a business and store it like any other media
+ * asset. Deliberately its OWN prompt path: buildImagePrompt appends
+ * "no text, no logos" to every prompt because content images must not
+ * fake wordmarks — a logo is the one image where text is the point.
+ */
+export async function generateLogo(
+  websiteId: string,
+  businessName: string,
+  options?: { feeling?: string; primaryColor?: string; accentColor?: string; notes?: string }
+): Promise<{ url: string; mediaId: string }> {
+  const parts = [
+    `Minimalist vector-style logo for the business "${businessName.trim()}".`,
+    "A simple, memorable mark plus the business name as a clean wordmark.",
+    "Flat design, crisp edges, centered composition, plain solid background.",
+  ];
+  if (options?.feeling) parts.push(`Brand feeling: ${options.feeling}`);
+  if (options?.primaryColor) {
+    parts.push(
+      `Primary brand color ${options.primaryColor}${options?.accentColor ? `, accent ${options.accentColor}` : ""}. Use at most these colors plus neutrals.`
+    );
+  }
+  if (options?.notes) parts.push(`Direction: ${truncate(options.notes, 300)}`);
+  parts.push("No photograph, no 3D, no gradients heavier than subtle, no watermark.");
+
+  const result = await getOpenAI().images.generate({
+    model: "gpt-image-1",
+    prompt: parts.join(" "),
+    size: "1024x1024",
+    quality: "medium",
+  });
+
+  const b64 = result.data?.[0]?.b64_json;
+  if (!b64) throw new Error("Ingen billeddata modtaget fra billedgeneratoren");
+
+  const optimized = await sharp(Buffer.from(b64, "base64")).webp({ quality: 90 }).toBuffer();
+  const meta = await sharp(optimized).metadata();
+
+  const objectStorageService = new ObjectStorageService();
+  const privateObjectDir = objectStorageService.getPrivateObjectDir();
+  const objectId = `${randomUUID()}.webp`;
+  const fullPath = `${privateObjectDir}/uploads/${objectId}`;
+  const pathParts = fullPath.startsWith("/") ? fullPath.slice(1).split("/") : fullPath.split("/");
+  const bucket = objectStorageClient.bucket(pathParts[0]);
+  const file = bucket.file(pathParts.slice(1).join("/"));
+  await file.save(optimized, { contentType: "image/webp", resumable: false });
+
+  const objectPath = `/objects/uploads/${objectId}`;
+  const asset = await storage.createMediaAsset({
+    websiteId,
+    filename: objectId,
+    originalFilename: `logo-${businessName.replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, "").trim().slice(0, 40) || "logo"}.webp`,
+    storagePath: objectPath,
+    mimeType: "image/webp",
+    size: optimized.length,
+    width: meta.width,
+    height: meta.height,
+    altText: `${businessName} logo`,
   });
 
   return { url: objectPath, mediaId: asset.id };

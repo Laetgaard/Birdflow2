@@ -7,10 +7,21 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, DollarSign, CheckCircle } from "lucide-react";
 import type { SectionProps, PaymentSettings } from "./types";
 import { authHeaders, jsonAuthHeaders, statusLabelDa } from "./shared";
+
+// The currencies the checkout/shipping flows already price in.
+const CURRENCIES = [
+  { code: "DKK", label: "Danske kroner (DKK)" },
+  { code: "EUR", label: "Euro (EUR)" },
+  { code: "SEK", label: "Svenske kroner (SEK)" },
+  { code: "NOK", label: "Norske kroner (NOK)" },
+  { code: "USD", label: "Amerikanske dollar (USD)" },
+  { code: "GBP", label: "Britiske pund (GBP)" },
+];
 import { DomainsCard } from "./DomainsCard";
 import { DomainPurchaseCard } from "./DomainPurchaseCard";
 import { LegalSettingsCard } from "./LegalSettingsCard";
@@ -27,6 +38,31 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
     stripeAccountId: null,
   });
   const [isConnectingStripe, setIsConnectingStripe] = useState(false);
+  const [currency, setCurrency] = useState(website?.currency || "DKK");
+  const [isSavingCurrency, setIsSavingCurrency] = useState(false);
+
+  const handleCurrencyChange = async (next: string) => {
+    const prev = currency;
+    setCurrency(next);
+    setIsSavingCurrency(true);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}`, {
+        method: "PATCH",
+        headers: jsonAuthHeaders(accessToken),
+        body: JSON.stringify({ currency: next }),
+      });
+      if (!res.ok) throw new Error("Kunne ikke gemme valutaen");
+      toast({
+        title: "Valuta gemt",
+        description: `Beløb i dashboardet vises nu i ${next}.`,
+      });
+    } catch (error: any) {
+      setCurrency(prev);
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setIsSavingCurrency(false);
+    }
+  };
 
   const fetchPaymentSettings = useCallback(async () => {
     if (!accessToken || !websiteId) return;
@@ -140,6 +176,27 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
                 </span>
               </div>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="website-currency">Valuta</Label>
+              <div className="flex items-center gap-2">
+                <Select value={currency} onValueChange={handleCurrencyChange} disabled={isSavingCurrency}>
+                  <SelectTrigger id="website-currency" className="w-64" data-testid="select-currency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CURRENCIES.map((c) => (
+                      <SelectItem key={c.code} value={c.code} data-testid={`currency-option-${c.code}`}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {isSavingCurrency && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Bruges til omsætningstal i dashboardet og som standard for nye ordrer.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -227,9 +284,9 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
                 )}
               </div>
             ) : (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">Forbind din Stripe-konto</h4>
-                <p className="text-sm text-blue-800">
+              <div className="bg-accent/60 border border-primary/20 rounded-lg p-4">
+                <h4 className="font-medium text-accent-foreground mb-2">Forbind din Stripe-konto</h4>
+                <p className="text-sm text-muted-foreground">
                   Klik på "Forbind Stripe-konto" for sikkert at koble din Stripe-konto til.
                   Du bliver sendt videre til Stripe for at godkende forbindelsen. Når den er oprettet,
                   kan kunder betale online, og pengene går direkte til din konto.

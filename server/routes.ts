@@ -1,7 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
-import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, phasedBuildState, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
@@ -35,7 +35,7 @@ import {
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
-import { processAIBuildRequest, processAIThinkingRequest, applyMutations, assertSaneJsonDepth, type CreativeMode } from "./aiBuilder";
+import { applyMutations, assertSaneJsonDepth } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
 import { buildReport } from "./aiReport";
@@ -277,6 +277,20 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 // Helper function to get or create a profile for authenticated user
+/**
+ * The website's trading currency, for checkout paths whose products
+ * carry no currency of their own. Falls back to DKK (the platform
+ * default) only when the website row itself is missing.
+ */
+async function websiteCurrency(websiteId: string): Promise<string> {
+  try {
+    const website = await storage.getWebsite(websiteId);
+    return website?.currency || "DKK";
+  } catch {
+    return "DKK";
+  }
+}
+
 async function getOrCreateProfile(userId: string, authUser: any): Promise<{ profile: Profile | null; error: string | null }> {
   // Try to get existing profile
   let profile = await storage.getProfile(userId);
@@ -452,10 +466,18 @@ export async function registerRoutes(
         return website;
       });
 
-      res.status(201).json({ 
+      // Link the draft into the walkthrough session so uploads and the
+      // agent have a website to attach to from the next turn on.
+      try {
+        await storage.upsertOnboardingSession(user.id, { websiteId: result.id, answers: { path: "ai" } });
+      } catch (sessionErr) {
+        console.error("Onboarding session link failed (non-fatal):", sessionErr);
+      }
+
+      res.status(201).json({
         websiteId: result.id,
         slug: uniqueSlug,
-        message: "Website created successfully" 
+        message: "Website created successfully"
       });
     } catch (error: any) {
       console.error("Onboarding error:", error);
@@ -512,6 +534,210 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Complete onboarding error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ ONBOARDING WALKTHROUGH (AI agent) ============
+  // The session (transcript + answers + generation status) lives in
+  // onboarding_sessions, so the walkthrough survives cleared browsers,
+  // device switches and server restarts.
+
+  // Resume point for the client.
+  app.get("/api/onboarding/session", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const session = await storage.getOnboardingSession(userId);
+      res.json({
+        websiteId: session?.websiteId ?? null,
+        transcript: session?.transcript ?? [],
+        answers: session?.answers ?? {},
+        genStatus: session?.genStatus ?? null,
+      });
+    } catch (error: any) {
+      console.error("Onboarding session error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Deterministic writes: palette/font choices, uploads and the DIY
+  // fork are recorded by the CLIENT the moment the user clicks — they
+  // never round-trip through the model, so a hex code or URL can't get
+  // mangled in conversation.
+  const recordHex = z.string().regex(/^#[0-9a-fA-F]{3,8}$/);
+  const recordBodySchema = z
+    .object({
+      path: z.enum(["ai", "diy"]).optional(),
+      websiteId: z.string().max(64).optional(),
+      palette: z
+        .object({
+          id: z.string().max(64),
+          name: z.string().max(120),
+          description: z.string().max(600).default(""),
+          colors: z.object({
+            primary: recordHex,
+            secondary: recordHex,
+            accent: recordHex,
+            background: recordHex,
+            surface: recordHex,
+            text: recordHex,
+          }),
+        })
+        .optional(),
+      fontPair: z
+        .object({
+          id: z.string().max(64),
+          name: z.string().max(120),
+          heading: z.string().max(80),
+          body: z.string().max(80),
+          scale: z.enum(["modern", "editorial", "classic", "bold"]),
+          description: z.string().max(600).default(""),
+        })
+        .optional(),
+      logo: z.object({ url: z.string().max(512), mediaId: z.string().max(64) }).optional(),
+      ownImageUrls: z.array(z.string().max(512)).max(4).optional(),
+      inspirationUrls: z.array(z.string().max(512)).max(3).optional(),
+      desiredDomain: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .max(253)
+        .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/, "Ugyldigt domænenavn")
+        .optional(),
+    })
+    .strict();
+
+  app.post("/api/onboarding/session/record", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const parsed = recordBodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Ugyldige felter" });
+      }
+      const body = parsed.data;
+
+      const session = await storage.getOnboardingSession(userId);
+      const patch: Record<string, unknown> = {};
+      let websiteId = session?.websiteId ?? null;
+
+      if (body.websiteId) {
+        // The session may only point at a website this user owns.
+        const website = await storage.getWebsite(body.websiteId);
+        if (!website || website.ownerId !== userId) {
+          return res.status(403).json({ message: "Ikke din hjemmeside." });
+        }
+        websiteId = body.websiteId;
+      }
+
+      if (body.path) patch.path = body.path;
+      if (body.desiredDomain) patch.desiredDomain = body.desiredDomain;
+      if (body.palette) patch.palette = body.palette;
+      if (body.fontPair) patch.fontPair = body.fontPair;
+
+      // Upload URLs must be media registered to the session's website —
+      // the same ownership rule as the design-interview and the builder
+      // agent's analyze_reference_image.
+      if (body.logo || body.ownImageUrls || body.inspirationUrls) {
+        if (!websiteId) {
+          return res.status(400).json({ message: "Opret hjemmesiden før du uploader." });
+        }
+        const assets = await storage.getMediaAssets(websiteId);
+        const owned = new Set(assets.map((a) => a.storagePath));
+        const keepOwned = (urls: string[]) => urls.filter((u) => owned.has(u));
+        if (body.logo) {
+          if (!owned.has(body.logo.url)) {
+            return res.status(403).json({ message: "Logoet tilhører ikke denne hjemmeside." });
+          }
+          patch.logoUrl = body.logo.url;
+          patch.logoMediaId = body.logo.mediaId;
+        }
+        if (body.ownImageUrls) patch.ownImageUrls = keepOwned(body.ownImageUrls);
+        if (body.inspirationUrls) patch.inspirationUrls = keepOwned(body.inspirationUrls);
+      }
+
+      const updated = await storage.upsertOnboardingSession(userId, {
+        ...(body.websiteId ? { websiteId: body.websiteId } : {}),
+        answers: patch as any,
+      });
+      res.json({ success: true, answers: updated.answers });
+    } catch (error: any) {
+      console.error("Onboarding record error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // One turn of the walkthrough agent (SSE, same event shape and client
+  // transport as the builder agent).
+  const onboardingAgentHits = new Map<string, number[]>();
+  app.post("/api/onboarding/agent", requireAuth, async (req, res) => {
+    const userId = (req as any).user?.id;
+    const now = Date.now();
+    const recentRuns = (onboardingAgentHits.get(userId) ?? []).filter((t) => now - t < 10 * 60 * 1000);
+    if (recentRuns.length >= 20) {
+      onboardingAgentHits.set(userId, recentRuns);
+      return res.status(429).json({
+        message: "For mange beskeder på kort tid. Vent et øjeblik og prøv igen.",
+      });
+    }
+    recentRuns.push(now);
+    onboardingAgentHits.set(userId, recentRuns);
+
+    const bodySchema = z.object({ message: z.string().trim().min(1).max(4000) });
+    const parsed = bodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Ugyldig besked" });
+    }
+
+    try {
+      const session = await storage.getOnboardingSession(userId);
+      const transcript = [...(session?.transcript ?? [])];
+      transcript.push({ role: "user", content: parsed.data.message });
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      const send = (payload: unknown) => {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      };
+
+      const { runOnboardingAgent } = await import("./onboardingAgent");
+      const outcome = await runOnboardingAgent({
+        userId,
+        websiteId: session?.websiteId ?? null,
+        transcript,
+        answers: session?.answers ?? {},
+        onEvent: send,
+      });
+
+      if (outcome.status === "failed") {
+        send({ type: "error", message: outcome.message ?? "Agenten fejlede" });
+        return res.end();
+      }
+
+      transcript.push({
+        role: "assistant",
+        content: outcome.reply,
+        ...(outcome.displays.length > 0 ? { displays: outcome.displays } : {}),
+      });
+      await storage.upsertOnboardingSession(userId, { transcript });
+
+      send({
+        type: "result",
+        status: "completed",
+        reply: outcome.reply,
+        displays: outcome.displays,
+        answers: outcome.answers,
+        buildStarted: outcome.buildStarted,
+      });
+      res.end();
+    } catch (error: any) {
+      console.error("Onboarding agent error:", error);
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ type: "error", message: error?.message ?? "Agenten fejlede" })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({ message: error?.message ?? "Agenten fejlede" });
+      }
     }
   });
 
@@ -901,11 +1127,30 @@ export async function registerRoutes(
   });
 
   // Update website
+  // Owner-editable fields ONLY. This used to pass req.body straight to
+  // the update, which would have let an owner rewrite billing fields
+  // (plan, subscription ids) on their own row.
+  const updateWebsiteBodySchema = z
+    .object({
+      name: z.string().trim().min(1).max(120).optional(),
+      currency: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z]{3}$/, "Currency must be a 3-letter ISO code")
+        .optional(),
+    })
+    .strict();
+
   app.patch("/api/websites/:id", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const website = await storage.updateWebsite(req.params.id, user.id, req.body);
-      
+      const parsed = updateWebsiteBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid fields", errors: parsed.error.flatten().fieldErrors });
+      }
+      const website = await storage.updateWebsite(req.params.id, user.id, parsed.data);
+
       if (!website) {
         return res.status(404).json({ message: "Website not found or access denied" });
       }
@@ -1416,13 +1661,15 @@ export async function registerRoutes(
     }
   });
 
-  // Get customers for a website
+  // Get customers for a website — identity rows plus live aggregates
+  // (paid-order count, lifetime spend, bookings) computed from orders
+  // and bookings at read time.
   app.get("/api/websites/:id/customers", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
     try {
       const website = getWebsiteAccess(req).website;
 
-      const customers = await storage.getCustomers(req.params.id);
-      res.json(customers);
+      const customers = await storage.getCustomersWithStats(req.params.id);
+      res.json({ customers, currency: website.currency });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1878,9 +2125,9 @@ export async function registerRoutes(
         });
       }
       
-      // Default to USD if no items (shouldn't happen due to earlier check)
+      // Products without a currency inherit the website's trading currency
       if (!primaryCurrency) {
-        primaryCurrency = 'USD';
+        primaryCurrency = await websiteCurrency(websiteId);
       }
 
       const stripe = await getUncachableStripeClient();
@@ -2077,7 +2324,7 @@ export async function registerRoutes(
         success: true,
         validatedItems,
         subtotalCents,
-        currency: primaryCurrency || 'USD',
+        currency: primaryCurrency || (await websiteCurrency(websiteId)),
         customer: { email: customerEmail, name: customerName, phone: customerPhone },
         shippingAddress,
       });
@@ -2196,7 +2443,10 @@ export async function registerRoutes(
       const totalAmountCents = subtotalCents + shippingCostCents;
 
       const stripe = await getUncachableStripeClient();
-      const stripeCurrency = (primaryCurrency || 'USD').toLowerCase();
+      if (!primaryCurrency) {
+        primaryCurrency = await websiteCurrency(websiteId);
+      }
+      const stripeCurrency = primaryCurrency.toLowerCase();
 
       const lineItems = validatedItems.map(item => ({
         price_data: {
@@ -2281,7 +2531,7 @@ export async function registerRoutes(
         totalAmountCents,
         subtotalCents,
         shippingCostCents,
-        currency: primaryCurrency || 'USD',
+        currency: primaryCurrency,
         items: validatedItems.map(item => ({
           id: item.productId,
           name: item.name,
@@ -2359,10 +2609,13 @@ export async function registerRoutes(
       // Calculate total from validated items
       const total = validatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
+      // Charge in the website's trading currency (was hardcoded 'usd')
+      const checkoutCurrency = await websiteCurrency(websiteId);
+
       // Create line items from validated cart
       const lineItems = validatedItems.map(item => ({
         price_data: {
-          currency: 'usd',
+          currency: checkoutCurrency.toLowerCase(),
           product_data: {
             name: item.name,
             metadata: { productId: item.productId },
@@ -2416,7 +2669,7 @@ export async function registerRoutes(
         paymentStatus: 'pending',
         stripeSessionId: session.id,
         total: total.toFixed(2),
-        currency: 'USD',
+        currency: checkoutCurrency,
         items: validatedItems.map(item => ({
           id: item.productId,
           name: item.name,
@@ -4912,110 +5165,11 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/websites/:id/ai/build", requireAuth, async (req, res) => {
+  // AI Builder - Apply mutations (replays an approval-gated agent run).
+  // requireWebsitePermission, not a raw owner check: team members and
+  // administrators with builder access use the same assistant.
+  app.post("/api/websites/:id/ai/apply", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { prompt, mode = 'creative' } = req.body;
-      if (!prompt || typeof prompt !== 'string') {
-        return res.status(400).json({ message: "Prompt is required" });
-      }
-
-      const creativeMode: CreativeMode = mode === 'safe' ? 'safe' : 'creative';
-
-      const builderData = await storage.getBuilderState(req.params.id);
-      if (!builderData) {
-        return res.status(404).json({ message: "Builder state not found" });
-      }
-
-      const currentState = builderData.state as BuilderStateData;
-      const aiResponse = await processAIBuildRequest(prompt, currentState, creativeMode);
-
-      // Generate any "ai://" images and swap markers for hosted URLs
-      const resolved = await resolveAiImageMarkers(req.params.id, aiResponse.mutations, currentState.brandGuide);
-
-      let newState = applyMutations(currentState, resolved.mutations);
-
-      // Deterministic self-check: links, WCAG contrast, responsive hazards
-      const check = runSelfCheck(newState);
-      newState = check.state;
-      sanitizeBuilderStateCustomContent(newState);
-
-      await storage.updateBuilderState(req.params.id, newState);
-
-      const report = buildReport(
-        resolved.mutations,
-        newState,
-        [...resolved.notes, ...check.notes],
-        resolved.created
-      );
-
-      res.json({
-        success: true,
-        explanation: aiResponse.explanation,
-        mutations: resolved.mutations,
-        newState,
-        report,
-      });
-    } catch (error: any) {
-      console.error("AI Build error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // AI Builder - Thinking mode (returns plan without applying)
-  app.post("/api/websites/:id/ai/think", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { prompt, mode = 'creative' } = req.body;
-      if (!prompt || typeof prompt !== 'string') {
-        return res.status(400).json({ message: "Prompt is required" });
-      }
-
-      const creativeMode: CreativeMode = mode === 'safe' ? 'safe' : 'creative';
-
-      const builderData = await storage.getBuilderState(req.params.id);
-      if (!builderData) {
-        return res.status(404).json({ message: "Builder state not found" });
-      }
-
-      const currentState = builderData.state as BuilderStateData;
-      const thinkingResponse = await processAIThinkingRequest(prompt, currentState, creativeMode);
-
-      res.json({
-        success: true,
-        ...thinkingResponse,
-      });
-    } catch (error: any) {
-      console.error("AI Think error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // AI Builder - Apply plan (executes mutations from thinking mode)
-  app.post("/api/websites/:id/ai/apply", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
       const { mutations } = req.body;
       if (!mutations || !Array.isArray(mutations)) {
         return res.status(400).json({ message: "Mutations array is required" });
@@ -5292,8 +5446,16 @@ export async function registerRoutes(
       if (status) {
         return res.json({ success: true, active: isOnboardingGenRunning(req.params.id), status });
       }
-      // No job in memory (e.g. server restarted mid-flow) — report whether the
-      // site already has content so the client can move on instead of hanging.
+      // No job in memory (e.g. server restarted mid-flow). The generator
+      // write-throughs every phase to onboarding_sessions.gen_status, so
+      // serve the persisted snapshot — a finished/failed run keeps its
+      // report and fallback flag across restarts.
+      const session = await storage.getOnboardingSessionByWebsiteId(req.params.id);
+      if (session?.genStatus) {
+        return res.json({ success: true, active: false, status: session.genStatus });
+      }
+      // Nothing persisted either — report whether the site already has
+      // content so the client can move on instead of hanging.
       const builderData = await storage.getBuilderState(req.params.id);
       const state = builderData?.state as BuilderStateData | undefined;
       const built = !!state && state.pages.reduce((sum, p) => sum + (p.components?.length ?? 0), 0) > 0;
@@ -5304,140 +5466,10 @@ export async function registerRoutes(
     }
   });
 
-  // AI Builder - Design analysis mode (analyzes current design and provides recommendations)
-  app.post("/api/websites/:id/ai/analyze", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const builderData = await storage.getBuilderState(req.params.id);
-      if (!builderData) {
-        return res.status(404).json({ message: "Builder state not found" });
-      }
-
-      const currentState = builderData.state as BuilderStateData;
-      const { analyzeDesign } = await import("./aiBuilder");
-      const analysis = await analyzeDesign(currentState);
-
-      res.json(analysis);
-    } catch (error: any) {
-      console.error("AI Analyze error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // AI Builder - Clone from URL (captures screenshot and generates builder_state)
-  app.post("/api/websites/:id/ai/clone-from-url", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { url } = req.body;
-      if (!url || typeof url !== 'string') {
-        return res.status(400).json({ message: "URL is required" });
-      }
-
-      // Validate URL format
-      try {
-        const parsed = new URL(url);
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          return res.status(400).json({ message: "Invalid URL protocol" });
-        }
-      } catch {
-        return res.status(400).json({ message: "Invalid URL format" });
-      }
-
-      // Capture screenshot of the website
-      const { captureWebsiteScreenshot } = await import("./screenshotService");
-      const screenshotResult = await captureWebsiteScreenshot(url);
-      
-      if (!screenshotResult.success || !screenshotResult.imageBase64) {
-        return res.status(500).json({ 
-          message: screenshotResult.error || "Failed to capture screenshot" 
-        });
-      }
-
-      // Analyze screenshot and generate builder state
-      const { analyzeAndCloneWebsite } = await import("./aiVisionCloner");
-      const cloneResult = await analyzeAndCloneWebsite(screenshotResult.imageBase64, url);
-      
-      if (!cloneResult.success || !cloneResult.builderState) {
-        return res.status(500).json({ 
-          message: cloneResult.error || "Failed to analyze website" 
-        });
-      }
-
-      // Save the new builder state
-      await storage.updateBuilderState(req.params.id, cloneResult.builderState);
-
-      res.json({
-        success: true,
-        newState: cloneResult.builderState,
-        analysis: cloneResult.analysis,
-        sourceUrl: url,
-      });
-    } catch (error: any) {
-      console.error("AI Clone from URL error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // AI Architect - Analyze and Plan (Thinking Mode) - creates detailed plan WITHOUT modifying builder_state
-  app.post("/api/websites/:id/ai/architect-plan", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { prompt, url, imageBase64 } = req.body;
-      if (!prompt || typeof prompt !== 'string') {
-        return res.status(400).json({ message: "Prompt is required" });
-      }
-
-      const { analyzeAndPlanWebsite } = await import("./websiteArchitect");
-      const result = await analyzeAndPlanWebsite(prompt, imageBase64, url);
-
-      if (!result.success || !result.plan) {
-        return res.status(500).json({
-          message: result.error || "Failed to create website plan",
-        });
-      }
-
-      res.json({
-        success: true,
-        plan: result.plan,
-      });
-    } catch (error: any) {
-      console.error("AI Architect Plan error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
 
   // AI Architect - Build from Plan - executes plan and creates builder_state
-  app.post("/api/websites/:id/ai/architect-build", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/ai/architect-build", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
       const { plan } = req.body;
       if (!plan) {
         return res.status(400).json({ message: "Plan is required" });
@@ -5475,418 +5507,6 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error("AI Architect Build error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // AI Architect - Full flow with URL screenshot (combines screenshot + plan)
-  app.post("/api/websites/:id/ai/architect-from-url", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { url, prompt } = req.body;
-      if (!url || typeof url !== 'string') {
-        return res.status(400).json({ message: "URL is required" });
-      }
-
-      // Validate URL format
-      try {
-        const parsed = new URL(url);
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          return res.status(400).json({ message: "Invalid URL protocol" });
-        }
-      } catch {
-        return res.status(400).json({ message: "Invalid URL format" });
-      }
-
-      // Capture screenshot of the website
-      const { captureWebsiteScreenshot } = await import("./screenshotService");
-      const screenshotResult = await captureWebsiteScreenshot(url);
-
-      if (!screenshotResult.success || !screenshotResult.imageBase64) {
-        return res.status(500).json({
-          message: screenshotResult.error || "Failed to capture screenshot",
-        });
-      }
-
-      // Analyze and create plan
-      const { analyzeAndPlanWebsite } = await import("./websiteArchitect");
-      const result = await analyzeAndPlanWebsite(
-        prompt || `Clone and recreate the website from ${url}`,
-        screenshotResult.imageBase64,
-        url
-      );
-
-      if (!result.success || !result.plan) {
-        return res.status(500).json({
-          message: result.error || "Failed to analyze website",
-        });
-      }
-
-      res.json({
-        success: true,
-        plan: result.plan,
-        screenshotBase64: screenshotResult.imageBase64,
-      });
-    } catch (error: any) {
-      console.error("AI Architect from URL error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ============================================
-  // PHASED ARCHITECT API - Build in 4 phases
-  // ============================================
-
-  // Phase 1: Generate Structure (Wireframe)
-  // Get saved phased build state
-  app.get("/api/websites/:id/ai/phased/state", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const [savedState] = await db.select().from(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
-      
-      res.json({
-        success: true,
-        state: savedState || null,
-      });
-    } catch (error: any) {
-      console.error("Get phased state error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Reset/clear phased build state (go back to beginning)
-  app.delete("/api/websites/:id/ai/phased/state", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      await db.delete(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
-      
-      res.json({ success: true });
-    } catch (error: any) {
-      console.error("Delete phased state error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Go back to a specific phase (keeps earlier phase data, clears later phases)
-  app.post("/api/websites/:id/ai/phased/goto", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { phase } = req.body;
-      if (!phase || !['structure', 'content', 'styling', 'polish'].includes(phase)) {
-        return res.status(400).json({ message: "Valid phase is required" });
-      }
-
-      const [existing] = await db.select().from(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
-      if (!existing) {
-        return res.status(404).json({ message: "No phased build in progress" });
-      }
-
-      // Clear later phases based on target phase
-      const updates: any = { currentPhase: phase, updatedAt: new Date() };
-      if (phase === 'structure') {
-        updates.contentData = null;
-        updates.stylingData = null;
-        updates.polishData = null;
-      } else if (phase === 'content') {
-        updates.stylingData = null;
-        updates.polishData = null;
-      } else if (phase === 'styling') {
-        updates.polishData = null;
-      }
-
-      await db.update(phasedBuildState)
-        .set(updates)
-        .where(eq(phasedBuildState.websiteId, req.params.id));
-
-      const [updatedState] = await db.select().from(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
-
-      res.json({
-        success: true,
-        state: updatedState,
-      });
-    } catch (error: any) {
-      console.error("Go to phase error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-
-  // Compact brand-guide context for AI prompts (empty string when the
-  // website has no brand guide yet). Free-text fields are sanitized and
-  // delimited inside buildBrandContext.
-  async function getBrandContextForWebsite(websiteId: string): Promise<string> {
-    try {
-      const bs = await storage.getBuilderState(websiteId);
-      const guide = (bs?.state as BuilderStateData | undefined)?.brandGuide;
-      return buildBrandContext(guide);
-    } catch {
-      return "";
-    }
-  }
-
-  app.post("/api/websites/:id/ai/phased/structure", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { prompt, sourceUrl } = req.body;
-      if (!prompt || typeof prompt !== 'string') {
-        return res.status(400).json({ message: "Prompt is required" });
-      }
-
-      const { generateStructure } = await import("./phasedArchitect");
-      const brandContext = await getBrandContextForWebsite(req.params.id);
-      const result = await generateStructure(prompt, sourceUrl, brandContext);
-
-      if (!result.success || !result.plan) {
-        return res.status(500).json({
-          message: result.error || "Failed to generate structure",
-        });
-      }
-
-      // Persist the structure phase data
-      const [existing] = await db.select().from(phasedBuildState).where(eq(phasedBuildState.websiteId, req.params.id));
-      if (existing) {
-        await db.update(phasedBuildState)
-          .set({
-            currentPhase: 'content',
-            structureData: result.plan,
-            siteDescription: prompt,
-            siteType: result.plan.siteType,
-            contentData: null,
-            stylingData: null,
-            polishData: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(phasedBuildState.websiteId, req.params.id));
-      } else {
-        await db.insert(phasedBuildState).values({
-          websiteId: req.params.id,
-          currentPhase: 'content',
-          structureData: result.plan,
-          siteDescription: prompt,
-          siteType: result.plan.siteType,
-        });
-      }
-
-      res.json({
-        success: true,
-        phase: 'structure',
-        plan: result.plan,
-      });
-    } catch (error: any) {
-      console.error("Phased Architect Structure error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Phase 2: Generate Content
-  app.post("/api/websites/:id/ai/phased/content", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { plan } = req.body;
-      if (!plan) {
-        return res.status(400).json({ message: "Plan is required" });
-      }
-
-      const { generateContent } = await import("./phasedArchitect");
-      const brandContext = await getBrandContextForWebsite(req.params.id);
-      const result = await generateContent(plan, brandContext);
-
-      if (!result.success || !result.content) {
-        return res.status(500).json({
-          message: result.error || "Failed to generate content",
-        });
-      }
-
-      // Persist the content phase data
-      await db.update(phasedBuildState)
-        .set({
-          currentPhase: 'styling',
-          contentData: result.content,
-          updatedAt: new Date(),
-        })
-        .where(eq(phasedBuildState.websiteId, req.params.id));
-
-      res.json({
-        success: true,
-        phase: 'content',
-        content: result.content,
-      });
-    } catch (error: any) {
-      console.error("Phased Architect Content error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Phase 3: Generate Styling
-  app.post("/api/websites/:id/ai/phased/styling", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { plan, content } = req.body;
-      if (!plan) {
-        return res.status(400).json({ message: "Plan is required" });
-      }
-
-      const { generateStyling } = await import("./phasedArchitect");
-      const brandContext = await getBrandContextForWebsite(req.params.id);
-      const result = await generateStyling(plan, content || {}, brandContext);
-
-      if (!result.success) {
-        return res.status(500).json({
-          message: result.error || "Failed to generate styling",
-        });
-      }
-
-      // Persist the styling phase data
-      await db.update(phasedBuildState)
-        .set({
-          currentPhase: 'polish',
-          stylingData: { designSystem: result.designSystem, sectionStyles: result.sectionStyles },
-          designSystem: result.designSystem,
-          updatedAt: new Date(),
-        })
-        .where(eq(phasedBuildState.websiteId, req.params.id));
-
-      res.json({
-        success: true,
-        phase: 'styling',
-        designSystem: result.designSystem,
-        sectionStyles: result.sectionStyles,
-      });
-    } catch (error: any) {
-      console.error("Phased Architect Styling error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Phase 4: Generate Polish (Animations)
-  app.post("/api/websites/:id/ai/phased/polish", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { plan, designSystem } = req.body;
-      if (!plan || !designSystem) {
-        return res.status(400).json({ message: "Plan and designSystem are required" });
-      }
-
-      const { generatePolish } = await import("./phasedArchitect");
-      const result = await generatePolish(plan, designSystem);
-
-      if (!result.success) {
-        return res.status(500).json({
-          message: result.error || "Failed to generate polish",
-        });
-      }
-
-      // Persist the polish phase data
-      await db.update(phasedBuildState)
-        .set({
-          currentPhase: 'complete',
-          polishData: { animations: result.animations, hoverEffects: result.hoverEffects },
-          updatedAt: new Date(),
-        })
-        .where(eq(phasedBuildState.websiteId, req.params.id));
-
-      res.json({
-        success: true,
-        phase: 'polish',
-        animations: result.animations,
-        hoverEffects: result.hoverEffects,
-      });
-    } catch (error: any) {
-      console.error("Phased Architect Polish error:", error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Build final website from all phases
-  app.post("/api/websites/:id/ai/phased/build", requireAuth, async (req, res) => {
-    try {
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
-      if (website.ownerId !== (req as any).user.id) {
-        return res.status(403).json({ message: "Not authorized" });
-      }
-
-      const { plan, phasedState } = req.body;
-      if (!plan || !phasedState) {
-        return res.status(400).json({ message: "Plan and phasedState are required" });
-      }
-
-      const { buildFromPhasedState } = await import("./phasedArchitect");
-      const result = await buildFromPhasedState(plan, phasedState);
-
-      if (!result.success || !result.builderState) {
-        return res.status(500).json({
-          message: result.error || "Failed to build website",
-        });
-      }
-
-      // Save the new builder state
-      await storage.updateBuilderState(req.params.id, result.builderState);
-
-      res.json({
-        success: true,
-        newState: result.builderState,
-      });
-    } catch (error: any) {
-      console.error("Phased Architect Build error:", error);
       res.status(500).json({ message: error.message });
     }
   });
@@ -6157,6 +5777,23 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Analytics countries error:", error);
       res.status(500).json({ message: "Kunne ikke hente lande-statistik" });
+    }
+  });
+
+  // Analytics - Visitors by device class (desktop / mobile / tablet).
+  // deviceType has been captured on every event since launch; this is
+  // the first place it is surfaced.
+  app.get("/api/websites/:id/analytics/devices", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 365);
+      const endDate = new Date();
+      const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
+
+      const devices = await storage.getDeviceBreakdown(req.params.id, startDate, endDate);
+      res.json({ devices });
+    } catch (error: any) {
+      console.error("Analytics devices error:", error);
+      res.status(500).json({ message: "Kunne ikke hente enheds-statistik" });
     }
   });
 
@@ -7005,12 +6642,13 @@ export async function registerRoutes(
       }
       
       const session = await stripe.checkout.sessions.create(sessionParams);
-      
-      // Mark onboarding as complete when user clicks subscribe and goes to Stripe checkout
-      await db.update(profiles)
-        .set({ onboardingCompleted: true })
-        .where(eq(profiles.id, userId));
-      
+
+      // NOTE deliberately no onboardingCompleted here. It used to be set
+      // at this point — BEFORE the Stripe redirect — which permanently
+      // marked users who abandoned checkout as onboarded, locking them
+      // out of /onboarding forever. The flag is now set when the session
+      // actually completes: in the checkout.session.completed webhook,
+      // and belt-and-braces in verify-session after the success redirect.
       res.json({ url: session.url });
     } catch (error: any) {
       console.error("Create onboarding checkout session error:", error);
@@ -7039,11 +6677,19 @@ export async function registerRoutes(
       if (session.payment_status !== 'paid' && session.status !== 'complete') {
         return res.status(400).json({ message: "Payment not completed" });
       }
-      
-      res.json({ 
-        success: true, 
+
+      // Verified completion of an onboarding checkout finishes onboarding.
+      // (The webhook does the same; this covers webhook lag on redirect.)
+      if (session.metadata?.type === 'onboarding') {
+        await db.update(profiles)
+          .set({ onboardingCompleted: true })
+          .where(eq(profiles.id, userId));
+      }
+
+      res.json({
+        success: true,
         planId: session.metadata?.planId,
-        subscriptionId: session.subscription 
+        subscriptionId: session.subscription
       });
     } catch (error: any) {
       console.error("Verify session error:", error);

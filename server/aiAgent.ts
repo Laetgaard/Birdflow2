@@ -30,10 +30,7 @@ import {
    (self-check → sanitize → save → report) exactly once, in order.
    ───────────────────────────────────────────────────────────── */
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 const MODEL = "gpt-5.1";
 export const MAX_STEPS = 12;
@@ -43,7 +40,14 @@ const MAX_TOTAL_COMPLETION_TOKENS = 40000;
 
 export type AgentEvent =
   | { type: "step"; step: number; label: string }
-  | { type: "tool"; name: string; summary: string; ok: boolean }
+  | {
+      type: "tool";
+      name: string;
+      summary: string;
+      ok: boolean;
+      /** Rich payload for inline client rendering (palettes, a plan…). */
+      display?: { kind: string; value: unknown };
+    }
   | { type: "note"; text: string }
   | { type: "approval_required"; reason: string; summary: string[]; mutations: BuilderMutation[] }
   | { type: "done"; summary: string }
@@ -89,6 +93,12 @@ function buildSystemPrompt(): string {
 - SVG nodes take real SVG markup. SMIL (animate, animateTransform, animateMotion) works, so use it for genuine motion graphics and illustrations. Keep markup compact.
 - Use set_motion for section entrance animations: "load" above the fold, "scroll" below, staggered delays down the page.
 - Use generate_image only for brand-specific or conceptual visuals; keep Unsplash URLs for generic photography. The budget is small and shared across the run.
+
+## Design flows
+- "Byg hele siden" / whole-site requests: call plan_site. The plan renders as a card the USER approves — do not build the pages yourself afterwards; summarise the plan and finish.
+- Helping the user find their visual style: propose_palettes, then (after they answer with a choice) propose_font_pairs, then persist the result with update_brand_guide. Each proposal renders as clickable cards; the user's choice arrives as their next message, so finish your turn after proposing.
+- The user pastes a URL to clone or take inspiration from: pass it as plan_site's sourceUrl.
+- The user mentions an uploaded inspiration image ("/objects/…" URL in their message): analyze_reference_image first, then apply what you learned with the write tools.
 
 ## Autonomy
 You act on your own for ordinary edits. Structural changes — deleting a page, editing the brand guide, applying a whole theme, removing many sections, or a very large batch — are gated: the tool will refuse and tell you approval is needed. When that happens, STOP calling tools and reply with a short Danish summary of what you propose. Do not try to work around the gate.`;
@@ -207,7 +217,7 @@ export async function runBuilderAgent(args: {
 
     let completion: OpenAI.Chat.ChatCompletion;
     try {
-      completion = await openai.chat.completions.create({
+      completion = await getOpenAI().chat.completions.create({
         model: MODEL,
         messages,
         tools: openAITools,
@@ -272,6 +282,7 @@ export async function runBuilderAgent(args: {
         name: call.function.name,
         summary: result.ok ? result.summary : result.error,
         ok: result.ok,
+        ...(result.ok && result.display ? { display: result.display } : {}),
       });
 
       messages.push({

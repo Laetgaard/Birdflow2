@@ -20,7 +20,12 @@ import {
 import { buildBrandContext } from "@shared/customComponents";
 import { applyMutation, validateMutation, analyzeDesign, assertSaneJsonDepth } from "./aiBuilder";
 import { runSelfCheck } from "./selfCheck";
-import { generateAndStoreImage, type ImageAspect } from "./aiImages";
+import { generateAndStoreImage, readObjectImageAsDataUrl, type ImageAspect } from "./aiImages";
+import { proposePalettes, proposeFontPairs } from "./designInterview";
+import { analyzeAndPlanWebsite } from "./websiteArchitect";
+import { captureWebsiteScreenshot } from "./screenshotService";
+import { getOpenAI } from "./openaiClient";
+import { storage } from "./storage";
 
 /* ─────────────────────────────────────────────────────────────
    Tool catalogue for the builder agent.
@@ -53,7 +58,17 @@ export type AgentContext = {
 };
 
 export type ToolResult =
-  | { ok: true; data: unknown; summary: string }
+  | {
+      ok: true;
+      data: unknown;
+      summary: string;
+      /**
+       * Rich payload streamed to the client for inline rendering
+       * (palette cards, font pairs, a site plan). `data` is what the
+       * MODEL sees — keep it compact; `display` is what the USER sees.
+       */
+      display?: { kind: "palettes" | "fontPairs" | "sitePlan" | "designTokens"; value: unknown };
+    }
   | { ok: false; error: string }
   /** Large-change gate tripped: the loop must stop and ask the user. */
   | { ok: false; needsApproval: true; error: string; reason: string };
@@ -496,6 +511,165 @@ export function buildToolCatalogue(): AgentTool[] {
           `Billedet "${description.slice(0, 60)}" kunne ikke genereres — upload evt. et billede manuelt.`
         );
         return { ok: false, error: `Billedgenerering fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  // ---- design flows (folded in from the old separate panels) ----
+
+  const PaletteArg = z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().default(""),
+    colors: z.object({
+      primary: z.string(),
+      secondary: z.string(),
+      accent: z.string(),
+      background: z.string(),
+      surface: z.string(),
+      text: z.string(),
+    }),
+  });
+
+  tools.push({
+    name: "propose_palettes",
+    description:
+      "Propose 4 colour palettes from a described feeling (e.g. 'roligt og nordisk'). The user sees them as " +
+      "clickable cards and answers with their choice. Use when the user wants help finding their visual style.",
+    parameters: z.object({ feeling: z.string().min(2).max(300) }),
+    mutates: false,
+    run: async ({ feeling }, ctx) => {
+      try {
+        const palettes = await proposePalettes(feeling, ctx.state);
+        return {
+          ok: true,
+          summary: `Foreslog ${palettes.length} farvepaletter`,
+          // The model only needs names + colours to talk about them.
+          data: palettes.map((p) => ({ name: p.name, colors: p.colors })),
+          display: { kind: "palettes", value: palettes },
+        };
+      } catch (err: any) {
+        return { ok: false, error: `Palet-forslag fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  tools.push({
+    name: "propose_font_pairs",
+    description:
+      "Propose 3 heading/body Google-font pairs matching a feeling and a chosen palette. The user sees them as " +
+      "clickable cards and answers with their choice.",
+    parameters: z.object({ feeling: z.string().min(2).max(300), palette: PaletteArg }),
+    mutates: false,
+    run: async ({ feeling, palette }, ctx) => {
+      try {
+        const fontPairs = await proposeFontPairs(feeling, palette, ctx.state);
+        return {
+          ok: true,
+          summary: `Foreslog ${fontPairs.length} skrifttype-par`,
+          data: fontPairs.map((f) => ({ name: f.name, heading: f.heading, body: f.body })),
+          display: { kind: "fontPairs", value: fontPairs },
+        };
+      } catch (err: any) {
+        return { ok: false, error: `Skrifttype-forslag fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  tools.push({
+    name: "plan_site",
+    description:
+      "Design a complete website plan (pages, sections, design system) from a description — optionally analysing " +
+      "a reference URL first. The plan renders as an approval card; the USER decides whether to build it, so after " +
+      "calling this, summarise the plan briefly and finish. Use for 'byg hele siden' requests, NOT for small edits.",
+    parameters: z.object({
+      prompt: z.string().min(4).max(4000),
+      sourceUrl: z.string().url().optional(),
+    }),
+    mutates: false,
+    run: async ({ prompt, sourceUrl }, ctx) => {
+      try {
+        let imageBase64: string | undefined;
+        if (sourceUrl) {
+          // captureWebsiteScreenshot carries its own SSRF blocklist.
+          const shot = await captureWebsiteScreenshot(sourceUrl);
+          if (shot.success) imageBase64 = shot.imageBase64;
+        }
+        const result = await analyzeAndPlanWebsite(prompt, imageBase64, sourceUrl);
+        if (!result.success || !result.plan) {
+          return { ok: false, error: result.error ?? "Kunne ikke lave en plan" };
+        }
+        const plan = result.plan;
+        return {
+          ok: true,
+          summary: `Lavede en plan: ${plan.siteName} (${plan.pages.length} sider)`,
+          // Compact for the model; the client gets the whole plan.
+          data: {
+            siteName: plan.siteName,
+            tagline: plan.tagline,
+            pages: plan.pages.map((p) => ({ name: p.name, path: p.path, sections: p.sections.length })),
+          },
+          display: { kind: "sitePlan", value: { plan, screenshotBase64: imageBase64 } },
+        };
+      } catch (err: any) {
+        return { ok: false, error: `Planlægningen fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  tools.push({
+    name: "analyze_reference_image",
+    description:
+      "Extract design tokens (colours, typography feel, mood) from an inspiration image the user uploaded " +
+      "(a '/objects/…' URL). Non-destructive: it only DESCRIBES the design — use the write tools afterwards to " +
+      "apply anything. Only the website's own uploaded media can be read.",
+    parameters: z.object({ imageUrl: z.string().startsWith("/objects/") }),
+    mutates: false,
+    run: async ({ imageUrl }, ctx) => {
+      try {
+        // Same ownership rule as the design-interview route: only media
+        // registered to THIS website may reach the vision model.
+        const assets = await storage.getMediaAssets(ctx.websiteId);
+        const owned = assets.some((a) => a.storagePath === imageUrl);
+        if (!owned) {
+          return { ok: false, error: "Billedet tilhører ikke denne hjemmeside." };
+        }
+        const dataUrl = await readObjectImageAsDataUrl(imageUrl);
+        if (!dataUrl) {
+          return { ok: false, error: "Billedet kunne ikke læses." };
+        }
+        const completion = await getOpenAI().chat.completions.create({
+          model: "gpt-5.1",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a Danish design analyst. Describe the design of the image as JSON with keys: " +
+                '{"colors": {"primary","secondary","accent","background","text"} (hex), ' +
+                '"typographyFeel": string, "mood": string, "notes": string}. ' +
+                "All prose in Danish. Respond with JSON only.",
+            },
+            {
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: dataUrl, detail: "low" } },
+                { type: "text", text: "Beskriv designet i dette inspirationsbillede." },
+              ],
+            },
+          ],
+          response_format: { type: "json_object" },
+          max_completion_tokens: 700,
+        });
+        const raw = completion.choices[0]?.message?.content ?? "{}";
+        const tokens = JSON.parse(raw);
+        return {
+          ok: true,
+          summary: "Analyserede inspirationsbilledet",
+          data: tokens,
+          display: { kind: "designTokens", value: tokens },
+        };
+      } catch (err: any) {
+        return { ok: false, error: `Billedanalysen fejlede: ${err?.message ?? err}` };
       }
     },
   });

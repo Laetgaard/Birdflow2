@@ -13,7 +13,14 @@ import { adminSessionHeaders } from "@/lib/adminSession";
 
 export type AgentStreamEvent =
   | { type: "step"; step: number; label: string }
-  | { type: "tool"; name: string; summary: string; ok: boolean }
+  | {
+      type: "tool";
+      name: string;
+      summary: string;
+      ok: boolean;
+      /** Rich payload for inline rendering (palette cards, a site plan…). */
+      display?: { kind: string; value: unknown };
+    }
   | { type: "note"; text: string }
   | { type: "approval_required"; reason: string; summary: string[]; mutations: BuilderMutation[] }
   | { type: "done"; summary: string }
@@ -38,32 +45,16 @@ export type AgentStreamEvent =
 export type AgentRunResult = Extract<AgentStreamEvent, { type: "result" }>;
 
 /**
- * Runs the agent and calls `onEvent` for every streamed event. Resolves
- * with the terminal `result` event, or throws if the stream ended
- * without one (or reported an error).
+ * Reads an SSE response body, calling `onEvent` per frame. Resolves with
+ * the terminal `result` event (typed by the caller), or throws if the
+ * stream ended without one (or reported an error). Shared by the
+ * builder agent and the onboarding walkthrough — one parser, one set of
+ * chunk-boundary tests.
  */
-export async function runAgent(args: {
-  websiteId: string;
-  accessToken: string;
-  prompt: string;
-  approvedLargeChanges?: boolean;
-  signal?: AbortSignal;
-  onEvent: (event: AgentStreamEvent) => void;
-}): Promise<AgentRunResult> {
-  const response = await fetch(`/api/websites/${args.websiteId}/ai/agent`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${args.accessToken}`,
-      ...adminSessionHeaders(args.websiteId),
-    },
-    body: JSON.stringify({
-      prompt: args.prompt,
-      ...(args.approvedLargeChanges ? { approvedLargeChanges: true } : {}),
-    }),
-    signal: args.signal,
-  });
-
+async function readAgentStream<TResult extends { type: "result" }>(
+  response: Response,
+  onEvent: (event: AgentStreamEvent) => void
+): Promise<TResult> {
   if (!response.ok) {
     // Errors before the stream starts (429, 400, 403) are plain JSON
     const body = await response.json().catch(() => ({}));
@@ -76,7 +67,7 @@ export async function runAgent(args: {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let result: AgentRunResult | null = null;
+  let result: TResult | null = null;
   let streamError: string | null = null;
 
   const handleLine = (line: string) => {
@@ -89,8 +80,8 @@ export async function runAgent(args: {
     } catch {
       return; // ignore a malformed frame rather than killing the run
     }
-    args.onEvent(event);
-    if (event.type === "result") result = event;
+    onEvent(event);
+    if (event.type === "result") result = event as unknown as TResult;
     if (event.type === "error") streamError = event.message;
   };
 
@@ -113,6 +104,65 @@ export async function runAgent(args: {
 
   if (result) return result;
   throw new Error(streamError || "AI-agenten afsluttede uden resultat");
+}
+
+/**
+ * Runs the builder agent and calls `onEvent` for every streamed event.
+ */
+export async function runAgent(args: {
+  websiteId: string;
+  accessToken: string;
+  prompt: string;
+  approvedLargeChanges?: boolean;
+  signal?: AbortSignal;
+  onEvent: (event: AgentStreamEvent) => void;
+}): Promise<AgentRunResult> {
+  const response = await fetch(`/api/websites/${args.websiteId}/ai/agent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${args.accessToken}`,
+      ...adminSessionHeaders(args.websiteId),
+    },
+    body: JSON.stringify({
+      prompt: args.prompt,
+      ...(args.approvedLargeChanges ? { approvedLargeChanges: true } : {}),
+    }),
+    signal: args.signal,
+  });
+  return readAgentStream<AgentRunResult>(response, args.onEvent);
+}
+
+/** Terminal event of one onboarding-walkthrough turn. */
+export type OnboardingTurnResult = {
+  type: "result";
+  status: "completed";
+  reply: string;
+  displays: Array<{ kind: string; value: unknown }>;
+  answers: Record<string, unknown>;
+  buildStarted: boolean;
+};
+
+/**
+ * Runs one turn of the onboarding walkthrough agent — same SSE contract
+ * as the builder agent, different endpoint and result payload.
+ */
+export async function runOnboardingTurn(args: {
+  accessToken: string;
+  message: string;
+  signal?: AbortSignal;
+  onEvent: (event: AgentStreamEvent) => void;
+}): Promise<OnboardingTurnResult> {
+  const response = await fetch(`/api/onboarding/agent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${args.accessToken}`,
+    },
+    body: JSON.stringify({ message: args.message }),
+    signal: args.signal,
+  });
+  return readAgentStream<OnboardingTurnResult>(response, args.onEvent);
 }
 
 /**

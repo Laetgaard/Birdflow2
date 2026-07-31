@@ -44,6 +44,9 @@
   --color-chart-3: hsl(var(--chart-3));
   --color-chart-4: hsl(var(--chart-4));
   --color-chart-5: hsl(var(--chart-5));
+  --color-chart-6: hsl(var(--chart-6));
+  --color-chart-7: hsl(var(--chart-7));
+  --color-chart-8: hsl(var(--chart-8));
   
   --color-sidebar: hsl(var(--sidebar));
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
@@ -71,96 +74,116 @@
 }
 
 :root {
-  /* Slate/Zinc based theme for a clean SaaS look */
+  /* Birdflow app theme: blue-led product surfaces.
+     Primary = bf2 brand blue #306DDA (client/src/components/bf2/theme.ts
+     is the source of truth). Marketing pages (/, /services, /pricing,
+     /dfy, /diy) style themselves with inline bf2 hex and use none of
+     these tokens, so this block themes the logged-in app only.
+     White on primary: 4.85:1 (WCAG AA normal text). */
   --background: 0 0% 100%;
   --foreground: 240 10% 3.9%;
-  
+
   --card: 0 0% 100%;
   --card-foreground: 240 10% 3.9%;
-  
+
   --popover: 0 0% 100%;
   --popover-foreground: 240 10% 3.9%;
-  
-  --primary: 240 5.9% 10%;
-  --primary-foreground: 0 0% 98%;
-  
+
+  --primary: 218.5 69.7% 52.2%; /* #306DDA */
+  --primary-foreground: 0 0% 100%;
+
   --secondary: 240 4.8% 95.9%;
   --secondary-foreground: 240 5.9% 10%;
-  
+
   --muted: 240 4.8% 95.9%;
   --muted-foreground: 240 3.8% 46.1%;
-  
-  --accent: 240 4.8% 95.9%;
-  --accent-foreground: 240 5.9% 10%;
-  
+
+  --accent: 218 70% 96.5%;
+  --accent-foreground: 218.8 64.1% 35%;
+
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
 
   --border: 240 5.9% 90%;
   --input: 240 5.9% 90%;
-  --ring: 240 5.9% 10%;
-  
+  --ring: 218.5 69.7% 52.2%;
+
   --radius: 0.5rem;
-  
-  --chart-1: 12 76% 61%;
-  --chart-2: 173 58% 39%;
-  --chart-3: 197 37% 24%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
-  
+
+  /* Categorical chart ramp anchored on the brand blue. Validated with
+     the dataviz six-checks (CVD + normal-vision separation, lightness
+     band, chroma, contrast) on white: worst adjacent CVD dE 9.1, worst
+     normal-vision dE 19.6. Slots 3-5 sit below 3:1 on white, so any
+     chart using them must show values another way (labels/legend). */
+  --chart-1: 218.5 69.7% 52.2%; /* blue    #306DDA */
+  --chart-2: 17 82.1% 56.3%;    /* orange  #eb6834 */
+  --chart-3: 158.5 73.3% 39.6%; /* aqua    #1baf7a */
+  --chart-4: 40.8 100% 46.5%;   /* yellow  #eda100 */
+  --chart-5: 337.4 70.3% 69.6%; /* magenta #e87ba4 */
+  --chart-6: 120 100% 25.7%;    /* green   #008300 */
+  --chart-7: 248.8 48.4% 44.1%; /* violet  #4a3aa7 */
+  --chart-8: 0.4 73.5% 58.6%;   /* red     #e34948 */
+
   --sidebar: 0 0% 98%;
   --sidebar-foreground: 240 5.3% 26.1%;
-  --sidebar-primary: 240 5.9% 10%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 240 4.8% 95.9%;
-  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-primary: 218.5 69.7% 52.2%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 218 70% 96.5%;
+  --sidebar-accent-foreground: 218.8 64.1% 35%;
   --sidebar-border: 220 13% 91%;
-  --sidebar-ring: 217.2 91.2% 59.8%;
+  --sidebar-ring: 218.5 69.7% 52.2%;
 }
 
 .dark {
   --background: 240 10% 3.9%;
   --foreground: 0 0% 98%;
-  
+
   --card: 240 10% 3.9%;
   --card-foreground: 0 0% 98%;
-  
+
   --popover: 240 10% 3.9%;
   --popover-foreground: 0 0% 98%;
-  
-  --primary: 0 0% 98%;
-  --primary-foreground: 240 5.9% 10%;
-  
+
+  /* Brand blue stepped up for the dark surface (#4a83e8); near-black
+     text on it reads at 5.4:1. */
+  --primary: 218.4 77.5% 60%;
+  --primary-foreground: 240 10% 3.9%;
+
   --secondary: 240 3.7% 15.9%;
   --secondary-foreground: 0 0% 98%;
-  
+
   --muted: 240 3.7% 15.9%;
   --muted-foreground: 240 5% 64.9%;
-  
-  --accent: 240 3.7% 15.9%;
-  --accent-foreground: 0 0% 98%;
-  
+
+  --accent: 218 40% 17%;
+  --accent-foreground: 218 80% 80%;
+
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 0 0% 98%;
-  
+
   --border: 240 3.7% 15.9%;
   --input: 240 3.7% 15.9%;
-  --ring: 240 4.9% 83.9%;
-  
-  --chart-1: 220 70% 50%;
-  --chart-2: 160 60% 45%;
-  --chart-3: 30 80% 55%;
-  --chart-4: 280 65% 60%;
-  --chart-5: 340 75% 55%;
-  
+  --ring: 218.4 77.5% 60%;
+
+  /* Same hues re-stepped for the dark surface and re-validated (worst
+     adjacent CVD dE 8.4, normal-vision dE 19.3, all slots >= 3:1). */
+  --chart-1: 218.4 77.5% 60%;   /* blue    #4a83e8 */
+  --chart-2: 17.1 70.2% 50%;    /* orange  #d95926 */
+  --chart-3: 159.2 72.7% 35.9%; /* aqua    #199e70 */
+  --chart-4: 39.7 100% 39.4%;   /* yellow  #c98500 */
+  --chart-5: 338.2 61.1% 57.6%; /* magenta #d55181 */
+  --chart-6: 120 100% 25.7%;    /* green   #008300 */
+  --chart-7: 246.6 69.4% 71.8%; /* violet  #9085e9 */
+  --chart-8: 0 71.8% 65.3%;     /* red     #e66767 */
+
   --sidebar: 240 5.9% 10%;
   --sidebar-foreground: 240 4.8% 95.9%;
-  --sidebar-primary: 224.3 76.3% 48%;
-  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-primary: 218.4 77.5% 60%;
+  --sidebar-primary-foreground: 240 10% 3.9%;
   --sidebar-accent: 240 3.7% 15.9%;
   --sidebar-accent-foreground: 240 4.8% 95.9%;
   --sidebar-border: 240 3.7% 15.9%;
-  --sidebar-ring: 217.2 91.2% 59.8%;
+  --sidebar-ring: 218.4 77.5% 60%;
 }
 
 @layer base {

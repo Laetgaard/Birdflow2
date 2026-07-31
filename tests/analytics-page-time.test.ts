@@ -70,6 +70,9 @@ describe("platform wiring (source tripwires)", () => {
 
   it("the overview aggregates per-session visit duration", () => {
     expect(storageSource).toContain("avgVisitDurationSeconds");
-    expect(storageSource).toContain("durationBySession");
+    // M12 moved the aggregation into SQL: sum page_time per session,
+    // then average the sessions (same semantics as the old JS map).
+    expect(storageSource).toContain("group by ${analyticsEvents.sessionId}");
+    expect(storageSource).toContain("avg(session_seconds)");
   });
 });

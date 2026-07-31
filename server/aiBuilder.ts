@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import { 
   BuilderMutationSchema, 
   AIResponseSchema, 
@@ -27,10 +26,7 @@ import {
   type CustomComponentEntry,
 } from "@shared/customComponents";
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+import { getOpenAI } from "./openaiClient";
 
 const VALID_ACTIONS = [
   'add_component',
@@ -1072,7 +1068,7 @@ export async function processAIBuildRequest(
   const stateContext = getCurrentStateContext(currentState);
   const systemPrompt = getSystemPrompt(mode);
   
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       { role: "system", content: systemPrompt },
@@ -1387,7 +1383,7 @@ export async function processAIThinkingRequest(
   const stateContext = getCurrentStateContext(currentState);
   const systemPrompt = getSystemPrompt(mode);
   
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       { role: "system", content: systemPrompt },
@@ -1534,7 +1530,7 @@ export async function analyzeDesign(
 ): Promise<DesignAnalysis> {
   const stateContext = getCurrentStateContext(currentState);
   
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       { role: "system", content: DESIGN_ANALYSIS_PROMPT },

@@ -10,11 +10,19 @@ import {
 } from "lucide-react";
 import { useUpload } from "@/hooks/use-upload";
 
-export function formatCurrency(amount: number, currency: string = 'USD'): string {
-  const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
-  const symbol = symbols[currency] || currency;
-  const formatted = amount.toFixed(currency === 'DKK' ? 0 : 2);
-  return currency === 'DKK' ? `${formatted} ${symbol}` : `${symbol}${formatted}`;
+export function formatCurrency(amount: number, currency: string = 'DKK'): string {
+  // Intl handles every ISO code (symbol, placement, decimals); DKK keeps
+  // the "123 kr." style owners expect. Fall back for junk codes.
+  try {
+    return new Intl.NumberFormat('da-DK', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: currency === 'DKK' && Number.isInteger(amount) ? 0 : undefined,
+      maximumFractionDigits: currency === 'DKK' && Number.isInteger(amount) ? 0 : undefined,
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
 }
 
 /** Ører/cents -> displayed amount. */
@@ -76,7 +84,7 @@ export function StatusBadge({ status }: { status: string }) {
     case 'unpaid':
       return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100"><Clock className="w-3 h-3 mr-1" />{label}</Badge>;
     case 'processing':
-      return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100"><AlertCircle className="w-3 h-3 mr-1" />{label}</Badge>;
+      return <Badge className="bg-primary/10 text-primary hover:bg-primary/10"><AlertCircle className="w-3 h-3 mr-1" />{label}</Badge>;
     case 'cancelled':
     case 'refunded':
       return <Badge className="bg-red-100 text-red-800 hover:bg-red-100"><XCircle className="w-3 h-3 mr-1" />{label}</Badge>;
