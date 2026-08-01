@@ -831,19 +831,42 @@ export const insertBookingOpenSlotSchema = createInsertSchema(bookingOpenSlots).
 export type InsertBookingOpenSlot = z.infer<typeof insertBookingOpenSlotSchema>;
 export type BookingOpenSlot = typeof bookingOpenSlots.$inferSelect;
 
-// Custom domains table - simplified flow using Vercel for verification
+// A single DNS record the user must (or should) create at their DNS
+// provider to connect a custom domain. Always sourced from Vercel's API,
+// never invented locally.
+export type DnsInstruction = {
+  type: string; // A | CNAME | TXT
+  name: string; // record host, e.g. "@", "www", "_vercel"
+  value: string;
+  // routing = points the host at Vercel; ownership = TXT challenge required
+  // because the domain is claimed by another Vercel account; counterpart =
+  // record for the automatically attached www/apex twin (recommended).
+  purpose: "routing" | "ownership" | "counterpart";
+  required: boolean;
+};
+
+// Custom domains table - status must always reflect Vercel truth:
+//   pending   = waiting for the user's DNS changes (or ownership TXT)
+//   verifying = Vercel sees correct DNS; certificate/edge activation pending
+//   active    = domain actually serves the site (verified end to end)
+//   error     = Vercel rejected the domain
 export const customDomains = pgTable("custom_domains", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   websiteId: varchar("website_id").notNull(),
   domain: text("domain").notNull().unique(),
   status: text("status").notNull().default("pending"), // pending | verifying | active | error
   vercelProjectId: text("vercel_project_id"),
-  // Store the single DNS record users need to add (from Vercel response)
+  // Legacy single-record fields (kept for older rows/clients); the full,
+  // Vercel-sourced list lives in dnsRecords.
   dnsType: text("dns_type"), // CNAME or A
   dnsName: text("dns_name"), // the record name (e.g., "www" or "@")
   dnsValue: text("dns_value"), // the target (e.g., "cname.vercel-dns.com")
+  // All DNS records Vercel currently requires/recommends for this domain.
+  dnsRecords: jsonb("dns_records").$type<DnsInstruction[]>(),
   errorMessage: text("error_message"),
   verifiedAt: timestamp("verified_at"),
+  // When the server-side verification loop last checked this domain.
+  lastCheckedAt: timestamp("last_checked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

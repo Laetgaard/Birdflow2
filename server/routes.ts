@@ -36,7 +36,17 @@ import {
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
+import { checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
+import {
+  getVercelConfig,
+  projectNameForWebsite,
+  attachDomainPair,
+  detachDomainPair,
+  twinHostOf,
+  resolveTwinHost,
+  refreshDomainState,
+  restoreDeploymentUrlAfterDelete,
+} from "./domainConnection";
 import { applyMutations, assertSaneJsonDepth } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
@@ -3882,7 +3892,11 @@ export async function registerRoutes(
     }
   });
 
-  // Add a custom domain - immediately adds to Vercel and returns DNS config
+  // Add a custom domain — attaches it (plus its www/apex twin) to the Vercel
+  // project and stores the truthful state with the DNS records Vercel
+  // actually requires. Status starts at whatever is really true: a domain
+  // whose DNS already points correctly can be active right away, everything
+  // else starts pending.
   app.post("/api/websites/:id/domains", requireAuth, async (req, res) => {
     try {
       const { domain } = req.body;
@@ -3895,6 +3909,7 @@ export async function registerRoutes(
       if (!domainRegex.test(domain)) {
         return res.status(400).json({ message: "Invalid domain format" });
       }
+      const normalized = domain.toLowerCase();
 
       const website = await storage.getWebsite(req.params.id);
       if (!website) {
@@ -3904,14 +3919,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const existing = await storage.getCustomDomainByDomain(domain);
-      if (existing) {
-        return res.status(400).json({ message: "Domain is already in use" });
-      }
-
-      // Check if Vercel is configured
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
+      const vercelConfig = getVercelConfig();
+      if (!vercelConfig) {
         return res.status(400).json({ message: "Custom domains require Vercel integration. Please contact support." });
       }
 
@@ -3922,67 +3931,50 @@ export async function registerRoutes(
 
       // Use the canonical project name format: site-{websiteId}
       // Must match the format used in publisher/index.ts when creating the project
-      const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-      
-      const vercelConfig = { 
-        token: vercelToken, 
-        teamId: process.env.VERCEL_TEAM_ID 
-      };
+      const projectName = projectNameForWebsite(req.params.id);
 
-      // Add domain to Vercel immediately
-      const vercelResult = await addCustomDomain(projectName, domain.toLowerCase(), vercelConfig);
-      
-      if (!vercelResult.success) {
-        return res.status(400).json({ message: vercelResult.error || "Failed to add domain to hosting service" });
-      }
-
-      // Determine DNS record type based on domain structure
-      // Apex domains (example.com) need A record, subdomains (www.example.com) need CNAME
-      const domainParts = domain.toLowerCase().split('.');
-      const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
-      
-      let dnsType: string;
-      let dnsName: string;
-      let dnsValue: string;
-
-      // Check if Vercel returned specific verification requirements
-      const vercelDomainConfig = vercelResult.domainConfig;
-      if (vercelDomainConfig?.verification && vercelDomainConfig.verification.length > 0) {
-        const verifyRecord = vercelDomainConfig.verification[0];
-        dnsType = verifyRecord.type || (isSubdomain ? 'CNAME' : 'A');
-        dnsValue = verifyRecord.value || (isSubdomain ? 'cname.vercel-dns.com' : '76.76.21.21');
-        dnsName = isSubdomain ? domainParts[0] : '@';
-      } else {
-        // Default DNS configuration
-        if (isSubdomain) {
-          dnsType = 'CNAME';
-          dnsName = domainParts[0]; // e.g., "www" or "shop"
-          dnsValue = 'cname.vercel-dns.com';
-        } else {
-          dnsType = 'A';
-          dnsName = '@';
-          dnsValue = '76.76.21.21'; // Vercel's IP for apex domains
+      const existing = await storage.getCustomDomainByDomain(normalized);
+      if (existing) {
+        // A purchased-but-not-connected domain on this same website gets
+        // connected here instead of being rejected.
+        if (existing.websiteId === req.params.id && !existing.vercelProjectId) {
+          const attach = await attachDomainPair(projectName, normalized, vercelConfig);
+          if (!attach.success) {
+            return res.status(400).json({ message: attach.error || "Failed to add domain to hosting service" });
+          }
+          const connected = await storage.updateCustomDomain(existing.id, req.params.id, { vercelProjectId: projectName });
+          const { row } = await refreshDomainState(connected ?? { ...existing, vercelProjectId: projectName }, vercelConfig);
+          return res.status(200).json(row);
         }
+        return res.status(400).json({ message: "Domain is already in use" });
       }
 
-      // Create the domain record
-      const customDomain = await storage.createCustomDomain({
+      // Attach the domain (and its www/apex counterpart) to Vercel
+      const attach = await attachDomainPair(projectName, normalized, vercelConfig);
+      if (!attach.success) {
+        return res.status(400).json({ message: attach.error || "Failed to add domain to hosting service" });
+      }
+
+      // Create the row, then run a real verification pass to fill in status
+      // and the exact DNS records Vercel requires right now.
+      const created = await storage.createCustomDomain({
         websiteId: req.params.id,
-        domain: domain.toLowerCase(),
+        domain: normalized,
         status: 'pending',
         vercelProjectId: projectName,
-        dnsType,
-        dnsName,
-        dnsValue,
       });
+      const { row } = await refreshDomainState(created, vercelConfig);
 
-      res.status(201).json(customDomain);
+      res.status(201).json(row);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  // Check domain verification status - polls Vercel for DNS verification
+  // Check domain verification status — runs a full truthful check against
+  // Vercel (ownership + DNS config + a real HTTPS probe) and persists the
+  // outcome. Also re-checks already-"active" domains so a stale active state
+  // corrects itself instead of being echoed back.
   app.post("/api/websites/:id/domains/:domainId/verify", requireAuth, async (req, res) => {
     try {
       const website = await storage.getWebsite(req.params.id);
@@ -3999,79 +3991,33 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Domain not found" });
       }
 
-      if (domain.status === 'active') {
-        return res.json({ verified: true, status: 'active' });
-      }
-
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
+      const vercelConfig = getVercelConfig();
+      if (!vercelConfig) {
         return res.status(400).json({ message: "Vercel is not configured" });
       }
 
-      const projectName = domain.vercelProjectId || `site-${req.params.id}`;
-      const vercelConfig = { 
-        token: vercelToken, 
-        teamId: process.env.VERCEL_TEAM_ID 
-      };
+      const { row, check } = await refreshDomainState(domain, vercelConfig);
 
-      // Check domain status on Vercel
-      const domainConfigResult = await getDomainConfig(projectName, domain.domain, vercelConfig);
-      
-      if (!domainConfigResult) {
-        // Domain might not be added to Vercel yet, try adding it
-        const addResult = await addCustomDomain(projectName, domain.domain, vercelConfig);
-        if (!addResult.success) {
-          await storage.updateCustomDomain(domain.id, req.params.id, { 
-            status: 'error',
-            errorMessage: addResult.error
-          });
-          return res.json({ 
-            verified: false, 
-            status: 'error',
-            error: addResult.error
-          });
-        }
+      const verified = row.status === 'active';
+      let message: string;
+      if (verified) {
+        message = 'Dit domæne er live!';
+      } else if (row.status === 'verifying') {
+        message = 'DNS er på plads — certifikatet aktiveres hos Vercel. Det tager normalt få minutter.';
+      } else if (row.status === 'error') {
+        message = row.errorMessage || 'Domænet kunne ikke forbindes.';
+      } else if (!check.ownershipVerified && (row.dnsRecords || []).some(r => r.purpose === 'ownership')) {
+        message = 'Domænet skal først bekræftes med TXT-posten nedenfor (det er registreret hos en anden Vercel-konto).';
+      } else {
+        message = 'DNS-ændringerne er ikke slået igennem endnu. Det kan tage op til 48 timer.';
       }
 
-      // Trigger verification check on Vercel
-      const verifyResult = await verifyDomainConfig(projectName, domain.domain, vercelConfig);
-      
-      if (verifyResult.configured) {
-        await storage.updateCustomDomain(domain.id, req.params.id, {
-          status: 'active',
-          errorMessage: null
-        } as any);
-
-        // Update the website's deployment_url to the custom domain so hostname detection works
-        try {
-          const customDomainUrl = `https://${domain.domain}`;
-          await storage.updateWebsite(req.params.id, (req as any).user.id, {
-            deploymentUrl: customDomainUrl,
-          } as any);
-          console.log(`[Domains] Updated deployment_url to ${customDomainUrl} for website ${req.params.id}`);
-        } catch (updateErr) {
-          console.error(`[Domains] Failed to update deployment_url:`, updateErr);
-        }
-
-        return res.json({
-          verified: true,
-          status: 'active',
-          message: 'Domain is now active!'
-        });
-      }
-
-      // Still waiting for DNS propagation
-      await storage.updateCustomDomain(domain.id, req.params.id, { 
-        status: 'verifying'
-      });
-
-      res.json({ 
-        verified: false, 
-        status: 'verifying',
-        message: 'DNS changes are still propagating. This can take up to 48 hours.',
-        dnsType: domain.dnsType,
-        dnsName: domain.dnsName,
-        dnsValue: domain.dnsValue
+      res.json({
+        verified,
+        status: row.status,
+        message,
+        domain: row,
+        error: row.status === 'error' ? row.errorMessage : undefined,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -4095,17 +4041,33 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Domain not found" });
       }
 
-      // Remove from Vercel if configured
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (vercelToken && domain.vercelProjectId) {
-        const vercelConfig = { 
-          token: vercelToken, 
-          teamId: process.env.VERCEL_TEAM_ID 
-        };
-        await removeCustomDomain(domain.vercelProjectId, domain.domain, vercelConfig);
+      // Decide twin protection BEFORE mutating anything: the auto-attached
+      // www/apex twin is only detached from Vercel when no other stored row
+      // owns that hostname. Twin identity comes from Vercel's apexName when
+      // reachable (exact), else a conservative heuristic.
+      const vercelConfig = getVercelConfig();
+      const twinHost = vercelConfig && domain.vercelProjectId
+        ? await resolveTwinHost(domain.vercelProjectId, domain.domain, vercelConfig)
+        : twinHostOf(domain.domain);
+      let twinRowExists = false;
+      if (twinHost) {
+        try {
+          twinRowExists = !!(await storage.getCustomDomainByDomain(twinHost));
+        } catch {
+          twinRowExists = true; // fail safe: never remove the twin on lookup failure
+        }
       }
 
+      // Detach from Vercel first (best-effort), then delete the row.
+      if (vercelConfig && domain.vercelProjectId) {
+        await detachDomainPair(domain.vercelProjectId, domain.domain, vercelConfig, { twinHost, twinRowExists });
+      }
       await storage.deleteCustomDomain(req.params.domainId, req.params.id);
+
+      // If the website's deployment URL pointed at this domain, point it
+      // back at the stable *.vercel.app alias so the site stays reachable.
+      await restoreDeploymentUrlAfterDelete(req.params.id, domain.domain, domain.vercelProjectId, vercelConfig);
+
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -4258,42 +4220,43 @@ export async function registerRoutes(
         });
       }
 
-      // Determine DNS configuration (used for both connected and unconnected)
-      const domainParts = domainStr.split('.');
-      const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
-      const dnsType = isSubdomain ? 'CNAME' : 'A';
-      const dnsName = isSubdomain ? domainParts[0] : '@';
-      const dnsValue = isSubdomain ? 'cname.vercel-dns.com' : '76.76.21.21';
-
-      // Step 2: If connectToWebsite is true, also add it to the website's Vercel project
+      // Step 2: If connectToWebsite is true, attach it to the website's
+      // Vercel project through the same flow as manually added domains
+      // (apex + www twin, truthful status, real DNS records).
       const shouldConnect = connectToWebsite && website.deploymentUrl;
       let connectSuccess = false;
       let projectName: string | undefined;
 
       if (shouldConnect) {
-        projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-
+        projectName = projectNameForWebsite(req.params.id);
         try {
-          const addResult = await addCustomDomain(projectName, domainStr, vercelConfig);
-          connectSuccess = addResult.success;
-          if (!addResult.success) {
-            console.error('Failed to auto-connect domain to project:', addResult.error);
+          const attach = await attachDomainPair(projectName, domainStr, vercelConfig);
+          connectSuccess = attach.success;
+          if (!attach.success) {
+            console.error('Failed to auto-connect domain to project:', attach.error);
           }
         } catch (addErr: any) {
           console.error('Failed to auto-connect domain to project:', addErr);
         }
       }
 
-      // Step 3: Always create a domain record in our database
-      const customDomain = await storage.createCustomDomain({
+      // Step 3: Always create a domain record, then (when connected) run a
+      // real verification pass — the same state machine as manual adds. The
+      // server-side loop keeps re-checking until it is actually live.
+      let customDomain = await storage.createCustomDomain({
         websiteId: req.params.id,
         domain: domainStr,
-        status: connectSuccess ? 'verifying' : 'pending',
-        vercelProjectId: projectName || null,
-        dnsType,
-        dnsName,
-        dnsValue,
+        status: 'pending',
+        vercelProjectId: connectSuccess ? projectName : null,
       });
+      if (connectSuccess) {
+        try {
+          const { row } = await refreshDomainState(customDomain, vercelConfig);
+          customDomain = row;
+        } catch (refreshErr) {
+          console.error('Initial verification of purchased domain failed:', refreshErr);
+        }
+      }
 
       res.status(201).json({
         success: true,
@@ -4301,11 +4264,13 @@ export async function registerRoutes(
         alreadyOwned: purchaseResult.alreadyOwned || false,
         connected: connectSuccess,
         domain: customDomain,
-        message: connectSuccess
-          ? "Domain purchased and connected! DNS will be configured automatically."
-          : purchaseResult.alreadyOwned
-            ? "Domain is already in your Vercel account and has been added to your website."
-            : "Domain purchased successfully! You can connect it to your website from the Custom Domains section.",
+        message: customDomain.status === 'active'
+          ? "Domænet er købt og live!"
+          : connectSuccess
+            ? "Domænet er købt og forbundet til din hjemmeside. Vi bekræfter DNS-opsætningen automatisk — status opdateres under 'Egne domæner'."
+            : purchaseResult.alreadyOwned
+              ? "Domænet ligger allerede på din Vercel-konto. Forbind det under 'Egne domæner'."
+              : "Domænet er købt! Forbind det til din hjemmeside under 'Egne domæner'.",
       });
     } catch (error: any) {
       console.error('Domain purchase error:', error);

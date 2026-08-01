@@ -87,7 +87,7 @@ import {
   type AdminAnalyticsOverview, type AdminTrafficSource, type AdminDailyVisitors,
   type AdminUserSubscription
 } from "@shared/schema";
-import { sql, gte, lte, desc, asc, ne, count, countDistinct, and } from "drizzle-orm";
+import { sql, gte, lte, desc, asc, ne, count, countDistinct, and, or, inArray, isNull, isNotNull, lt } from "drizzle-orm";
 import { copenhagenDayRange, fillDailySeries } from "./analytics";
 
 // A bookable time slot; openSlotId is set when the time comes from an
@@ -235,9 +235,12 @@ export interface IStorage {
   getCustomDomains(websiteId: string): Promise<CustomDomain[]>;
   getCustomDomainByDomain(domain: string): Promise<CustomDomain | undefined>;
   createCustomDomain(domain: InsertCustomDomain): Promise<CustomDomain>;
-  updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined>;
+  updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain> & { verifiedAt?: Date | null; lastCheckedAt?: Date | null }): Promise<CustomDomain | undefined>;
   deleteCustomDomain(domainId: string, websiteId: string): Promise<boolean>;
   getWebsiteByCustomDomain(domain: string): Promise<Website | undefined>;
+  getDomainsNeedingCheck(createdAfter: Date, limit: number): Promise<CustomDomain[]>;
+  claimDomainCheck(domainId: string, notCheckedSince: Date): Promise<boolean>;
+  setWebsiteDeploymentUrl(websiteId: string, deploymentUrl: string): Promise<void>;
   
   // Shipping methods
   getShippingMethods(websiteId: string): Promise<ShippingMethod[]>;
@@ -1109,7 +1112,7 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined> {
+  async updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain> & { verifiedAt?: Date | null; lastCheckedAt?: Date | null }): Promise<CustomDomain | undefined> {
     const result = await db
       .update(customDomains)
       .set({ ...data, updatedAt: new Date() } as any)
@@ -1127,11 +1130,57 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getWebsiteByCustomDomain(domain: string): Promise<Website | undefined> {
-    const customDomain = await this.getCustomDomainByDomain(domain);
+    const normalized = domain.toLowerCase();
+    let customDomain = await this.getCustomDomainByDomain(normalized);
+    if (!customDomain) {
+      // Cover the automatically attached www/apex twin so both hosts route
+      // to the website even though only one row is stored.
+      const twin = normalized.startsWith('www.') ? normalized.slice(4) : `www.${normalized}`;
+      customDomain = await this.getCustomDomainByDomain(twin);
+    }
     if (!customDomain || customDomain.status !== 'active') {
       return undefined;
     }
     return this.getWebsite(customDomain.websiteId);
+  }
+
+  // Domains the server-side verification loop should re-check: still waiting
+  // on DNS/activation, attached to a Vercel project, and not so old that the
+  // setup was clearly abandoned (manual "check now" keeps working forever).
+  async getDomainsNeedingCheck(createdAfter: Date, limit: number): Promise<CustomDomain[]> {
+    return db
+      .select()
+      .from(customDomains)
+      .where(and(
+        inArray(customDomains.status, ['pending', 'verifying']),
+        isNotNull(customDomains.vercelProjectId),
+        gte(customDomains.createdAt, createdAfter),
+      ))
+      .orderBy(sql`${customDomains.lastCheckedAt} ASC NULLS FIRST`)
+      .limit(limit);
+  }
+
+  // Soft claim so dev and prod (which share one database) don't hammer
+  // Vercel for the same domain at the same time.
+  async claimDomainCheck(domainId: string, notCheckedSince: Date): Promise<boolean> {
+    const result = await db
+      .update(customDomains)
+      .set({ lastCheckedAt: new Date() })
+      .where(and(
+        eq(customDomains.id, domainId),
+        or(isNull(customDomains.lastCheckedAt), lt(customDomains.lastCheckedAt, notCheckedSince)),
+      ))
+      .returning({ id: customDomains.id });
+    return result.length > 0;
+  }
+
+  // Internal setter (no owner check) used when a custom domain goes live or
+  // is deleted — callers have already authorized the operation.
+  async setWebsiteDeploymentUrl(websiteId: string, deploymentUrl: string): Promise<void> {
+    await db
+      .update(websites)
+      .set({ deploymentUrl, updatedAt: new Date() } as any)
+      .where(eq(websites.id, websiteId));
   }
 
   // Shipping methods

@@ -266,14 +266,28 @@ export type CarrierInfo = {
   requiredCredentials: { key: string; label: string; type: string }[];
 };
 
+// One DNS record the user must (or should) add at their DNS provider.
+// Always sourced from Vercel's API on the server, never invented locally.
+export type DnsRecord = {
+  type: string; // A | CNAME | TXT
+  name: string; // record host, e.g. "@", "www", "_vercel"
+  value: string;
+  purpose: 'routing' | 'ownership' | 'counterpart';
+  required: boolean;
+};
+
 export type CustomDomain = {
   id: string;
   domain: string;
+  // pending = waiting for the user's DNS changes; verifying = DNS is right,
+  // certificate/edge activation pending; active = actually serves the site.
   status: 'pending' | 'verifying' | 'active' | 'error';
   dnsType?: string;
   dnsName?: string;
   dnsValue?: string;
+  dnsRecords?: DnsRecord[] | null;
   errorMessage?: string;
+  verifiedAt?: string | null;
   createdAt: string;
 };
 

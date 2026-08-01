@@ -307,21 +307,52 @@ export async function waitForDeployment(
   throw new Error('Deployment timed out');
 }
 
-export type DomainConfig = {
+// Ownership verification challenge returned by Vercel when a domain is
+// claimed by a different Vercel account (TXT record on _vercel.<apex>).
+export type VercelVerificationChallenge = {
+  type: string;
+  domain: string;
+  value: string;
+  reason: string;
+};
+
+// Project-domain status from Vercel. IMPORTANT: `verified` here means
+// *ownership* verification only (TXT challenge passed or not needed).
+// It does NOT mean DNS points at Vercel — that truth lives in
+// getDomainDnsConfig().misconfigured.
+export type ProjectDomainStatus = {
+  name: string;
+  apexName: string;
   verified: boolean;
-  verification?: { type: string; domain: string; value: string; reason: string }[];
-  configured?: boolean;
-  error?: { code: string; message: string };
+  verification?: VercelVerificationChallenge[];
+  redirect?: string | null;
+};
+
+// DNS configuration truth for a hostname, from GET /v6/domains/:domain/config.
+// `misconfigured === false` means Vercel sees correct DNS for this host.
+export type DomainDnsConfig = {
+  misconfigured: boolean;
+  configuredBy?: string | null;
+  recommendedIPv4?: { rank: number; value: string[] }[];
+  recommendedCNAME?: { rank: number; value: string }[];
+  aValues?: string[];
+  cnames?: string[];
 };
 
 export async function addCustomDomain(
   projectId: string,
   domain: string,
-  config: VercelConfig
-): Promise<{ success: boolean; domainId?: string; error?: string; domainConfig?: DomainConfig }> {
+  config: VercelConfig,
+  opts?: { redirect?: string; redirectStatusCode?: number }
+): Promise<{ success: boolean; domainId?: string; error?: string; errorCode?: string; domainStatus?: ProjectDomainStatus }> {
+  const body: Record<string, unknown> = { name: domain };
+  if (opts?.redirect) {
+    body.redirect = opts.redirect;
+    body.redirectStatusCode = opts.redirectStatusCode ?? 308;
+  }
   const res = await vercelFetch(`/v10/projects/${projectId}/domains`, config, {
     method: 'POST',
-    body: JSON.stringify({ name: domain }),
+    body: JSON.stringify(body),
   });
   
   const data = await res.json();
@@ -329,14 +360,15 @@ export async function addCustomDomain(
   if (!res.ok) {
     return { 
       success: false, 
-      error: data.error?.message || 'Failed to add domain' 
+      error: data.error?.message || 'Failed to add domain',
+      errorCode: data.error?.code,
     };
   }
   
   return { 
     success: true, 
     domainId: data.name,
-    domainConfig: data
+    domainStatus: data as ProjectDomainStatus,
   };
 }
 
@@ -360,25 +392,46 @@ export async function removeCustomDomain(
   return { success: true };
 }
 
-export async function getDomainConfig(
+// Fetch the project-domain (ownership/redirect) status. Returns
+// { notFound: true } when the domain is not attached to the project.
+export async function getProjectDomain(
   projectId: string,
   domain: string,
   config: VercelConfig
-): Promise<DomainConfig | null> {
+): Promise<{ ok: boolean; notFound?: boolean; status?: ProjectDomainStatus; error?: string }> {
   const res = await vercelFetch(`/v9/projects/${projectId}/domains/${domain}`, config);
-  
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    if (res.status === 404) return { ok: false, notFound: true };
+    return { ok: false, error: data.error?.message || `Failed to fetch domain (${res.status})` };
+  }
+
+  return { ok: true, status: data as ProjectDomainStatus };
+}
+
+// Fetch DNS truth for a hostname. This is the ONLY reliable source for
+// "is DNS pointing at Vercel" plus the exact records Vercel recommends.
+export async function getDomainDnsConfig(
+  domain: string,
+  config: VercelConfig
+): Promise<DomainDnsConfig | null> {
+  const res = await vercelFetch(`/v6/domains/${domain}/config`, config);
+
   if (!res.ok) {
     return null;
   }
-  
+
   return res.json();
 }
 
-export async function verifyDomainConfig(
+// Ask Vercel to re-check the ownership TXT challenge. The returned
+// `verified` refers to ownership ONLY — never treat it as "DNS configured".
+export async function verifyProjectDomain(
   projectId: string,
   domain: string,
   config: VercelConfig
-): Promise<{ success: boolean; configured: boolean; error?: string }> {
+): Promise<{ success: boolean; ownershipVerified: boolean; verification?: VercelVerificationChallenge[]; error?: string }> {
   const res = await vercelFetch(`/v9/projects/${projectId}/domains/${domain}/verify`, config, {
     method: 'POST',
   });
@@ -388,14 +441,16 @@ export async function verifyDomainConfig(
   if (!res.ok) {
     return {
       success: false,
-      configured: false,
+      ownershipVerified: false,
+      verification: data.error?.verification,
       error: data.error?.message || 'Failed to verify domain'
     };
   }
 
   return {
     success: true,
-    configured: data.verified === true
+    ownershipVerified: data.verified === true,
+    verification: data.verification,
   };
 }
 

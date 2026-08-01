@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { startBookingEmailScheduler } from "./email/bookingScheduler";
+import { startDomainVerificationScheduler } from "./domainVerificationScheduler";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
@@ -137,6 +138,10 @@ app.use((req, res, next) => {
   // Poll-based booking reminder/follow-up emails (published sites write
   // bookings directly to Supabase, so there is no in-request hook)
   startBookingEmailScheduler();
+
+  // Server-side re-check of pending custom domains so they verify (and go
+  // truly live) even when the manage tab is closed
+  startDomainVerificationScheduler();
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -375,10 +375,10 @@ export function DomainPurchaseCard({ websiteId, accessToken, isPublished }: { we
                     <div className="mt-3 p-3 bg-green-100 dark:bg-green-900/20 rounded-lg">
                       <div className="flex items-center gap-2 text-sm text-green-800 dark:text-green-300">
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span className="font-medium">Forbinder automatisk til din hjemmeside...</span>
+                        <span className="font-medium">Forbundet til din hjemmeside — bekræfter DNS...</span>
                       </div>
                       <p className="text-xs text-green-600 dark:text-green-500 mt-1">
-                        DNS bliver sat op automatisk. Dit domæne bør være live inden for få minutter.
+                        DNS sættes op automatisk, og vi tjekker løbende, om domænet svarer. Følg status under "Egne domæner" ovenfor — der står "Live", når siden faktisk svarer på domænet.
                       </p>
                     </div>
                   ) : (
