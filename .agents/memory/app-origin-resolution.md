@@ -9,4 +9,4 @@ Rule: when server code needs this app's own public URL (OAuth/Stripe onboarding 
 
 **How to apply:**
 - Request-scoped URLs (returns, redirects): `resolveAppOrigin(req.headers.host)`.
-- URLs baked into PUBLISHED artifacts (e.g. analytics tracker targets inside generated customer sites): workspace `REPLIT_DOMAINS` is the DEV domain, not production — resolve the real production URL via deployment info instead of workspace env.
+- URLs baked into PUBLISHED artifacts (e.g. analytics tracker targets inside generated customer sites): workspace `REPLIT_DOMAINS` is the DEV domain, not production — a dev URL baked here silently killed customer analytics for months. The publish route now resolves strictly (`server/publisher/platformUrl.ts`): explicit `BIRDFLOW_API_URL` env (set to the prod URL in the dev environment) → `REPLIT_DOMAINS` only when `REPLIT_DEPLOYMENT` is set → otherwise the publish fails loudly. Keep that ordering; never reintroduce a request-host or dev-domain fallback.

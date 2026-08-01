@@ -10,6 +10,7 @@ import { eq, sql } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
+import { resolveBirdflowApiUrl } from "./publisher/platformUrl";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
 import { syncStripeConnectStatus, resolveAppOrigin } from "./stripeConnect";
 import { 
@@ -2770,22 +2771,17 @@ export async function registerRoutes(
         stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Connect your Stripe account in Payment Settings to enable payments.';
       }
 
-      // Determine the BirdFlow API URL from environment or request
-      // Priority: BIRDFLOW_API_URL env var > REPLIT_DOMAINS > request host
-      let birdflowApiUrl = process.env.BIRDFLOW_API_URL;
+      // The platform URL baked into the published site (analytics tracker +
+      // email callbacks). Strict resolution - a stale or dev-only URL here
+      // silently kills the site's analytics pipeline until the next
+      // republish (see resolveBirdflowApiUrl). Never fall back to the dev
+      // workspace domain or the request host.
+      const birdflowApiUrl = resolveBirdflowApiUrl();
       if (!birdflowApiUrl) {
-        const replitDomains = process.env.REPLIT_DOMAINS;
-        if (replitDomains) {
-          // REPLIT_DOMAINS is comma-separated, use the first one
-          const primaryDomain = replitDomains.split(',')[0].trim();
-          birdflowApiUrl = `https://${primaryDomain}`;
-        }
-      }
-      if (!birdflowApiUrl) {
-        // Fallback to request host (for local development)
-        const proto = req.headers['x-forwarded-proto'] || 'https';
-        const host = req.headers['host'] || 'localhost:5000';
-        birdflowApiUrl = `${proto}://${host}`;
+        return res.status(500).json({
+          message:
+            "BirdFlow platform URL is not configured. Set the BIRDFLOW_API_URL environment variable (e.g. https://bird-flow.com) so published sites can deliver analytics and emails.",
+        });
       }
       console.log('[Publish] Using BirdFlow API URL:', birdflowApiUrl);
 

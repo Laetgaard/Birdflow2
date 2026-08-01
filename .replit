@@ -53,6 +53,9 @@ STRIPE_BASIC_PRICE_ID = "price_1SuaIVFkBgbKwqfZM1DyJlXy"
 STRIPE_PROFESSIONAL_PRICE_ID = "price_1SuaIWFkBgbKwqfZwU40bosI"
 STRIPE_STARTER_PRICE_ID = "price_1SuaIWFkBgbKwqfZUjnpLijN"
 
+[userenv.development]
+BIRDFLOW_API_URL = "https://bird-flow.com"
+
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 180000

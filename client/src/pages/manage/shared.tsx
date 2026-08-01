@@ -1,12 +1,13 @@
 // Shared UI helpers for the manage dashboard sections: Danish status badges,
 // currency/date formatting, auth headers and consistent empty/loading states.
 import { activeAdminSessionHeaders } from "@/lib/adminSession";
+import { getSupabase } from "@/lib/supabaseClient";
 import { useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  Loader2, Upload, CheckCircle, Clock, AlertCircle, XCircle,
+  Loader2, Upload, CheckCircle, Clock, AlertCircle, XCircle, LogIn,
 } from "lucide-react";
 import { useUpload } from "@/hooks/use-upload";
 
@@ -51,6 +52,100 @@ export function jsonAuthHeaders(accessToken: string): Record<string, string> {
     'Content-Type': 'application/json',
     ...activeAdminSessionHeaders(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Session-aware fetching.
+//
+// Supabase access tokens expire after ~1 hour. When an API call answers 401
+// we try one silent token refresh (single-flight, shared across sections);
+// if the refresh also fails (e.g. refresh_token_not_found after the browser
+// slept for days) we throw SessionExpiredError so sections can show a clear
+// "log ind igen" prompt instead of empty cards or eternal spinners.
+
+/** Thrown by manageFetch when the session is expired and cannot be refreshed. */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super("Din session er udløbet. Log ind igen for at se dine data.");
+    this.name = "SessionExpiredError";
+  }
+}
+
+let refreshInFlight: Promise<string | null> | null = null;
+
+/** One refresh attempt at a time; every concurrent 401 shares the result. */
+function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const { data, error } = await getSupabase().auth.refreshSession();
+        if (error || !data.session) return null;
+        // AuthProvider hears TOKEN_REFRESHED via onAuthStateChange and
+        // re-renders every section with the new token.
+        return data.session.access_token;
+      } catch {
+        return null;
+      }
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+/**
+ * fetch() for manage endpoints: adds the Bearer token, retries once after a
+ * successful silent token refresh, and throws SessionExpiredError when the
+ * session truly cannot be restored. Network/HTTP errors other than 401 are
+ * returned/thrown untouched so callers can keep their own error states.
+ */
+export async function manageFetch(
+  url: string,
+  accessToken: string,
+  init: RequestInit = {}
+): Promise<Response> {
+  const doFetch = (token: string) =>
+    fetch(url, {
+      ...init,
+      headers: {
+        ...((init.headers as Record<string, string> | undefined) || {}),
+        Authorization: `Bearer ${token}`,
+        ...activeAdminSessionHeaders(),
+      },
+    });
+
+  let res = await doFetch(accessToken);
+  if (res.status !== 401) return res;
+
+  const freshToken = await refreshAccessToken();
+  if (freshToken) {
+    res = await doFetch(freshToken);
+    if (res.status !== 401) return res;
+  }
+  throw new SessionExpiredError();
+}
+
+/** Clear prompt when the login session has expired - never a silent zero. */
+export function SessionExpiredState() {
+  return (
+    <Card>
+      <CardContent className="py-10">
+        <div className="flex flex-col items-center text-center gap-2" data-testid="session-expired-state">
+          <LogIn className="w-6 h-6 text-muted-foreground" />
+          <p className="font-medium">Din session er udløbet</p>
+          <p className="text-sm text-muted-foreground">Log ind igen for at se dine data.</p>
+          <Button
+            size="sm"
+            className="mt-2"
+            onClick={() => { window.location.href = "/auth"; }}
+            data-testid="button-login-again"
+          >
+            Log ind igen
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 const STATUS_LABELS_DA: Record<string, string> = {

@@ -9,7 +9,8 @@ import {
 import type { ManageOverview } from "@shared/schema";
 import type { SectionProps } from "./types";
 import {
-  authHeaders, formatCents, formatDateDa, LoadingState, ErrorState, EmptyState, StatusBadge,
+  manageFetch, SessionExpiredError, SessionExpiredState,
+  formatCents, formatDateDa, LoadingState, ErrorState, EmptyState, StatusBadge,
 } from "./shared";
 
 const nf = new Intl.NumberFormat("da-DK");
@@ -47,19 +48,23 @@ function KpiCard({
 export function OverviewSection({ websiteId, accessToken, website, onNavigate }: SectionProps) {
   const [data, setData] = useState<ManageOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/websites/${websiteId}/manage/overview`, {
-        headers: authHeaders(accessToken),
-      });
+      const res = await manageFetch(`/api/websites/${websiteId}/manage/overview`, accessToken);
       if (!res.ok) throw new Error("Kunne ikke hente overblik");
       setData(await res.json());
+      setSessionExpired(false);
     } catch (e: any) {
-      setError(e.message || "Kunne ikke hente overblik");
+      if (e instanceof SessionExpiredError) {
+        setSessionExpired(true);
+      } else {
+        setError(e.message || "Kunne ikke hente overblik");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -69,24 +74,29 @@ export function OverviewSection({ websiteId, accessToken, website, onNavigate }:
     load();
   }, [load]);
 
-  // Keep the live visitor number fresh without reloading everything
+  // Keep the live visitor number fresh without reloading everything.
+  // Stops as soon as the session is known to be expired - polling with a
+  // dead token would just hammer the API with 401s forever.
   useEffect(() => {
+    if (sessionExpired) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/websites/${websiteId}/analytics/live`, {
-          headers: authHeaders(accessToken),
-        });
+        const res = await manageFetch(`/api/websites/${websiteId}/analytics/live`, accessToken);
         if (res.ok) {
           const live = await res.json();
           setData((prev) => (prev ? { ...prev, activeVisitors: live.activeVisitors } : prev));
         }
-      } catch {
-        // silent - next tick retries
+      } catch (e) {
+        if (e instanceof SessionExpiredError) {
+          setSessionExpired(true);
+        }
+        // other errors: silent - next tick retries
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, [websiteId, accessToken]);
+  }, [websiteId, accessToken, sessionExpired]);
 
+  if (sessionExpired) return <SessionExpiredState />;
   if (isLoading) return <LoadingState />;
   if (error || !data) return <ErrorState message={error || "Kunne ikke hente overblik"} onRetry={load} />;
 

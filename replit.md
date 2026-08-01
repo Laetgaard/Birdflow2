@@ -97,7 +97,7 @@ A professional 2-mode website building system that creates Webflow/Framer qualit
 Webflow-style inline editing for direct text manipulation using `EditableText` components, theme presets, and state management for real-time updates.
 
 ### Publishing System
-Generates a standalone Next.js project from the `builder_state` and deploys it to Vercel, handling data flow for orders, bookings, and forms to Supabase.
+Generates a standalone Next.js project from the `builder_state` and deploys it to Vercel, handling data flow for orders, bookings, and forms to Supabase. The platform URL baked into published sites (analytics tracker target + email callbacks) is resolved strictly by `server/publisher/platformUrl.ts`: the `BIRDFLOW_API_URL` env var (set to the production URL in the development environment) or, inside production deployments only, `REPLIT_DOMAINS`; publishing fails loudly when neither is available instead of baking a stale dev URL.
 
 ### Website Templates System
 Provides a registry of 6 customizable website templates with complete `builderState` for quick setup through a multi-step wizard.
