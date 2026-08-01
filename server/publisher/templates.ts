@@ -2525,6 +2525,7 @@ export function generateComponentRenderer(): string {
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import theme from '@/theme.json';
 import { useCart } from '@/components/CartProvider';
+import BookingForm from '@/components/BookingForm';
 
 type BuilderPage = {
   id: string;
@@ -5099,6 +5100,11 @@ export default function ComponentRenderer({ component, products = [], pages = []
         return <ContainerSection props={component.props} styles={component.styles} />;
       case 'custom':
         return <CustomComponentSection props={component.props} styles={component.styles} />;
+      case 'booking':
+      case 'booking-form':
+        // Single booking implementation: the same BookingForm used for
+        // top-level booking sections also renders nested booking components.
+        return <BookingForm props={component.props} styles={component.styles} />;
       default:
         return null;
     }

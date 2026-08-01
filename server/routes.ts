@@ -1430,6 +1430,37 @@ export async function registerRoutes(
         });
       }
 
+      // An owner booking on top of a matching open slot claims the slot so it
+      // stops being offered as bookable. Compatibility mirrors how slots are
+      // offered publicly: a slot bound to a specific service/person only
+      // matches bookings for that service/person (unbound = matches any).
+      try {
+        const timeKey = time.slice(0, 5);
+        const daySlots = await storage.getOpenSlots(req.params.id, date, date);
+        const matching = daySlots
+          .filter(s => s.status === 'open' && (s.time || '').slice(0, 5) === timeKey)
+          // Unrestricted slot (no serviceId/teamMemberId) matches any booking.
+          // Restricted slot only matches when the booking explicitly carries the same ID.
+          .filter(s => !s.serviceId || s.serviceId === serviceId)
+          .filter(s => !s.teamMemberId || s.teamMemberId === teamMemberId)
+          .sort((a, b) => {
+            // Prefer the most specific slot when several match the same time
+            const score = (s: typeof daySlots[number]) =>
+              (s.serviceId && s.serviceId === serviceId ? 2 : 0) +
+              (s.teamMemberId && s.teamMemberId === teamMemberId ? 1 : 0);
+            return score(b) - score(a);
+          });
+        for (const slot of matching) {
+          const claimed = await storage.claimOpenSlot(slot.id, req.params.id);
+          if (claimed) {
+            await storage.linkOpenSlotBooking(slot.id, booking.id);
+            break;
+          }
+        }
+      } catch (slotErr) {
+        console.error('[Booking] Kunne ikke reservere matchende ledigt tidspunkt:', slotErr);
+      }
+
       if (booking.customerEmail && sendConfirmationEmail !== false) {
         try {
           const websiteUrl = website.deploymentUrl || undefined;

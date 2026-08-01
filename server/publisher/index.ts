@@ -1,5 +1,5 @@
 import { generateNextJsProject, cleanupProject } from './generator';
-import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, type VercelConfig } from './vercel';
+import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, getProductionAliasUrl, type VercelConfig } from './vercel';
 import type { BuilderStateData } from '../../shared/schema';
 
 export type PublishConfig = {
@@ -79,9 +79,14 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       await addCustomDomain(projectId, config.customDomain, vercelConfig);
     }
     
+    // Store the stable public alias, not the per-deployment hashed URL
+    // (hashed URLs can sit behind Vercel SSO protection and also change on
+    // every publish, which breaks host-based website detection).
+    const stableUrl = await getProductionAliasUrl(projectId, vercelConfig);
+    
     return {
       success: true,
-      deploymentUrl: readyDeployment.url,
+      deploymentUrl: stableUrl || readyDeployment.url,
       deploymentId: readyDeployment.id,
     };
   } catch (error) {

@@ -41,14 +41,16 @@ export async function getOrCreateProject(
   if (res.ok) {
     const project = await res.json();
     
-    // Update project settings to ensure Node 20.x is used
+    // Update project settings to ensure Node 20.x is used, and disable
+    // Vercel SSO deployment protection so visitors can reach the site at its
+    // deployment URLs (protection would redirect them to a Vercel login).
+    // Note: the v9 project PATCH only accepts top-level fields (sending a
+    // `projectSettings` object is rejected with 400).
     const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
       method: 'PATCH',
       body: JSON.stringify({
-        projectSettings: {
-          ...(project.projectSettings || {}),
-          nodeVersion: '20.x',
-        },
+        ssoProtection: null,
+        nodeVersion: '20.x',
       }),
     });
     
@@ -83,14 +85,14 @@ export async function getOrCreateProject(
   
   const project = await createRes.json();
   
-  // Update nodeVersion after creation
+  // Update nodeVersion after creation and disable SSO deployment protection
+  // so the published site is publicly reachable. Only top-level fields are
+  // accepted by the v9 project PATCH.
   const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
     method: 'PATCH',
     body: JSON.stringify({
-      projectSettings: {
-        ...(project.projectSettings || {}),
-        nodeVersion: '20.x',
-      },
+      ssoProtection: null,
+      nodeVersion: '20.x',
     }),
   });
   
@@ -216,6 +218,33 @@ export async function deployProject(
     url: `https://${deployment.url}`,
     readyState: deployment.readyState,
   };
+}
+
+// Resolve the stable production alias for a project (e.g. site-xxx.vercel.app).
+// Per-deployment hashed URLs can be SSO-protected by Vercel, so the URL we
+// store and hand to visitors must be a stable public alias domain instead.
+export async function getProductionAliasUrl(
+  projectId: string,
+  config: VercelConfig
+): Promise<string | null> {
+  try {
+    const res = await vercelFetch(`/v9/projects/${projectId}`, config);
+    if (!res.ok) return null;
+    const project = await res.json();
+    const aliases: string[] = project.targets?.production?.alias || [];
+    // Keep only vercel.app aliases and skip the team-scoped alias
+    // (site-...-<team>-projects-<hash>.vercel.app); the shortest remaining
+    // entry is the stable project alias.
+    const candidates = aliases.filter(
+      (a) => typeof a === 'string' && a.endsWith('.vercel.app') && !a.includes('-projects-')
+    );
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => a.length - b.length);
+    return `https://${candidates[0]}`;
+  } catch (err) {
+    console.error('Failed to resolve production alias:', err);
+    return null;
+  }
 }
 
 export async function waitForDeployment(
@@ -434,7 +463,7 @@ export async function checkDomainAvailability(
     price = typeof priceResult.data.price === 'number' ? priceResult.data.price : parseFloat(priceResult.data.price);
     period = priceResult.data.period || 1;
     // Ensure price is a valid number
-    if (isNaN(price)) price = undefined;
+    if (price !== undefined && isNaN(price)) price = undefined;
   }
 
   // Get suggestions for alternative TLDs in parallel (faster than sequential)
@@ -460,7 +489,7 @@ export async function checkDomainAvailability(
           altPrice = typeof altPriceResult.data.price === 'number'
             ? altPriceResult.data.price
             : parseFloat(altPriceResult.data.price);
-          if (isNaN(altPrice)) altPrice = undefined;
+          if (altPrice !== undefined && isNaN(altPrice)) altPrice = undefined;
         }
         return { domain: altDomain, available: true, price: altPrice };
       }

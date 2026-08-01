@@ -6,3 +6,5 @@
 - [Supabase schema drift](supabase-schema-drift.md) — live DB can lag shared/schema.ts (42703 on full-row selects); fix via direct SQL DDL, never db:push; verify pollers end-to-end.
 - [Post-merge verification](post-merge-verification.md) — after task merges: npm install (manifest can lead node_modules; dynamic imports crash late), restart workflow, filtered tsc.
 - [App origin resolution](app-origin-resolution.md) — build return/callback URLs from REPLIT_DOMAINS/REPLIT_DEV_DOMAIN allowlist (resolveAppOrigin), never BASE_URL or raw Host; baked published-site URLs need the PROD domain.
+- [Vercel publishing](vercel-publishing.md) — hashed deployment URLs are SSO-walled, store the stable production alias + ssoProtection:null; v9 PATCH is top-level-fields only.
+- [Workspace E2E quirks](workspace-e2e-quirks.md) — ShellExec background servers die per session; dev can't send email (prod-only Resend connector); dev+prod share one Supabase DB.

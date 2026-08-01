@@ -35,10 +35,6 @@ function formatShortWeekdayDa(date: Date): string {
   return new Intl.DateTimeFormat('da-DK', { weekday: 'short', day: 'numeric', month: 'short' }).format(date);
 }
 
-function formatTimeDa(date: Date): string {
-  return new Intl.DateTimeFormat('da-DK', { hour: '2-digit', minute: '2-digit' }).format(date);
-}
-
 const BOOKING_STATUS_LABELS: Record<Booking['status'], string> = {
   pending: 'Afventer',
   confirmed: 'Bekræftet',
@@ -490,11 +486,22 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
               {bookings
                 .filter(b => bookingFilter === 'all' || b.status === bookingFilter)
                 .filter(matchesSearch)
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .sort((a, b) =>
+                  (bookingDayKey(b.date) + " " + bookingTimeOf(b)).localeCompare(
+                    bookingDayKey(a.date) + " " + bookingTimeOf(a),
+                  ),
+                )
                 .map(booking => {
-                  const bookingDate = new Date(booking.date);
-                  const isUpcoming = bookingDate > new Date();
-                  const isToday = bookingDayKey(booking.date) === dayKey(new Date());
+                  // Samme dagsfortolkning som kalenderen (bookingDayKey), så
+                  // listen og kalenderen altid viser samme dato for en booking.
+                  const bookingDayStr = bookingDayKey(booking.date);
+                  const bookingDisplayDate = new Date(bookingDayStr + "T12:00:00");
+                  const bookingTime = bookingTimeOf(booking);
+                  const todayKey = dayKey(new Date());
+                  const isToday = bookingDayStr === todayKey;
+                  const isUpcoming =
+                    bookingDayStr > todayKey ||
+                    (isToday && bookingTime >= format(new Date(), "HH:mm"));
                   const member = booking.teamMemberId ? memberById.get(booking.teamMemberId) : undefined;
 
                   return (
@@ -569,11 +576,11 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                           <div className="flex items-center gap-2 text-sm">
                             <Calendar className="w-4 h-4 text-muted-foreground" />
                             <span className="font-medium">
-                              {formatShortWeekdayDa(bookingDate)}
+                              {formatShortWeekdayDa(bookingDisplayDate)}
                             </span>
                             <span className="text-muted-foreground">kl.</span>
                             <span className="font-medium">
-                              {bookingTimeOf(booking) || formatTimeDa(bookingDate)}
+                              {bookingTime || "–"}
                             </span>
                           </div>
 

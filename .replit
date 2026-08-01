@@ -43,15 +43,12 @@ waitForPort = 5000
 mockupState = "FULLSTACK"
 integrations = ["stripe:2.0.0", "javascript_object_storage:2.0.0", "javascript_openai_ai_integrations:2.0.0", "resend:1.0.0"]
 
+[objectStorage]
+defaultBucketID = "replit-objstore-055b6df4-be94-4dc7-8a74-64df0aab8703"
+
 [userenv]
 
 [userenv.shared]
-SUPABASE_DB_URL = "postgresql://postgres.rarsmkuqivfashuwxawl:UCPchRf7wFM7w0Az@aws-1-eu-central-1.pooler.supabase.com:6543/postgres"
-SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhcnNta3VxaXZmYXNodXd4YXdsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjUzMDIwMywiZXhwIjoyMDgyMTA2MjAzfQ.Hl6FqzimWGlZKlkdSlIqSc6jSn_53JnONUMWTql1p3k"
-ENCRYPTION_KEY = "e375978936aa31021d239955f0f8acd30237c4986349581c295fc195f70098db"
 STRIPE_BASIC_PRICE_ID = "price_1SuaIVFkBgbKwqfZM1DyJlXy"
-STRIPE_STARTER_PRICE_ID = "price_1SuaIWFkBgbKwqfZUjnpLijN"
 STRIPE_PROFESSIONAL_PRICE_ID = "price_1SuaIWFkBgbKwqfZwU40bosI"
-
-[objectStorage]
-defaultBucketID = "replit-objstore-055b6df4-be94-4dc7-8a74-64df0aab8703"
+STRIPE_STARTER_PRICE_ID = "price_1SuaIWFkBgbKwqfZUjnpLijN"
