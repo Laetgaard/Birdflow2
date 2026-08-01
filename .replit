@@ -52,3 +52,7 @@ defaultBucketID = "replit-objstore-055b6df4-be94-4dc7-8a74-64df0aab8703"
 STRIPE_BASIC_PRICE_ID = "price_1SuaIVFkBgbKwqfZM1DyJlXy"
 STRIPE_PROFESSIONAL_PRICE_ID = "price_1SuaIWFkBgbKwqfZwU40bosI"
 STRIPE_STARTER_PRICE_ID = "price_1SuaIWFkBgbKwqfZUjnpLijN"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000
