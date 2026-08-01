@@ -66,6 +66,56 @@ function PortraitArt({ className }: { className?: string }) {
   );
 }
 
+/** Renders an image from /public; the provided artwork paints behind it until
+    the real pixels load, and remains if the file ever fails to load. */
+function ImgWithFallback({
+  src,
+  alt,
+  className,
+  style,
+  fallback,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: CSSProperties;
+  fallback: ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  if (failed) return <>{fallback}</>;
+  // The image stays in layout (no display:none) so it actually loads; the
+  // fallback renders behind it until the real pixels paint over. Every usage
+  // positions both absolutely over the same box, so they overlap cleanly.
+  return (
+    <>
+      {!loaded && fallback}
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        style={style}
+        decoding="async"
+        onError={() => setFailed(true)}
+        onLoad={() => setLoaded(true)}
+      />
+    </>
+  );
+}
+
+/** The clinic photo inside the example practice-site mockups (the design's
+    klinik image); falls back to the illustrated portrait until it loads. */
+function PortraitSlot({ className }: { className?: string }) {
+  return (
+    <ImgWithFallback
+      src="/landing/klinik.webp"
+      alt="Roligt klinikrum med sofaer og ovenlysvinduer"
+      className={`${className ?? ""} object-cover`}
+      fallback={<PortraitArt className={className} />}
+    />
+  );
+}
+
 /* ─────────── 01 · HERO ─────────── */
 
 function Hero() {
@@ -330,7 +380,7 @@ function Hero() {
                     className="relative h-[200px] lg:h-[270px] overflow-hidden"
                     style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
                   >
-                    <PortraitArt className="absolute inset-0 w-full h-full" />
+                    <PortraitSlot className="absolute inset-0 w-full h-full" />
                   </div>
                 </div>
               </div>
@@ -578,7 +628,7 @@ function JourneySiteCard() {
               className="relative h-[140px] sm:h-[196px] overflow-hidden"
               style={{ borderRadius: "999px 999px 12px 12px", background: "#EDE6D8" }}
             >
-              <PortraitArt className="absolute inset-0 w-full h-full" />
+              <PortraitSlot className="absolute inset-0 w-full h-full" />
             </div>
           </div>
         </div>
@@ -1059,7 +1109,7 @@ function PuffCloud({ className, style }: { className?: string; style?: CSSProper
   );
 }
 
-/** Man reclining on a cloud (SVG stand-in for the design's mancloud.png) */
+/** Man reclining on a cloud (fallback artwork while /landing/cloud-man.webp loads) */
 function CloudManArt({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 520 340" className={className} aria-hidden="true">
@@ -1120,7 +1170,14 @@ function CloudScene({ lifted, showFinale }: { lifted: boolean; showFinale: boole
         }}
       />
       <div className="relative w-full h-full" style={{ animation: "bf2Float 9s ease-in-out -3s infinite" }}>
-        <CloudManArt className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[86%] max-w-[520px] h-auto" />
+        <ImgWithFallback
+          src="/landing/cloud-man.webp"
+          alt="Mand, der sidder afslappet på en sky og skriver i sin notesbog"
+          className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[74%] max-w-[460px] h-auto"
+          fallback={
+            <CloudManArt className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[86%] max-w-[520px] h-auto" />
+          }
+        />
         <Bird
           className="absolute left-[21%] bottom-[13%] w-[42px] h-[34px]"
           style={{
@@ -1674,7 +1731,7 @@ function EditorMockup() {
                     className="relative h-[180px] lg:h-[238px] overflow-hidden"
                     style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
                   >
-                    <PortraitArt className="absolute inset-0 w-full h-full" />
+                    <PortraitSlot className="absolute inset-0 w-full h-full" />
                   </div>
                   <div
                     className="absolute -left-3.5 bottom-3 bg-white rounded-[9px] px-3 py-2"
@@ -2334,7 +2391,7 @@ function WorkspaceMockup() {
                   className="relative h-[150px] lg:h-[186px] overflow-hidden"
                   style={{ borderRadius: "999px 999px 12px 12px", background: "#EDE6D8" }}
                 >
-                  <PortraitArt className="absolute inset-0 w-full h-full" />
+                  <PortraitSlot className="absolute inset-0 w-full h-full" />
                 </div>
               </div>
             </div>
