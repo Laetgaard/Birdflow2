@@ -150,12 +150,26 @@ export default function ManagePage() {
     const urlParams = new URLSearchParams(window.location.search);
     const stripeConnected = urlParams.get("stripe_connected");
     const stripeError = urlParams.get("stripe_error");
-    if (!stripeConnected && !stripeError) return;
+    const stripePending = urlParams.get("stripe_pending");
+    const stripeRefresh = urlParams.get("stripe_refresh");
+    if (!stripeConnected && !stripeError && !stripePending && !stripeRefresh) return;
 
     if (stripeConnected === "true") {
       toast({
         title: "Stripe forbundet",
         description: "Din Stripe-konto er nu forbundet. Dine kunder kan betale online.",
+      });
+    }
+    if (stripePending === "true") {
+      toast({
+        title: "Næsten færdig med Stripe",
+        description: "Stripe mangler stadig nogle oplysninger, før betalinger kan aktiveres. Du kan fortsætte, hvor du slap, under Indstillinger.",
+      });
+    }
+    if (stripeRefresh === "true") {
+      toast({
+        title: "Stripe-tilmeldingen blev afbrudt",
+        description: "Linket udløb eller blev lukket. Klik på 'Fortsæt hos Stripe' for at prøve igen.",
       });
     }
     if (stripeError) {

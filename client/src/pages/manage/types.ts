@@ -235,13 +235,19 @@ export type PaymentSettings = {
   id?: string;
   websiteId: string;
   stripeAccountId?: string | null;
-  stripeConnectStatus?: 'not_connected' | 'connected';
+  stripeConnectStatus?: 'not_connected' | 'pending' | 'connected';
   stripePublishableKey?: string | null;
   stripeSecretKey?: string | null;
   stripeWebhookSecret?: string | null;
   testMode: boolean;
   isConnected: boolean;
   connectedAt?: string | null;
+  // Live Stripe status from the server-side re-check (transient, not stored)
+  stripeDetailsSubmitted?: boolean | null;
+  stripeChargesEnabled?: boolean | null;
+  stripeRequirementsDue?: number | null;
+  stripeStatusCheckFailed?: boolean;
+  stripeAccountMissing?: boolean;
 };
 
 export type CarrierCredential = {

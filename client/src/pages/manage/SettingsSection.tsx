@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, DollarSign, CheckCircle } from "lucide-react";
+import { Loader2, DollarSign, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
 import type { SectionProps, PaymentSettings } from "./types";
 import { authHeaders, jsonAuthHeaders, statusLabelDa } from "./shared";
 
@@ -73,6 +73,13 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
       if (paymentRes.ok) {
         const settings = await paymentRes.json();
         setPaymentSettings({ ...settings, websiteId });
+        if (settings.stripeAccountMissing) {
+          toast({
+            title: "Stripe-tilmelding nulstillet",
+            description:
+              "Din tidligere Stripe-konto findes ikke længere hos Stripe, så forbindelsen er nulstillet. Forbind igen for at modtage betalinger.",
+          });
+        }
       }
     } catch (error: any) {
       toast({
@@ -86,6 +93,18 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
   useEffect(() => {
     fetchPaymentSettings();
   }, [fetchPaymentSettings]);
+
+  // Manual re-check: the payment-settings endpoint verifies pending accounts
+  // against Stripe, so refetching is enough to pick up a finished onboarding.
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const handleRefreshStatus = async () => {
+    setIsCheckingStatus(true);
+    try {
+      await fetchPaymentSettings();
+    } finally {
+      setIsCheckingStatus(false);
+    }
+  };
 
   const handleConnectStripe = async () => {
     if (!accessToken || !websiteId) return;
@@ -151,6 +170,10 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
   };
 
   const isStripeConnected = paymentSettings.stripeConnectStatus === 'connected' || paymentSettings.isConnected;
+  const isStripePending =
+    !isStripeConnected &&
+    paymentSettings.stripeConnectStatus === 'pending' &&
+    !!paymentSettings.stripeAccountId;
 
   return (
     <div className="space-y-6">
@@ -243,6 +266,44 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
                       Afbryd forbindelse
                     </Button>
                   </>
+                ) : isStripePending ? (
+                  <>
+                    <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50">
+                      Afventer Stripe
+                    </Badge>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleRefreshStatus}
+                      disabled={isCheckingStatus}
+                      title="Opdater status"
+                      data-testid="btn-refresh-stripe-status"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                    </Button>
+                    <Button
+                      onClick={handleConnectStripe}
+                      disabled={isConnectingStripe}
+                      data-testid="btn-resume-stripe"
+                    >
+                      {isConnectingStripe ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Åbner Stripe...
+                        </>
+                      ) : (
+                        'Fortsæt hos Stripe'
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={handleDisconnectPayment}
+                      data-testid="btn-disconnect-stripe-pending"
+                    >
+                      Afbryd
+                    </Button>
+                  </>
                 ) : (
                   <>
                     <Badge variant="outline" className="text-yellow-600 border-yellow-300 bg-yellow-50">
@@ -280,6 +341,23 @@ export function SettingsSection({ websiteId, accessToken, website }: SectionProp
                 {paymentSettings.stripeAccountId && (
                   <p className="text-xs text-green-700 mt-2 font-mono">
                     Konto: {paymentSettings.stripeAccountId}
+                  </p>
+                )}
+              </div>
+            ) : isStripePending ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4" data-testid="box-stripe-pending">
+                <h4 className="font-medium text-amber-900 mb-2">
+                  <AlertCircle className="w-4 h-4 inline mr-2" />
+                  Din Stripe-tilmelding er ikke færdig endnu
+                </h4>
+                <p className="text-sm text-amber-800">
+                  {paymentSettings.stripeDetailsSubmitted && !paymentSettings.stripeChargesEnabled
+                    ? 'Dine oplysninger er indsendt, og Stripe gennemgår dem nu. Det tager normalt kun få minutter — klik på opdater-knappen ovenfor for at tjekke igen.'
+                    : 'Stripe mangler stadig nogle oplysninger, før du kan modtage betalinger. Klik på "Fortsæt hos Stripe" for at fortsætte præcis, hvor du slap.'}
+                </p>
+                {typeof paymentSettings.stripeRequirementsDue === 'number' && paymentSettings.stripeRequirementsDue > 0 && (
+                  <p className="text-xs text-amber-700 mt-2">
+                    Stripe mangler {paymentSettings.stripeRequirementsDue} oplysning{paymentSettings.stripeRequirementsDue === 1 ? '' : 'er'} fra dig.
                   </p>
                 )}
               </div>

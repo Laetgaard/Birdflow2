@@ -11,6 +11,7 @@ import { z, ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
+import { syncStripeConnectStatus, resolveAppOrigin } from "./stripeConnect";
 import { 
   createSubscriptionCheckoutSession, 
   createBillingPortalSession, 
@@ -4595,7 +4596,11 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const settings = await storage.getPaymentSettings(req.params.id);
+      // Re-check non-connected accounts against Stripe so a finished
+      // onboarding is detected even when the return redirect was lost
+      // (tab closed, link expired, opened on another device...).
+      const sync = await syncStripeConnectStatus(req.params.id);
+      const settings = sync.settings;
       if (!settings) {
         return res.json({ 
           websiteId: req.params.id,
@@ -4614,6 +4619,12 @@ export async function registerRoutes(
         stripePublishableKey: settings.stripePublishableKey ? `${settings.stripePublishableKey.substring(0, 12)}...` : null,
         stripeSecretKey: settings.stripeSecretKey ? '••••••••••••••••••••' : null,
         stripeWebhookSecret: settings.stripeWebhookSecret ? '••••••••••••••••••••' : null,
+        // Live Stripe detail (never persisted) so the UI can explain a pending state
+        stripeDetailsSubmitted: sync.live?.detailsSubmitted ?? null,
+        stripeChargesEnabled: sync.live?.chargesEnabled ?? null,
+        stripeRequirementsDue: sync.live?.requirementsDue ?? null,
+        stripeStatusCheckFailed: sync.checkFailed ?? false,
+        stripeAccountMissing: sync.accountMissing ?? false,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -4904,8 +4915,12 @@ export async function registerRoutes(
       // Generate signed state token for secure return
       const stateToken = await createOAuthStateToken(websiteId, userId);
 
-      // Generate account link for onboarding
-      const baseUrl = process.env.BASE_URL || `https://${req.headers.host}`;
+      // Generate account link for onboarding.
+      // Origin comes from the request host validated against this app's own
+      // domains (falling back to the canonical deployment domain) - never a
+      // hand-configured BASE_URL (goes stale) and never a raw Host header
+      // (spoofable).
+      const baseUrl = resolveAppOrigin(req.headers.host);
       const accountLink = await stripe.accountLinks.create({
         account: stripeAccountId,
         refresh_url: `${baseUrl}/api/stripe/connect/refresh/${websiteId}?state=${encodeURIComponent(stateToken)}`,
@@ -4962,42 +4977,25 @@ export async function registerRoutes(
 
       const settings = await storage.getPaymentSettings(websiteId);
       if (!settings?.stripeAccountId) {
-        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Stripe konto ikke fundet')}`);
+        return res.redirect(`/manage/${websiteId}?section=settings&stripe_error=${encodeURIComponent('Stripe konto ikke fundet')}`);
       }
 
-      // Check account status
-      const platformStripeSecretKey = await getStripeSecretKey();
-      if (!platformStripeSecretKey) {
-        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Stripe er ikke konfigureret')}`);
+      // Sync stored status from Stripe (shared with the payment-settings
+      // endpoint, so the status also converges without this redirect).
+      const sync = await syncStripeConnectStatus(websiteId);
+
+      if (sync.accountMissing) {
+        return res.redirect(`/manage/${websiteId}?section=settings&stripe_error=${encodeURIComponent('Din Stripe-konto kunne ikke findes. Prøv at forbinde igen.')}`);
       }
-      
-      const Stripe = (await import('stripe')).default;
-      const stripe = new Stripe(platformStripeSecretKey);
-
-      const account = await stripe.accounts.retrieve(settings.stripeAccountId);
-
-      // Verify account metadata matches
-      if (account.metadata?.websiteId !== websiteId) {
-        console.error(`Account metadata websiteId mismatch`);
-        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Konto verifikation fejlede')}`);
+      if (sync.checkFailed) {
+        return res.redirect(`/manage/${websiteId}?section=settings&stripe_error=${encodeURIComponent('Status hos Stripe kunne ikke bekræftes. Prøv igen om et øjeblik.')}`);
       }
-
-      // Check if onboarding is complete
-      if (account.details_submitted && account.charges_enabled) {
-        await storage.updatePaymentSettings(websiteId, {
-          stripeConnectStatus: 'connected',
-          isConnected: true,
-        });
+      if (sync.settings?.stripeConnectStatus === 'connected') {
         console.log(`Stripe Connect completed for website ${websiteId}: ${settings.stripeAccountId}`);
-        res.redirect(`/manage/${websiteId}?stripe_connected=true`);
-      } else {
-        // Onboarding not complete yet
-        await storage.updatePaymentSettings(websiteId, {
-          stripeConnectStatus: 'pending',
-          isConnected: false,
-        });
-        res.redirect(`/manage/${websiteId}?stripe_pending=true`);
+        return res.redirect(`/manage/${websiteId}?section=settings&stripe_connected=true`);
       }
+      // Onboarding not complete yet - land on settings with a visible pending state
+      return res.redirect(`/manage/${websiteId}?section=settings&stripe_pending=true`);
     } catch (error: any) {
       console.error('Stripe Connect return error:', error);
       res.redirect(`/dashboard?stripe_error=${encodeURIComponent(error.message)}`);
@@ -5012,10 +5010,10 @@ export async function registerRoutes(
     // Verify state token (but don't consume - user will restart)
     // For refresh, we just validate format and redirect
     if (!stateToken) {
-      return res.redirect(`/manage/${websiteId}?stripe_refresh=true&error=session_expired`);
+      return res.redirect(`/manage/${websiteId}?section=settings&stripe_refresh=true&error=session_expired`);
     }
     
-    res.redirect(`/manage/${websiteId}?stripe_refresh=true`);
+    res.redirect(`/manage/${websiteId}?section=settings&stripe_refresh=true`);
   });
 
   // Stripe Connect - Disconnect account
