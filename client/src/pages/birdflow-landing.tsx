@@ -21,7 +21,7 @@ import {
   PAGE_CSS, prefersReducedMotion, fadeUp, popIn,
 } from "@/components/bf2/theme";
 import {
-  useInView, RevealOnView, BirdDefs, Bird, BandWave, EdgeWave, WaveB,
+  useInView, RevealOnView, BirdDefs, Bird, BandWave, EdgeWave, WaveB, ScaleToFit,
 } from "@/components/bf2/primitives";
 import { Nav, NAV_LINKS, NavLink, SIGNUP_HREF, SIGNUP_LABEL } from "@/components/bf2/Nav";
 
@@ -128,6 +128,176 @@ function PortraitSlot({ className }: { className?: string }) {
 
 /* ─────────── HERO ─────────── */
 
+/* ─────────── the example practice website ───────────
+   The finished Sofie Lund site sitting inside a minimal Birdflow bar.
+   Rendered at full size in the desktop hero and, on phones, inside
+   ScaleToFit as a proportional miniature — the bf2-w-* classes are what
+   keep the wide layout there, since Tailwind breakpoints follow the
+   viewport rather than the scaled container. */
+function PracticeSiteMock({ demo }: { demo: number }) {
+  return (
+    <>
+    {/* minimal Birdflow platform bar */}
+    <div className="flex items-center gap-3 px-3.5 py-3 lg:px-[18px] border-b border-black/[0.07]">
+      <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
+      <span className="flex-none text-[12px] lg:text-[13.5px] font-extrabold">Psykolog Sofie Lund</span>
+      <span
+        className="flex-none flex items-center gap-[7px] text-[10px] lg:text-[11.5px] font-extrabold rounded-full px-3 py-[5px]"
+        style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
+      >
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }}
+        />
+        <span className="hidden sm:inline bf2-w-inline">Hjemmesiden er live</span>
+        <span className="sm:hidden bf2-w-hide">Live</span>
+      </span>
+      <span
+        className="min-w-0 truncate ml-auto text-[11px] lg:text-[12.5px] font-extrabold"
+        style={{ color: BLUE }}
+      >
+        Administrer praksis →
+      </span>
+    </div>
+
+    {/* the finished practice website */}
+    <div style={{ background: "#FBF7EF", fontFamily: "Georgia, serif", color: "#2B2A26" }}>
+      <div className="flex items-center gap-3.5 px-4 lg:px-[26px] bf2-w-pad-row py-[15px] border-b" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
+        <span className="flex items-center gap-2.5 text-[14px] lg:text-[15px] font-semibold">
+          <svg viewBox="0 0 24 24" className="w-[23px] h-[23px] flex-none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="#4C5F50" strokeWidth="1.6" />
+            <circle cx="12" cy="12" r="6.4" fill="none" stroke="#B96D4A" strokeWidth="1.5" />
+            <circle cx="12" cy="12" r="2.5" fill="#4C5F50" />
+          </svg>
+          Sofie Lund{" "}
+          <span className="italic text-[12px] lg:text-[12.5px]" style={{ color: "rgba(43,42,38,0.55)" }}>
+            · Psykolog
+          </span>
+        </span>
+        <span
+          className="ml-auto hidden md:flex bf2-w-flex gap-[15px] items-center text-[11px] font-bold"
+          style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
+        >
+          <span>Samtaleterapi</span>
+          <span>Forløb</span>
+          <span>Priser</span>
+          <span>Kontakt</span>
+        </span>
+        <span
+          className="ml-auto md:ml-0 bf2-w-ml0 text-[10px] lg:text-[11px] font-extrabold rounded-full px-[15px] py-[7px] whitespace-nowrap"
+          style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
+        >
+          Book en samtale
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-[1.25fr_0.9fr] bf2-w-cols-hero gap-5 lg:gap-[26px] px-4 lg:px-7 pt-6 lg:pt-[34px] pb-6 lg:pb-[30px] bf2-w-pad-hero items-center">
+        <div>
+          <p
+            className="m-0 text-[9px] lg:text-[10px] font-extrabold tracking-[0.18em]"
+            style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
+          >
+            AUTORISERET PSYKOLOG · KØBENHAVN &amp; ONLINE
+          </p>
+          <p className="mt-4 mb-0 text-[24px] lg:text-[31px] leading-[1.25] max-w-[340px]">
+            Et roligt sted til det, der fylder.
+          </p>
+          <p
+            className="mt-4 mb-0 text-[12.5px] lg:text-[13.5px] leading-[1.65] max-w-[330px]"
+            style={{ color: "rgba(43,42,38,0.72)" }}
+          >
+            Samtaleterapi til dig, der oplever stress, angst eller står midt i en forandring
+            i livet.
+          </p>
+          <div className="flex items-center gap-4 mt-5 flex-wrap">
+            <span
+              className="text-[12px] lg:text-[12.5px] font-extrabold rounded-full px-5 py-[11px]"
+              style={{
+                fontFamily: "'Nunito', sans-serif",
+                color: "#FBF7EF",
+                background: "#4C5F50",
+                boxShadow: demo === 1 ? "0 0 0 4px rgba(76,95,80,0.3)" : "0 0 0 0 rgba(76,95,80,0)",
+                transform: demo === 1 ? "scale(0.95)" : "none",
+                transition: "box-shadow 0.4s, transform 0.35s",
+              }}
+            >
+              Book en indledende samtale
+            </span>
+            <span
+              className="italic text-[12px] lg:text-[12.5px] pb-px"
+              style={{ color: "#B96D4A", borderBottom: "1px solid rgba(185,109,74,0.5)" }}
+            >
+              Læs om et forløb
+            </span>
+          </div>
+          <div
+            className="flex gap-4 mt-4 text-[10px] lg:text-[10.5px] font-bold"
+            style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
+          >
+            <span className="flex items-center gap-[5px]">
+              <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Kort ventetid
+            </span>
+            <span className="flex items-center gap-[5px]">
+              <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>København &amp; online
+            </span>
+          </div>
+        </div>
+
+        <div className="relative pt-2 pr-2 max-w-[240px] sm:max-w-none mx-auto sm:mx-0 bf2-w-full w-full">
+          <svg
+            viewBox="0 0 200 200"
+            className="absolute -right-[26px] -top-6 w-[110px] lg:w-[150px] h-auto"
+            aria-hidden="true"
+          >
+            <circle cx="100" cy="100" r="96" fill="none" stroke="#B96D4A" strokeWidth="1.4" opacity="0.5" />
+            <circle cx="100" cy="100" r="74" fill="none" stroke="#4C5F50" strokeWidth="1.4" opacity="0.4" />
+            <circle cx="100" cy="100" r="52" fill="none" stroke="#B96D4A" strokeWidth="1.4" opacity="0.3" />
+          </svg>
+          <div
+            className="absolute -right-[10px] -top-[2px] w-[84%] h-[97%]"
+            style={{ borderRadius: "999px 999px 16px 16px", background: "#E3DCCB" }}
+          />
+          <div
+            className="relative h-[200px] lg:h-[270px] bf2-w-portrait overflow-hidden"
+            style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
+          >
+            <PortraitSlot className="absolute inset-0 w-full h-full" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 bf2-w-cols-3 border-t" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
+        {[
+          ["Samtaleterapi", "50 min. · 1.100 kr."],
+          ["Stressforløb", "6–10 samtaler"],
+          ["Parterapi", "75 min. · 1.500 kr."],
+        ].map(([t, s], i) => (
+          <div
+            key={t}
+            className={`px-5 lg:px-[22px] py-3 lg:py-3.5 ${i < 2 ? "border-b sm:border-b-0 sm:border-r bf2-w-cell" : ""}`}
+            style={{ borderColor: "rgba(43,42,38,0.08)" }}
+          >
+            <p className="m-0 text-[13px] lg:text-[13.5px] font-bold">{t}</p>
+            <p
+              className="mt-[3px] mb-0 text-[10px] lg:text-[10.5px] font-bold"
+              style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.55)" }}
+            >
+              {s}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+    </>
+  );
+}
+
+/** Workflow notes shown beside (desktop) or under (phones) the example site. */
+const HERO_FLOW_NOTES = [
+  { title: "Ny booking", sub: "Tirsdag kl. 13.30 · Via hjemmesiden" },
+  { title: "Automatisk mail sendt", sub: "Bookingbekræftelse · Sendt til klient" },
+] as const;
+
 function Hero() {
   const [heroIn, setHeroIn] = useState(false);
   const [demo, setDemo] = useState(0);
@@ -154,7 +324,7 @@ function Hero() {
 
   return (
     <section data-testid="section-hero" className="relative overflow-hidden" style={{ background: LIME }}>
-      <div className="relative z-[2] max-w-[1240px] mx-auto px-5 md:px-9 pt-12 pb-16 lg:pt-20 lg:pb-[104px] grid grid-cols-1 lg:grid-cols-[minmax(0,42fr)_minmax(0,58fr)] gap-12 lg:gap-14 items-center">
+      <div className="relative z-[2] max-w-[1240px] mx-auto px-5 md:px-9 pt-10 pb-12 sm:pt-12 sm:pb-16 lg:pt-20 lg:pb-[104px] grid grid-cols-1 lg:grid-cols-[minmax(0,42fr)_minmax(0,58fr)] gap-8 sm:gap-12 lg:gap-14 items-center">
         <div>
           <span
             className="inline-flex items-center gap-2 text-[11px] lg:text-[12px] font-extrabold tracking-[0.12em] rounded-full px-4 py-[7px] border-2"
@@ -195,12 +365,21 @@ function Hero() {
             </span>
           </h1>
 
+          {/* the full promise on wider screens, the same promise in one
+              breath on a phone — four lines of intro pushes the example site
+              and the CTA off the first screen */}
           <p
-            className="mt-[26px] max-w-[450px] text-[17px] lg:text-[20px] leading-[1.65]"
+            className="mt-[22px] sm:mt-[26px] max-w-[450px] text-[17px] lg:text-[20px] leading-[1.6] sm:leading-[1.65]"
             style={fadeUp(heroIn, 0.3)}
           >
-            Birdflow samler din hjemmeside, booking, henvendelser og automatiske mails ét sted —
-            sat op omkring dig og din måde at arbejde på.
+            <span className="sm:hidden">
+              Hjemmeside, booking, henvendelser og automatiske mails — samlet ét sted og sat op
+              omkring din praksis.
+            </span>
+            <span className="hidden sm:inline">
+              Birdflow samler din hjemmeside, booking, henvendelser og automatiske mails ét sted —
+              sat op omkring dig og din måde at arbejde på.
+            </span>
           </p>
 
           <div
@@ -231,12 +410,16 @@ function Hero() {
             className="flex items-center gap-x-[18px] gap-y-2 flex-wrap mt-5"
             style={{ opacity: heroIn ? 1 : 0, transition: "opacity 0.7s ease 0.72s" }}
           >
+            {/* the anchor carries a 44px tap target on touch sizes while the
+                inner span keeps the underline hugging the text */}
             <a
               href="#kundecase"
-              className="no-underline text-[15px] lg:text-[16px] font-extrabold pb-[2px] hover:text-[#8016C3] transition-colors"
-              style={{ color: "#000000", borderBottom: `2.5px solid ${PURPLE}` }}
+              className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[15px] lg:text-[16px] font-extrabold hover:text-[#8016C3] transition-colors"
+              style={{ color: "#000000" }}
             >
-              Se en eksempelpraksis →
+              <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
+                Se en eksempelpraksis →
+              </span>
             </a>
             <span className="text-[14px] lg:text-[14.5px] font-bold" style={{ color: "rgba(0,0,0,0.6)" }}>
               »Lige den stemning jeg ønskede.«{" "}
@@ -252,7 +435,71 @@ function Hero() {
         </div>
 
         {/* The finished practice website, powered by Birdflow */}
-        <div className="relative min-w-0 mt-6 lg:mt-0 lg:-mr-[100px]">
+
+        {/* Phones: the same example site as a proportional miniature, so the
+            whole website is visible at once instead of reflowing into a very
+            tall stack. The workflow notes sit under it rather than floating
+            over its corners, where they would cover most of the miniature. */}
+        <div className="lg:hidden min-w-0">
+          <div
+            className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
+            style={{ boxShadow: "0 20px 50px rgba(20,5,40,0.16)", ...fadeUp(heroIn, 0.35) }}
+          >
+            <ScaleToFit designWidth={700}>
+              <PracticeSiteMock demo={demo} />
+            </ScaleToFit>
+          </div>
+
+          <div className="mt-3.5 flex flex-col gap-2.5" aria-hidden="true">
+            <div style={popIn(heroIn, 0.95)}>
+              <div
+                className="flex items-center gap-3 bg-white rounded-[14px] border border-black/[0.07] px-3.5 py-2.5"
+                style={{
+                  boxShadow: `0 14px 32px rgba(20,5,40,0.14), 0 0 0 3px ${demo >= 1 ? "rgba(48,109,218,0.4)" : "rgba(48,109,218,0)"}`,
+                  transition: "box-shadow 0.45s",
+                }}
+              >
+                <span
+                  className="w-9 h-9 flex-none rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(48,109,218,0.12)" }}
+                >
+                  <Bird className="w-[17px] h-3.5" style={{ color: BLUE }} />
+                </span>
+                <span>
+                  <span className="block text-[13px] font-extrabold">{HERO_FLOW_NOTES[0].title}</span>
+                  <span className="block mt-[2px] text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
+                    {HERO_FLOW_NOTES[0].sub}
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div style={popIn(heroIn, 1.1)}>
+              <div
+                className="flex items-center gap-3 bg-white rounded-[14px] border border-black/[0.07] px-3.5 py-2.5"
+                style={{
+                  boxShadow: `0 14px 32px rgba(20,5,40,0.14), 0 0 0 3px ${demo >= 2 ? "rgba(46,125,79,0.4)" : "rgba(46,125,79,0)"}`,
+                  transition: "box-shadow 0.45s",
+                }}
+              >
+                <span
+                  className="w-9 h-9 flex-none rounded-full flex items-center justify-center text-[15px] font-black"
+                  style={{ background: "rgba(46,125,79,0.12)", color: GREEN }}
+                >
+                  {demo >= 2 ? "✓" : "…"}
+                </span>
+                <span>
+                  <span className="block text-[13px] font-extrabold">{HERO_FLOW_NOTES[1].title}</span>
+                  <span className="block mt-[2px] text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
+                    {HERO_FLOW_NOTES[1].sub}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Desktop: full-size composition with the floating workflow cards */}
+        <div className="relative min-w-0 mt-6 lg:mt-0 lg:-mr-[100px] hidden lg:block">
           <div
             className="absolute -inset-[9%_-7%]"
             style={{
@@ -266,157 +513,7 @@ function Hero() {
             className="relative z-[1] bg-white rounded-[18px] overflow-hidden border border-black/[0.08]"
             style={{ boxShadow: "0 34px 90px rgba(20,5,40,0.2)", ...fadeUp(heroIn, 0.35) }}
           >
-            {/* minimal Birdflow platform bar */}
-            <div className="flex items-center gap-3 px-3.5 py-3 lg:px-[18px] border-b border-black/[0.07]">
-              <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
-              <span className="flex-none text-[12px] lg:text-[13.5px] font-extrabold">Psykolog Sofie Lund</span>
-              <span
-                className="flex-none flex items-center gap-[7px] text-[10px] lg:text-[11.5px] font-extrabold rounded-full px-3 py-[5px]"
-                style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
-              >
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }}
-                />
-                <span className="hidden sm:inline">Hjemmesiden er live</span>
-                <span className="sm:hidden">Live</span>
-              </span>
-              <span
-                className="min-w-0 truncate ml-auto text-[11px] lg:text-[12.5px] font-extrabold"
-                style={{ color: BLUE }}
-              >
-                Administrer praksis →
-              </span>
-            </div>
-
-            {/* the finished practice website */}
-            <div style={{ background: "#FBF7EF", fontFamily: "Georgia, serif", color: "#2B2A26" }}>
-              <div className="flex items-center gap-3.5 px-4 lg:px-[26px] py-[15px] border-b" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-                <span className="flex items-center gap-2.5 text-[14px] lg:text-[15px] font-semibold">
-                  <svg viewBox="0 0 24 24" className="w-[23px] h-[23px] flex-none" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" fill="none" stroke="#4C5F50" strokeWidth="1.6" />
-                    <circle cx="12" cy="12" r="6.4" fill="none" stroke="#B96D4A" strokeWidth="1.5" />
-                    <circle cx="12" cy="12" r="2.5" fill="#4C5F50" />
-                  </svg>
-                  Sofie Lund{" "}
-                  <span className="italic text-[12px] lg:text-[12.5px]" style={{ color: "rgba(43,42,38,0.55)" }}>
-                    · Psykolog
-                  </span>
-                </span>
-                <span
-                  className="ml-auto hidden md:flex gap-[15px] items-center text-[11px] font-bold"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                >
-                  <span>Samtaleterapi</span>
-                  <span>Forløb</span>
-                  <span>Priser</span>
-                  <span>Kontakt</span>
-                </span>
-                <span
-                  className="ml-auto md:ml-0 text-[10px] lg:text-[11px] font-extrabold rounded-full px-[15px] py-[7px] whitespace-nowrap"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
-                >
-                  Book en samtale
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-[1.25fr_0.9fr] gap-5 lg:gap-[26px] px-4 lg:px-7 pt-6 lg:pt-[34px] pb-6 lg:pb-[30px] items-center">
-                <div>
-                  <p
-                    className="m-0 text-[9px] lg:text-[10px] font-extrabold tracking-[0.18em]"
-                    style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
-                  >
-                    AUTORISERET PSYKOLOG · KØBENHAVN &amp; ONLINE
-                  </p>
-                  <p className="mt-4 mb-0 text-[24px] lg:text-[31px] leading-[1.25] max-w-[340px]">
-                    Et roligt sted til det, der fylder.
-                  </p>
-                  <p
-                    className="mt-4 mb-0 text-[12.5px] lg:text-[13.5px] leading-[1.65] max-w-[330px]"
-                    style={{ color: "rgba(43,42,38,0.72)" }}
-                  >
-                    Samtaleterapi til dig, der oplever stress, angst eller står midt i en forandring
-                    i livet.
-                  </p>
-                  <div className="flex items-center gap-4 mt-5 flex-wrap">
-                    <span
-                      className="text-[12px] lg:text-[12.5px] font-extrabold rounded-full px-5 py-[11px]"
-                      style={{
-                        fontFamily: "'Nunito', sans-serif",
-                        color: "#FBF7EF",
-                        background: "#4C5F50",
-                        boxShadow: demo === 1 ? "0 0 0 4px rgba(76,95,80,0.3)" : "0 0 0 0 rgba(76,95,80,0)",
-                        transform: demo === 1 ? "scale(0.95)" : "none",
-                        transition: "box-shadow 0.4s, transform 0.35s",
-                      }}
-                    >
-                      Book en indledende samtale
-                    </span>
-                    <span
-                      className="italic text-[12px] lg:text-[12.5px] pb-px"
-                      style={{ color: "#B96D4A", borderBottom: "1px solid rgba(185,109,74,0.5)" }}
-                    >
-                      Læs om et forløb
-                    </span>
-                  </div>
-                  <div
-                    className="flex gap-4 mt-4 text-[10px] lg:text-[10.5px] font-bold"
-                    style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                  >
-                    <span className="flex items-center gap-[5px]">
-                      <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Kort ventetid
-                    </span>
-                    <span className="flex items-center gap-[5px]">
-                      <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>København &amp; online
-                    </span>
-                  </div>
-                </div>
-
-                <div className="relative pt-2 pr-2 max-w-[240px] sm:max-w-none mx-auto sm:mx-0 w-full">
-                  <svg
-                    viewBox="0 0 200 200"
-                    className="absolute -right-[26px] -top-6 w-[110px] lg:w-[150px] h-auto"
-                    aria-hidden="true"
-                  >
-                    <circle cx="100" cy="100" r="96" fill="none" stroke="#B96D4A" strokeWidth="1.4" opacity="0.5" />
-                    <circle cx="100" cy="100" r="74" fill="none" stroke="#4C5F50" strokeWidth="1.4" opacity="0.4" />
-                    <circle cx="100" cy="100" r="52" fill="none" stroke="#B96D4A" strokeWidth="1.4" opacity="0.3" />
-                  </svg>
-                  <div
-                    className="absolute -right-[10px] -top-[2px] w-[84%] h-[97%]"
-                    style={{ borderRadius: "999px 999px 16px 16px", background: "#E3DCCB" }}
-                  />
-                  <div
-                    className="relative h-[200px] lg:h-[270px] overflow-hidden"
-                    style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
-                  >
-                    <PortraitSlot className="absolute inset-0 w-full h-full" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 border-t" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-                {[
-                  ["Samtaleterapi", "50 min. · 1.100 kr."],
-                  ["Stressforløb", "6–10 samtaler"],
-                  ["Parterapi", "75 min. · 1.500 kr."],
-                ].map(([t, s], i) => (
-                  <div
-                    key={t}
-                    className={`px-5 lg:px-[22px] py-3 lg:py-3.5 ${i < 2 ? "border-b sm:border-b-0 sm:border-r" : ""}`}
-                    style={{ borderColor: "rgba(43,42,38,0.08)" }}
-                  >
-                    <p className="m-0 text-[13px] lg:text-[13.5px] font-bold">{t}</p>
-                    <p
-                      className="mt-[3px] mb-0 text-[10px] lg:text-[10.5px] font-bold"
-                      style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.55)" }}
-                    >
-                      {s}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <PracticeSiteMock demo={demo} />
           </div>
 
           {/* floating Birdflow workflow cards */}
@@ -442,9 +539,9 @@ function Hero() {
                 <Bird className="w-[17px] h-3.5" style={{ color: BLUE }} />
               </span>
               <span>
-                <span className="block text-[13px] lg:text-[13.5px] font-extrabold">Ny booking</span>
+                <span className="block text-[13px] lg:text-[13.5px] font-extrabold">{HERO_FLOW_NOTES[0].title}</span>
                 <span className="block mt-[2px] text-[11px] lg:text-[11.5px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-                  Tirsdag kl. 13.30 · Via hjemmesiden
+                  {HERO_FLOW_NOTES[0].sub}
                 </span>
               </span>
             </div>
@@ -472,9 +569,9 @@ function Hero() {
                 {demo >= 2 ? "✓" : "…"}
               </span>
               <span>
-                <span className="block text-[13px] lg:text-[13.5px] font-extrabold">Automatisk mail sendt</span>
+                <span className="block text-[13px] lg:text-[13.5px] font-extrabold">{HERO_FLOW_NOTES[1].title}</span>
                 <span className="block mt-[2px] text-[11px] lg:text-[11.5px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-                  Bookingbekræftelse · Sendt til klient
+                  {HERO_FLOW_NOTES[1].sub}
                 </span>
               </span>
             </div>
@@ -809,20 +906,45 @@ function ClientJourney() {
     </>
   );
 
+  /** The four steps, shared by the phone carousel and the tablet timeline. */
+  const JOURNEY_STEPS: Array<[string, ReactNode]> = [
+    ["01 · KLIENTEN FINDER DIG", <JourneySiteCard key="c" />],
+    ["02 · EMMA BOOKER EN TID", <div key="c" className="max-w-[360px]"><JourneyBookingCard /></div>],
+    ["03 · BOOKINGEN ER PÅ PLADS", <div key="c" className="max-w-[360px]"><JourneyConfirmedCard /></div>],
+    ["04 · DET PRAKTISKE ER SENDT", <div key="c" className="max-w-[400px]"><JourneyMailCard sent /></div>],
+  ];
+
   return (
     <section data-testid="section-journey" style={{ background: BLUSH }}>
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-24 lg:pb-[130px]">
-        {/* ── mobile / tablet: vertical timeline ── */}
+        {/* ── mobile / tablet ── */}
         <div className="lg:hidden">
           {intro}
-          <div className="mt-10 flex flex-col items-stretch">
-            {[
-              ["01 · KLIENTEN FINDER DIG", <JourneySiteCard key="c" />],
-              ["02 · EMMA BOOKER EN TID", <div key="c" className="max-w-[360px]"><JourneyBookingCard /></div>],
-              ["03 · BOOKINGEN ER PÅ PLADS", <div key="c" className="max-w-[360px]"><JourneyConfirmedCard /></div>],
-              ["04 · DET PRAKTISKE ER SENDT", <div key="c" className="max-w-[400px]"><JourneyMailCard sent /></div>],
-            ].map(([label, card], i) => (
-              <div key={i as number} className="flex flex-col">
+
+          {/* Phones: a swipeable set. Stacked vertically the four steps run
+              to nearly two screens of scrolling before anything new appears,
+              and the story reads better as one step at a time anyway. */}
+          <div
+            className="sm:hidden mt-8 -mx-5 flex gap-4 overflow-x-auto snap-x snap-mandatory px-5 pb-4 bf2-noscrollbar"
+            tabIndex={0}
+            role="group"
+            aria-label="Klientens vej, trin for trin — stryg til siden for at se alle fire trin"
+          >
+            {JOURNEY_STEPS.map(([label, card], i) => (
+              <div key={i} className="snap-center shrink-0 w-[86%] max-w-[330px] flex flex-col">
+                <StepLabel>{label}</StepLabel>
+                {card}
+              </div>
+            ))}
+          </div>
+          <p className="sm:hidden m-0 mt-1 text-[13.5px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
+            Stryg til siden for at se alle fire trin →
+          </p>
+
+          {/* Tablets: the vertical timeline, which has room to breathe */}
+          <div className="hidden sm:flex mt-10 flex-col items-stretch">
+            {JOURNEY_STEPS.map(([label, card], i) => (
+              <div key={i} className="flex flex-col">
                 {i > 0 && (
                   <span
                     className="w-[3px] h-10 rounded-full my-3 ml-6"
@@ -831,8 +953,8 @@ function ClientJourney() {
                   />
                 )}
                 <RevealOnView delay={0.05}>
-                  <StepLabel>{label as string}</StepLabel>
-                  {card as ReactNode}
+                  <StepLabel>{label}</StepLabel>
+                  {card}
                 </RevealOnView>
               </div>
             ))}
@@ -1219,7 +1341,7 @@ function OverviewCard() {
       className="w-full bg-white rounded-2xl border border-black/[0.07] overflow-hidden flex"
       style={{ boxShadow: "0 30px 80px rgba(20,5,40,0.22)" }}
     >
-      <div className="w-[190px] flex-none border-r border-black/[0.07] py-[18px] hidden md:block" style={{ background: "#FDFDFB" }}>
+      <div className="w-[190px] flex-none border-r border-black/[0.07] py-[18px] hidden md:block bf2-w-block" style={{ background: "#FDFDFB" }}>
         <div className="flex items-center gap-2 px-[18px] pb-3.5">
           <Bird className="w-5 h-4" style={{ color: BLUE }} />
           <span className="text-[13.5px] font-extrabold">Birdflow</span>
@@ -1254,7 +1376,7 @@ function OverviewCard() {
             Tirsdag d. 14. oktober
           </span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-[1.3fr_1fr] gap-4 mt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-[1.3fr_1fr] bf2-w-cols-overview gap-4 mt-4">
           <div className="rounded-[11px] px-4 py-3.5" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
             <p className="m-0 text-[10px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
               I DAG
@@ -1395,28 +1517,37 @@ function StickyStory() {
   return (
     <section id="platformen" data-testid="section-story" style={{ background: LIME }}>
       {/* ── mobile / tablet: linear story ── */}
-      <div className="lg:hidden max-w-[1240px] mx-auto px-5 md:px-9 py-14" ref={mRef}>
+      <div className="lg:hidden max-w-[1240px] mx-auto px-5 md:px-9 py-11 sm:py-14" ref={mRef}>
         {heading}
         <StoryRail step={mStep === 4 ? 5 : mStep} fill={mStep >= 4 ? "100%" : `${((mStep + 1) / 6) * 100}%`} />
-        <div className="mt-10 max-w-[340px]">
+        <div className="mt-8 sm:mt-10 max-w-[340px]">
           <AdminListCard step={mStep} />
         </div>
-        <div className="relative mt-10 -mx-2">
+        <div className="relative mt-8 sm:mt-10 -mx-2">
           <PuffCloud className="absolute left-0 top-[8%] w-24 opacity-90" style={{ animation: "bf2Drift 32s ease-in-out -9s infinite alternate" }} />
           <PuffCloud className="absolute right-0 top-0 w-16 opacity-60" style={{ animation: "bf2Drift 24s ease-in-out -3s infinite alternate-reverse" }} />
-          <div className="relative h-[300px] sm:h-[380px]">
+          <div className="relative h-[210px] sm:h-[380px]">
             <CloudScene lifted={false} showFinale={mStep >= 4} />
           </div>
         </div>
-        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-4 mt-8">
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 sm:gap-4 mt-7 sm:mt-8">
           {STORY_CHIPS.map((chip, i) => (
             <div key={chip.title} style={popIn(mStep >= i + 1, 0)}>
               <StoryChip chip={chip} />
             </div>
           ))}
         </div>
-        <RevealOnView className="mt-10" delay={0.1}>
-          <OverviewCard />
+        {/* the overview is a wide dashboard — on phones it reads as a
+            miniature rather than a stack of full-width rows */}
+        <RevealOnView className="mt-8 sm:mt-10" delay={0.1}>
+          <div className="sm:hidden">
+            <ScaleToFit designWidth={820}>
+              <OverviewCard />
+            </ScaleToFit>
+          </div>
+          <div className="hidden sm:block">
+            <OverviewCard />
+          </div>
         </RevealOnView>
       </div>
 
@@ -1555,8 +1686,8 @@ function WorkspaceMockup() {
       <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-5 py-[13px] border-b border-black/[0.07]">
         <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
         <span className="flex-none text-[13px] lg:text-[13.5px] font-extrabold">Birdflow</span>
-        <span className="flex-none w-px h-4 bg-black/10 hidden sm:block" />
-        <span className="flex-none text-[12px] lg:text-[13px] font-bold hidden sm:inline" style={{ color: "rgba(0,0,0,0.65)" }}>
+        <span className="flex-none w-px h-4 bg-black/10 hidden sm:block bf2-w-block" />
+        <span className="flex-none text-[12px] lg:text-[13px] font-bold hidden sm:inline bf2-w-inline" style={{ color: "rgba(0,0,0,0.65)" }}>
           Psykolog Sofie Lund
         </span>
         <span
@@ -1564,22 +1695,22 @@ function WorkspaceMockup() {
           style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
         >
           <span className="w-2 h-2 rounded-full" style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }} />
-          <span className="hidden sm:inline">Hjemmesiden er live</span>
-          <span className="sm:hidden">Live</span>
+          <span className="hidden sm:inline bf2-w-inline">Hjemmesiden er live</span>
+          <span className="sm:hidden bf2-w-hide">Live</span>
         </span>
         <span
-          className="flex-none ml-auto text-[12px] font-extrabold rounded-lg px-[13px] py-[7px] hidden md:inline"
+          className="flex-none ml-auto text-[12px] font-extrabold rounded-lg px-[13px] py-[7px] hidden md:inline bf2-w-inline"
           style={{ color: "rgba(0,0,0,0.6)", border: "1.5px solid rgba(0,0,0,0.14)" }}
         >
           Se hjemmeside
         </span>
-        <span className="flex-none ml-auto md:ml-0 text-white text-[11px] lg:text-[12px] font-extrabold rounded-lg px-3 lg:px-3.5 py-2" style={{ background: BLUE }}>
+        <span className="flex-none ml-auto md:ml-0 bf2-w-ml0 text-white text-[11px] lg:text-[12px] font-extrabold rounded-lg px-3 lg:px-3.5 py-2" style={{ background: BLUE }}>
           Administrer praksis
         </span>
       </div>
-      <div className="flex flex-col md:flex-row">
+      <div className="flex flex-col md:flex-row bf2-w-row">
         {/* visual identity panel */}
-        <div className="w-full md:w-[246px] flex-none border-b md:border-b-0 md:border-r border-black/[0.07] px-5 pt-[18px] pb-5">
+        <div className="w-full md:w-[246px] flex-none border-b md:border-b-0 md:border-r bf2-w-panel border-black/[0.07] px-5 pt-[18px] pb-5">
           <p className="m-0 text-[9.5px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(0,0,0,0.45)" }}>
             DIT VISUELLE UDTRYK
           </p>
@@ -1663,19 +1794,19 @@ function WorkspaceMockup() {
                 <span className="italic text-[11px]" style={{ color: "rgba(43,42,38,0.55)" }}>· Psykolog</span>
               </span>
               <span
-                className="ml-auto hidden sm:flex gap-3 text-[10px] font-bold"
+                className="ml-auto hidden sm:flex bf2-w-flex gap-3 text-[10px] font-bold"
                 style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
               >
                 <span>Samtaleterapi</span><span>Forløb</span><span>Priser</span><span>Kontakt</span>
               </span>
               <span
-                className="ml-auto sm:ml-0 text-[10px] font-extrabold rounded-md px-2.5 py-1.5 whitespace-nowrap"
+                className="ml-auto sm:ml-0 bf2-w-ml0 text-[10px] font-extrabold rounded-md px-2.5 py-1.5 whitespace-nowrap"
                 style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
               >
                 Book en samtale
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.8fr] gap-[18px] px-4 lg:px-5 py-[22px] items-center">
+            <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.8fr] bf2-w-cols-site gap-[18px] px-4 lg:px-5 py-[22px] items-center">
               <div>
                 <p
                   className="m-0 text-[9px] font-extrabold tracking-[0.18em]"
@@ -1708,7 +1839,7 @@ function WorkspaceMockup() {
                   </span>
                 </div>
               </div>
-              <div className="relative pt-1.5 pr-1.5 max-w-[200px] sm:max-w-none mx-auto sm:mx-0 w-full">
+              <div className="relative pt-1.5 pr-1.5 max-w-[200px] sm:max-w-none mx-auto sm:mx-0 bf2-w-full w-full">
                 <div
                   className="absolute -right-2 -top-[2px] w-[84%] h-[97%]"
                   style={{ borderRadius: "999px 999px 14px 14px", background: "#E3DCCB" }}
@@ -1832,7 +1963,14 @@ function Process() {
         <h2 className="m-0 max-w-[760px] text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.15] font-black tracking-[-0.01em]">
           Vi bygger din hjemmeside. <span style={{ color: PURPLE }}>Du bliver ikke låst fast i den.</span>
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-11 mt-6 max-w-[1020px]">
+        {/* two full paragraphs are a wall of text on a phone — the same two
+            points, tightened, sit above the workspace instead */}
+        <p className="sm:hidden m-0 mt-5 text-[16px] leading-[1.6]">
+          Vi designer og bygger siden omkring din praksis — med dit eksisterende brand eller et nyt
+          udtryk. Bagefter kan du selv rette tekst og billeder, mens booking, henvendelser og
+          automatiske mails kører samlet i Birdflow.
+        </p>
+        <div className="hidden sm:grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-11 mt-6 max-w-[1020px]">
           <p className="m-0 text-[16px] lg:text-[18.5px] leading-[1.65]">
             Vi skaber designet, bygger hjemmesiden og tilpasser den til din praksis. Har du
             allerede et brand, tager vi udgangspunkt i det. Ellers kan vi skabe det visuelle udtryk
@@ -1845,10 +1983,20 @@ function Process() {
           </p>
         </div>
 
-        {/* ── mobile / tablet: stacked ── */}
-        <div className="lg:hidden mt-12 flex flex-col gap-8">
+        {/* ── mobile / tablet: stacked ──
+            The workspace is shown as a scaled miniature so the sidebar,
+            identity panel and live preview stay side by side; stacking them
+            at phone width turns one screenshot into a metre of scrolling. */}
+        <div className="lg:hidden mt-9 sm:mt-12 flex flex-col gap-7 sm:gap-8">
           <RevealOnView>
-            <WorkspaceMockup />
+            <div className="sm:hidden">
+              <ScaleToFit designWidth={900}>
+                <WorkspaceMockup />
+              </ScaleToFit>
+            </div>
+            <div className="hidden sm:block">
+              <WorkspaceMockup />
+            </div>
           </RevealOnView>
           <RevealOnView delay={0.1} className="max-w-[400px]">
             <LiveEditCard />
@@ -2085,21 +2233,25 @@ function CaseStudy() {
             <div className="flex items-center gap-x-[26px] gap-y-3 mt-6 flex-wrap">
               <button
                 onClick={() => setFullQuote(!fullQuote)}
-                className="cursor-pointer bg-transparent p-0 text-[15px] lg:text-[15.5px] font-extrabold pb-[2px] hover:text-[#8016C3] transition-colors"
-                style={{ color: "#000000", borderBottom: `2.5px solid ${PURPLE}` }}
+                className="cursor-pointer bg-transparent p-0 inline-flex items-center min-h-[44px] lg:min-h-0 text-[15px] lg:text-[15.5px] font-extrabold hover:text-[#8016C3] transition-colors"
+                style={{ color: "#000000" }}
                 data-testid="button-toggle-quote"
               >
-                {fullQuote ? "Skjul udtalelsen" : "Læs hele udtalelsen"}
+                <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
+                  {fullQuote ? "Skjul udtalelsen" : "Læs hele udtalelsen"}
+                </span>
               </button>
               <a
                 href="https://psykologamalieveber.laet.dk/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="no-underline text-[15px] lg:text-[15.5px] font-extrabold pb-[2px] hover:text-[#8016C3] transition-colors"
-                style={{ color: "#000000", borderBottom: `2.5px solid ${PURPLE}` }}
+                className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[15px] lg:text-[15.5px] font-extrabold hover:text-[#8016C3] transition-colors"
+                style={{ color: "#000000" }}
                 data-testid="link-case-site"
               >
-                Se Amalie Vebers hjemmeside ↗
+                <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
+                  Se Amalie Vebers hjemmeside ↗
+                </span>
               </a>
             </div>
           </RevealOnView>
@@ -2237,12 +2389,14 @@ function FinalCta() {
           <p className="m-0 text-[14px] font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>
             Den digitale platform for private psykologpraksisser.
           </p>
-          <nav className="md:ml-auto flex flex-wrap gap-x-[26px] gap-y-2">
+          {/* min-h gives the footer links a 44px tap target on touch sizes;
+              the row is a single line from lg up, where it is unchanged */}
+          <nav className="md:ml-auto flex flex-wrap gap-x-[26px] gap-y-0 sm:gap-y-2">
             {NAV_LINKS.map(([href, label]) => (
               <NavLink
                 key={href}
                 href={href}
-                className="no-underline text-[14px] font-extrabold hover:opacity-100"
+                className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[14px] font-extrabold hover:opacity-100"
                 style={{ color: "rgba(255,255,255,0.85)" }}
               >
                 {label}
@@ -2250,7 +2404,7 @@ function FinalCta() {
             ))}
             <Link
               href="/auth?mode=signin"
-              className="no-underline text-[14px] font-extrabold"
+              className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[14px] font-extrabold"
               style={{ color: "rgba(255,255,255,0.85)" }}
               data-testid="link-login-footer"
             >
@@ -2267,6 +2421,85 @@ function FinalCta() {
 }
 
 /* ─────────── page assembly ─────────── */
+
+/**
+ * Phone-only CTA bar. The hero button scrolls away after the first screen and
+ * the next one is at the very bottom of a long page, so between them there is
+ * nothing to tap. Appears once the hero CTA is gone and steps aside for the
+ * final CTA so the two never stack.
+ */
+function MobileStickyCta() {
+  const [show, setShow] = useState(false);
+  const barRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const finalCta = document.querySelector("[data-testid='section-cta']");
+    let finalVisible = false;
+
+    function update() {
+      setShow(window.scrollY > 560 && !finalVisible);
+    }
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        finalVisible = entry.isIntersecting;
+        update();
+      },
+      { threshold: 0 },
+    );
+    if (finalCta) io.observe(finalCta);
+
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      io.disconnect();
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // the bar slides out rather than unmounting, so it has to be taken out of
+  // the tab order *and* release focus — otherwise a keyboard user who tabbed
+  // to it keeps an invisible, off-screen control focused once it hides
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    if (show) {
+      el.removeAttribute("inert");
+      return;
+    }
+    if (el.contains(document.activeElement)) {
+      (document.activeElement as HTMLElement | null)?.blur();
+    }
+    el.setAttribute("inert", "");
+  }, [show]);
+
+  return (
+    <div
+      ref={barRef}
+      className={`lg:hidden fixed inset-x-0 bottom-0 z-40 px-4 pt-3 border-t border-black/[0.06] bg-white/75 backdrop-blur-md transition-transform duration-300 ${
+        show ? "" : "pointer-events-none"
+      }`}
+      style={{
+        transform: show ? "translateY(0)" : "translateY(130%)",
+        paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+      }}
+      aria-hidden={!show}
+    >
+      <Link
+        href={SIGNUP_HREF}
+        className="flex items-center justify-center gap-2.5 w-full text-white no-underline text-[16.5px] font-extrabold py-[15px] rounded-[12px]"
+        style={{ background: BLUE, boxShadow: "0 10px 26px rgba(48,109,218,0.35)" }}
+        tabIndex={show ? undefined : -1}
+        data-testid="button-signup-sticky"
+      >
+        <Bird className="w-5 h-4 text-white" />
+        {SIGNUP_LABEL}
+      </Link>
+    </div>
+  );
+}
 
 export default function BirdflowLandingPage() {
   return (
@@ -2290,28 +2523,31 @@ export default function BirdflowLandingPage() {
         />
       </svg>
 
+      {/* `compact` only shortens the waves on phones, where six full-height
+          ribbons add most of a screen of pure decoration to the scroll */}
       <main>
         <Hero />
         {/* hero and the story both sit on lime, so the seam between them is a
             purple ribbon rather than a colour change */}
-        <BandWave top={LIME} bottom={LIME} />
+        <BandWave top={LIME} bottom={LIME} compact />
         <StickyStory />
         {/* lime → blush */}
-        <WaveB />
+        <WaveB compact />
         <CaseStudy />
         {/* blush → lime */}
-        <BandWave top={BLUSH} bottom={LIME} />
+        <BandWave top={BLUSH} bottom={LIME} compact />
         <Faq />
         {/* lime → blush (mirrored) */}
-        <BandWave top={LIME} bottom={BLUSH} flip />
+        <BandWave top={LIME} bottom={BLUSH} flip compact />
         <ClientJourney />
         {/* blush → lime (mirrored) */}
-        <BandWave top={BLUSH} bottom={LIME} flip />
+        <BandWave top={BLUSH} bottom={LIME} flip compact />
         <Process />
         {/* lime → purple, into the final CTA */}
-        <EdgeWave other={LIME} flip="x" />
+        <EdgeWave other={LIME} flip="x" compact />
         <FinalCta />
       </main>
+      <MobileStickyCta />
     </div>
   );
 }

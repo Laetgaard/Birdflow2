@@ -11,4 +11,5 @@
 - [Vercel custom domains](vercel-custom-domains.md) — `verified` = ownership only (instantly true for unclaimed domains); DNS truth = v6 config `misconfigured`; NULLS FIRST for recheck queues.
 - [Workspace E2E quirks](workspace-e2e-quirks.md) — ShellExec background servers die per session; dev can't send email (prod-only Resend connector); dev+prod share one Supabase DB.
 - [Platform calendar & booking context](platform-calendar.md) — BirdFlow's own bookings sit on a sentinel-owned `websites` row; filter it from user queries, keep booking context DB-defaulted, don't `$type` shared columns.
+- [Wide mockups on phones](wide-mockups-on-phones.md) — scale wide product mockups down, don't reflow; Tailwind variants are viewport- not container-based; prove "desktop untouched" with layout signatures, not pixels.
 - [Landing image assets](landing-image-assets.md) — full-res originals only in git history ("Add files via upload"); serve resized webp; display:none+lazy img fallback deadlocks.
