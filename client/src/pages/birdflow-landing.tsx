@@ -1,22 +1,29 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "wouter";
-import { Menu, X } from "lucide-react";
 
 /* ─────────────────────────────────────────────────────────────
    Birdflow landing page — implemented from "Birdflow Landing.dc.html"
    Purple/lime/blush wave design targeting psychologists & private
    practices. Desktop layout mirrors the design file; below lg the
    absolute collages degrade to stacked, scroll-revealed layouts.
+
+   Render order is defined once, in the page assembly at the bottom
+   of this file — the sections below are NOT declared in that order:
+     hero → sticky story → kundeoplevelse → FAQ → klientens vej →
+     sådan virker det → final CTA + footer
+   Every section sits on LIME or BLUSH and the waves between them
+   carry those two colours, so reordering sections means re-deriving
+   the wave arguments in the assembly to match their new neighbours.
    ───────────────────────────────────────────────────────────── */
 
 import {
-  PURPLE, BLUE, LIME, BLUSH, GREEN, EASE, POP,
+  PURPLE, BLUE, LIME, BLUSH, GREEN, EASE,
   PAGE_CSS, prefersReducedMotion, fadeUp, popIn,
 } from "@/components/bf2/theme";
 import {
   useInView, RevealOnView, BirdDefs, Bird, BandWave, EdgeWave, WaveB,
 } from "@/components/bf2/primitives";
-import { Nav, NAV_LINKS, NavLink, bookHref, useOnLanding } from "@/components/bf2/Nav";
+import { Nav, NAV_LINKS, NavLink, SIGNUP_HREF, SIGNUP_LABEL } from "@/components/bf2/Nav";
 
 /* ─────────── decorative portrait placeholder ───────────
    Stands in for the design's droppable portrait slots. */
@@ -104,11 +111,14 @@ function ImgWithFallback({
 }
 
 /** The clinic photo inside the example practice-site mockups (the design's
-    klinik image); falls back to the illustrated portrait until it loads. */
+    klinik image, cropped to the bare room — the original had a decorative
+    gold blob outline and cream border baked into the pixels, which fought
+    with the rounded frames these mockups draw around it). Falls back to the
+    illustrated portrait until it loads. */
 function PortraitSlot({ className }: { className?: string }) {
   return (
     <ImgWithFallback
-      src="/landing/klinik.webp"
+      src="/landing/klinik-room.webp"
       alt="Roligt klinikrum med sofaer og ovenlysvinduer"
       className={`${className ?? ""} object-cover`}
       fallback={<PortraitArt className={className} />}
@@ -116,7 +126,7 @@ function PortraitSlot({ className }: { className?: string }) {
   );
 }
 
-/* ─────────── 01 · HERO ─────────── */
+/* ─────────── HERO ─────────── */
 
 function Hero() {
   const [heroIn, setHeroIn] = useState(false);
@@ -197,24 +207,24 @@ function Hero() {
             className="flex items-center gap-6 mt-[34px] flex-wrap"
             style={fadeUp(heroIn, 0.45)}
           >
-            <a
-              href="#kontakt"
+            <Link
+              href={SIGNUP_HREF}
               className="inline-flex w-full sm:w-auto justify-center items-center gap-[11px] text-white no-underline text-[17px] lg:text-[18px] font-extrabold px-7 py-4 rounded-[10px] transition hover:-translate-y-0.5"
               style={{ background: BLUE, boxShadow: "0 6px 18px rgba(48,109,218,0.35)" }}
-              data-testid="button-book-hero"
+              data-testid="button-signup-hero"
             >
               <Bird className="w-5 h-4 text-white" />
-              Book 20 min. gratis forsamtale
-            </a>
+              {SIGNUP_LABEL}
+            </Link>
           </div>
 
           <div
             className="flex gap-x-[18px] gap-y-2 flex-wrap mt-[18px] text-[14px] lg:text-[14.5px] font-bold"
             style={{ color: "rgba(0,0,0,0.62)", opacity: heroIn ? 1 : 0, transition: "opacity 0.7s ease 0.6s" }}
           >
-            {check("Uforpligtende")}
-            {check("Gratis")}
+            {check("Klar på få minutter")}
             {check("Ingen teknisk forberedelse")}
+            {check("Du godkender, før den går live")}
           </div>
 
           <div
@@ -524,7 +534,7 @@ function Hero() {
   );
 }
 
-/* ─────────── 02 · KLIENTENS VEJ ─────────── */
+/* ─────────── KLIENTENS VEJ (kunderejsen) ─────────── */
 
 function StepLabel({ children, boxed = false }: { children: ReactNode; boxed?: boolean }) {
   return (
@@ -885,7 +895,7 @@ function ClientJourney() {
   );
 }
 
-/* ─────────── 03 · STICKY PRODUCT STORY ─────────── */
+/* ─────────── STICKY PRODUCT STORY (mindre administration) ─────────── */
 
 const STORY_STEPS = [
   "Du er hos dine klienter",
@@ -1533,691 +1543,7 @@ function StickyStory() {
   );
 }
 
-/* ─────────── 04 · FEATURE CHAPTERS ─────────── */
-
-function FeatureText({
-  kicker,
-  title,
-  body,
-  bullets,
-}: {
-  kicker: string;
-  title: string;
-  body: string;
-  bullets?: string[];
-}) {
-  return (
-    <div>
-      <p className="m-0 text-[12px] lg:text-[12.5px] font-extrabold tracking-[0.14em]" style={{ color: PURPLE }}>
-        {kicker}
-      </p>
-      <h3 className="mt-3.5 mb-0 text-[24px] lg:text-[34px] leading-[1.2] font-black tracking-[-0.01em]">{title}</h3>
-      <p className="mt-[18px] mb-0 max-w-[440px] text-[16px] lg:text-[19px] leading-[1.65]">{body}</p>
-      {bullets && (
-        <div className="mt-[22px] max-w-[430px]">
-          {bullets.map((b, i) => (
-            <div
-              key={b}
-              className="flex gap-3 py-3 text-[15px] lg:text-[16px] font-bold"
-              style={{
-                borderTop: "1.5px solid rgba(0,0,0,0.1)",
-                borderBottom: i === bullets.length - 1 ? "1.5px solid rgba(0,0,0,0.1)" : undefined,
-              }}
-            >
-              <span style={{ color: PURPLE }}>—</span>
-              {b}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** A · the website editor mockup */
-function EditorMockup() {
-  return (
-    <div className="relative">
-      <div
-        className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
-        style={{ boxShadow: "0 26px 64px rgba(20,5,40,0.14)" }}
-      >
-        {/* Birdflow editor top bar */}
-        <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-[18px] py-3 border-b border-black/[0.07]">
-          <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
-          <span className="flex-none text-[12px] lg:text-[13.5px] font-extrabold">Psykolog Sofie Lund</span>
-          <span
-            className="flex-none flex items-center gap-1.5 text-[10px] lg:text-[11.5px] font-extrabold rounded-full px-[11px] py-1"
-            style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
-          >
-            <span className="w-[7px] h-[7px] rounded-full" style={{ background: GREEN }} />
-            Udgivet
-          </span>
-          <span className="min-w-0 truncate text-[12px] font-bold hidden sm:inline" style={{ color: "rgba(0,0,0,0.45)" }}>
-            sofielund.dk
-          </span>
-          <span
-            className="flex-none ml-auto text-[11px] lg:text-[12.5px] font-extrabold rounded-lg px-2.5 lg:px-3.5 py-[7px] hidden sm:inline"
-            style={{ color: "rgba(0,0,0,0.6)", border: "1.5px solid rgba(0,0,0,0.14)" }}
-          >
-            Gem ændringer
-          </span>
-          <span
-            className="flex-none ml-auto sm:ml-0 text-white text-[11px] lg:text-[12.5px] font-extrabold rounded-lg px-3 lg:px-4 py-2"
-            style={{ background: BLUE }}
-          >
-            Udgiv
-          </span>
-        </div>
-        {/* page tabs */}
-        <div
-          className="flex items-center gap-1 px-3 lg:px-[18px] py-2 border-b border-black/[0.07] text-[11px] lg:text-[12px] font-bold overflow-x-auto"
-          style={{ color: "rgba(0,0,0,0.55)" }}
-        >
-          <span className="rounded-[7px] px-3 py-1.5 font-extrabold whitespace-nowrap" style={{ background: "rgba(48,109,218,0.1)", color: BLUE }}>
-            Forside
-          </span>
-          {["Samtaleterapi", "Forløb", "Priser", "Kontakt"].map((t) => (
-            <span key={t} className="px-3 py-1.5 whitespace-nowrap">
-              {t}
-            </span>
-          ))}
-          <span className="ml-auto hidden md:flex gap-1.5 items-center flex-none">
-            <span className="w-[18px] h-[13px] rounded-[3px]" style={{ border: "1.5px solid rgba(0,0,0,0.3)" }} />
-            <span className="w-[9px] h-3.5 rounded-[2.5px]" style={{ border: "1.5px solid rgba(0,0,0,0.3)" }} />
-          </span>
-        </div>
-        {/* canvas */}
-        <div className="flex" style={{ background: "#F1EDE6" }}>
-          <div className="flex-1 p-3 lg:px-[22px] lg:py-6 min-w-0">
-            <div
-              className="rounded-[10px] overflow-hidden"
-              style={{ background: "#FBF7EF", boxShadow: "0 10px 30px rgba(20,5,40,0.1)", fontFamily: "Georgia, serif", color: "#2B2A26" }}
-            >
-              <div className="flex items-center gap-3.5 px-4 lg:px-[22px] py-[13px] border-b" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-                <span className="text-[13px] lg:text-[14.5px] font-bold whitespace-nowrap">
-                  Sofie Lund{" "}
-                  <span className="italic text-[11px] lg:text-[12px]" style={{ color: "rgba(43,42,38,0.55)" }}>
-                    · Psykolog
-                  </span>
-                </span>
-                <span
-                  className="ml-auto hidden md:flex gap-[13px] items-center text-[10.5px] font-bold"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                >
-                  <span>Samtaleterapi</span>
-                  <span>Forløb</span>
-                  <span>Priser</span>
-                  <span>Kontakt</span>
-                </span>
-                <span
-                  className="ml-auto md:ml-0 text-[10px] lg:text-[10.5px] font-extrabold rounded-md px-[11px] py-1.5 whitespace-nowrap"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
-                >
-                  Book en samtale
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[1.3fr_0.9fr] gap-5 px-4 lg:px-[22px] py-6 items-center">
-                <div>
-                  <p
-                    className="m-0 text-[9px] lg:text-[9.5px] font-extrabold tracking-[0.18em]"
-                    style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
-                  >
-                    AUT. PSYKOLOG · KØBENHAVN K
-                  </p>
-                  <div
-                    className="relative inline-block mt-[30px]"
-                    style={{ outline: `2px dashed ${BLUE}`, outlineOffset: 7 }}
-                  >
-                    <span
-                      className="absolute -top-7 -left-[9px] text-[9.5px] font-extrabold tracking-[0.06em] text-white rounded-[5px] px-[9px] py-[3px]"
-                      style={{ fontFamily: "'Nunito', sans-serif", background: BLUE }}
-                    >
-                      REDIGERER
-                    </span>
-                    <p className="m-0 text-[21px] lg:text-[26px] leading-[1.28] max-w-[300px]">
-                      Et roligt sted til det, der fylder
-                    </p>
-                  </div>
-                  <div
-                    className="mt-4 inline-flex items-center gap-2 bg-white rounded-[9px] px-2.5 py-[7px] text-[10px] font-bold flex-wrap"
-                    style={{
-                      fontFamily: "'Nunito', sans-serif",
-                      border: "1px solid rgba(0,0,0,0.08)",
-                      boxShadow: "0 12px 32px rgba(20,5,40,0.16)",
-                      color: "rgba(0,0,0,0.7)",
-                    }}
-                  >
-                    <span className="rounded-[5px] px-2 py-[3px]" style={{ border: "1px solid rgba(0,0,0,0.12)" }}>Lora ▾</span>
-                    <span className="rounded-[5px] px-2 py-[3px]" style={{ border: "1px solid rgba(0,0,0,0.12)" }}>44 ▾</span>
-                    <span className="flex items-center gap-1 rounded-[5px] px-2 py-[3px]" style={{ border: "1px solid rgba(0,0,0,0.12)" }}>
-                      Farve <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#2B2A26" }} />
-                    </span>
-                    <span className="font-extrabold" style={{ color: BLUE }}>Rediger tekst</span>
-                  </div>
-                  <p className="mt-3.5 mb-0 text-[12px] lg:text-[12.5px] leading-[1.6] max-w-[310px]" style={{ color: "rgba(43,42,38,0.7)" }}>
-                    Samtaleterapi ved stress, angst og livets overgange — i rolige lokaler i
-                    København K eller online.
-                  </p>
-                  <div className="flex items-center gap-3.5 mt-[15px] flex-wrap">
-                    <span
-                      className="text-[11px] lg:text-[12px] font-extrabold rounded-lg px-4 py-[9px]"
-                      style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
-                    >
-                      Book en samtale
-                    </span>
-                    <span className="italic text-[11px] lg:text-[12px] pb-px" style={{ borderBottom: "1px solid rgba(43,42,38,0.4)" }}>
-                      Læs om et forløb
-                    </span>
-                  </div>
-                  <div
-                    className="flex gap-3.5 mt-3.5 text-[9.5px] lg:text-[10px] font-bold"
-                    style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                  >
-                    <span className="flex items-center gap-[5px]">
-                      <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Kort ventetid
-                    </span>
-                    <span className="flex items-center gap-[5px]">
-                      <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Klinik &amp; online
-                    </span>
-                  </div>
-                </div>
-                <div className="relative pt-1.5 pr-1.5 max-w-[220px] sm:max-w-none mx-auto sm:mx-0 w-full">
-                  <div
-                    className="absolute -right-2 -top-[2px] w-[82%] h-[96%]"
-                    style={{ borderRadius: "999px 999px 16px 16px", background: "#E3DCCB" }}
-                  />
-                  <div
-                    className="relative h-[180px] lg:h-[238px] overflow-hidden"
-                    style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
-                  >
-                    <PortraitSlot className="absolute inset-0 w-full h-full" />
-                  </div>
-                  <div
-                    className="absolute -left-3.5 bottom-3 bg-white rounded-[9px] px-3 py-2"
-                    style={{ boxShadow: "0 10px 26px rgba(20,5,40,0.14)", fontFamily: "'Nunito', sans-serif" }}
-                  >
-                    <span className="flex items-center gap-1.5 text-[10px] font-extrabold" style={{ color: "#2B2A26" }}>
-                      <span className="w-[7px] h-[7px] rounded-full" style={{ background: GREEN }} />
-                      Aut. psykolog · 12 års erfaring
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 border-t" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-                {[
-                  ["Samtaleterapi", "50 min. · 1.100 kr."],
-                  ["Stressforløb", "6–10 samtaler"],
-                  ["Parterapi", "75 min. · 1.500 kr."],
-                ].map(([t, s], i) => (
-                  <div
-                    key={t}
-                    className={`px-[18px] py-[13px] ${i < 2 ? "border-b sm:border-b-0 sm:border-r" : ""}`}
-                    style={{ borderColor: "rgba(43,42,38,0.08)" }}
-                  >
-                    <p className="m-0 text-[13px] font-bold">{t}</p>
-                    <p className="mt-[3px] mb-0 text-[10px] font-bold" style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.55)" }}>
-                      {s}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          {/* right panel — desktop only */}
-          <div className="w-[168px] flex-none bg-white border-l border-black/[0.07] py-3.5 hidden lg:block">
-            <div className="flex gap-[2px] mx-3 mb-3 rounded-[7px] p-[3px]" style={{ background: "rgba(0,0,0,0.05)" }}>
-              <span className="flex-1 text-center text-[10.5px] font-extrabold bg-white rounded-[5px] py-[5px]" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-                Indhold
-              </span>
-              <span className="flex-1 text-center text-[10.5px] font-bold py-[5px]" style={{ color: "rgba(0,0,0,0.5)" }}>
-                Design
-              </span>
-            </div>
-            <p className="mx-4 mb-2 mt-0 text-[9px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.4)" }}>
-              SEKTIONER
-            </p>
-            <div
-              className="text-[11.5px] font-extrabold px-4 py-2"
-              style={{ color: BLUE, background: "rgba(48,109,218,0.08)", borderLeft: `2.5px solid ${BLUE}` }}
-            >
-              Hero
-            </div>
-            {["Samtaler", "Om Sofie", "Priser", "Kontakt"].map((s) => (
-              <div key={s} className="text-[11.5px] font-bold px-4 py-2" style={{ color: "rgba(0,0,0,0.6)" }}>
-                {s}
-              </div>
-            ))}
-            <p className="mx-4 mt-2.5 mb-0 text-[11px] font-extrabold" style={{ color: BLUE }}>
-              + Tilføj sektion
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** B · the booking flow mockup */
-function BookingMockup() {
-  return (
-    <div
-      className="bg-white rounded-2xl border border-black/[0.08] px-4 py-5 lg:px-[26px] lg:py-6"
-      style={{ boxShadow: "0 26px 64px rgba(20,5,40,0.14)" }}
-    >
-      <div className="flex items-center gap-2.5 text-[11px] lg:text-[12px] font-extrabold flex-wrap">
-        <span className="flex items-center gap-[7px]" style={{ color: GREEN }}>
-          <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px]" style={{ background: "rgba(46,125,79,0.12)" }}>
-            ✓
-          </span>
-          Ydelse
-        </span>
-        <span className="w-[26px] h-[1.5px]" style={{ background: "rgba(0,0,0,0.15)" }} />
-        <span className="flex items-center gap-[7px]" style={{ color: BLUE }}>
-          <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px] text-white" style={{ background: BLUE }}>
-            2
-          </span>
-          Dato &amp; tid
-        </span>
-        <span className="w-[26px] h-[1.5px]" style={{ background: "rgba(0,0,0,0.15)" }} />
-        <span className="flex items-center gap-[7px]" style={{ color: "rgba(0,0,0,0.45)" }}>
-          <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px]" style={{ border: "1.5px solid rgba(0,0,0,0.25)" }}>
-            3
-          </span>
-          Oplysninger
-        </span>
-        <span className="ml-auto text-[11px] lg:text-[11.5px] font-bold hidden sm:inline" style={{ color: "rgba(0,0,0,0.5)" }}>
-          Individuel samtale · 50 min.
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_1fr] gap-5 mt-5">
-        <div className="rounded-xl px-4 py-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-          <div className="flex items-baseline">
-            <span className="text-[13.5px] font-extrabold">Oktober 2026</span>
-            <span className="ml-auto text-[12px] font-extrabold" style={{ color: "rgba(0,0,0,0.4)" }}>‹ ›</span>
-          </div>
-          <div className="grid grid-cols-7 gap-1 mt-3 text-[10px] font-extrabold text-center" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {["M", "T", "O", "T", "F", "L", "S"].map((d, i) => (
-              <span key={i}>{d}</span>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-1 mt-1.5 text-[11.5px] font-bold text-center" style={{ color: "rgba(0,0,0,0.75)" }}>
-            {[5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19].map((d, i) => (
-              <span
-                key={i}
-                className={`py-1.5 ${d === 14 ? "rounded-[7px] font-extrabold text-white" : ""}`}
-                style={
-                  d === 14
-                    ? { background: BLUE }
-                    : d === 10 || d === 11 || d === 18 || d === 19
-                      ? { color: "rgba(0,0,0,0.3)" }
-                      : undefined
-                }
-              >
-                {d}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div>
-          <p className="mt-0 mb-2 text-[12px] font-extrabold" style={{ color: "rgba(0,0,0,0.55)" }}>
-            Tirsdag d. 14. oktober
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-1 gap-[7px]">
-            {["09.00", "10.30", "13.30", "15.00"].map((t) => (
-              <span
-                key={t}
-                className="text-[12.5px] text-center rounded-lg py-[9px]"
-                style={
-                  t === "13.30"
-                    ? { fontWeight: 800, background: BLUE, color: "#fff", boxShadow: "0 6px 16px rgba(48,109,218,0.3)" }
-                    : { fontWeight: 700, border: "1.5px solid rgba(0,0,0,0.14)" }
-                }
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 mt-[18px] pt-4 border-t border-black/[0.07] flex-wrap">
-        <span className="text-[11.5px] lg:text-[12px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-          Bekræftelsen sendes automatisk, når tiden er booket.
-        </span>
-        <span
-          className="ml-auto text-white text-[13px] font-extrabold rounded-[9px] px-[22px] py-2.5"
-          style={{ background: BLUE }}
-        >
-          Fortsæt
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/** C · inquiries inbox mockup */
-function InquiriesMockup() {
-  const rows: Array<[string, string, string]> = [
-    ["Mulighed for stressforløb i november?", "i går", "NY"],
-    ["Dækker min sundhedsforsikring?", "i går", "NY"],
-    ["Kan samtaler foregå online?", "mandag", "I GANG"],
-    ["Henvisning fra forsikringsselskab", "sidste uge", "BESVARET"],
-  ];
-  const badge = (b: string) =>
-    b === "NY"
-      ? { color: "#FFFFFF", background: PURPLE }
-      : b === "I GANG"
-        ? { color: BLUE, background: "rgba(48,109,218,0.12)" }
-        : { color: "rgba(0,0,0,0.55)", background: "rgba(0,0,0,0.07)" };
-  return (
-    <div
-      className="bg-white rounded-2xl border border-black/[0.08] overflow-hidden"
-      style={{ boxShadow: "0 26px 64px rgba(20,5,40,0.14)" }}
-    >
-      <div className="flex items-center gap-3 px-4 lg:px-[22px] py-[15px] border-b border-black/[0.07]">
-        <span className="text-[14px] lg:text-[15px] font-extrabold">Henvendelser</span>
-        <span className="ml-auto text-[11.5px] font-extrabold rounded-full px-[13px] py-[5px]" style={{ background: "rgba(0,0,0,0.06)" }}>
-          Alle
-        </span>
-        {["Nye", "I gang", "Besvarede"].map((f) => (
-          <span key={f} className="text-[11.5px] font-bold hidden sm:inline" style={{ color: "rgba(0,0,0,0.5)" }}>
-            {f}
-          </span>
-        ))}
-      </div>
-      {rows.map(([title, when, status], i) => (
-        <div
-          key={title}
-          className={`flex items-center gap-3 px-4 lg:px-[22px] py-3.5 ${i < rows.length - 1 ? "border-b border-black/[0.05]" : ""}`}
-        >
-          <span
-            className={`min-w-0 truncate text-[13px] lg:text-[13.5px] ${i < 2 ? "font-extrabold" : "font-bold"}`}
-            style={i === 2 ? { color: "rgba(0,0,0,0.75)" } : i === 3 ? { color: "rgba(0,0,0,0.6)" } : undefined}
-          >
-            {title}
-          </span>
-          <span className="ml-auto text-[11px] font-bold whitespace-nowrap hidden sm:inline" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {when}
-          </span>
-          <span className="text-[10px] font-extrabold rounded-full px-[11px] py-1 whitespace-nowrap" style={badge(status)}>
-            {status}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** D · automatic mails mockup */
-function MailsMockup() {
-  const templates: Array<[string, string]> = [
-    ["Booking ændret", "AKTIV"],
-    ["Booking aflyst", "AKTIV"],
-    ["Ny henvendelse", "AKTIV"],
-    ["Påmindelse", "PLANLAGT"],
-  ];
-  const chip = (v: string) => (
-    <span className="bg-[rgba(48,109,218,0.1)] rounded px-1.5 py-px font-extrabold text-[11px]" style={{ color: BLUE }}>
-      {v}
-    </span>
-  );
-  return (
-    <div
-      className="bg-white rounded-2xl border border-black/[0.08] overflow-hidden flex"
-      style={{ boxShadow: "0 26px 64px rgba(20,5,40,0.14)" }}
-    >
-      <div className="w-[230px] flex-none border-r border-black/[0.07] py-4 hidden md:block" style={{ background: "#FDFDFB" }}>
-        <p className="mx-[18px] mb-2.5 mt-0 text-[9.5px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.4)" }}>
-          MAILSKABELONER
-        </p>
-        <div
-          className="flex items-center px-[18px] py-[9px]"
-          style={{ background: "rgba(48,109,218,0.08)", borderLeft: `2.5px solid ${BLUE}` }}
-        >
-          <span className="text-[12px] font-extrabold" style={{ color: BLUE }}>Bookingbekræftelse</span>
-          <span className="ml-auto text-[9.5px] font-extrabold" style={{ color: GREEN }}>AKTIV</span>
-        </div>
-        {templates.map(([name, status]) => (
-          <div key={name} className="flex items-center px-[18px] py-[9px]">
-            <span className="text-[12px] font-bold" style={{ color: "rgba(0,0,0,0.65)" }}>{name}</span>
-            <span className="ml-auto text-[9.5px] font-extrabold" style={{ color: status === "AKTIV" ? GREEN : PURPLE }}>
-              {status}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="flex-1 px-4 py-4 lg:px-[22px] lg:py-[18px] min-w-0">
-        <div className="flex items-center gap-2.5">
-          <span className="text-[13px] lg:text-[13.5px] font-extrabold">Bookingbekræftelse</span>
-          <span className="ml-auto text-[11px] lg:text-[11.5px] font-extrabold whitespace-nowrap" style={{ color: BLUE }}>
-            Rediger skabelon
-          </span>
-        </div>
-        <div className="mt-3 text-[11.5px] font-bold flex gap-2 items-center" style={{ color: "rgba(0,0,0,0.55)" }}>
-          Emne
-          <span className="flex-1 rounded-[7px] px-[11px] py-[7px] text-black" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>
-            Din tid er bekræftet
-          </span>
-        </div>
-        <div
-          className="mt-2.5 rounded-[10px] px-4 py-3.5 text-[12px] leading-[1.7]"
-          style={{ border: "1px solid rgba(0,0,0,0.08)", color: "rgba(0,0,0,0.75)" }}
-        >
-          Hej {chip("fornavn")},<br />
-          tak for din booking. Vi ses {chip("dato")} kl. {chip("tid")}.<br />
-          Venlig hilsen
-          <br />
-          Sofie Lund · Gammel Mønt 4, København K
-        </div>
-        <p className="mt-2.5 mb-0 text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
-          Udfyldes automatisk med din praksis&apos; oplysninger.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function FeatureChapters() {
-  const sectionRef = useRef<HTMLElement | null>(null);
-  const [funkP, setFunkP] = useState(0);
-  useEffect(() => {
-    const onScroll = () => {
-      const el = sectionRef.current;
-      if (!el) return;
-      const vh = window.innerHeight;
-      const r = el.getBoundingClientRect();
-      const p = Math.min(1, Math.max(0, (vh * 0.85 - r.top) / (r.height * 0.92)));
-      setFunkP((prev) => (Math.abs(p - prev) > 0.01 ? p : prev));
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    onScroll();
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, []);
-
-  return (
-    <section id="funktioner" ref={sectionRef} data-testid="section-features" className="relative" style={{ background: BLUSH }}>
-      {/* winding blue path behind the chapters (desktop only) */}
-      <svg
-        viewBox="0 0 1240 2360"
-        preserveAspectRatio="none"
-        className="absolute inset-0 w-full h-full hidden lg:block"
-        aria-hidden="true"
-      >
-        <path
-          d="M760 -20 C1060 130 1040 300 890 430 C740 560 420 570 300 770 C190 950 320 1090 580 1170 C880 1265 1020 1340 950 1530 C880 1720 470 1670 335 1850 C245 1975 285 2130 430 2240"
-          pathLength="1"
-          fill="none"
-          stroke={BLUE}
-          strokeWidth="8"
-          strokeLinecap="round"
-          opacity="0.32"
-          style={{ strokeDasharray: "1 1", strokeDashoffset: (1 - funkP).toFixed(3), transition: "stroke-dashoffset 0.35s linear" }}
-        />
-        <circle cx="430" cy="2240" r="7" fill={BLUE} opacity={funkP > 0.97 ? 0.9 : 0} style={{ transition: "opacity 0.4s" }} />
-      </svg>
-
-      <div className="relative z-[1] max-w-[1240px] mx-auto px-5 md:px-9 pt-10 pb-16 lg:pb-[130px]">
-        {/* A · Hjemmesiden */}
-        <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr] gap-8 lg:gap-[52px] items-center">
-          <RevealOnView>
-            <FeatureText
-              kicker="HJEMMESIDEN"
-              title="En hjemmeside omkring din praksis — ikke omkring en skabelon."
-              body="Fundamentet formes efter dine forløb og din stemning. Bagefter redigerer du selv tekster, sektioner og sider — direkte på siden."
-              bullets={[
-                "Eget domæne kobles på",
-                "Sider til forløb, priser og praktisk information",
-                "Udgiv, når du er klar",
-              ]}
-            />
-          </RevealOnView>
-          <RevealOnView delay={0.1}>
-            <EditorMockup />
-          </RevealOnView>
-        </div>
-
-        {/* B · Booking */}
-        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-8 lg:gap-[52px] items-center mt-16 lg:mt-[120px]">
-          <RevealOnView delay={0.1} className="order-2 lg:order-1">
-            <BookingMockup />
-          </RevealOnView>
-          <RevealOnView className="order-1 lg:order-2">
-            <FeatureText
-              kicker="BOOKING"
-              title="Klienten vælger en ledig tid direkte på hjemmesiden."
-              body="Tre enkle trin: ydelse, tidspunkt, oplysninger. Bookingen ligger i Birdflow med det samme — og hvilke tider der er åbne, bestemmer du."
-            />
-          </RevealOnView>
-        </div>
-
-        {/* C · Henvendelser */}
-        <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr] gap-8 lg:gap-[52px] items-center mt-16 lg:mt-[120px]">
-          <RevealOnView>
-            <FeatureText
-              kicker="HENVENDELSER"
-              title="Nye henvendelser samlet med status."
-              body="Kontaktformularen samler henvendelserne i Birdflow — så du kan se, hvad der er nyt, hvad der er i gang, og hvad der er besvaret. Ikke noget med at lede i indbakken."
-            />
-          </RevealOnView>
-          <RevealOnView delay={0.1}>
-            <InquiriesMockup />
-          </RevealOnView>
-        </div>
-
-        {/* D · Automatiske mails */}
-        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-8 lg:gap-[52px] items-center mt-16 lg:mt-[120px]">
-          <RevealOnView delay={0.1} className="order-2 lg:order-1">
-            <MailsMockup />
-          </RevealOnView>
-          <RevealOnView className="order-1 lg:order-2">
-            <FeatureText
-              kicker="AUTOMATISKE MAILS"
-              title="Sendt automatisk. Ikke husket."
-              body="Bekræftelser og beskeder ved ændringer sender sig selv — med din praksis' egne oplysninger, adresse og afslutning. Du tilpasser skabelonerne én gang."
-            />
-          </RevealOnView>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─────────── 05 · OFFER (purple field) ─────────── */
-
-const OFFER_ITEMS = [
-  "Skræddersyet hjemmeside-fundament",
-  "Sider og struktur til din praksis",
-  "Redigeringsadgang — uden kode",
-  "Booking sat op på hjemmesiden",
-  "Kontaktformular og henvendelser",
-  "Automatiske mailskabeloner",
-  "Udgivelse og drift",
-  "Dit eget domæne kobles på",
-  "Enkel analyse af besøg",
-  "Betaling via din egen Stripe-konto",
-];
-
-function Offer() {
-  return (
-    <section id="tilbud" data-testid="section-offer" style={{ background: PURPLE }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 py-16 lg:pt-[100px] lg:pb-[104px]">
-        <h2 className="m-0 max-w-[620px] text-white text-[28px] sm:text-[34px] lg:text-[42px] leading-[1.15] font-black tracking-[-0.01em]">
-          Hvad får du med Birdflow?
-        </h2>
-        <p className="mt-[18px] mb-0 max-w-[560px] text-[16.5px] lg:text-[20px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.85)" }}>
-          Birdflow er ikke kun et værktøj. Det er også hjælpen til at få den første version på
-          plads — omkring din praksis.
-        </p>
-        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-10 lg:gap-16 mt-10 lg:mt-[54px]">
-          <div>
-            <p className="mt-0 mb-3.5 text-[12.5px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(255,255,255,0.65)" }}>
-              FUNDAMENTET
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10">
-              {OFFER_ITEMS.map((item, i) => (
-                <div
-                  key={item}
-                  className="flex gap-3 items-baseline py-3 text-white text-[15.5px] lg:text-[16.5px] font-bold"
-                  style={{
-                    borderTop: "1.5px solid rgba(255,255,255,0.2)",
-                    borderBottom: i >= OFFER_ITEMS.length - 2 ? "1.5px solid rgba(255,255,255,0.2)" : undefined,
-                  }}
-                >
-                  <span style={{ color: LIME }}>✓</span>
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div
-            className="rounded-2xl px-6 py-6 lg:px-8 lg:py-[30px]"
-            style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.18)" }}
-          >
-            <p className="mt-0 mb-1.5 text-[12.5px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(255,255,255,0.65)" }}>
-              SÅDAN FOREGÅR DET
-            </p>
-            {[
-              "Vi forstår din praksis",
-              "Vi bygger den første version",
-              "Du gennemgår og justerer",
-              "Du driver det videre i Birdflow",
-            ].map((s, i) => (
-              <div
-                key={s}
-                className="flex gap-3.5 py-[13px] text-white"
-                style={i > 0 ? { borderTop: "1px solid rgba(255,255,255,0.15)" } : undefined}
-              >
-                <span className="text-[15px] font-black" style={{ color: LIME }}>
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span className="text-[15.5px] lg:text-[16.5px] font-bold">{s}</span>
-              </div>
-            ))}
-            <p className="mt-[18px] mb-0 text-[15px] lg:text-[16px] leading-[1.6]" style={{ color: "rgba(255,255,255,0.85)" }}>
-              Efter en kort introduktion får du et konkret forslag til din praksis.
-            </p>
-            <a
-              href="#kontakt"
-              className="inline-block w-full sm:w-auto text-center mt-[18px] text-white no-underline text-[15px] lg:text-[16px] font-extrabold px-[26px] py-3.5 rounded-[10px] hover:brightness-110 transition"
-              style={{ background: BLUE, boxShadow: "0 6px 18px rgba(10,2,25,0.35)" }}
-              data-testid="button-book-offer"
-            >
-              Book 20 minutter med Birdflow
-            </a>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─────────── 06 · PROCESS ─────────── */
+/* ─────────── PROCESS (sådan virker det) ─────────── */
 
 /** the Birdflow workspace mockup (visual identity + finished site) */
 function WorkspaceMockup() {
@@ -2585,7 +1911,7 @@ function Process() {
   );
 }
 
-/* ─────────── 07 · AMALIE CASE ─────────── */
+/* ─────────── KUNDEOPLEVELSE (Amalie-casen) ─────────── */
 
 /** Stylised preview of Amalie's practice site (stands in for a live screenshot) */
 function AmalieSiteArt() {
@@ -2735,10 +2061,10 @@ function CaseStudy() {
               className="inline-block text-[11px] lg:text-[12px] font-extrabold tracking-[0.12em] rounded-full px-4 py-[7px] border-2"
               style={{ color: PURPLE, borderColor: "rgba(128,22,195,0.35)" }}
             >
-              KUNDECASE · AMALIE VEBER · PSYKOLOG I ROSKILDE
+              KUNDEOPLEVELSE · AMALIE VEBER · PSYKOLOG I ROSKILDE
             </span>
             <h2 className="bf2-display mt-6 mb-0 text-[26px] sm:text-[32px] lg:text-[40px] leading-[1.22]">
-              »Lige den stemning jeg ønskede.«
+              Kundeoplevelse
             </h2>
             <p className="mt-6 mb-0 max-w-[470px] text-[18px] lg:text-[22px] leading-[1.6] font-bold">
               »Christoffer har været lynhurtig til at fange min vision for hjemmesiden og formået
@@ -2783,7 +2109,7 @@ function CaseStudy() {
   );
 }
 
-/* ─────────── 08 · FAQ ─────────── */
+/* ─────────── FAQ ─────────── */
 
 const FAQS: Array<{ q: string; a: string }> = [
   {
@@ -2807,8 +2133,8 @@ const FAQS: Array<{ q: string; a: string }> = [
     a: "Ja. Klienten vælger ydelse, tidspunkt og udfylder sine oplysninger — direkte på din hjemmeside. Bookingen ligger i Birdflow med det samme, og bekræftelsen sendes automatisk. Hvilke tider der er åbne, styrer du selv.",
   },
   {
-    q: "Hvad sker der efter de 20 minutter?",
-    a: "Vi taler om, hvordan din praksis arbejder i dag, og viser Birdflow med din praksis i tankerne. Bagefter får du et konkret forslag til din praksis — og beslutter dig i ro og mag.",
+    q: "Hvad sker der, når jeg går i gang?",
+    a: "Du opretter en konto og fortæller kort om din praksis — hvem du hjælper, dine forløb og den stemning, siden skal have. Derefter bygger Birdflow det første udkast, som du gennemgår og retter til. Intet går live, før du siger god for det.",
   },
 ];
 
@@ -2871,7 +2197,7 @@ function Faq() {
   );
 }
 
-/* ─────────── 09 · FINAL CTA + FOOTER ─────────── */
+/* ─────────── FINAL CTA + FOOTER ─────────── */
 
 function FinalCta() {
   return (
@@ -2881,19 +2207,19 @@ function FinalCta() {
           Lad os tage udgangspunkt i din praksis.
         </h2>
         <p className="mt-[22px] mx-auto mb-0 max-w-[540px] text-[16.5px] lg:text-[20px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.85)" }}>
-          Fortæl kort om, hvordan din praksis arbejder i dag — og se, om Birdflow giver mening for
-          dig.
+          Fortæl kort om, hvordan din praksis arbejder i dag — så bygger Birdflow det første udkast
+          til din hjemmeside.
         </p>
-        <a
-          href="/dfy#kontakt"
+        <Link
+          href={SIGNUP_HREF}
           className="inline-block w-full sm:w-auto mt-[34px] text-white no-underline text-[17px] lg:text-[19px] font-extrabold px-[34px] py-[17px] rounded-[10px] hover:brightness-110 transition"
           style={{ background: BLUE, boxShadow: "0 8px 22px rgba(10,2,25,0.4)" }}
-          data-testid="button-book-final"
+          data-testid="button-signup-final"
         >
-          Book 20 minutter Forsamtale
-        </a>
+          {SIGNUP_LABEL}
+        </Link>
         <p className="mt-[18px] mb-0 text-[14px] lg:text-[15px] font-extrabold" style={{ color: "rgba(255,255,255,0.7)" }}>
-          20 minutter · Ingen teknisk forberedelse
+          Ingen teknisk forberedelse · Du godkender, før den går live
         </p>
         <div className="flex justify-center mt-11" aria-hidden="true">
           <Bird className="w-[34px] h-7 text-white" />
@@ -2966,27 +2292,23 @@ export default function BirdflowLandingPage() {
 
       <main>
         <Hero />
-        {/* wave A: lime → blush */}
-        <BandWave top={LIME} bottom={BLUSH} />
-        <ClientJourney />
-        {/* wave: blush → lime (mirrored) */}
-        <BandWave top={BLUSH} bottom={LIME} flip />
+        {/* hero and the story both sit on lime, so the seam between them is a
+            purple ribbon rather than a colour change */}
+        <BandWave top={LIME} bottom={LIME} />
         <StickyStory />
-        {/* wave C: lime → blush */}
-        <BandWave top={LIME} bottom={BLUSH} />
-        <FeatureChapters />
-        {/* wave D: blush → purple */}
-        <EdgeWave other={BLUSH} flip="x" />
-        <Offer />
-        {/* wave E: purple → lime */}
-        <EdgeWave other={LIME} flip="xy" />
-        <Process />
+        {/* lime → blush */}
         <WaveB />
         <CaseStudy />
-        {/* wave F: blush → lime */}
+        {/* blush → lime */}
         <BandWave top={BLUSH} bottom={LIME} />
         <Faq />
-        {/* wave into final CTA */}
+        {/* lime → blush (mirrored) */}
+        <BandWave top={LIME} bottom={BLUSH} flip />
+        <ClientJourney />
+        {/* blush → lime (mirrored) */}
+        <BandWave top={BLUSH} bottom={LIME} flip />
+        <Process />
+        {/* lime → purple, into the final CTA */}
         <EdgeWave other={LIME} flip="x" />
         <FinalCta />
       </main>

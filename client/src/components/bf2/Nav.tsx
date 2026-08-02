@@ -12,21 +12,30 @@ import { Bird } from "./primitives";
    all three. Entries are either in-page anchors ("#platformen") or
    full routes ("/services"); NavLink handles the difference and
    rewrites anchors to "/#anchor" when rendered off the landing
-   page, so they still resolve.
+   page, so they still resolve. Every anchor here must exist as an
+   id on the landing page — nothing may point at a deleted section.
    ───────────────────────────────────────────────────────────── */
 
 export const NAV_LINKS: Array<[string, string]> = [
   ["#platformen", "Platformen"],
-  ["#funktioner", "Funktioner"],
   ["/services", "Ydelser"],
   ["/pricing", "Priser"],
   ["#saadan-virker-det", "Sådan virker det"],
-  ["#kundecase", "Kundecase"],
+  ["#kundecase", "Kundeoplevelse"],
 ];
 
-/** Book-a-meeting target: an anchor on the landing page, a route elsewhere. */
-export function bookHref(onLanding: boolean): string {
-  return onLanding ? "#kontakt" : "/#kontakt";
+/** Primary CTA everywhere: start a website, i.e. create an account. */
+export const SIGNUP_HREF = "/auth?mode=signup";
+export const SIGNUP_LABEL = "Få din hjemmeside";
+
+/**
+ * Book-a-meeting target for the pages that still offer a conversation
+ * (pricing's Enterprise tier and custom packages, /services). The front
+ * page no longer funnels into a call, so the contact form lives on the
+ * DFY agency page — which is where those buttons always ended up anyway.
+ */
+export function bookHref(): string {
+  return "/dfy#kontakt";
 }
 
 export function useOnLanding(): boolean {
@@ -74,8 +83,6 @@ export function NavLink({
 
 export function Nav() {
   const [open, setOpen] = useState(false);
-  const onLanding = useOnLanding();
-  const book = bookHref(onLanding);
 
   return (
     <header id="top" style={{ background: PURPLE }}>
@@ -85,7 +92,9 @@ export function Nav() {
           <span className="bf2-display text-[22px] lg:text-[26px] text-white">Birdflow</span>
         </Link>
 
-        {/* desktop nav — Log ind sits beside the Book button, top right */}
+        {/* desktop nav — Log ind sits beside the primary button, top right.
+            Both buttons stay a notch smaller than the nav links so they read
+            as controls next to the links rather than two banners. */}
         <nav className="hidden lg:flex gap-6 xl:gap-8 ml-auto items-center">
           {NAV_LINKS.map(([href, label]) => (
             <NavLink
@@ -98,19 +107,19 @@ export function Nav() {
           ))}
           <Link
             href="/auth?mode=signin"
-            className="inline-block text-white no-underline text-[16px] font-extrabold px-[22px] py-[11px] rounded-[10px] border-2 border-white/45 hover:bg-white/10 transition-colors"
+            className="inline-block text-white no-underline text-[14px] font-extrabold px-4 py-[7px] rounded-lg border-2 border-white/45 hover:bg-white/10 transition-colors"
             data-testid="button-login-header"
           >
             Log ind
           </Link>
-          <NavLink
-            href={book}
-            className="inline-block text-white no-underline text-[16px] font-extrabold px-[22px] py-3 rounded-[10px] hover:brightness-110 transition"
+          <Link
+            href={SIGNUP_HREF}
+            className="inline-block text-white no-underline text-[14px] font-extrabold px-4 py-[9px] rounded-lg hover:brightness-110 transition"
             style={{ background: BLUE, boxShadow: "0 4px 14px rgba(10,2,25,0.3)" }}
-            testId="button-book-header"
+            data-testid="button-signup-header"
           >
-            Book 20 minutter
-          </NavLink>
+            {SIGNUP_LABEL}
+          </Link>
         </nav>
 
         {/* mobile: compact Log ind + burger */}
@@ -159,15 +168,15 @@ export function Nav() {
             >
               Log ind
             </Link>
-            <NavLink
-              href={book}
+            <Link
+              href={SIGNUP_HREF}
               onClick={() => setOpen(false)}
               className="block text-center text-white no-underline text-[16px] font-extrabold py-3 rounded-[10px]"
               style={{ background: BLUE, boxShadow: "0 4px 14px rgba(10,2,25,0.3)" }}
-              testId="button-book-drawer"
+              data-testid="button-signup-drawer"
             >
-              Book 20 minutter
-            </NavLink>
+              {SIGNUP_LABEL}
+            </Link>
           </div>
         </div>
       )}

@@ -177,7 +177,7 @@ function ValueCell({ value }: { value: string | boolean }) {
 export default function PricingPage() {
   const { lang } = useLocale();
   const t = pick(COPY, lang);
-  const book = bookHref(false);
+  const book = bookHref();
 
   return (
     <div

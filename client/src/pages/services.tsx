@@ -223,7 +223,7 @@ function GroupBlock({ group, index }: { group: Group; index: number }) {
 export default function ServicesPage() {
   const { lang } = useLocale();
   const t = pick(COPY, lang);
-  const book = bookHref(false);
+  const book = bookHref();
 
   return (
     <div
