@@ -3,30 +3,59 @@ import { Link, useLocation } from "wouter";
 import { Menu, X } from "lucide-react";
 import { BLUE, PURPLE } from "./theme";
 import { Bird } from "./primitives";
+import { LangToggle } from "./LangToggle";
+import { useLocale, type Lang } from "@/lib/locale";
 
 /* ─────────────────────────────────────────────────────────────
    Shared bf2 navbar + footer nav.
 
-   NAV_LINKS drives three consumers (desktop nav, mobile drawer and
-   the landing page footer), so adding an entry here surfaces it in
-   all three. Entries are either in-page anchors ("#platformen") or
-   full routes ("/services"); NavLink handles the difference and
-   rewrites anchors to "/#anchor" when rendered off the landing
-   page, so they still resolve. Every anchor here must exist as an
-   id on the landing page — nothing may point at a deleted section.
+   NAV_ITEMS drives three consumers (desktop nav, mobile drawer and
+   the landing page footer) through useNavLinks(), so adding an
+   entry here surfaces it in all three. Entries are either in-page
+   anchors ("#platformen") or full routes ("/services"); NavLink
+   handles the difference and rewrites anchors to "/#anchor" when
+   rendered off the landing page, so they still resolve. Every
+   anchor here must exist as an id on the landing page — nothing may
+   point at a deleted section.
+
+   Labels are bilingual: the anchors themselves stay Danish because
+   they are element ids on the landing page, not user-facing text.
    ───────────────────────────────────────────────────────────── */
 
-export const NAV_LINKS: Array<[string, string]> = [
-  ["#platformen", "Platformen"],
-  ["/services", "Ydelser"],
-  ["/pricing", "Priser"],
-  ["#saadan-virker-det", "Sådan virker det"],
-  ["#kundecase", "Kundeoplevelse"],
+const NAV_ITEMS: Array<{ href: string; label: Record<Lang, string> }> = [
+  { href: "#platformen", label: { da: "Platformen", en: "The platform" } },
+  { href: "/services", label: { da: "Ydelser", en: "Services" } },
+  { href: "/pricing", label: { da: "Priser", en: "Pricing" } },
+  { href: "#saadan-virker-det", label: { da: "Sådan virker det", en: "How it works" } },
+  { href: "#kundecase", label: { da: "Kundeoplevelse", en: "Customer story" } },
 ];
+
+/** The nav entries as `[href, label]` pairs in the active language. */
+export function useNavLinks(): Array<[string, string]> {
+  const { lang } = useLocale();
+  return NAV_ITEMS.map(({ href, label }) => [href, label[lang]]);
+}
 
 /** Primary CTA everywhere: start a website, i.e. create an account. */
 export const SIGNUP_HREF = "/auth?mode=signup";
-export const SIGNUP_LABEL = "Få din hjemmeside";
+export const SIGNUP_LABELS: Record<Lang, string> = {
+  da: "Få din hjemmeside",
+  en: "Get your website",
+};
+export function useSignupLabel(): string {
+  const { lang } = useLocale();
+  return SIGNUP_LABELS[lang];
+}
+
+/** Chrome shared by the navbar, the drawer and the landing footer. */
+export const CHROME_COPY: Record<Lang, { login: string; menu: string }> = {
+  da: { login: "Log ind", menu: "Menu" },
+  en: { login: "Log in", menu: "Menu" },
+};
+export function useChromeCopy() {
+  const { lang } = useLocale();
+  return CHROME_COPY[lang];
+}
 
 /**
  * Book-a-meeting target for the pages that still offer a conversation
@@ -83,6 +112,9 @@ export function NavLink({
 
 export function Nav() {
   const [open, setOpen] = useState(false);
+  const navLinks = useNavLinks();
+  const signupLabel = useSignupLabel();
+  const chrome = useChromeCopy();
 
   return (
     <header id="top" style={{ background: PURPLE }}>
@@ -95,30 +127,34 @@ export function Nav() {
         {/* desktop nav — Log ind sits beside the primary button, top right.
             Both buttons stay a notch smaller than the nav links so they read
             as controls next to the links rather than two banners. */}
-        <nav className="hidden lg:flex gap-6 xl:gap-8 ml-auto items-center">
-          {NAV_LINKS.map(([href, label]) => (
+        {/* Spacing and button padding tighten between lg and xl so the
+            language toggle fits on one line without clipping the CTA;
+            xl restores the original rhythm. */}
+        <nav className="hidden lg:flex gap-3 xl:gap-7 ml-auto items-center">
+          {navLinks.map(([href, label]) => (
             <NavLink
               key={href}
               href={href}
-              className="text-white no-underline text-[15px] xl:text-[16px] font-extrabold hover:opacity-80 transition-opacity"
+              className="text-white no-underline whitespace-nowrap text-[14px] xl:text-[16px] font-extrabold hover:opacity-80 transition-opacity"
             >
               {label}
             </NavLink>
           ))}
+          <LangToggle />
           <Link
             href="/auth?mode=signin"
-            className="inline-block text-white no-underline text-[14px] font-extrabold px-4 py-[7px] rounded-lg border-2 border-white/45 hover:bg-white/10 transition-colors"
+            className="inline-block whitespace-nowrap text-white no-underline text-[14px] font-extrabold px-3 xl:px-4 py-[7px] rounded-lg border-2 border-white/45 hover:bg-white/10 transition-colors"
             data-testid="button-login-header"
           >
-            Log ind
+            {chrome.login}
           </Link>
           <Link
             href={SIGNUP_HREF}
-            className="inline-block text-white no-underline text-[14px] font-extrabold px-4 py-[9px] rounded-lg hover:brightness-110 transition"
+            className="inline-block whitespace-nowrap text-white no-underline text-[14px] font-extrabold px-3 xl:px-4 py-[9px] rounded-lg hover:brightness-110 transition"
             style={{ background: BLUE, boxShadow: "0 4px 14px rgba(10,2,25,0.3)" }}
             data-testid="button-signup-header"
           >
-            {SIGNUP_LABEL}
+            {signupLabel}
           </Link>
         </nav>
 
@@ -129,12 +165,12 @@ export function Nav() {
             className="text-white no-underline text-[14px] font-extrabold px-3 py-2 rounded-lg border-2 border-white/45"
             data-testid="button-login-header-mobile"
           >
-            Log ind
+            {chrome.login}
           </Link>
           <button
             className="p-2 -mr-2 text-white"
             onClick={() => setOpen(!open)}
-            aria-label="Menu"
+            aria-label={chrome.menu}
             data-testid="button-mobile-menu"
           >
             {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -148,7 +184,7 @@ export function Nav() {
           style={{ background: PURPLE }}
         >
           <nav className="flex flex-col">
-            {NAV_LINKS.map(([href, label]) => (
+            {navLinks.map(([href, label]) => (
               <NavLink
                 key={href}
                 href={href}
@@ -159,6 +195,9 @@ export function Nav() {
               </NavLink>
             ))}
           </nav>
+          <div className="flex items-center justify-center mt-4">
+            <LangToggle />
+          </div>
           <div className="flex flex-col gap-2.5 mt-4">
             <Link
               href="/auth?mode=signin"
@@ -166,7 +205,7 @@ export function Nav() {
               className="text-center text-white no-underline text-[16px] font-extrabold py-3 rounded-[10px] border-2 border-white/45"
               data-testid="button-login-drawer"
             >
-              Log ind
+              {chrome.login}
             </Link>
             <Link
               href={SIGNUP_HREF}
@@ -175,7 +214,7 @@ export function Nav() {
               style={{ background: BLUE, boxShadow: "0 4px 14px rgba(10,2,25,0.3)" }}
               data-testid="button-signup-drawer"
             >
-              {SIGNUP_LABEL}
+              {signupLabel}
             </Link>
           </div>
         </div>

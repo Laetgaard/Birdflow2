@@ -2,7 +2,6 @@ import { Link } from "wouter";
 import { BLUE, BLUSH, LIME, PAGE_CSS, PURPLE } from "@/components/bf2/theme";
 import { BandWave, Bird, BirdDefs, EdgeWave, RevealOnView } from "@/components/bf2/primitives";
 import { Nav, bookHref } from "@/components/bf2/Nav";
-import { LangToggle } from "@/components/bf2/LangToggle";
 import { useLocale, pick, type Lang } from "@/lib/locale";
 
 /* ─────────────────────────────────────────────────────────────
@@ -242,7 +241,6 @@ export default function ServicesPage() {
               <p className="text-[13px] font-extrabold uppercase tracking-[0.14em] text-white/75 m-0">
                 {t.heroKicker}
               </p>
-              <LangToggle />
             </div>
             <h1 className="bf2-display text-white text-[36px] sm:text-[48px] lg:text-[64px] leading-[1.1] max-w-[860px] m-0">
               {t.heroTitle} <span className="opacity-80">{t.heroTitleEm}</span>

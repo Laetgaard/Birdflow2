@@ -1,13 +1,90 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { Calendar, MessageCircle, Star, CreditCard, CheckCircle2, Clock } from "lucide-react";
+import { useLocale, pick, type Lang } from "@/lib/locale";
 
 /**
  * PsychologyClinicMockup — A 3D perspective laptop-style mockup of a calm
  * psychology clinic website with floating UI cards orbiting around it.
  * Honors prefers-reduced-motion.
+ *
+ * Rendered on the public /dfy page, so the illustration follows the visitor's
+ * language choice: an English visitor has to be able to read the example site.
  */
+
+type MockupCopy = {
+  nav: string[];
+  eyebrow: string;
+  heroTitle: string;
+  heroTitleEm: string;
+  heroBody: string;
+  bookCta: string;
+  readMore: string;
+  slotsTitle: string;
+  month: string;
+  weekdays: string[];
+  confirmedTitle: string;
+  confirmedWhen: string;
+  nextSlotTitle: string;
+  nextSlotWhen: string;
+  review: string;
+  messageTitle: string;
+  messagePreview: string;
+  paymentTitle: string;
+  paymentMeta: string;
+  weekChip: string;
+};
+
+const COPY: Record<Lang, MockupCopy> = {
+  da: {
+    nav: ["Om mig", "Forløb", "Booking"],
+    eyebrow: "Autoriseret psykolog",
+    heroTitle: "Find ro.",
+    heroTitleEm: "Book en samtale.",
+    heroBody: "Et trygt rum til dig — uden ventetid, uden besvær.",
+    bookCta: "Book tid →",
+    readMore: "Læs mere",
+    slotsTitle: "Næste ledige tider",
+    month: "April",
+    weekdays: ["Man", "Tir", "Ons", "Tor", "Fre"],
+    confirmedTitle: "Booking bekræftet",
+    confirmedWhen: "Tor. 24. apr · 13:00",
+    nextSlotTitle: "Næste ledige tid",
+    nextSlotWhen: "I morgen kl. 14:00",
+    review: "\"Tryg, varm og professionel. Bedste oplevelse.\"",
+    messageTitle: "Ny besked fra klient",
+    messagePreview: "\"Tak for sidst…\"",
+    paymentTitle: "Betaling modtaget",
+    paymentMeta: "+850 DKK · Konsultation",
+    weekChip: "12 bookinger denne uge",
+  },
+  en: {
+    nav: ["About me", "Programmes", "Booking"],
+    eyebrow: "Registered psychologist",
+    heroTitle: "Find calm.",
+    heroTitleEm: "Book a session.",
+    heroBody: "A safe space for you — no waiting, no hassle.",
+    bookCta: "Book a time →",
+    readMore: "Read more",
+    slotsTitle: "Next available times",
+    month: "April",
+    weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    confirmedTitle: "Booking confirmed",
+    confirmedWhen: "Thu 24 Apr · 13:00",
+    nextSlotTitle: "Next available time",
+    nextSlotWhen: "Tomorrow at 14:00",
+    review: "\"Calm, warm and professional. The best experience.\"",
+    messageTitle: "New message from client",
+    messagePreview: "\"Thanks for the last session…\"",
+    paymentTitle: "Payment received",
+    paymentMeta: "+850 DKK · Consultation",
+    weekChip: "12 bookings this week",
+  },
+};
+
 export default function PsychologyClinicMockup() {
   const reduce = useReducedMotion();
+  const { lang } = useLocale();
+  const t = pick(COPY, lang);
 
   const float = (duration: number, dy: number, delay = 0) =>
     reduce
@@ -74,9 +151,9 @@ export default function PsychologyClinicMockup() {
                 </div>
               </div>
               <div className="hidden sm:flex gap-3 text-[9px] text-stone-500 dark:text-stone-400 font-medium">
-                <span>Om mig</span>
-                <span>Forløb</span>
-                <span>Booking</span>
+                {t.nav.map((item) => (
+                  <span key={item}>{item}</span>
+                ))}
               </div>
             </div>
 
@@ -84,27 +161,27 @@ export default function PsychologyClinicMockup() {
             <div className="grid grid-cols-5 gap-4 items-center">
               <div className="col-span-3 space-y-2.5">
                 <div className="text-[9px] uppercase tracking-[0.18em] text-emerald-700/70 dark:text-emerald-300/70 font-semibold">
-                  Autoriseret psykolog
+                  {t.eyebrow}
                 </div>
                 <h3
                   className="font-serif text-stone-800 dark:text-stone-100 leading-[1.05] text-[18px] sm:text-[22px]"
                   style={{ fontFamily: "'Cormorant Garamond', 'Playfair Display', serif", fontWeight: 500 }}
                 >
-                  Find ro.
+                  {t.heroTitle}
                   <br />
                   <span className="italic text-emerald-800/80 dark:text-emerald-300/90">
-                    Book en samtale.
+                    {t.heroTitleEm}
                   </span>
                 </h3>
                 <p className="text-[9px] text-stone-600 dark:text-stone-300 leading-relaxed max-w-[180px]">
-                  Et trygt rum til dig — uden ventetid, uden besvær.
+                  {t.heroBody}
                 </p>
                 <div className="flex items-center gap-1.5 pt-1">
                   <div className="px-3 py-1.5 rounded-full bg-stone-800 dark:bg-stone-100 text-white dark:text-stone-900 text-[9px] font-semibold shadow-sm">
-                    Book tid →
+                    {t.bookCta}
                   </div>
                   <div className="px-2.5 py-1.5 rounded-full bg-white/70 dark:bg-stone-700/60 text-stone-700 dark:text-stone-200 text-[9px] font-medium border border-stone-200/60 dark:border-stone-600/40">
-                    Læs mere
+                    {t.readMore}
                   </div>
                 </div>
               </div>
@@ -129,12 +206,12 @@ export default function PsychologyClinicMockup() {
             <div className="mt-5 rounded-xl bg-white/80 dark:bg-stone-700/60 backdrop-blur-sm border border-stone-200/70 dark:border-stone-600/40 p-3 shadow-sm">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-[9px] font-semibold text-stone-700 dark:text-stone-200">
-                  Næste ledige tider
+                  {t.slotsTitle}
                 </div>
-                <div className="text-[8px] text-stone-400">April</div>
+                <div className="text-[8px] text-stone-400">{t.month}</div>
               </div>
               <div className="grid grid-cols-5 gap-1">
-                {["Man", "Tir", "Ons", "Tor", "Fre"].map((d, i) => (
+                {t.weekdays.map((d, i) => (
                   <div key={d} className="text-center">
                     <div className="text-[7px] text-stone-400 mb-1">{d}</div>
                     <div
@@ -173,9 +250,9 @@ export default function PsychologyClinicMockup() {
           </div>
           <div>
             <div className="text-[11px] font-bold text-stone-800 dark:text-stone-100 leading-tight">
-              Booking bekræftet
+              {t.confirmedTitle}
             </div>
-            <div className="text-[9px] text-stone-500 dark:text-stone-400">Tor. 24. apr · 13:00</div>
+            <div className="text-[9px] text-stone-500 dark:text-stone-400">{t.confirmedWhen}</div>
           </div>
         </motion.div>
       </motion.div>
@@ -197,9 +274,9 @@ export default function PsychologyClinicMockup() {
           </div>
           <div>
             <div className="text-[11px] font-bold text-stone-800 dark:text-stone-100 leading-tight">
-              Næste ledige tid
+              {t.nextSlotTitle}
             </div>
-            <div className="text-[9px] text-stone-500 dark:text-stone-400">I morgen kl. 14:00</div>
+            <div className="text-[9px] text-stone-500 dark:text-stone-400">{t.nextSlotWhen}</div>
           </div>
         </motion.div>
       </motion.div>
@@ -222,7 +299,7 @@ export default function PsychologyClinicMockup() {
             ))}
           </div>
           <p className="text-[10px] text-stone-700 dark:text-stone-200 italic leading-snug mb-1.5">
-            "Tryg, varm og professionel. Bedste oplevelse."
+            {t.review}
           </p>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded-full bg-gradient-to-br from-rose-300 to-rose-500" />
@@ -253,9 +330,9 @@ export default function PsychologyClinicMockup() {
           </div>
           <div>
             <div className="text-[11px] font-bold text-stone-800 dark:text-stone-100 leading-tight">
-              Ny besked fra klient
+              {t.messageTitle}
             </div>
-            <div className="text-[9px] text-stone-500 dark:text-stone-400">"Tak for sidst…"</div>
+            <div className="text-[9px] text-stone-500 dark:text-stone-400">{t.messagePreview}</div>
           </div>
         </motion.div>
       </motion.div>
@@ -277,9 +354,9 @@ export default function PsychologyClinicMockup() {
           </div>
           <div>
             <div className="text-[11px] font-bold text-stone-800 dark:text-stone-100 leading-tight">
-              Betaling modtaget
+              {t.paymentTitle}
             </div>
-            <div className="text-[9px] text-stone-500 dark:text-stone-400">+850 DKK · Konsultation</div>
+            <div className="text-[9px] text-stone-500 dark:text-stone-400">{t.paymentMeta}</div>
           </div>
         </motion.div>
       </motion.div>
@@ -298,7 +375,7 @@ export default function PsychologyClinicMockup() {
         >
           <Calendar className="w-3.5 h-3.5 text-emerald-600" />
           <span className="text-[10px] font-semibold text-stone-700 dark:text-stone-200">
-            12 bookinger denne uge
+            {t.weekChip}
           </span>
         </motion.div>
       </motion.div>

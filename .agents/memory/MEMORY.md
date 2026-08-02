@@ -12,4 +12,6 @@
 - [Workspace E2E quirks](workspace-e2e-quirks.md) — ShellExec background servers die per session; dev can't send email (prod-only Resend connector); dev+prod share one Supabase DB.
 - [Platform calendar & booking context](platform-calendar.md) — BirdFlow's own bookings sit on a sentinel-owned `websites` row; filter it from user queries, keep booking context DB-defaulted, don't `$type` shared columns.
 - [Wide mockups on phones](wide-mockups-on-phones.md) — scale wide product mockups down, don't reflow; Tailwind variants are viewport- not container-based; prove "desktop untouched" with layout signatures, not pixels.
+- [Public-site language switching](public-site-language-switch.md) — stored vs effective lang (route-aware), sync localStorage read to avoid flash, per-page Record<Lang,Shape>, how to verify a translation pass.
+- [Subagent timeout duplicates](subagent-timeout-duplicates.md) — a timed-out dispatch block keeps running; re-running it spawns a second set, resume via jobId instead.
 - [Landing image assets](landing-image-assets.md) — full-res originals only in git history ("Add files via upload"); serve resized webp; display:none+lazy img fallback deadlocks.
