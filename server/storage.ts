@@ -230,7 +230,21 @@ export interface IStorage {
   // Builder state methods
   getBuilderState(websiteId: string): Promise<BuilderState | undefined>;
   createBuilderState(websiteId: string, state?: BuilderStateData): Promise<BuilderState>;
-  updateBuilderState(websiteId: string, state: BuilderStateData): Promise<BuilderState | undefined>;
+  /**
+   * Persist builder state and bump its revision.
+   *
+   * Pass `expectedRevision` to make the write a compare-and-swap: the row is
+   * only updated when it still carries that revision, and `undefined` comes
+   * back when someone else wrote first. Callers that hold the state for a
+   * long time (the AI assistant, a multi-step build) MUST pass it — omitting
+   * it means "last write wins", which is only correct for the canvas's own
+   * immediate save.
+   */
+  updateBuilderState(
+    websiteId: string,
+    state: BuilderStateData,
+    expectedRevision?: number
+  ): Promise<BuilderState | undefined>;
   
   // Custom domain methods
   getCustomDomains(websiteId: string): Promise<CustomDomain[]>;
@@ -637,11 +651,22 @@ export class DatabaseStorage implements IStorage {
     return result[0] as BuilderState;
   }
 
-  async updateBuilderState(websiteId: string, state: BuilderStateData): Promise<BuilderState | undefined> {
+  async updateBuilderState(
+    websiteId: string,
+    state: BuilderStateData,
+    expectedRevision?: number
+  ): Promise<BuilderState | undefined> {
+    const where =
+      typeof expectedRevision === "number"
+        ? and(eq(builderState.websiteId, websiteId), eq(builderState.revision, expectedRevision))
+        : eq(builderState.websiteId, websiteId);
+
     const result = await db
       .update(builderState)
-      .set({ state, updatedAt: new Date() } as any)
-      .where(eq(builderState.websiteId, websiteId))
+      // The bump happens in SQL, not in JS: two writers that both read
+      // revision 7 must not both write revision 8.
+      .set({ state, revision: sql`${builderState.revision} + 1`, updatedAt: new Date() } as any)
+      .where(where)
       .returning();
     return result[0] as BuilderState | undefined;
   }

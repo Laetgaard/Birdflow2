@@ -26,11 +26,28 @@ import {
   PlusCircle,
   PenLine,
   ListChecks,
+  Hammer,
 } from "lucide-react";
 import type { BuilderStateData } from "@shared/schema";
 import type { BuilderMutation, BuildReport, PaletteProposal, FontPairProposal } from "@shared/aiBuilderSchema";
 import { runAgent, applyApprovedMutations, type AgentStreamEvent } from "@/lib/aiAgentStream";
 import { uploadImage } from "@/lib/builderUpload";
+import PlanChecklistCard from "@/components/builder/PlanChecklistCard";
+import BuildProgressCard, {
+  reduceBuildEvent,
+  type BuildView,
+} from "@/components/builder/BuildProgressCard";
+import type { AssistantPlan, PlanStep } from "@shared/assistantPlan";
+import {
+  approvePlanVersion,
+  continueBuildStream,
+  fetchPlanState,
+  runBuildStream,
+  runPlanMode,
+  savePlanEdit,
+  stopBuild,
+  undoBuild,
+} from "@/lib/assistantPlanStream";
 import type { WebsitePlan } from "@shared/websitePlanSchema";
 import {
   canUndo,
@@ -86,7 +103,12 @@ type AIBuilderPanelProps = {
   websiteId: string;
   session: { access_token: string };
   builderState: BuilderStateData;
-  onStateChange: (newState: BuilderStateData, description: string) => void;
+  /**
+   * `revision` is set only when the SERVER already persisted this state
+   * (an AI build saves per step). The page adopts it so its own autosave
+   * does not then look stale and get refused.
+   */
+  onStateChange: (newState: BuilderStateData, description: string, revision?: number) => void;
   history: BuilderHistory | null;
   hasPendingEdit?: boolean;
   onUndo: () => void;
@@ -111,11 +133,56 @@ export default function AIBuilderPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /* ─── Plan mode / Build mode ───
+     Plan mode asks the assistant to think first and produce a checklist
+     the customer approves; Build mode executes an approved checklist step
+     by step. The plan and any open build live on the SERVER — this
+     component only mirrors them, so a refresh mid-build does not lose the
+     customer's place. */
+  const [mode, setMode] = useState<"chat" | "plan">("chat");
+  const [plan, setPlan] = useState<AssistantPlan | null>(null);
+  const [buildView, setBuildView] = useState<BuildView | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, plan, buildView]);
+
+  // Reload whatever plan and build the server is holding for this website.
+  useEffect(() => {
+    let cancelled = false;
+    if (!session?.access_token) return;
+
+    fetchPlanState({ websiteId, accessToken: session.access_token })
+      .then((state) => {
+        if (cancelled) return;
+        setPlan(state.plan);
+        if (state.plan && state.build?.summary) {
+          const summary = state.build.summary;
+          setBuildView({
+            buildId: state.build.id,
+            planTitle: summary.planTitle,
+            steps: state.plan.steps,
+            results: summary.steps,
+            activeIndex: -1,
+            activeLabel: "",
+            status: state.build.status,
+            pauseReason: state.build.error,
+            summary,
+            canUndo: state.build.canUndo && summary.canUndo,
+          });
+          if (state.build.status === "paused") setMode("plan");
+        }
+      })
+      // The panel still works as a plain chat if plan mode is unavailable.
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [websiteId, session?.access_token]);
 
   const patchMessage = (id: string, patch: (m: Message) => Message) => {
     setMessages((prev) => prev.map((m) => (m.id === id ? patch(m) : m)));
@@ -206,6 +273,49 @@ export default function AIBuilderPanel({
     }
   };
 
+  /**
+   * Plan mode turn: the assistant reads the site and answers with a
+   * checklist. It has no write tools, so nothing on the site can change
+   * here — the message thread shows the reading, the card shows the plan.
+   */
+  const runPlanTurn = async (userInput: string) => {
+    const messageId = `plan-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: messageId, role: "assistant", content: "", working: true, steps: [], displays: [] },
+    ]);
+
+    const pushStep = (label: string, ok: boolean) => {
+      patchMessage(messageId, (m) => ({ ...m, steps: [...(m.steps ?? []), { label, ok }] }));
+    };
+
+    try {
+      const nextPlan = await runPlanMode({
+        websiteId,
+        accessToken: session.access_token,
+        prompt: userInput,
+        onEvent: (event) => {
+          if (event.type === "tool") pushStep(event.summary, event.ok);
+          if (event.type === "error") pushStep(event.message, false);
+        },
+      });
+      setPlan(nextPlan);
+      setBuildView(null);
+      patchMessage(messageId, (m) => ({
+        ...m,
+        working: false,
+        content: `Her er min plan — læs den igennem, ret det du vil, og godkend den når den passer.`,
+      }));
+    } catch (error: any) {
+      patchMessage(messageId, (m) => ({
+        ...m,
+        working: false,
+        error: true,
+        content: `Planen kunne ikke laves: ${error.message}`,
+      }));
+    }
+  };
+
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
@@ -213,9 +323,170 @@ export default function AIBuilderPanel({
     setInput("");
     setIsLoading(true);
     try {
-      await runAgentTurn(trimmed);
+      if (mode === "plan") {
+        await runPlanTurn(trimmed);
+      } else {
+        await runAgentTurn(trimmed);
+      }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /* ─── plan actions ─── */
+
+  const savePlan = async (patch: { title: string; steps: PlanStep[]; notes: string[] }) => {
+    if (!plan) return;
+    setPlanBusy(true);
+    try {
+      const next = await savePlanEdit({
+        websiteId,
+        accessToken: session.access_token,
+        planId: plan.id,
+        version: plan.version,
+        ...patch,
+      });
+      setPlan(next);
+      toast({ title: "Planen er gemt", description: `Version ${next.version} — godkend den for at bygge.` });
+    } catch (error: any) {
+      // A conflict comes back with the server's copy: show that instead of
+      // leaving the customer editing a version that no longer exists.
+      if (error.body?.plan) setPlan(error.body.plan as AssistantPlan);
+      toast({ title: "Planen kunne ikke gemmes", description: error.message, variant: "destructive" });
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const approvePlan = async () => {
+    if (!plan) return;
+    setPlanBusy(true);
+    try {
+      const next = await approvePlanVersion({
+        websiteId,
+        accessToken: session.access_token,
+        planId: plan.id,
+        version: plan.version,
+      });
+      setPlan(next);
+    } catch (error: any) {
+      if (error.body?.plan) setPlan(error.body.plan as AssistantPlan);
+      toast({ title: "Planen kunne ikke godkendes", description: error.message, variant: "destructive" });
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  /**
+   * Run the approved plan. The canvas follows along: every step that
+   * persists streams a `state` event, so the customer watches the site
+   * being built instead of waiting for one jump at the end.
+   */
+  const consumeBuild = async (run: (onEvent: (event: any) => void) => Promise<any>) => {
+    setIsLoading(true);
+    setPlanBusy(true);
+    try {
+      await run((event) => {
+        if (event.type === "state") {
+          onStateChange(event.newState, "AI-bygning", event.revision);
+          return;
+        }
+        setBuildView((prev) => (prev ? reduceBuildEvent(prev, event) : prev));
+      });
+    } catch (error: any) {
+      toast({ title: "Bygningen fejlede", description: error.message, variant: "destructive" });
+      setBuildView((prev) =>
+        prev ? { ...prev, status: "failed", activeIndex: -1, pauseReason: error.message } : prev
+      );
+    } finally {
+      setIsLoading(false);
+      setPlanBusy(false);
+    }
+  };
+
+  const startBuildRun = async () => {
+    if (!plan) return;
+    setBuildView({
+      buildId: 0,
+      planTitle: plan.title,
+      steps: plan.steps,
+      results: plan.steps.map((step, index) => ({
+        stepId: step.id,
+        index,
+        status: "pending",
+        summary: "",
+        mutationCount: 0,
+        notes: [],
+        rejections: [],
+        imagesUsed: 0,
+        attempts: 0,
+      })),
+      activeIndex: -1,
+      activeLabel: "",
+      status: "running",
+      pauseReason: null,
+      summary: null,
+      canUndo: false,
+    });
+
+    await consumeBuild((onEvent) =>
+      runBuildStream({
+        websiteId,
+        accessToken: session.access_token,
+        planId: plan.id,
+        version: plan.version,
+        onEvent: (event) => {
+          if (event.type === "build_started") {
+            setBuildView((prev) => (prev ? { ...prev, buildId: event.buildId } : prev));
+          }
+          onEvent(event);
+        },
+      })
+    );
+  };
+
+  const continueBuild = async (action: "resume" | "skip" | "retry") => {
+    if (!buildView?.buildId) return;
+    await consumeBuild((onEvent) =>
+      continueBuildStream({
+        websiteId,
+        accessToken: session.access_token,
+        buildId: buildView.buildId,
+        action,
+        onEvent,
+      })
+    );
+  };
+
+  const stopBuildRun = async () => {
+    if (!buildView?.buildId) return;
+    try {
+      await stopBuild({ websiteId, accessToken: session.access_token, buildId: buildView.buildId });
+      toast({
+        title: "Stopper",
+        description: "Bygningen stopper efter det trin, den er i gang med.",
+      });
+    } catch (error: any) {
+      toast({ title: "Kunne ikke stoppe", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const undoBuildRun = async () => {
+    if (!buildView?.buildId) return;
+    setPlanBusy(true);
+    try {
+      const result = await undoBuild({
+        websiteId,
+        accessToken: session.access_token,
+        buildId: buildView.buildId,
+      });
+      onStateChange(result.newState as BuilderStateData, "Fortryd AI-bygning");
+      setBuildView((prev) => (prev ? { ...prev, status: "undone", canUndo: false } : prev));
+      toast({ title: "Bygningen er fortrudt", description: "Websitet er tilbage som før." });
+    } catch (error: any) {
+      toast({ title: "Kunne ikke fortryde", description: error.message, variant: "destructive" });
+    } finally {
+      setPlanBusy(false);
     }
   };
 
@@ -351,6 +622,42 @@ export default function AIBuilderPanel({
           </div>
           <h3 className="font-semibold text-sm leading-tight">AI-assistent</h3>
         </div>
+
+        {/* Plan først, eller byg direkte */}
+        <div
+          className="flex items-center rounded-lg border bg-muted/50 p-0.5"
+          data-testid="assistant-mode-switch"
+        >
+          <button
+            type="button"
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+              mode === "plan"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setMode("plan")}
+            disabled={isLoading}
+            data-testid="button-mode-plan"
+          >
+            <ListChecks className="h-3 w-3" />
+            Plan
+          </button>
+          <button
+            type="button"
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+              mode === "chat"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setMode("chat")}
+            disabled={isLoading}
+            data-testid="button-mode-build"
+          >
+            <Hammer className="h-3 w-3" />
+            Byg
+          </button>
+        </div>
+
         <div className="flex items-center gap-0.5">
           <TooltipProvider delayDuration={300}>
             <Tooltip>
@@ -409,8 +716,9 @@ export default function AIBuilderPanel({
         <div className="space-y-4 py-4">
           {messages.length === 0 && (
             <p className="text-center text-xs text-muted-foreground pt-10 max-w-[260px] mx-auto leading-relaxed">
-              Beskriv hvad du vil bygge eller ændre — fx en hel hjemmeside, en ny sektion,
-              nye farver eller tekst. Jeg spørger, hvis noget er en stor ændring.
+              {mode === "plan"
+                ? "Fortæl hvad du gerne vil have. Jeg læser hjemmesiden og laver en plan, du kan rette i og godkende — der bliver ikke ændret noget, før du siger til."
+                : "Beskriv hvad du vil bygge eller ændre — fx en hel hjemmeside, en ny sektion, nye farver eller tekst. Jeg spørger, hvis noget er en stor ændring."}
             </p>
           )}
 
@@ -543,6 +851,43 @@ export default function AIBuilderPanel({
               </div>
             </div>
           ))}
+
+          {/* The plan the customer approves, and the build running it. Kept
+              at the foot of the thread so they stay in view as work lands. */}
+          {plan && !buildView && (
+            <PlanChecklistCard
+              plan={plan}
+              busy={planBusy || isLoading}
+              onSave={savePlan}
+              onApprove={approvePlan}
+              onBuild={startBuildRun}
+            />
+          )}
+
+          {buildView && (
+            <>
+              <BuildProgressCard
+                view={buildView}
+                busy={planBusy}
+                onStop={stopBuildRun}
+                onResume={() => continueBuild("resume")}
+                onSkip={() => continueBuild("skip")}
+                onRetry={() => continueBuild("retry")}
+                onUndo={undoBuildRun}
+              />
+              {buildView.status !== "running" && plan && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-full text-[11.5px]"
+                  onClick={() => setBuildView(null)}
+                  data-testid="button-back-to-plan"
+                >
+                  Tilbage til planen
+                </Button>
+              )}
+            </>
+          )}
         </div>
       </ScrollArea>
 
@@ -578,7 +923,11 @@ export default function AIBuilderPanel({
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Beskriv hvad jeg skal bygge eller ændre…"
+            placeholder={
+              mode === "plan"
+                ? "Beskriv hvad du vil have — så laver jeg en plan først…"
+                : "Beskriv hvad jeg skal bygge eller ændre…"
+            }
             className="min-h-[44px] max-h-[100px] resize-none text-[13px] rounded-xl border-muted-foreground/20"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {

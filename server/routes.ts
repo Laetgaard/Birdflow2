@@ -58,6 +58,8 @@ import { emailService } from "./email/service";
 import { handleOnboardingStripeEvent, shouldProcessStripeEvent } from "./onboardingWebhooks";
 import { registerOnboardingDecisionRoutes } from "./onboardingDecisionRoutes";
 import { updateDecisionByUser, bumpSiteRevision, markGenerationComplete } from "./onboardingDecision";
+import { consumeAgentRun } from "./aiRateLimit";
+import { registerAssistantPlanRoutes } from "./assistantPlanRoutes";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -1298,7 +1300,7 @@ export async function registerRoutes(
   app.patch("/api/websites/:id/builder", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
       const access = getWebsiteAccess(req);
-      const { state } = req.body;
+      const { state, expectedRevision } = req.body;
 
       if (!state) {
         return res.status(400).json({ message: "State is required" });
@@ -1314,7 +1316,25 @@ export async function registerRoutes(
       if (!previous) {
         builderState = await storage.createBuilderState(req.params.id, state);
       } else {
-        builderState = await storage.updateBuilderState(req.params.id, state);
+        // Compare-and-swap when the client tells us what it was editing.
+        // A running build saves between every step; without this an autosave
+        // holding a two-second-old copy of the canvas would quietly undo the
+        // step that just landed. Clients that send no revision keep the old
+        // last-write-wins behaviour.
+        const expected =
+          typeof expectedRevision === "number" && Number.isFinite(expectedRevision)
+            ? expectedRevision
+            : undefined;
+        builderState = await storage.updateBuilderState(req.params.id, state, expected);
+        if (!builderState) {
+          return res.status(409).json({
+            message:
+              "Websitet er ændret et andet sted — måske af en AI-bygning. Genindlæs siden, " +
+              "så du arbejder videre på den nyeste version.",
+            revision: previous.revision,
+            state: previous.state,
+          });
+        }
       }
 
       // An explicit save changes the site under any pending onboarding
@@ -5069,18 +5089,14 @@ export async function registerRoutes(
    * /ai/apply, which runs the same tail.
    */
   app.post("/api/websites/:id/ai/agent", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
-    // Per-user budget: one message can be a dozen model calls.
+    // Per-user budget: one message can be a dozen model calls. Shared with
+    // Plan mode and Build mode (server/aiRateLimit.ts) so the three surfaces
+    // draw on one budget rather than three.
     const userId = (req as any).user?.id ?? req.params.id;
-    const now = Date.now();
-    const recentRuns = (agentRunHits.get(userId) ?? []).filter((t) => now - t < 10 * 60 * 1000);
-    if (recentRuns.length >= 10) {
-      agentRunHits.set(userId, recentRuns);
-      return res.status(429).json({
-        message: "For mange AI-forespørgsler på kort tid. Vent et par minutter og prøv igen.",
-      });
+    const budget = consumeAgentRun(userId);
+    if (!budget.ok) {
+      return res.status(429).json({ message: budget.message });
     }
-    recentRuns.push(now);
-    agentRunHits.set(userId, recentRuns);
 
     const bodySchema = z.object({
       prompt: z.string().trim().min(1).max(4000),
@@ -5229,9 +5245,6 @@ export async function registerRoutes(
 
   // AI Builder - Design interview (guided brand-guide wizard)
   const designInterviewHits = new Map<string, number[]>();
-  // The agent makes several model calls per message, so it gets its own
-  // tighter budget than the single-shot endpoints.
-  const agentRunHits = new Map<string, number[]>();
   const diHex = z.string().regex(/^#[0-9a-fA-F]{3,8}$/);
   const diPaletteSchema = z.object({
     id: z.string().max(64),
@@ -6088,6 +6101,13 @@ export async function registerRoutes(
   // invoice billing and the admin review handover. Kept in its own module
   // (server/onboardingDecisionRoutes.ts) rather than inlined here.
   registerOnboardingDecisionRoutes(app, { requireAuth, requireAdmin });
+
+  // ============ BUILDER ASSISTANT: PLAN MODE AND BUILD MODE ============
+  //
+  // Plan mode reads the site and proposes a numbered checklist the customer
+  // edits and approves; Build mode executes the approved plan step by step.
+  // In its own module (server/assistantPlanRoutes.ts).
+  registerAssistantPlanRoutes(app, { requireAuth });
 
   // ============ BIRDFLOW PLATFORM CALENDAR ============
   //

@@ -4,6 +4,7 @@ import { startBookingEmailScheduler } from "./email/bookingScheduler";
 import { startDomainVerificationScheduler } from "./domainVerificationScheduler";
 import { ensurePlatformCalendar } from "./platformCalendar";
 import { startOnboardingDecisionSchema } from "./onboardingDecisionSchema";
+import { startAssistantPlanSchema } from "./assistantPlanDbSchema";
 import { db } from "./storage";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -161,6 +162,11 @@ app.use((req, res, next) => {
   // on the same readiness promise, so no request can run against a schema
   // that is not there yet - whether boot won the race or not.
   void startOnboardingDecisionSchema(db);
+
+  // Plan mode / Build mode: builder_state.revision plus the assistant_plans
+  // and assistant_builds tables. Same idempotent-DDL-at-boot pattern, and the
+  // same readiness promise guards every read and write in server/planStore.ts.
+  void startAssistantPlanSchema(db);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

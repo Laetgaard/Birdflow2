@@ -495,6 +495,14 @@ export const builderState = pgTable("builder_state", {
   id: serial("id").primaryKey(),
   websiteId: varchar("website_id").notNull().unique(),
   state: jsonb("state").notNull(),
+  /**
+   * Monotonic write counter. Every writer — canvas autosave, the assistant,
+   * the build orchestrator, onboarding generation — increments it, and the
+   * ones that can collide pass the revision they read as a compare-and-swap
+   * guard. Without it a two-minute build and a two-second autosave silently
+   * overwrite each other, and the customer loses whichever finished first.
+   */
+  revision: integer("revision").notNull().default(1),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -514,9 +522,62 @@ export type BuilderState = {
   id: number;
   websiteId: string;
   state: BuilderStateData;
+  revision: number;
   createdAt: Date;
   updatedAt: Date;
 };
+
+/**
+ * Plan mode: a versioned, editable, customer-approved checklist.
+ *
+ * `steps` is PlanStep[] and `notes` is string[] from shared/assistantPlan.ts.
+ * They are jsonb rather than columns because the customer edits them as a
+ * unit and the whole list is replaced on every save.
+ */
+export const assistantPlans = pgTable("assistant_plans", {
+  id: serial("id").primaryKey(),
+  websiteId: varchar("website_id").notNull(),
+  version: integer("version").notNull().default(1),
+  status: text("status").notNull().default("draft"),
+  title: text("title").notNull(),
+  intent: text("intent").notNull(),
+  rationale: text("rationale").notNull().default(""),
+  steps: jsonb("steps").notNull().default([]),
+  notes: jsonb("notes").notNull().default([]),
+  baseRevision: integer("base_revision"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  approvedAt: timestamp("approved_at"),
+});
+
+export type AssistantPlanRow = typeof assistantPlans.$inferSelect;
+
+/**
+ * Build mode: one row per execution of an approved plan.
+ *
+ * `snapshot` is the pre-build BuilderStateData — the whole point of taking
+ * it is that a customer who dislikes the result gets one undo for the entire
+ * build, not one undo per step.
+ */
+export const assistantBuilds = pgTable("assistant_builds", {
+  id: serial("id").primaryKey(),
+  websiteId: varchar("website_id").notNull(),
+  planId: integer("plan_id").notNull(),
+  planVersion: integer("plan_version").notNull(),
+  status: text("status").notNull().default("running"),
+  currentStep: integer("current_step").notNull().default(0),
+  stepResults: jsonb("step_results").notNull().default([]),
+  imagesUsed: integer("images_used").notNull().default(0),
+  snapshot: jsonb("snapshot"),
+  snapshotRevision: integer("snapshot_revision"),
+  summary: text("summary"),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+});
+
+export type AssistantBuildRow = typeof assistantBuilds.$inferSelect;
 
 // Orders table (for ecommerce)
 export const orders = pgTable("orders", {

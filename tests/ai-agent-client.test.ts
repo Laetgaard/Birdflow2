@@ -209,7 +209,9 @@ describe("panel + route wiring (source tripwires)", () => {
     expect(routes).toContain(
       'app.post("/api/websites/:id/ai/agent", requireAuth, requireWebsitePermission("updateBuilder")'
     );
-    expect(routes).toContain("agentRunHits");
+    // The per-user run budget moved into server/aiRateLimit.ts so the
+    // assistant, Plan mode and Build mode all draw on ONE budget.
+    expect(routes).toContain("consumeAgentRun(userId)");
     expect(routes).toContain('"text/event-stream"');
   });
 

@@ -178,42 +178,53 @@ function summarizeForApproval(mutations: BuilderMutation[]): string[] {
 
 /* ─────────── the loop ─────────── */
 
-export async function runBuilderAgent(args: {
-  websiteId: string;
-  prompt: string;
-  state: BuilderStateData;
-  approvedLargeChanges?: boolean;
-  onEvent?: (event: AgentEvent) => void;
-}): Promise<AgentOutcome> {
-  const { websiteId, prompt, state, approvedLargeChanges = false } = args;
-  const emit = args.onEvent ?? (() => {});
+export type AgentLoopResult =
+  | { status: "finished"; summary: string; steps: number }
+  | { status: "needs_approval"; reason: string; steps: number }
+  | { status: "failed"; message: string; steps: number };
 
-  const tools = buildToolCatalogue();
+/**
+ * The tool-calling loop itself, with nothing decided for you.
+ *
+ * Extracted so Build mode can run the SAME loop per plan step — same
+ * self-correction on tool errors, same token ceiling, same approval stop —
+ * with a different prompt, a different tool registry and a context that is
+ * shared across steps (which is how the image budget stays per build). A
+ * second loop would be a second set of subtly different bugs.
+ */
+export async function runAgentLoop(args: {
+  tools: AgentTool[];
+  systemPrompt: string;
+  userMessage: string;
+  /** Mutated as tools run: applied mutations, notes, images. */
+  ctx: AgentContext;
+  emit?: (event: AgentEvent) => void;
+  maxSteps?: number;
+  firstStepLabel?: string;
+}): Promise<AgentLoopResult> {
+  const { tools, ctx } = args;
+  const emit = args.emit ?? (() => {});
+  const maxSteps = args.maxSteps ?? MAX_STEPS;
+
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const openAITools = toOpenAITools(tools);
 
-  const ctx: AgentContext = {
-    websiteId,
-    state: structuredClone(state),
-    applied: [],
-    notes: [],
-    createdImages: [],
-    imageCache: new Map(),
-    approvedLargeChanges,
-  };
-
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: buildSystemPrompt() },
-    { role: "user", content: `${buildStateSummary(ctx.state)}\n\nOpgave: ${prompt}` },
+    { role: "system", content: args.systemPrompt },
+    { role: "user", content: args.userMessage },
   ];
 
   let steps = 0;
   let totalCompletionTokens = 0;
   let finalSummary = "";
 
-  while (steps < MAX_STEPS) {
+  while (steps < maxSteps) {
     steps += 1;
-    emit({ type: "step", step: steps, label: steps === 1 ? "Læser hjemmesiden" : "Arbejder" });
+    emit({
+      type: "step",
+      step: steps,
+      label: steps === 1 ? (args.firstStepLabel ?? "Læser hjemmesiden") : "Arbejder",
+    });
 
     let completion: OpenAI.Chat.ChatCompletion;
     try {
@@ -294,20 +305,7 @@ export async function runBuilderAgent(args: {
       });
 
       if (!result.ok && "needsApproval" in result && result.needsApproval) {
-        const summary = summarizeForApproval(ctx.applied);
-        emit({
-          type: "approval_required",
-          reason: result.reason,
-          summary,
-          mutations: ctx.applied,
-        });
-        return {
-          status: "needs_approval",
-          reason: result.reason,
-          mutations: ctx.applied,
-          summary,
-          steps,
-        };
+        return { status: "needs_approval", reason: result.reason, steps };
       }
 
       if (tool?.name === "finish" && result.ok) {
@@ -325,12 +323,68 @@ export async function runBuilderAgent(args: {
     }
   }
 
-  if (steps >= MAX_STEPS && !finalSummary) {
-    ctx.notes.push(`Agenten nåede grænsen på ${MAX_STEPS} trin og stoppede her.`);
+  if (steps >= maxSteps && !finalSummary) {
+    ctx.notes.push(`Agenten nåede grænsen på ${maxSteps} trin og stoppede her.`);
     finalSummary = "Stoppede ved trin-grænsen.";
   }
 
-  emit({ type: "done", summary: finalSummary });
+  return { status: "finished", summary: finalSummary, steps };
+}
+
+/**
+ * The ordinary one-message assistant run: the whole catalogue, the whole
+ * site as context, one approval gate.
+ */
+export async function runBuilderAgent(args: {
+  websiteId: string;
+  prompt: string;
+  state: BuilderStateData;
+  approvedLargeChanges?: boolean;
+  onEvent?: (event: AgentEvent) => void;
+}): Promise<AgentOutcome> {
+  const { websiteId, prompt, state, approvedLargeChanges = false } = args;
+  const emit = args.onEvent ?? (() => {});
+
+  const ctx: AgentContext = {
+    websiteId,
+    state: structuredClone(state),
+    applied: [],
+    notes: [],
+    createdImages: [],
+    imageCache: new Map(),
+    approvedLargeChanges,
+  };
+
+  const outcome = await runAgentLoop({
+    tools: buildToolCatalogue(),
+    systemPrompt: buildSystemPrompt(),
+    userMessage: `${buildStateSummary(ctx.state)}\n\nOpgave: ${prompt}`,
+    ctx,
+    emit,
+  });
+
+  if (outcome.status === "failed") {
+    return { status: "failed", message: outcome.message, steps: outcome.steps };
+  }
+
+  if (outcome.status === "needs_approval") {
+    const summary = summarizeForApproval(ctx.applied);
+    emit({
+      type: "approval_required",
+      reason: outcome.reason,
+      summary,
+      mutations: ctx.applied,
+    });
+    return {
+      status: "needs_approval",
+      reason: outcome.reason,
+      mutations: ctx.applied,
+      summary,
+      steps: outcome.steps,
+    };
+  }
+
+  emit({ type: "done", summary: outcome.summary });
 
   return {
     status: "completed",
@@ -338,7 +392,7 @@ export async function runBuilderAgent(args: {
     mutations: ctx.applied,
     notes: ctx.notes,
     createdImages: ctx.createdImages,
-    summary: finalSummary,
-    steps,
+    summary: outcome.summary,
+    steps: outcome.steps,
   };
 }
