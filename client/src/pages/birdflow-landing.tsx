@@ -2694,22 +2694,40 @@ function CaseStudy() {
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-[90px] lg:pb-[130px]">
         <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-10 lg:gap-14 items-center">
           <RevealOnView className="order-2 lg:order-1">
+            {/* Real screenshot of Amalie's live site; the coded preview paints
+                behind it until the pixels load and stays if the file is missing.
+                Fixed aspect ratio (819×648) prevents layout shift. */}
             <div
-              className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
-              style={{ boxShadow: "0 30px 70px rgba(20,5,40,0.16)" }}
+              className="relative w-full max-w-[560px] mx-auto lg:max-w-none"
+              style={{ aspectRatio: "819 / 648" }}
             >
-              <div className="flex items-center gap-[5px] px-4 py-2.5 border-b border-black/[0.07]">
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span
-                  className="mx-auto text-[10.5px] font-bold rounded-md px-4 sm:px-6 py-1 truncate"
-                  style={{ color: "rgba(0,0,0,0.45)", background: "rgba(0,0,0,0.045)" }}
-                >
-                  psykologamalieveber.laet.dk
-                </span>
-              </div>
-              <AmalieSiteArt />
+              <ImgWithFallback
+                src="/landing/amalie-mockup.webp"
+                alt="Amalie Vebers færdige hjemmeside vist på laptop og mobil — bygget med Birdflow"
+                className="absolute inset-0 w-full h-full object-contain"
+                style={{ mixBlendMode: "multiply" }}
+                fallback={
+                  <div className="absolute inset-0 overflow-hidden">
+                    <div
+                      className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
+                      style={{ boxShadow: "0 30px 70px rgba(20,5,40,0.16)" }}
+                    >
+                      <div className="flex items-center gap-[5px] px-4 py-2.5 border-b border-black/[0.07]">
+                        <span className="w-2 h-2 rounded-full bg-black/10" />
+                        <span className="w-2 h-2 rounded-full bg-black/10" />
+                        <span className="w-2 h-2 rounded-full bg-black/10" />
+                        <span
+                          className="mx-auto text-[10.5px] font-bold rounded-md px-4 sm:px-6 py-1 truncate"
+                          style={{ color: "rgba(0,0,0,0.45)", background: "rgba(0,0,0,0.045)" }}
+                        >
+                          psykologamalieveber.laet.dk
+                        </span>
+                      </div>
+                      <AmalieSiteArt />
+                    </div>
+                  </div>
+                }
+              />
             </div>
           </RevealOnView>
           <RevealOnView delay={0.1} className="order-1 lg:order-2">
