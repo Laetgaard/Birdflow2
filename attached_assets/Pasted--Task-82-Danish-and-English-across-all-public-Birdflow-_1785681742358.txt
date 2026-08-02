@@ -1,0 +1,73 @@
+# Task #82 — Danish and English across all public Birdflow pages
+
+## Objective
+
+Add a persistent Danish/English language switcher to Birdflow’s public navigation and make every public marketing page fully bilingual.
+
+Reuse the existing lightweight locale context and bilingual-copy pattern already used by the Services and Pricing pages.
+
+Do not add an i18n framework.
+
+This task covers language infrastructure, copy extraction, English copywriting and the language control. It must not redesign page layouts or affect the logged-in Birdflow application.
+
+---
+
+# Product outcome
+
+A first-time visitor sees Birdflow in Danish.
+
+The visitor can switch between:
+
+- DA
+- EN
+
+Switching language must:
+
+1. Update the current page immediately.
+2. Require no reload.
+3. Avoid showing Danish briefly before English appears.
+4. Persist while navigating between public pages.
+5. Persist after closing and reopening the browser.
+6. Update the document language attribute.
+7. Leave prices and billing values in DKK.
+8. Never change the language of the logged-in product, which remains Danish.
+
+The front page, DIY page, DFY page, Services page, Pricing page and shared public UI must all respond to the same locale state.
+
+---
+
+# Important implementation decisions
+
+## Language scope
+
+The stored public-marketing preference is global and persistent.
+
+The displayed language is route-aware:
+
+- Public marketing routes use the selected public locale.
+- Authentication and logged-in application routes continue to use Danish unless they already have separate language support.
+- Dashboard, builder, manage screens and onboarding remain Danish.
+- Navigating into the Danish logged-in application must set the document language back to Danish.
+- Returning to a public page must restore the visitor’s saved public-language choice.
+
+Do not accidentally translate or change the logged-in interface.
+
+## English variant
+
+Use the existing English Services and Pricing pages as the primary source for:
+
+- Tone.
+- Terminology.
+- Capitalisation.
+- Product naming.
+- British versus American spelling.
+
+Where those pages do not establish a preference, use natural British English appropriate for a Danish and European audience.
+
+Examples:
+
+```txt
+colour
+enquiries
+customise
+practice
