@@ -3,6 +3,8 @@ import { registerRoutes } from "./routes";
 import { startBookingEmailScheduler } from "./email/bookingScheduler";
 import { startDomainVerificationScheduler } from "./domainVerificationScheduler";
 import { ensurePlatformCalendar } from "./platformCalendar";
+import { startOnboardingDecisionSchema } from "./onboardingDecisionSchema";
+import { db } from "./storage";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
@@ -151,6 +153,14 @@ app.use((req, res, next) => {
   ensurePlatformCalendar().catch((err) => {
     console.warn("[PlatformCalendar] setup skipped:", err?.message || err);
   });
+
+  // The end-of-onboarding decision state (preview → approve → pay) and the
+  // Stripe event-dedup table. Same reasoning as the calendar above: this
+  // project has no migration runner, so the idempotent DDL runs at boot.
+  // It retries with backoff, and everything that touches these columns waits
+  // on the same readiness promise, so no request can run against a schema
+  // that is not there yet - whether boot won the race or not.
+  void startOnboardingDecisionSchema(db);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

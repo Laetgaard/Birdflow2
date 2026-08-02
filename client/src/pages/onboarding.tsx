@@ -40,8 +40,14 @@ import {
   MessageSquare,
   Layout,
 } from "lucide-react";
-import { subscriptionPlans, formatPrice, getYearlySavings } from "@shared/subscriptionPlans";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { BrandGuide } from "@shared/customComponents";
+import type { OnboardingDecisionSnapshot, OnboardingResumeStage } from "@shared/onboardingDecision";
+import { DecisionWorkspace, type DecisionCopy, type DecisionPage } from "@/components/onboarding/DecisionWorkspace";
+import { PaymentChoiceDialog } from "@/components/onboarding/PaymentChoiceDialog";
+import type { PlatformMeeting } from "@/components/onboarding/MeetingBooking";
+import { PAGE_CSS, PURPLE, LIME, BLUSH } from "@/components/bf2/theme";
+import { Bird, BirdDefs } from "@/components/bf2/primitives";
 
 /* ─────────────────────────────────────────────────────────────
    The onboarding walkthrough: ONE conversation with Birdflows
@@ -56,7 +62,28 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
    click — never round-tripped through the model.
    ───────────────────────────────────────────────────────────── */
 
-type View = "chat" | "generating" | "report" | "payment";
+/**
+ * Three screens, and the server decides which one. "decision" covers every
+ * post-generation state - awaiting a decision, booked, in customisation,
+ * ready for review, mid-checkout, invoice open, failed and paid - because
+ * they all live in the same preview-and-decision workspace.
+ */
+type View = "chat" | "generating" | "decision";
+
+/** Everything /api/onboarding/decision hands back. */
+type DecisionData = {
+  stage: OnboardingResumeStage;
+  snapshot: OnboardingDecisionSnapshot;
+  approvalStale?: boolean;
+  copy: DecisionCopy;
+  website: { id: string; name: string; slug: string } | null;
+  pages: DecisionPage[];
+  brandGuide: BrandGuide;
+  report: BuildReport | null;
+};
+
+/** Stages that belong to the interview and the build, not the workspace. */
+const PRE_DECISION_STAGES: OnboardingResumeStage[] = ["interview", "generating"];
 
 type AgentStep = { label: string; ok: boolean };
 
@@ -97,13 +124,13 @@ const RAIL: { label: string }[] = [
   { label: "Materiale" },
   { label: "Design" },
   { label: "AI bygger" },
-  { label: "Betaling" },
+  { label: "Godkend" },
 ];
 
 /** Which rail group the walkthrough has reached, derived from state. */
 function railProgress(answers: OnboardingAnswers, view: View): number {
-  if (view === "payment") return 5;
-  if (view === "generating" || view === "report") return 4;
+  if (view === "decision") return 5;
+  if (view === "generating") return 4;
   if (answers.fontPair) return 4;
   if (answers.feeling || answers.palette) return 3;
   if (answers.logoUrl || answers.inspirationUrls?.length || answers.ownImageUrls?.length) return 3;
@@ -127,11 +154,12 @@ function ensureGoogleFonts(fonts: string[]) {
 
 function ProgressRail({ current }: { current: number }) {
   return (
-    <div className="w-full max-w-3xl mx-auto mb-8">
+    <div className="mx-auto mb-8 w-full max-w-3xl">
       <div className="relative">
-        <div className="absolute top-5 left-0 right-0 h-0.5 bg-muted">
+        <div className="absolute left-0 right-0 top-5 h-0.5" style={{ background: "rgba(0,0,0,0.10)" }}>
           <motion.div
-            className="h-full bg-primary"
+            className="h-full"
+            style={{ background: PURPLE }}
             initial={{ width: "0%" }}
             animate={{ width: `${(current / (RAIL.length - 1)) * 100}%` }}
             transition={{ duration: 0.5, ease: "easeInOut" }}
@@ -144,22 +172,23 @@ function ProgressRail({ current }: { current: number }) {
             return (
               <div key={item.label} className="flex flex-col items-center">
                 <motion.div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold border-2 transition-colors z-10 ${
+                  className="z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-bold transition-colors"
+                  style={
                     isCompleted
-                      ? "bg-primary border-transparent text-primary-foreground"
+                      ? { background: PURPLE, borderColor: "transparent", color: LIME }
                       : isCurrent
-                      ? "bg-background border-primary text-primary"
-                      : "bg-background border-muted text-muted-foreground"
-                  }`}
+                      ? { background: "#fff", borderColor: PURPLE, color: PURPLE }
+                      : { background: "#fff", borderColor: "rgba(0,0,0,0.12)", color: "rgba(0,0,0,0.45)" }
+                  }
                   initial={{ scale: 0.8 }}
                   animate={{ scale: isCurrent ? 1.1 : 1 }}
                   transition={{ duration: 0.2 }}
                 >
-                  {isCompleted ? <Check className="w-5 h-5" /> : index + 1}
+                  {isCompleted ? <Check className="h-5 w-5" /> : index + 1}
                 </motion.div>
                 <span
-                  className={`mt-2 text-xs hidden sm:block ${
-                    isCurrent ? "text-foreground font-medium" : "text-muted-foreground"
+                  className={`mt-2 hidden text-xs sm:block ${
+                    isCurrent ? "font-semibold text-neutral-900" : "text-neutral-500"
                   }`}
                 >
                   {item.label}
@@ -448,7 +477,7 @@ function TemplatePickerCard({
 
 export default function OnboardingPage() {
   const [, navigate] = useLocation();
-  const { user, token, profile, loading: authLoading } = useAuth();
+  const { user, token, profile, refreshProfile, loading: authLoading } = useAuth();
   const { toast } = useToast();
 
   const [booting, setBooting] = useState(true);
@@ -483,12 +512,13 @@ export default function OnboardingPage() {
   const [domainBusy, setDomainBusy] = useState(false);
   const [domainResult, setDomainResult] = useState<{ domain: string; available: boolean; price?: number } | null>(null);
 
-  // Payment
-  const [isYearly, setIsYearly] = useState(false);
-  const [isRedirectingToStripe, setIsRedirectingToStripe] = useState(false);
-  const plan = subscriptionPlans[0];
-  const yearlySavings = getYearlySavings(plan);
-  const currentPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
+  // The end of onboarding: preview, brand guide, decision, payment.
+  const [decision, setDecision] = useState<DecisionData | null>(null);
+  const [decisionBusy, setDecisionBusy] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [downloadingGuide, setDownloadingGuide] = useState(false);
+  const [meeting, setMeeting] = useState<PlatformMeeting | null>(null);
+  const [awaitingWebhook, setAwaitingWebhook] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -506,12 +536,50 @@ export default function OnboardingPage() {
   }, [authLoading, user, navigate]);
 
   useEffect(() => {
-    if (!authLoading && profile?.onboardingCompleted && view !== "payment") {
+    if (!authLoading && profile?.onboardingCompleted && view !== "decision") {
       navigate("/dashboard");
     }
   }, [authLoading, profile, navigate, view]);
 
-  /* ---- Boot: resume from the server-side session ---- */
+  /* ---- The server decides where the customer lands ----
+     Reload, sign-out/sign-in, back-navigation and a cancelled checkout all
+     go through /api/onboarding/decision. Nothing about the stage is inferred
+     from the browser. */
+  const checkoutParam = (): string | null => new URLSearchParams(window.location.search).get("checkout");
+
+  const loadDecision = async (): Promise<DecisionData | null> => {
+    if (!token) return null;
+    const checkout = checkoutParam();
+    const res = await fetch(
+      `/api/onboarding/decision${checkout ? `?checkout=${encodeURIComponent(checkout)}` : ""}`,
+      { headers: authHeaders }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as DecisionData;
+    setDecision(data);
+    if (data.website?.id) setWebsiteId(data.website.id);
+    // The server lifts the onboarding gate as soon as a payment is verified.
+    // Pull the fresh profile so the dashboard does not bounce a paid customer
+    // straight back here on a flag this browser cached before the webhook.
+    if (data.stage === "paid" && profile && !profile.onboardingCompleted) {
+      refreshProfile().catch(() => undefined);
+    }
+    return data;
+  };
+
+  /** Apply a resume/decision payload to the view. */
+  const applyStage = (data: DecisionData | null) => {
+    if (!data) return;
+    if (data.stage === "generating") {
+      setView("generating");
+    } else if (PRE_DECISION_STAGES.includes(data.stage) || data.stage === "generation_failed") {
+      setView(data.stage === "generation_failed" ? "generating" : "chat");
+    } else {
+      setView("decision");
+    }
+  };
+
+  /* ---- Boot: transcript from the session, stage from the server ---- */
   const bootedRef = useRef(false);
   useEffect(() => {
     if (authLoading || !user || !token || bootedRef.current) return;
@@ -519,15 +587,16 @@ export default function OnboardingPage() {
     let cancelled = false;
     (async () => {
       try {
-        // Stripe cancel URL jumps straight back to payment.
-        const params = new URLSearchParams(window.location.search);
-        const res = await fetch("/api/onboarding/session", { headers: authHeaders });
-        const session = res.ok
-          ? await res.json()
+        const [sessionRes, decisionData] = await Promise.all([
+          fetch("/api/onboarding/session", { headers: authHeaders }),
+          loadDecision(),
+        ]);
+        const session = sessionRes.ok
+          ? await sessionRes.json()
           : { websiteId: null, transcript: [], answers: {}, genStatus: null };
         if (cancelled) return;
 
-        setWebsiteId(session.websiteId ?? null);
+        setWebsiteId(decisionData?.website?.id ?? session.websiteId ?? null);
         setAnswers(session.answers ?? {});
         setMessages(
           (session.transcript ?? []).map((m: OnboardingChatMessage) => ({
@@ -536,17 +605,17 @@ export default function OnboardingPage() {
             displays: m.displays as DisplayCard[] | undefined,
           }))
         );
+        setGenStatus((session.genStatus as GenStatus | null) ?? null);
+        applyStage(decisionData);
 
-        const gs = session.genStatus as GenStatus | null;
-        if (params.get("step") === "payment") {
-          setGenStatus(gs);
-          setView("payment");
-        } else if (gs?.done && gs.report) {
-          setGenStatus(gs);
-          setView("report");
-        } else if (gs && !gs.done) {
-          setGenStatus(gs);
-          setView("generating");
+        // A meeting that is already booked is shown, not offered again.
+        if (decisionData?.snapshot.decisionState === "meeting_booked") {
+          fetch("/api/platform-calendar", { headers: authHeaders })
+            .then((res) => (res.ok ? res.json() : null))
+            .then((body) => {
+              if (!cancelled && body?.myMeeting) setMeeting(body.myMeeting as PlatformMeeting);
+            })
+            .catch(() => {});
         }
       } catch {
         // Fresh start is fine.
@@ -558,6 +627,30 @@ export default function OnboardingPage() {
       cancelled = true;
     };
   }, [authLoading, user, token]);
+
+  /* ---- Coming back from Stripe ----
+     "Paid" is only ever set by a verified webhook, so a successful return
+     waits for it instead of claiming success on a query parameter. */
+  useEffect(() => {
+    if (booting || !token) return;
+    if (checkoutParam() !== "success") return;
+    if (decision?.stage === "paid") {
+      setAwaitingWebhook(false);
+      return;
+    }
+    setAwaitingWebhook(true);
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts += 1;
+      const data = await loadDecision().catch(() => null);
+      if (data?.stage === "paid" || attempts >= 20) {
+        clearInterval(interval);
+        setAwaitingWebhook(false);
+        applyStage(data);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [booting, token, decision?.stage]);
 
   /* ---- Deterministic writes (clicks and uploads, never the model) ---- */
   const record = async (patch: Record<string, unknown>): Promise<boolean> => {
@@ -660,7 +753,7 @@ export default function OnboardingPage() {
       const data = await res.json();
       setWebsiteId(data.websiteId);
       await record({ websiteId: data.websiteId, path: "diy" });
-      setView("payment");
+      applyStage(await loadDecision());
     } catch (error: any) {
       toast({ title: "Fejl", description: error.message, variant: "destructive" });
     } finally {
@@ -780,7 +873,8 @@ export default function OnboardingPage() {
         if (data.status) {
           setGenStatus(data.status);
           if (data.status.done) {
-            setView(data.status.report ? "report" : "payment");
+            // The site exists now - let the server say what comes next.
+            applyStage(await loadDecision());
             return;
           }
           // Persisted-but-inactive = the server restarted mid-build.
@@ -792,7 +886,7 @@ export default function OnboardingPage() {
             setGenStalled(false);
           }
         } else if (data.built) {
-          setView("payment");
+          applyStage(await loadDecision());
         }
       } catch {
         // next tick retries
@@ -884,30 +978,81 @@ export default function OnboardingPage() {
     }
   };
 
-  /* ---- Payment ---- */
-  const handleStartPayment = async () => {
-    if (!token) return;
-    setIsRedirectingToStripe(true);
+  /* ---- The two decisions ---- */
+
+  /** "Godkend og betal" - the dialog picks card or invoice. */
+  const openPaymentChoice = () => {
+    if (decision?.snapshot.paymentState === "checkout_pending") {
+      // A checkout is already open: resume it instead of starting a second.
+      setPaymentDialogOpen(true);
+      return;
+    }
+    setPaymentDialogOpen(true);
+  };
+
+  /** "Jeg vil have den tilpasset" - no Stripe object is created here. */
+  const requestCustomisation = async () => {
+    if (!token || decisionBusy) return;
+    setDecisionBusy(true);
     try {
-      const response = await fetch("/api/subscriptions/onboarding-checkout", {
+      const res = await fetch("/api/onboarding/request-customisation", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({
-          planId: "basic",
-          billingPeriod: isYearly ? "yearly" : "monthly",
-          successUrl: `${window.location.origin}/dashboard?subscription_success=true&session_id={CHECKOUT_SESSION_ID}${websiteId ? `&website_id=${websiteId}` : ""}`,
-          cancelUrl: `${window.location.origin}/onboarding?step=payment`,
-        }),
+        body: JSON.stringify({ websiteId }),
       });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Kunne ikke starte betalingen");
-      }
-      const { url } = await response.json();
-      window.location.href = url;
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Kunne ikke åbne booking.");
+      applyStage(await loadDecision());
     } catch (error: any) {
-      setIsRedirectingToStripe(false);
       toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
+
+  /** Back to the two choices from the booking step or a cancelled checkout. */
+  const backToDecision = async () => {
+    if (!token || decisionBusy) return;
+    setDecisionBusy(true);
+    try {
+      await fetch("/api/onboarding/reopen-decision", { method: "POST", headers: authHeaders });
+      // Drop ?checkout= so a reload does not land back on the cancelled screen.
+      window.history.replaceState(null, "", "/onboarding");
+      applyStage(await loadDecision());
+    } catch (error: any) {
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
+
+  const downloadBrandGuide = async () => {
+    if (!token || downloadingGuide) return;
+    setDownloadingGuide(true);
+    try {
+      const res = await fetch(
+        `/api/onboarding/brand-guide.pdf${websiteId ? `?websiteId=${encodeURIComponent(websiteId)}` : ""}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Brandguiden kunne ikke hentes.");
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = match?.[1] || "brandguide.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      toast({ title: "Download fejlede", description: error.message, variant: "destructive" });
+    } finally {
+      setDownloadingGuide(false);
     }
   };
 
@@ -923,18 +1068,31 @@ export default function OnboardingPage() {
   const showFork = messages.length === 0 && !diyMode && answers.path !== "ai";
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Wordmark */}
-      <header className="py-5 px-6">
+    <div className="bf2-page flex min-h-screen flex-col" style={{ background: BLUSH, color: "#111" }}>
+      {/* Brand tokens for this page: display font, keyframes, reduced-motion. */}
+      <style dangerouslySetInnerHTML={{ __html: PAGE_CSS }} />
+      <BirdDefs />
+
+      {/* The same wordmark customers meet on the front page */}
+      <header className="px-5 py-5 md:px-8">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <span className="font-bold text-lg tracking-tight">Birdflow</span>
+          <span
+            className="grid h-9 w-9 place-items-center rounded-full"
+            style={{ background: PURPLE, boxShadow: "0 6px 18px rgba(128,22,195,0.25)" }}
+          >
+            <Bird className="h-5 w-5" style={{ color: LIME }} />
+          </span>
+          <span className="bf2-display text-xl tracking-tight" style={{ color: PURPLE }}>
+            BirdFlow
+          </span>
         </div>
       </header>
 
-      <div className="flex-1 w-full max-w-3xl mx-auto px-4 pb-8 flex flex-col">
+      <div
+        className={`mx-auto flex w-full flex-1 flex-col px-4 pb-10 ${
+          view === "decision" ? "max-w-[1500px]" : "max-w-3xl"
+        }`}
+      >
         <ProgressRail current={railProgress(answers, view)} />
 
         <AnimatePresence mode="wait">
@@ -950,7 +1108,7 @@ export default function OnboardingPage() {
               <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-4 pb-4" data-testid="onboarding-thread">
                 {/* Standing welcome + fork */}
                 <div className="flex justify-start">
-                  <div className="max-w-[92%] bg-muted/70 rounded-2xl rounded-bl-md px-4 py-3">
+                  <div className="max-w-[92%] rounded-2xl rounded-bl-md border border-black/10 bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,0,0,0.05)]">
                     <p className="text-sm leading-relaxed">
                       Hej{user?.email ? ` ${user.email.split("@")[0]}` : ""}! Jeg er din AI-guide hos
                       Birdflow. Sammen bygger vi din hjemmeside — jeg spørger, du svarer, og til sidst
@@ -980,11 +1138,12 @@ export default function OnboardingPage() {
                     <div
                       className={`max-w-[92%] ${
                         message.role === "user"
-                          ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md px-4 py-2.5"
+                          ? "rounded-2xl rounded-br-md px-4 py-2.5"
                           : message.error
-                          ? "bg-destructive/10 border border-destructive/30 text-destructive rounded-2xl rounded-bl-md px-4 py-2.5"
-                          : "bg-muted/70 rounded-2xl rounded-bl-md px-4 py-2.5 w-full"
+                          ? "rounded-2xl rounded-bl-md border border-red-300 bg-red-50 px-4 py-2.5 text-red-700"
+                          : "w-full rounded-2xl rounded-bl-md border border-black/10 bg-white px-4 py-2.5 shadow-[0_6px_18px_rgba(0,0,0,0.05)]"
                       }`}
+                      style={message.role === "user" ? { background: PURPLE, color: LIME } : undefined}
                     >
                       {message.content && (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
@@ -1094,17 +1253,20 @@ export default function OnboardingPage() {
               transition={{ duration: 0.25 }}
               className="max-w-xl mx-auto w-full"
             >
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary flex items-center justify-center">
-                  <Wand2 className="w-8 h-8 text-primary-foreground animate-pulse" />
+              <div className="mb-8 text-center">
+                <div
+                  className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl"
+                  style={{ background: PURPLE, boxShadow: "0 10px 30px rgba(128,22,195,0.28)" }}
+                >
+                  <Wand2 className="h-8 w-8 animate-pulse" style={{ color: LIME }} />
                 </div>
-                <h1 className="text-3xl font-bold tracking-tight mb-2">Jeg bygger din hjemmeside</h1>
-                <p className="text-muted-foreground">
+                <h1 className="mb-2 text-3xl font-extrabold tracking-tight">Jeg bygger din hjemmeside</h1>
+                <p className="text-neutral-700">
                   {genStatus?.detail || "Det tager typisk et par minutter — bliv endelig på siden."}
                 </p>
               </div>
 
-              <Card className="p-5 space-y-3" data-testid="generation-checklist">
+              <Card className="space-y-3 rounded-3xl border-2 border-black/10 p-5" data-testid="generation-checklist">
                 {GEN_PHASES.map((phase) => {
                   const isDone = genStatus?.phasesDone?.includes(phase.id) || genStatus?.done;
                   const isActive = genStatus?.phase === phase.id && !genStatus?.done;
@@ -1159,312 +1321,243 @@ export default function OnboardingPage() {
             </motion.div>
           )}
 
-          {view === "report" && (
+          {view === "decision" && decision && (
             <motion.div
-              key="report"
+              key="decision"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
-              className="max-w-xl mx-auto w-full"
+              className="w-full"
             >
-              <div className="text-center mb-8">
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: "spring", stiffness: 200, damping: 12 }}
-                  className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/25"
-                >
-                  <Check className="w-9 h-9 text-white" />
-                </motion.div>
-                <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">Din hjemmeside er klar</h1>
-                <p className="text-lg text-muted-foreground">
-                  {genStatus?.summary ||
-                    `Vi har bygget første version af ${answers.businessName || "din hjemmeside"} — klar til at blive gjort helt til din egen.`}
+              <div className="mb-5">
+                <h1 className="text-3xl font-extrabold tracking-tight md:text-4xl">
+                  {decision.stage === "ready_for_review"
+                    ? decision.copy.readyForReview
+                    : decision.stage === "paid"
+                    ? "Tak — din hjemmeside er din"
+                    : "Sådan ser din hjemmeside ud"}
+                </h1>
+                <p className="mt-1.5 max-w-prose text-neutral-700">
+                  {decision.stage === "paid"
+                    ? "Betalingen er registreret. Du kan nu arbejde videre i dit kontrolpanel."
+                    : "Se den igennem, hent din brandguide — og vælg så, om vi skal sætte den i luften, eller om du vil have den tilpasset først."}
                 </p>
+                {awaitingWebhook && (
+                  <p
+                    className="mt-2 flex items-center gap-2 text-sm text-neutral-600"
+                    data-testid="text-awaiting-webhook"
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Vi bekræfter din betaling hos Stripe…
+                  </p>
+                )}
               </div>
 
               {genStatus?.fallback && (
-                <div className="flex gap-3 items-start bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-4 mb-6 text-sm text-amber-800 dark:text-amber-200">
-                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                <div className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
                   <span>
-                    AI'en kunne ikke nå hele vejen denne gang, så vi har bygget en solid startside ud fra dine
-                    svar. AI-assistenten i editoren kender din brand guide og kan bygge videre.
+                    AI'en kunne ikke nå hele vejen denne gang, så vi har bygget en solid startside ud fra dine svar.
+                    AI-assistenten i editoren kender din brandguide og kan bygge videre.
                   </span>
                 </div>
               )}
 
-              {answers.palette && answers.fontPair && (
-                <Card className="p-4 mb-4 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex gap-1">
-                      {Object.values(answers.palette.colors).slice(0, 4).map((color, i) => (
-                        <span key={i} className="w-5 h-5 rounded-full border border-black/10" style={{ backgroundColor: color }} />
-                      ))}
-                    </div>
-                    <div className="text-sm min-w-0">
-                      <div className="font-medium truncate">{answers.palette.name}</div>
-                      <div className="text-muted-foreground truncate">
-                        {answers.fontPair.heading} + {answers.fontPair.body}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-xs text-muted-foreground shrink-0">Din brandguide</span>
-                </Card>
-              )}
-
-              {report ? (
-                <div className="mb-6">
-                  <ReportCard report={report} />
-                </div>
-              ) : (
-                <Card className="p-6 mb-6 text-sm text-muted-foreground">
-                  Dit website er bygget og gemt. Du finder alle detaljer i editoren.
-                </Card>
-              )}
-
-              {/* Post-build feedback: adjustments before leaving onboarding */}
-              <Card className="p-4 mb-4" data-testid="feedback-card">
-                <p className="text-sm font-medium flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-primary" />
-                  Skal jeg justere noget med det samme?
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Fx "gør forsiden mere rolig", "tilføj et afsnit om priser" eller "flyt kontakt op".
-                </p>
-
-                {feedbackRounds.map((round, i) => (
-                  <div key={i} className="mt-3 rounded-lg border p-3">
-                    <p className="text-xs font-medium">"{round.wish}"</p>
-                    {round.steps.length > 0 && round.working && (
-                      <ol className="mt-1.5 space-y-1 list-none p-0 m-0">
-                        {round.steps.map((step, j) => (
-                          <li key={j} className="flex items-start gap-1.5 text-xs leading-snug">
-                            {step.ok ? (
-                              <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0 text-green-500" />
-                            ) : (
-                              <AlertCircle className="w-3 h-3 mt-0.5 shrink-0 text-amber-500" />
-                            )}
-                            <span className={step.ok ? "text-muted-foreground" : "text-amber-600"}>{step.label}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    )}
-                    {round.working && (
-                      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Justerer…
-                      </p>
-                    )}
-                    {round.summary && <p className="mt-1.5 text-xs text-muted-foreground">{round.summary}</p>}
-                    {round.error && <p className="mt-1.5 text-xs text-destructive">{round.error}</p>}
-                    {round.report && (
-                      <div className="mt-2">
-                        <ReportCard report={round.report} />
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                <div className="mt-3 flex gap-2 items-end">
-                  <Textarea
-                    value={feedbackInput}
-                    onChange={(e) => setFeedbackInput(e.target.value)}
-                    placeholder="Beskriv din justering…"
-                    className="min-h-[44px] max-h-[100px] resize-none text-sm rounded-lg"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        sendFeedback();
-                      }
-                    }}
-                    data-testid="input-feedback"
-                  />
-                  <Button
-                    size="icon"
-                    className="h-[44px] w-[44px] rounded-lg shrink-0"
-                    onClick={sendFeedback}
-                    disabled={!feedbackInput.trim() || feedbackBusy}
-                    data-testid="button-send-feedback"
-                  >
-                    {feedbackBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </Card>
-
-              {/* Domain wish: checked now, connected from /manage after payment */}
-              <Card className="p-4 mb-6" data-testid="domain-card">
-                <p className="text-sm font-medium flex items-center gap-2">
-                  <Globe className="w-4 h-4 text-primary" />
-                  Skal siden have sit eget domæne?
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Tjek om det er ledigt nu — du køber eller forbinder det under "Indstillinger", når dit
-                  abonnement er aktivt.
-                </p>
-                <div className="mt-2.5 flex gap-2">
-                  <Input
-                    value={domainInput}
-                    onChange={(e) => setDomainInput(e.target.value)}
-                    placeholder="fx dinvirksomhed.dk"
-                    className="h-9 text-sm"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        checkDomain();
-                      }
-                    }}
-                    data-testid="input-domain"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-9 shrink-0"
-                    onClick={checkDomain}
-                    disabled={!domainInput.trim() || domainBusy}
-                    data-testid="button-check-domain"
-                  >
-                    {domainBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Tjek"}
-                  </Button>
-                </div>
-                {domainResult && (
-                  <p
-                    className={`mt-2 text-xs flex items-center gap-1.5 ${
-                      domainResult.available ? "text-green-600 dark:text-green-400" : "text-destructive"
-                    }`}
-                    data-testid="text-domain-result"
-                  >
-                    {domainResult.available ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        {domainResult.domain} er ledigt
-                        {typeof domainResult.price === "number" ? ` (~$${domainResult.price}/år)` : ""} — gemt som dit
-                        ønske.
-                      </>
+              {decision.website ? (
+                <DecisionWorkspace
+                  stage={decision.stage}
+                  snapshot={decision.snapshot}
+                  copy={decision.copy}
+                  approvalStale={decision.approvalStale}
+                  websiteId={decision.website.id}
+                  businessName={answers.businessName || decision.website.name}
+                  pages={decision.pages}
+                  brandGuide={decision.brandGuide}
+                  meeting={meeting}
+                  token={token}
+                  busy={decisionBusy}
+                  downloading={downloadingGuide}
+                  onApprove={openPaymentChoice}
+                  onCustomise={requestCustomisation}
+                  onRetry={openPaymentChoice}
+                  onBackToDecision={backToDecision}
+                  onDownloadGuide={downloadBrandGuide}
+                  onBooked={async (booked) => {
+                    setMeeting(booked);
+                    applyStage(await loadDecision());
+                  }}
+                  reportSlot={
+                    report ? (
+                      <ReportCard report={report} />
                     ) : (
-                      <>
-                        <AlertCircle className="w-3.5 h-3.5" />
-                        {domainResult.domain} er optaget — du kan forbinde et domæne, du ejer, under Indstillinger.
-                      </>
-                    )}
-                  </p>
-                )}
-              </Card>
+                      <p className="text-sm text-neutral-600">
+                        Dit website er bygget og gemt. Du finder alle detaljer i editoren.
+                      </p>
+                    )
+                  }
+                  adjustmentsSlot={
+                    <div data-testid="feedback-card">
+                      <p className="flex items-center gap-2 text-sm font-bold">
+                        <MessageSquare className="h-4 w-4" style={{ color: PURPLE }} />
+                        Skal vi justere noget med det samme?
+                      </p>
+                      <p className="mt-0.5 text-xs text-neutral-600">
+                        Fx "gør forsiden mere rolig", "tilføj et afsnit om priser" eller "flyt kontakt op".
+                      </p>
 
-              <Button
-                size="lg"
-                className="w-full h-14 text-lg"
-                onClick={() => setView("payment")}
-                data-testid="button-continue-report"
-              >
-                Fortsæt
-                <ArrowRight className="w-5 h-5 ml-2" />
-              </Button>
-            </motion.div>
-          )}
+                      {feedbackRounds.map((round, i) => (
+                        <div key={i} className="mt-3 rounded-xl border border-black/10 p-3">
+                          <p className="text-xs font-medium">"{round.wish}"</p>
+                          {round.steps.length > 0 && round.working && (
+                            <ol className="mt-1.5 m-0 list-none space-y-1 p-0">
+                              {round.steps.map((step, j) => (
+                                <li key={j} className="flex items-start gap-1.5 text-xs leading-snug">
+                                  {step.ok ? (
+                                    <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
+                                  ) : (
+                                    <AlertCircle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                                  )}
+                                  <span className={step.ok ? "text-neutral-600" : "text-amber-600"}>{step.label}</span>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                          {round.working && (
+                            <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-600">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Justerer…
+                            </p>
+                          )}
+                          {round.summary && <p className="mt-1.5 text-xs text-neutral-600">{round.summary}</p>}
+                          {round.error && <p className="mt-1.5 text-xs text-red-600">{round.error}</p>}
+                          {round.report && (
+                            <div className="mt-2">
+                              <ReportCard report={round.report} />
+                            </div>
+                          )}
+                        </div>
+                      ))}
 
-          {view === "payment" && (
-            <motion.div
-              key="payment"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-              className="max-w-xl mx-auto w-full"
-            >
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary flex items-center justify-center">
-                  <CreditCard className="w-8 h-8 text-primary-foreground" />
-                </div>
-                <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">Aktiver dit abonnement</h1>
-                <p className="text-lg text-muted-foreground">Start din 31 dages gratis prøveperiode</p>
-              </div>
+                      <div className="mt-3 flex items-end gap-2">
+                        <Textarea
+                          value={feedbackInput}
+                          onChange={(e) => setFeedbackInput(e.target.value)}
+                          placeholder="Beskriv din justering…"
+                          className="max-h-[100px] min-h-[44px] resize-none rounded-xl text-sm"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              sendFeedback();
+                            }
+                          }}
+                          data-testid="input-feedback"
+                        />
+                        <Button
+                          size="icon"
+                          className="h-[44px] w-[44px] shrink-0 rounded-xl"
+                          onClick={sendFeedback}
+                          disabled={!feedbackInput.trim() || feedbackBusy}
+                          data-testid="button-send-feedback"
+                        >
+                          {feedbackBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        </Button>
+                      </div>
 
-              <div className="flex items-center justify-center gap-4 mb-8">
-                <Label htmlFor="billing-toggle" className={`text-base ${!isYearly ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
-                  Månedlig
-                </Label>
-                <Switch id="billing-toggle" checked={isYearly} onCheckedChange={setIsYearly} data-testid="switch-billing-toggle" />
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="billing-toggle" className={`text-base ${isYearly ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
-                    Årlig
-                  </Label>
-                  <span className="bg-emerald-500/10 text-emerald-600 text-xs font-semibold px-2 py-1 rounded-full">
-                    Spar {formatPrice(yearlySavings)}
-                  </span>
-                </div>
-              </div>
-
-              <Card className="p-8 border-2 border-primary shadow-lg mb-8">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Zap className="w-7 h-7 text-primary" />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold">{plan.name}</h2>
-                    <p className="text-muted-foreground">{plan.description}</p>
-                  </div>
-                </div>
-
-                <div className="mb-2">
-                  <span className="text-5xl font-bold">{formatPrice(currentPrice)}</span>
-                  <span className="text-muted-foreground ml-2">{isYearly ? "/år" : "/md"}</span>
-                </div>
-
-                {isYearly && (
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Svarer til {formatPrice(Math.round(plan.yearlyPrice / 12))}/md
-                  </p>
-                )}
-
-                <div className="flex items-center gap-2 text-emerald-600 font-medium mb-6">
-                  <Gift className="w-5 h-5" />
-                  31 dages gratis prøveperiode
-                </div>
-
-                <ul className="space-y-3 mb-8">
-                  {plan.features.map((feature, i) => (
-                    <li key={i} className="flex items-start gap-3">
-                      <Check className="w-5 h-5 shrink-0 mt-0.5 text-emerald-500" />
-                      <span className={feature.highlight ? "font-medium text-emerald-600" : ""}>
-                        {feature.text}
-                        {feature.tooltip && (
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="w-3.5 h-3.5 inline ml-1 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>{feature.tooltip}</TooltipContent>
-                          </Tooltip>
+                      {/* Domain wish: checked now, connected from /manage after payment */}
+                      <div className="mt-5 border-t border-black/10 pt-4" data-testid="domain-card">
+                        <p className="flex items-center gap-2 text-sm font-bold">
+                          <Globe className="h-4 w-4" style={{ color: PURPLE }} />
+                          Skal siden have sit eget domæne?
+                        </p>
+                        <p className="mt-0.5 text-xs text-neutral-600">
+                          Tjek om det er ledigt nu — du køber eller forbinder det under "Indstillinger", når dit
+                          abonnement er aktivt.
+                        </p>
+                        <div className="mt-2.5 flex gap-2">
+                          <Input
+                            value={domainInput}
+                            onChange={(e) => setDomainInput(e.target.value)}
+                            placeholder="fx dinvirksomhed.dk"
+                            className="h-9 text-sm"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                checkDomain();
+                              }
+                            }}
+                            data-testid="input-domain"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-9 shrink-0"
+                            onClick={checkDomain}
+                            disabled={!domainInput.trim() || domainBusy}
+                            data-testid="button-check-domain"
+                          >
+                            {domainBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Tjek"}
+                          </Button>
+                        </div>
+                        {domainResult && (
+                          <p
+                            className={`mt-2 flex items-center gap-1.5 text-xs ${
+                              domainResult.available ? "text-green-700" : "text-red-600"
+                            }`}
+                            data-testid="text-domain-result"
+                          >
+                            {domainResult.available ? (
+                              <>
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                {domainResult.domain} er ledigt
+                                {typeof domainResult.price === "number" ? ` (~$${domainResult.price}/år)` : ""} — gemt
+                                som dit ønske.
+                              </>
+                            ) : (
+                              <>
+                                <AlertCircle className="h-3.5 w-3.5" />
+                                {domainResult.domain} er optaget — du kan forbinde et domæne, du ejer, under
+                                Indstillinger.
+                              </>
+                            )}
+                          </p>
                         )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                      </div>
+                    </div>
+                  }
+                />
+              ) : (
+                <div className="rounded-3xl border-2 border-black/10 bg-white p-6 text-sm text-neutral-700">
+                  Vi kunne ikke finde din hjemmeside. Prøv at genindlæse siden.
+                </div>
+              )}
 
-                <Button
-                  size="lg"
-                  className="w-full h-14 text-lg"
-                  onClick={handleStartPayment}
-                  disabled={isRedirectingToStripe}
-                  data-testid="button-start-payment"
-                >
-                  {isRedirectingToStripe ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Omdirigerer til betaling...
-                    </>
-                  ) : (
-                    <>
-                      Start gratis prøveperiode
-                      <ArrowRight className="w-5 h-5 ml-2" />
-                    </>
-                  )}
-                </Button>
-              </Card>
+              {decision.stage === "paid" && (
+                <div className="mt-5 flex justify-center">
+                  <Button size="lg" className="h-12" onClick={() => navigate("/dashboard")} data-testid="button-go-dashboard">
+                    Gå til kontrolpanelet
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Button>
+                </div>
+              )}
 
-              <p className="text-center text-sm text-muted-foreground">
-                Du bliver først opkrævet efter din prøveperiode udløber. Annuller når som helst.
-              </p>
+              <PaymentChoiceDialog
+                open={paymentDialogOpen}
+                onOpenChange={setPaymentDialogOpen}
+                token={token}
+                websiteId={decision.website?.id ?? websiteId}
+                invoiceTerms={decision.copy.invoiceTerms}
+                onApproved={async (result) => {
+                  if (result.method === "card") {
+                    // Stripe owns the next screen; the decision record is
+                    // already marked checkout_pending server-side.
+                    window.location.href = result.checkoutUrl;
+                    return;
+                  }
+                  setPaymentDialogOpen(false);
+                  applyStage(await loadDecision());
+                }}
+              />
             </motion.div>
           )}
         </AnimatePresence>

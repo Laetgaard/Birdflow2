@@ -55,6 +55,9 @@ import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
 import { emailService } from "./email/service";
+import { handleOnboardingStripeEvent, shouldProcessStripeEvent } from "./onboardingWebhooks";
+import { registerOnboardingDecisionRoutes } from "./onboardingDecisionRoutes";
+import { updateDecisionByUser, bumpSiteRevision, markGenerationComplete } from "./onboardingDecision";
 
 // Helper to migrate legacy element-based state to component-based state
 function migrateBuilderState(state: any): BuilderStateData {
@@ -234,7 +237,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Middleware to verify Supabase session and ensure profile exists
-async function requireAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     
@@ -483,6 +486,12 @@ export async function registerRoutes(
       // agent have a website to attach to from the next turn on.
       try {
         await storage.upsertOnboardingSession(user.id, { websiteId: result.id, answers: { path: "ai" } });
+        // A template site is finished the moment it is cloned, so the
+        // "build yourself" path goes straight to the preview-and-decision
+        // screen. The AI path is marked complete by the generator instead.
+        if (!isAiMode) {
+          await markGenerationComplete(result.id);
+        }
       } catch (sessionErr) {
         console.error("Onboarding session link failed (non-fatal):", sessionErr);
       }
@@ -1307,6 +1316,10 @@ export async function registerRoutes(
       } else {
         builderState = await storage.updateBuilderState(req.params.id, state);
       }
+
+      // An explicit save changes the site under any pending onboarding
+      // decision: bump the revision so an unpaid approval has to be renewed.
+      await bumpSiteRevision(req.params.id).catch(() => {});
 
       // Mutation succeeded - record it if this was an admin editing a
       // client's website (no-op for owners).
@@ -5131,6 +5144,9 @@ export async function registerRoutes(
       newState = check.state;
       sanitizeBuilderStateCustomContent(newState);
       await storage.updateBuilderState(req.params.id, newState);
+      // The site the customer is deciding about just changed - new revision,
+      // and any approval that has not been paid for is void.
+      await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
         outcome.mutations,
@@ -5191,6 +5207,7 @@ export async function registerRoutes(
       sanitizeBuilderStateCustomContent(newState);
 
       await storage.updateBuilderState(req.params.id, newState);
+      await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
         resolved.mutations,
@@ -5485,6 +5502,7 @@ export async function registerRoutes(
 
       // Save the new builder state
       await storage.updateBuilderState(req.params.id, newState);
+      await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
         [],
@@ -6064,6 +6082,13 @@ export async function registerRoutes(
     next();
   };
 
+  // ============ END OF ONBOARDING: PREVIEW, APPROVE, PAY ============
+  //
+  // Preview, brand guide, brand-guide PDF, pricing, approval, card checkout,
+  // invoice billing and the admin review handover. Kept in its own module
+  // (server/onboardingDecisionRoutes.ts) rather than inlined here.
+  registerOnboardingDecisionRoutes(app, { requireAuth, requireAdmin });
+
   // ============ BIRDFLOW PLATFORM CALENDAR ============
   //
   // BirdFlow's own bookable calendar for the free 30-minute improvement
@@ -6328,6 +6353,21 @@ export async function registerRoutes(
             message: "Tidspunktet er desværre lige blevet taget. Vælg venligst et andet.",
             code: "SLOT_UNAVAILABLE",
           });
+        }
+      }
+
+      // An improvement meeting booked from the onboarding decision screen
+      // moves that flow to "meeting booked". Payment is deliberately left
+      // untouched: this path creates no Stripe object at all.
+      if (customerWebsiteId && onboardingSession?.websiteId === customerWebsiteId) {
+        try {
+          await updateDecisionByUser(user.id, {
+            decisionState: "meeting_booked",
+            meetingBookingId: booking.id,
+            decidedAt: new Date(),
+          });
+        } catch (stateErr) {
+          console.error(`[PlatformCalendar] onboarding state update failed for ${booking.id}:`, stateErr);
         }
       }
 
@@ -7217,7 +7257,18 @@ export async function registerRoutes(
       const subscription = event.data.object;
       const isUserSubscription = subscription?.metadata?.type === 'user_subscription' || 
                                  subscription?.metadata?.type === 'onboarding';
-      
+
+      // End-of-onboarding payment state, deduplicated by event id.
+      await handleOnboardingStripeEvent(event);
+
+      // Everything below is the pre-existing subscription bookkeeping; it
+      // also only makes sense once per delivered event.
+      const firstDelivery = await shouldProcessStripeEvent(event);
+      if (!firstDelivery) {
+        console.log(`[Webhook] Duplicate delivery of ${event.id} ignored`);
+        return res.json({ received: true, duplicate: true });
+      }
+
       switch (event.type) {
         case 'checkout.session.completed':
           await handleCheckoutSessionCompleted(event.data.object);

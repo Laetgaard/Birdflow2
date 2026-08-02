@@ -4,8 +4,16 @@ import { createDefaultBrandGuide } from "@shared/customComponents";
 
 // ---- Mocks (hoisted): keep deterministic modules real, stub AI + DB ----
 
-const updateBuilderStateMock = vi.fn(async () => undefined);
-const getBuilderStateMock = vi.fn();
+// The storage mock behaves like storage: what was written last is what the
+// next read returns. The brand-guide enrichment pass re-reads the saved site
+// before it writes, so a mock that always returned the blank state would
+// make it look as if the pipeline had thrown the built pages away.
+let lastSavedState: BuilderStateData | null = null;
+const updateBuilderStateMock = vi.fn(async (_id: string, state: BuilderStateData) => {
+  lastSavedState = state;
+  return undefined;
+});
+const getBuilderStateMock = vi.fn(async () => ({ state: lastSavedState ?? blankState() }));
 const getMediaAssetsMock = vi.fn(async () => []);
 
 const persistGenStatusMock = vi.fn(async () => {});
@@ -18,6 +26,27 @@ vi.mock("./storage", () => ({
     // M15: every phase change mirrors into onboarding_sessions
     persistOnboardingGenStatus: (...args: unknown[]) => persistGenStatusMock(...args),
   },
+  db: {},
+}));
+
+// The decision record the preview-and-pay screen reads. The generator only
+// moves it between generating/complete/failed; the state machine itself is
+// tested in tests/onboarding-decision-state.test.ts.
+const markStartedMock = vi.fn(async () => {});
+const markCompleteMock = vi.fn(async () => {});
+const markFailedMock = vi.fn(async () => {});
+vi.mock("./onboardingDecision", () => ({
+  markGenerationStarted: (...args: unknown[]) => markStartedMock(...(args as [])),
+  markGenerationComplete: (...args: unknown[]) => markCompleteMock(...(args as [])),
+  markGenerationFailed: (...args: unknown[]) => markFailedMock(...(args as [])),
+}));
+
+// Brand-guide enrichment is an AI pass of its own; keep it out of the
+// generator's tests and just prove the pipeline hands the saved guide over.
+const enrichBrandGuideMock = vi.fn(async (guide: unknown) => guide);
+vi.mock("./brandGuideEnrichment", () => ({
+  enrichBrandGuide: (...args: unknown[]) => enrichBrandGuideMock(...(args as [unknown])),
+  collectSiteImages: () => [],
 }));
 
 const finalizeBrandGuideMock = vi.fn();
@@ -137,7 +166,12 @@ async function waitForDone(websiteId: string, timeoutMs = 3000) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  getBuilderStateMock.mockResolvedValue({ state: blankState() });
+  lastSavedState = null;
+  updateBuilderStateMock.mockImplementation(async (_id: string, state: BuilderStateData) => {
+    lastSavedState = state;
+    return undefined;
+  });
+  getBuilderStateMock.mockImplementation(async () => ({ state: lastSavedState ?? blankState() }));
   finalizeBrandGuideMock.mockResolvedValue({
     guide: createDefaultBrandGuide({
       primaryColor: palette.colors.primary,
@@ -179,8 +213,9 @@ describe("startOnboardingGeneration — happy path", () => {
     expect(status.phasesDone).toEqual(["brandguide", "plan", "build", "enhance", "check"]);
     expect(status.summary).toContain("nordisk");
 
-    // Two saves: brand guide first (survives later failures), then final site.
-    expect(updateBuilderStateMock).toHaveBeenCalledTimes(2);
+    // Three saves: brand guide first (survives later failures), then the
+    // final site, then the enriched guide written back onto it.
+    expect(updateBuilderStateMock).toHaveBeenCalledTimes(3);
     const [guideSaveId, guideSaveState] = updateBuilderStateMock.mock.calls[0];
     expect(guideSaveId).toBe(id);
     expect((guideSaveState as BuilderStateData).brandGuide?.colors.primary).toBe(palette.colors.primary);

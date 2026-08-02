@@ -21,6 +21,7 @@ import CheckoutSuccessPage from "@/pages/checkout-success";
 import CheckoutCancelPage from "@/pages/checkout-cancel";
 import ProfilePage from "@/pages/profile";
 import OnboardingPage from "@/pages/onboarding";
+import OnboardingPreviewPage from "@/pages/onboarding-preview";
 import AdminPage from "@/pages/admin";
 import PricingPage from "@/pages/pricing";
 import ServicesPage from "@/pages/services";
@@ -76,6 +77,11 @@ function Router() {
       {/* Onboarding - requires auth + verified email but NOT onboarding */}
       <Route path="/onboarding">
         {() => <ProtectedRoute requireOnboarding={false}><OnboardingPage /></ProtectedRoute>}
+      </Route>
+
+      {/* Read-only preview of the generated site, embedded by /onboarding */}
+      <Route path="/onboarding/preview/:websiteId">
+        {() => <ProtectedRoute requireOnboarding={false}><OnboardingPreviewPage /></ProtectedRoute>}
       </Route>
       
       {/* Public product/checkout routes */}

@@ -1,6 +1,7 @@
 import { getStripeSync } from './stripeClient';
 import { storage } from './storage';
 import { emailService } from './email/service';
+import { claimStripeEvent, handleOnboardingStripeEvent } from './onboardingWebhooks';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -23,7 +24,20 @@ export class WebhookHandlers {
     try {
       // stripeSync returns the Stripe event in result.event
       const event = result?.event || JSON.parse(payload.toString());
-      
+
+      // End-of-onboarding payment state. Deduplicated on its own key so it
+      // stays correct even if this endpoint and the subscription endpoint are
+      // both pointed at the same Stripe webhook.
+      await handleOnboardingStripeEvent(event);
+
+      // Stripe retries deliveries; the order/stock/email side effects below
+      // must only run once per event.
+      const firstDelivery = await claimStripeEvent(`${event.id}:orders`, event.type);
+      if (!firstDelivery) {
+        console.log(`[Stripe Webhook] Duplicate delivery of ${event.id} ignored`);
+        return;
+      }
+
       if (event.type === 'checkout.session.completed') {
         console.log(`[Stripe Webhook] Processing checkout.session.completed event`);
         const session = event.data?.object;

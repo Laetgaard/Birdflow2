@@ -57,6 +57,15 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; body
     heading: 'Der er booket et nyt møde',
     bodyText: 'En kunde har booket et forbedringsmøde. Detaljerne står nedenfor.',
   },
+  // The improved website is back from BirdFlow and waiting for the
+  // customer's approval. The button goes to the normal signed-in onboarding
+  // page - there is no token that bypasses ownership.
+  onboarding_ready_for_review: {
+    subject: 'Din opdaterede hjemmeside er klar',
+    heading: 'Din opdaterede hjemmeside er klar',
+    bodyText: 'Hej {{customerName}}. Vi har arbejdet videre på {{websiteName}} efter vores møde. Log ind og se den opdaterede version — godkender du den, går vi videre til betaling.',
+    buttonText: 'Se din hjemmeside',
+  },
   website_published: {
     subject: 'Your website is now live!',
     heading: 'Congratulations! Your website is published',
@@ -509,6 +518,27 @@ export class EmailService {
         notes: booking.notes || '',
       },
       buttonUrl: details.adminUrl,
+    });
+  }
+
+  /**
+   * "Din opdaterede hjemmeside er klar" - sent when an admin hands an improved
+   * site back to the customer. Links to the authenticated onboarding page.
+   */
+  async sendOnboardingReadyForReview(
+    customerEmail: string,
+    websiteId: string,
+    details: { customerName: string; websiteName: string; onboardingUrl: string }
+  ): Promise<boolean> {
+    return this.sendEmail({
+      to: customerEmail,
+      websiteId,
+      templateType: 'onboarding_ready_for_review',
+      variables: {
+        customerName: details.customerName,
+        websiteName: details.websiteName,
+      },
+      buttonUrl: details.onboardingUrl,
     });
   }
 

@@ -281,11 +281,94 @@ export const onboardingSessions = pgTable("onboarding_sessions", {
   answers: jsonb("answers").$type<OnboardingAnswers>().notNull().default(sql`'{}'::jsonb`),
   /** Mirror of the generation job status, written through on each phase. */
   genStatus: jsonb("gen_status").$type<Record<string, unknown> | null>(),
+
+  // ---- End-of-onboarding decision state (see server/onboardingDecision.ts) ----
+  // Four independent dimensions rather than one ambiguous "status", because a
+  // customer can be e.g. "generation complete + meeting booked + payment not
+  // started" or "approved + invoice open". Kept as plain text columns (never
+  // $type<Union>()) so Partial<> update helpers elsewhere still typecheck; the
+  // unions below are enforced by the accessor module, which is the only writer.
+  /** OnboardingGenerationState */
+  generationState: text("generation_state").notNull().default("not_started"),
+  /** OnboardingDecisionState */
+  decisionState: text("decision_state").notNull().default("awaiting_decision"),
+  /** OnboardingPaymentMethodChoice */
+  paymentMethodChoice: text("payment_method_choice").notNull().default("none"),
+  /** OnboardingPaymentState */
+  paymentState: text("payment_state").notNull().default("not_started"),
+  /** Bumped every time the generated site changes in a way the customer must re-approve. */
+  siteRevision: integer("site_revision").notNull().default(0),
+  /** The revision an admin last handed back for review, if any. */
+  reviewRevision: integer("review_revision"),
+  /** The revision the customer approved. Approval is always revision-scoped. */
+  approvedRevision: integer("approved_revision"),
+  /** bookings.id of the free improvement meeting (platform calendar). */
+  meetingBookingId: varchar("meeting_booking_id"),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  stripeCheckoutSessionId: varchar("stripe_checkout_session_id"),
+  stripeSubscriptionId: varchar("stripe_subscription_id"),
+  stripeInvoiceId: varchar("stripe_invoice_id"),
+  /** Hosted Stripe invoice URL, so an open invoice stays reachable. */
+  stripeInvoiceUrl: text("stripe_invoice_url"),
+  decidedAt: timestamp("decided_at"),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export type OnboardingSession = typeof onboardingSessions.$inferSelect;
+
+// ---- The four state dimensions of the end of onboarding ----
+
+export const ONBOARDING_GENERATION_STATES = [
+  "not_started",
+  "generating",
+  "complete",
+  "failed",
+] as const;
+export type OnboardingGenerationState = (typeof ONBOARDING_GENERATION_STATES)[number];
+
+export const ONBOARDING_DECISION_STATES = [
+  "awaiting_decision",
+  "customisation_requested",
+  "meeting_booked",
+  "in_customisation",
+  "ready_for_review",
+  "approved",
+] as const;
+export type OnboardingDecisionState = (typeof ONBOARDING_DECISION_STATES)[number];
+
+export const ONBOARDING_PAYMENT_METHOD_CHOICES = ["none", "card", "invoice"] as const;
+export type OnboardingPaymentMethodChoice = (typeof ONBOARDING_PAYMENT_METHOD_CHOICES)[number];
+
+export const ONBOARDING_PAYMENT_STATES = [
+  "not_started",
+  "checkout_pending",
+  "invoice_open",
+  "paid",
+  "payment_failed",
+  "past_due",
+  "cancelled",
+] as const;
+export type OnboardingPaymentState = (typeof ONBOARDING_PAYMENT_STATES)[number];
+
+/**
+ * Every Stripe event this application has already acted on.
+ *
+ * Stripe redelivers events (retries, multiple endpoints, replays) and the
+ * onboarding payment handlers are not naturally idempotent - "mark paid" is,
+ * but "email the customer" and "advance the decision record" are not. The
+ * primary key on the Stripe event id turns a redelivery into a no-op insert.
+ */
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  eventId: text("event_id").primaryKey(),
+  type: text("type").notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+});
+
+export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
 
 // Phased build state for AI Website Architect
 export const phasedBuildState = pgTable("phased_build_state", {

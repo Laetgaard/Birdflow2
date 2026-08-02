@@ -127,6 +127,74 @@ export type BrandGuideTypography = {
 
 export type BrandGuideImageryStyle = 'photo' | 'illustration' | '3d' | 'minimal' | 'bold';
 
+/** The six brand colours, in the order a guide presents them. */
+export const BRAND_GUIDE_COLOR_KEYS = [
+  'primary',
+  'secondary',
+  'accent',
+  'background',
+  'surface',
+  'text',
+] as const;
+export type BrandGuideColorKey = (typeof BRAND_GUIDE_COLOR_KEYS)[number];
+
+/**
+ * One colour as a brand guide presents it: not just a hex, but a Danish name
+ * the customer can say out loud, the role it plays and where to use it.
+ */
+export type BrandGuideColorMeta = {
+  key: BrandGuideColorKey;
+  /** Danish colour name, e.g. "Dyb havblå". */
+  name: string;
+  /** Danish role, e.g. "Primærfarve". */
+  role: string;
+  /** Danish usage note, e.g. "Knapper, links og aktive tilstande". */
+  usage: string;
+};
+
+/** Real sizes the guide demonstrates the font pairing at. */
+export type BrandGuideTypographySpec = {
+  headingSizePx: number;
+  headingWeight: number;
+  headingLineHeight: number;
+  bodySizePx: number;
+  bodyWeight: number;
+  bodyLineHeight: number;
+  buttonSizePx: number;
+  buttonWeight: number;
+  /** Danish specimen text so the demonstration reads like the brand. */
+  sampleHeading?: string;
+  sampleBody?: string;
+  sampleButton?: string;
+};
+
+export type BrandGuideLogoGuidance = {
+  /** Where the logo belongs, in Danish. */
+  placement: string;
+  /** Clear space rule, in Danish. */
+  safeSpace: string;
+  /** Smallest usable width in pixels. */
+  minWidthPx: number;
+  /** Things never to do with the logo. */
+  misuse: string[];
+};
+
+export type BrandGuideImageryExample = {
+  url: string;
+  caption: string;
+};
+
+export type BrandGuideTone = {
+  /** How the brand speaks, as short Danish principles. */
+  principles: string[];
+  /** Words and phrasings to use. */
+  doWords: string[];
+  /** Words and phrasings to avoid. */
+  avoidWords: string[];
+  /** Headlines written in the brand's voice. */
+  sampleHeadings: string[];
+};
+
 export type BrandGuide = {
   colors: BrandGuideColors;
   typography: BrandGuideTypography;
@@ -142,6 +210,27 @@ export type BrandGuide = {
   motion: 'none' | 'subtle' | 'expressive';
   motionSpeed?: 'slow' | 'normal' | 'fast';
   updatedAt?: string;
+
+  // ---- Presentation layer -------------------------------------------------
+  // Filled in by the post-generation enrichment pass so the customer gets a
+  // real brand guide rather than six hex codes. All optional: a guide written
+  // by the builder's Brand tab, or by an older generation run, stays valid,
+  // and the Brand tab reads and writes exactly these fields - there is no
+  // separate onboarding-only brand format.
+  /** Danish name, role and usage for each colour. */
+  colorMeta?: BrandGuideColorMeta[];
+  /** The font pairing demonstrated at real heading/body/button sizes. */
+  typographySpec?: BrandGuideTypographySpec;
+  /** Logo placement and safe-space guidance. */
+  logoGuidance?: BrandGuideLogoGuidance;
+  /** Example images showing the imagery direction. */
+  imageryExamples?: BrandGuideImageryExample[];
+  /** Tone of voice with do/avoid wording and sample headings. */
+  tone?: BrandGuideTone;
+  /** Business name the guide belongs to, for the PDF and the header. */
+  businessName?: string;
+  /** When the enrichment pass last ran. */
+  enrichedAt?: string;
 };
 
 export function createDefaultBrandGuide(seed?: {

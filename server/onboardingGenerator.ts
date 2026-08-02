@@ -30,6 +30,12 @@ import { processAIBuildRequest, applyMutations } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
 import { buildReport } from "./aiReport";
+import { enrichBrandGuide } from "./brandGuideEnrichment";
+import {
+  markGenerationComplete,
+  markGenerationFailed,
+  markGenerationStarted,
+} from "./onboardingDecision";
 
 // ============ Input ============
 
@@ -163,7 +169,18 @@ export function startOnboardingGeneration(
   runningJobs.add(websiteId);
   persistStatus(status);
 
+  // The decision record is the resume authority for the whole flow, so it
+  // learns about the generation the same moment the in-memory job does.
+  markGenerationStarted(websiteId).catch((err) =>
+    console.error(`[OnboardingGen] Failed to mark generation started for ${websiteId}:`, err)
+  );
+
   runPipeline(websiteId, input, status)
+    .then(() =>
+      markGenerationComplete(websiteId).catch((err) =>
+        console.error(`[OnboardingGen] Failed to mark generation complete for ${websiteId}:`, err)
+      )
+    )
     .catch((error) => {
       // runPipeline handles its own fallbacks; this only triggers when even
       // the fallback save failed (e.g. database unavailable).
@@ -174,6 +191,9 @@ export function startOnboardingGeneration(
         "Noget gik galt under opbygningen. Din konto og dit projekt er sikre — prøv igen, eller fortsæt og byg videre med AI-assistenten i editoren.";
       status.updatedAt = Date.now();
       persistStatus(status);
+      markGenerationFailed(websiteId).catch((err) =>
+        console.error(`[OnboardingGen] Failed to mark generation failed for ${websiteId}:`, err)
+      );
     })
     .finally(() => {
       runningJobs.delete(websiteId);
@@ -317,6 +337,12 @@ async function runPipeline(
   sanitizeBuilderStateCustomContent(finalState);
   await storage.updateBuilderState(websiteId, finalState);
 
+  // ---- Phase 6: brand-guide enrichment ----
+  // Runs on the finished site so the guide can show the customer's own
+  // imagery. Purely additive: it never rebuilds pages, and a failure leaves
+  // the mechanical guide exactly as it was saved in phase 1.
+  await enrichSavedBrandGuide(websiteId, input, finalState, guide);
+
   const pageLines = finalState.pages.map(
     (p) => `Side "${p.name}" bygget med ${p.components.length} sektioner.`
   );
@@ -347,6 +373,10 @@ async function applyFallback(
   sanitizeBuilderStateCustomContent(state);
   await storage.updateBuilderState(websiteId, state);
 
+  // A fallback site still gets a full brand guide - it is half of what the
+  // customer is about to be shown.
+  await enrichSavedBrandGuide(websiteId, input, state, guide);
+
   status.report = buildReport(
     [],
     state,
@@ -364,6 +394,38 @@ async function applyFallback(
   setPhase(status, "done");
   status.done = true;
   persistStatus(status);
+}
+
+/**
+ * Enrich the stored brand guide in place: re-read the saved state so the
+ * enrichment lands on top of whatever the build actually wrote, and never let
+ * a failure here take down a finished website.
+ */
+async function enrichSavedBrandGuide(
+  websiteId: string,
+  input: OnboardingGenInput,
+  state: BuilderStateData,
+  guide: BrandGuide
+): Promise<void> {
+  try {
+    const enriched = await enrichBrandGuide(
+      state.brandGuide ?? guide,
+      {
+        businessName: input.business.name,
+        industry: input.business.industry,
+        description: input.business.description,
+        feeling: input.feeling,
+        goals: input.wishes.goals,
+        notes: input.wishes.notes,
+      },
+      state
+    );
+    const current = await storage.getBuilderState(websiteId);
+    const latest = (current?.state as BuilderStateData | undefined) ?? state;
+    await storage.updateBuilderState(websiteId, { ...latest, brandGuide: enriched });
+  } catch (error) {
+    console.error(`[OnboardingGen] Brand guide enrichment failed for ${websiteId}:`, error);
+  }
 }
 
 function deterministicGuide(input: OnboardingGenInput): BrandGuide {
