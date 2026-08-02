@@ -42,6 +42,7 @@ import {
   generateAnalyticsTracker,
   generateCookieBanner,
 } from './templates';
+import { DEFAULT_SITE_LANGUAGE, type SiteLanguage } from '../../shared/siteLanguage';
 
 export type GeneratorConfig = {
   websiteId: string;
@@ -49,6 +50,8 @@ export type GeneratorConfig = {
   builderState: BuilderStateData;
   supabaseUrl: string;
   supabaseAnonKey: string;
+  /** Language the published site is written in. Danish when omitted. */
+  language?: SiteLanguage;
 };
 
 type ImageMapping = { originalUrl: string; newUrl: string };
@@ -178,6 +181,7 @@ async function downloadAndSaveImages(
 
 export async function generateNextJsProject(config: GeneratorConfig): Promise<string> {
   const { websiteId, siteName, builderState, supabaseUrl, supabaseAnonKey } = config;
+  const language = config.language ?? DEFAULT_SITE_LANGUAGE;
   
   const outputDir = path.join('/tmp', 'publish', websiteId, Date.now().toString());
   
@@ -244,14 +248,14 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'lib/supabase-admin.ts', content: generateServerSupabase(websiteId) },
     { path: 'components/WebsiteProvider.tsx', content: generateWebsiteProvider() },
     { path: 'components/CartProvider.tsx', content: generateCartProvider() },
-    { path: 'components/CartDrawer.tsx', content: generateCartDrawer() },
-    { path: 'components/ComponentRenderer.tsx', content: generateComponentRenderer() },
-    { path: 'components/ContactForm.tsx', content: generateContactForm() },
-    { path: 'components/BookingForm.tsx', content: generateBookingForm() },
-    { path: 'components/ProductGrid.tsx', content: generateProductGrid() },
+    { path: 'components/CartDrawer.tsx', content: generateCartDrawer(language) },
+    { path: 'components/ComponentRenderer.tsx', content: generateComponentRenderer(language) },
+    { path: 'components/ContactForm.tsx', content: generateContactForm(language) },
+    { path: 'components/BookingForm.tsx', content: generateBookingForm(language) },
+    { path: 'components/ProductGrid.tsx', content: generateProductGrid(language) },
     { path: 'components/AnalyticsTracker.tsx', content: generateAnalyticsTracker() },
-    { path: 'components/CookieBanner.tsx', content: generateCookieBanner() },
-    { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId) },
+    { path: 'components/CookieBanner.tsx', content: generateCookieBanner(language) },
+    { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId, language) },
     { path: 'app/globals.css', content: generateGlobalsCss(theme) },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
     { path: 'app/api/checkout/validate/route.ts', content: generateCheckoutValidateApiRoute(websiteId) },
@@ -266,8 +270,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/api/products/route.ts', content: generateProductApiRoute(websiteId) },
     { path: 'app/api/orders/route.ts', content: generateOrderApiRoute(websiteId) },
     { path: 'app/api/shipping-methods/route.ts', content: generateShippingMethodsApiRoute(websiteId) },
-    { path: 'app/product/[id]/page.tsx', content: generateProductDetailPage() },
-    { path: 'app/checkout/page.tsx', content: generateCheckoutPage() },
+    { path: 'app/product/[id]/page.tsx', content: generateProductDetailPage(language) },
+    { path: 'app/checkout/page.tsx', content: generateCheckoutPage(language) },
   ];
   
   for (const page of processedBuilderState.pages) {

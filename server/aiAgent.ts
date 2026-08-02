@@ -31,6 +31,12 @@ import {
    ───────────────────────────────────────────────────────────── */
 
 import { getOpenAI } from "./openaiClient";
+import {
+  DEFAULT_SITE_LANGUAGE,
+  LANGUAGE_NAME_EN,
+  copyLanguageInstruction,
+  type SiteLanguage,
+} from "@shared/siteLanguage";
 
 const MODEL = "gpt-5.1";
 export const MAX_STEPS = 12;
@@ -75,8 +81,8 @@ export type AgentOutcome =
 
 /* ─────────── prompt ─────────── */
 
-function buildSystemPrompt(): string {
-  return `You are Birdflow's website-building agent. You work on a real Danish website by CALLING TOOLS — you never output website JSON directly.
+function buildSystemPrompt(lang: SiteLanguage): string {
+  return `You are Birdflow's website-building agent. You work on a real, live website by CALLING TOOLS — you never output website JSON directly.
 
 ## How you work
 1. Start by orienting yourself: list_pages, then get_page on the page you will change, and get_brand_guide.
@@ -86,7 +92,8 @@ function buildSystemPrompt(): string {
 
 ## Rules
 - The brand guide is LAW: use only its colours and fonts, follow its spacing, radius, shadow and motion levels, and write all copy in its tone of voice.
-- ALL user-visible copy is Danish, specific and concrete. Never lorem ipsum, never placeholder text like "Din tekst her".
+- ${copyLanguageInstruction(lang)} Every word you write onto the site is idiomatic ${LANGUAGE_NAME_EN[lang]}, specific and concrete — never lorem ipsum, never placeholder text like "Din tekst her". This is the customer's chosen website language and it never changes mid-site.
+- You talk to the user in Danish (the builder interface is Danish), but the copy you put ON the site follows the rule above.
 - Prefer a standard section type when one fits. Valid types: ${componentTypes.join(", ")}.
 - When nothing fits, build one with create_custom_component out of primitive nodes. Always give tabletStyles and mobileStyles as well as base styles — the site must work on phones.
 - Allowed style keys on primitive nodes: ${PRIMITIVE_STYLE_KEYS.join(", ")}.
@@ -340,9 +347,17 @@ export async function runBuilderAgent(args: {
   prompt: string;
   state: BuilderStateData;
   approvedLargeChanges?: boolean;
+  /** The website's own language - all copy the agent writes follows it. */
+  language?: SiteLanguage;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<AgentOutcome> {
-  const { websiteId, prompt, state, approvedLargeChanges = false } = args;
+  const {
+    websiteId,
+    prompt,
+    state,
+    approvedLargeChanges = false,
+    language = DEFAULT_SITE_LANGUAGE,
+  } = args;
   const emit = args.onEvent ?? (() => {});
 
   const ctx: AgentContext = {
@@ -357,7 +372,7 @@ export async function runBuilderAgent(args: {
 
   const outcome = await runAgentLoop({
     tools: buildToolCatalogue(),
-    systemPrompt: buildSystemPrompt(),
+    systemPrompt: buildSystemPrompt(language),
     userMessage: `${buildStateSummary(ctx.state)}\n\nOpgave: ${prompt}`,
     ctx,
     emit,

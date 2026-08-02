@@ -1,4 +1,27 @@
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
+import {
+  CALENDAR_MONTHS,
+  CALENDAR_WEEKDAYS,
+  DEFAULT_SITE_LANGUAGE,
+  PUBLISHED_SITE_STRINGS,
+  SITE_LOCALE,
+  type SiteLanguage,
+} from '../../shared/siteLanguage';
+
+/**
+ * Localized literals are emitted as JSX expressions - `{"Din kurv"}` rather
+ * than bare text - so a quote or a brace in a translation can never break the
+ * generated file.
+ */
+function jsx(value: string): string {
+  return `{${JSON.stringify(value)}}`;
+}
+
+/** Same, for a string that lands inside generated JS/TS rather than JSX. */
+function lit(value: string): string {
+  return JSON.stringify(value);
+}
+
 
 export function generatePackageJson(siteName: string): string {
   // Sanitize siteName for npm package name requirements:
@@ -2162,7 +2185,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
 `;
 }
 
-export function generateCartDrawer(): string {
+export function generateCartDrawer(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+  const t = PUBLISHED_SITE_STRINGS[lang];
   return `'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -2238,7 +2262,7 @@ export default function CartDrawer() {
           alignItems: 'center',
         }}>
           <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#111827' }}>
-            Shopping Cart
+            ${jsx(t.cartTitle)}
           </h2>
           <button
             onClick={closeCart}
@@ -2253,7 +2277,7 @@ export default function CartDrawer() {
               alignItems: 'center',
               justifyContent: 'center',
             }}
-            aria-label="Close cart"
+            aria-label={${lit(t.cartClose)}}
           >
             ✕
           </button>
@@ -2264,8 +2288,8 @@ export default function CartDrawer() {
           {items.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '48px 24px', color: '#6b7280' }}>
               <div style={{ fontSize: '48px', marginBottom: '16px' }}>🛒</div>
-              <p style={{ fontSize: '16px', fontWeight: 500 }}>Your cart is empty</p>
-              <p style={{ fontSize: '14px', marginTop: '8px' }}>Add some products to get started!</p>
+              <p style={{ fontSize: '16px', fontWeight: 500 }}>${jsx(t.cartEmpty)}</p>
+              <p style={{ fontSize: '14px', marginTop: '8px' }}>${jsx(t.cartEmptyHint)}</p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2327,7 +2351,7 @@ export default function CartDrawer() {
                       color: '#6b7280', 
                       margin: '4px 0 8px',
                     }}>
-                      {formatCurrency(parseFloat(item.product.price || '0'), item.product.currency)} each
+                      {formatCurrency(parseFloat(item.product.price || '0'), item.product.currency)}${jsx(t.cartEach)}
                     </p>
 
                     {/* Quantity Controls */}
@@ -2381,7 +2405,7 @@ export default function CartDrawer() {
                           fontWeight: 500,
                         }}
                       >
-                        Remove
+                        ${jsx(t.cartRemove)}
                       </button>
                     </div>
                   </div>
@@ -2411,7 +2435,7 @@ export default function CartDrawer() {
               alignItems: 'center',
               marginBottom: '16px',
             }}>
-              <span style={{ fontSize: '16px', color: '#6b7280' }}>Total</span>
+              <span style={{ fontSize: '16px', color: '#6b7280' }}>${jsx(t.cartTotal)}</span>
               <span style={{ fontSize: '24px', fontWeight: 700, color: '#111827' }}>
                 {formatCurrency(totalAmount, currency)}
               </span>
@@ -2435,7 +2459,7 @@ export default function CartDrawer() {
                 gap: '8px',
               }}
             >
-              Proceed to Checkout
+              ${jsx(t.cartCheckout)}
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
@@ -2519,7 +2543,8 @@ export default function CartButton({ color = '#1a1a1a' }: CartButtonProps) {
 `;
 }
 
-export function generateComponentRenderer(): string {
+export function generateComponentRenderer(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+  const t = PUBLISHED_SITE_STRINGS[lang];
   return `'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -3327,7 +3352,7 @@ function BurgerMenuButton({ isOpen, textColor, hoverColor, onClick }: {
         height: '40px',
         position: 'relative',
       }}
-      aria-label="Toggle menu"
+      aria-label={${lit(t.navToggleMenu)}}
     >
       <span style={{
         display: 'block',
@@ -3802,7 +3827,7 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
         
         {displayProducts.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>
-            <p>No products available.</p>
+            <p>${jsx(t.ssrProductsEmpty)}</p>
           </div>
         ) : (
           <div className="product-grid-ssr">
@@ -4096,7 +4121,7 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
         {submitted ? (
           <div style={{ padding: '20px', backgroundColor: '#10b981', color: '#ffffff', borderRadius: '8px' }}>
             <p style={{ fontSize: '16px', fontWeight: '500' }}>
-              {props.successMessage || 'Thanks for subscribing!'}
+              {props.successMessage || ${lit(t.newsletterSuccess)}}
             </p>
           </div>
         ) : (
@@ -4105,7 +4130,7 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder={props.placeholder || 'Enter your email address'}
+              placeholder={props.placeholder || ${lit(t.newsletterPlaceholder)}}
               style={{
                 flex: '1 1 250px',
                 padding: '14px 18px',
@@ -4128,7 +4153,7 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
                 fontWeight: '600',
               }}
             >
-              {props.buttonText || 'Subscribe'}
+              {props.buttonText || ${lit(t.newsletterButton)}}
             </HoverButtonComponent>
           </form>
         )}
@@ -4397,7 +4422,7 @@ function ComparisonTableSection({ props, styles }: { props: ComponentProps; styl
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
             <thead>
               <tr>
-                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600 }}>Feature</th>
+                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600 }}>${jsx(t.comparisonFeature)}</th>
                 {tableColumns.map((col: any, i: number) => (
                   <th key={i} style={{ padding: '16px', textAlign: 'center', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600, color: accentColor }}>{col}</th>
                 ))}
@@ -4524,8 +4549,8 @@ function ContactFormSection({ props, styles }: { props: ComponentProps; styles: 
       <section style={{ ...baseStyle, fontFamily }}>
         <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center', padding: '48px 24px' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
-          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>Tak for din besked!</h2>
-          <p style={{ opacity: 0.7 }}>Vi vender tilbage hurtigst muligt.</p>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>${jsx(t.formSuccessTitle)}</h2>
+          <p style={{ opacity: 0.7 }}>${jsx(t.formSuccessBody)}</p>
         </div>
       </section>
     );
@@ -4558,7 +4583,7 @@ function ContactFormSection({ props, styles }: { props: ComponentProps; styles: 
             textColor={getContrastColor(resolveButtonColor(styles))}
             style={{ marginTop: '8px', width: '100%' }}
           >
-            {props.buttonText || 'Send besked'}
+            {props.buttonText || ${lit(t.formSubmit)}}
           </HoverButtonComponent>
         </form>
       </div>
@@ -5122,7 +5147,8 @@ export default function ComponentRenderer({ component, products = [], pages = []
 `;
 }
 
-export function generateContactForm(): string {
+export function generateContactForm(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+  const t = PUBLISHED_SITE_STRINGS[lang];
   return `'use client';
 
 import React, { useState } from 'react';
@@ -5171,16 +5197,16 @@ export default function ContactForm({ styles, props }: Props) {
   return (
     <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '0' }}>
       <div style={{ maxWidth: '500px', margin: '0 auto' }}>
-        <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px', textAlign: 'center' }}>{props.title || 'Contact Us'}</h2>
+        <h2 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px', textAlign: 'center' }}>{props.title || ${lit(t.contactTitle)}}</h2>
         {props.description && <p style={{ textAlign: 'center', marginBottom: '32px', opacity: 0.8 }}>{props.description}</p>}
         
         {status === 'success' ? (
-          <p style={{ textAlign: 'center', color: '#22c55e' }}>Thank you! We'll get back to you soon.</p>
+          <p style={{ textAlign: 'center', color: '#22c55e' }}>${jsx(t.contactThanks)}</p>
         ) : (
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <input
               type="text"
-              placeholder="Your Name"
+              placeholder={${lit(t.contactName)}}
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               required
@@ -5188,14 +5214,14 @@ export default function ContactForm({ styles, props }: Props) {
             />
             <input
               type="email"
-              placeholder="Your Email"
+              placeholder={${lit(t.contactEmail)}}
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               required
               style={{ padding: '12px 16px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '16px' }}
             />
             <textarea
-              placeholder="Your Message"
+              placeholder={${lit(t.contactMessage)}}
               value={form.message}
               onChange={(e) => setForm({ ...form, message: e.target.value })}
               required
@@ -5207,9 +5233,9 @@ export default function ContactForm({ styles, props }: Props) {
               disabled={status === 'loading'}
               style={{ padding: '14px 24px', backgroundColor: '#4f46e5', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: 600, cursor: 'pointer' }}
             >
-              {status === 'loading' ? 'Sending...' : 'Send Message'}
+              {status === 'loading' ? ${lit(t.contactSending)} : ${lit(t.contactSend)}}
             </button>
-            {status === 'error' && <p style={{ color: '#ef4444', textAlign: 'center' }}>Something went wrong. Please try again.</p>}
+            {status === 'error' && <p style={{ color: '#ef4444', textAlign: 'center' }}>${jsx(t.contactError)}</p>}
           </form>
         )}
       </div>
@@ -5219,7 +5245,9 @@ export default function ContactForm({ styles, props }: Props) {
 `;
 }
 
-export function generateBookingForm(): string {
+export function generateBookingForm(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+  const t = PUBLISHED_SITE_STRINGS[lang];
+  const locale = SITE_LOCALE[lang];
   return `'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -5462,7 +5490,7 @@ export default function BookingForm({ styles, props }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedService || !selectedDate || !selectedTime || !name || !email) {
-      setErrorMessage('Please fill in all required fields and try again.');
+      setErrorMessage(${lit(t.bookingErrorRequired)});
       setStatus('error');
       return;
     }
@@ -5498,17 +5526,17 @@ export default function BookingForm({ styles, props }: Props) {
           payload = null;
         }
         if (res.status === 409 && payload?.code === 'MEMBER_CONFLICT') {
-          setErrorMessage('The selected person is not available at this time.');
+          setErrorMessage(${lit(t.bookingErrorMemberConflict)});
           setSelectedTime('');
           setStep('datetime');
           await refreshSlots();
         } else if (res.status === 409) {
-          setErrorMessage('This time slot is no longer available. Please select a different time.');
+          setErrorMessage(${lit(t.bookingErrorSlotTaken)});
           setSelectedTime('');
           setStep('datetime');
           await refreshSlots();
         } else {
-          setErrorMessage('Please fill in all required fields and try again.');
+          setErrorMessage(${lit(t.bookingErrorRequired)});
         }
         setStatus('error');
       } else {
@@ -5526,7 +5554,7 @@ export default function BookingForm({ styles, props }: Props) {
         }
       }
     } catch (err) {
-      setErrorMessage('Something went wrong. Please try again.');
+      setErrorMessage(${lit(t.bookingErrorGeneric)});
       setStatus('error');
     }
   };
@@ -5571,8 +5599,8 @@ export default function BookingForm({ styles, props }: Props) {
   const canProceedStep2 = selectedDate !== '' && selectedTime !== '';
   const bgColor = styles.backgroundColor || '#f8fafc';
   const textColor = styles.textColor || '#1e293b';
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const monthNames = ${JSON.stringify(CALENDAR_MONTHS[lang])};
+  const dayNames = ${JSON.stringify(CALENDAR_WEEKDAYS[lang])};
   const availableSlots = timeSlots.filter(s => s.available);
 
   return (
@@ -5580,9 +5608,9 @@ export default function BookingForm({ styles, props }: Props) {
       <div style={{ maxWidth: '720px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', padding: '8px 16px', borderRadius: '20px', marginBottom: '16px' }}>
-            <span style={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}>Book Your Appointment</span>
+            <span style={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingBadge)}</span>
           </div>
-          <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '12px' }}>{props.title || 'Schedule a Visit'}</h2>
+          <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '12px' }}>{props.title || ${lit(t.bookingTitle)}}</h2>
           {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7 }}>{props.subtitle}</p>}
         </div>
 
@@ -5602,21 +5630,21 @@ export default function BookingForm({ styles, props }: Props) {
             <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
               <svg style={{ width: '32px', height: '32px', color: '#fff' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
             </div>
-            <h3 style={{ color: '#065f46', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>Booking Confirmed!</h3>
-            <p style={{ color: '#047857', marginBottom: '24px' }}>We'll send a confirmation email to {email}</p>
-            <button onClick={resetForm} data-testid="button-book-another" style={{ backgroundColor: '#10b981', color: '#fff', padding: '12px 24px', borderRadius: '10px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>Book Another Appointment</button>
+            <h3 style={{ color: '#065f46', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>${jsx(t.bookingConfirmed)}</h3>
+            <p style={{ color: '#047857', marginBottom: '24px' }}>${jsx(t.bookingConfirmedBody)} {email}</p>
+            <button onClick={resetForm} data-testid="button-book-another" style={{ backgroundColor: '#10b981', color: '#fff', padding: '12px 24px', borderRadius: '10px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>${jsx(t.bookingAnother)}</button>
           </div>
         ) : (
           <div style={{ backgroundColor: '#fff', borderRadius: '20px', padding: '32px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: '1px solid rgba(0,0,0,0.06)' }}>
             {services.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: '#fefce8', borderRadius: '12px', border: '1px solid #fde047' }}>
-                <p style={{ color: '#854d0e', fontWeight: 500 }}>No services available right now</p>
+                <p style={{ color: '#854d0e', fontWeight: 500 }}>${jsx(t.bookingNoServices)}</p>
               </div>
             ) : (
               <form onSubmit={handleSubmit}>
                 {step === 'service' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>Choose a Service</p>
+                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>${jsx(t.bookingChooseService)}</p>
                     {services.map((service) => (
                       <div key={service.id} data-testid={'option-service-' + service.id} onClick={() => handleSelectService(service.id)} style={{ padding: '20px', borderRadius: '12px', border: selectedService === service.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedService === service.id ? '#f0f4ff' : '#fff', cursor: 'pointer', transition: 'all 0.15s ease' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -5629,20 +5657,20 @@ export default function BookingForm({ styles, props }: Props) {
                         </div>
                       </div>
                     ))}
-                    <button type="button" data-testid="button-continue-service" onClick={() => canProceedStep1 && goToStep(1)} disabled={!canProceedStep1} style={{ marginTop: '16px', padding: '14px 24px', borderRadius: '12px', fontSize: '16px', fontWeight: 600, backgroundColor: canProceedStep1 ? accentColor : '#e2e8f0', color: canProceedStep1 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep1 ? 'pointer' : 'default' }}>Continue</button>
+                    <button type="button" data-testid="button-continue-service" onClick={() => canProceedStep1 && goToStep(1)} disabled={!canProceedStep1} style={{ marginTop: '16px', padding: '14px 24px', borderRadius: '12px', fontSize: '16px', fontWeight: 600, backgroundColor: canProceedStep1 ? accentColor : '#e2e8f0', color: canProceedStep1 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep1 ? 'pointer' : 'default' }}>${jsx(t.bookingContinue)}</button>
                   </div>
                 )}
 
                 {step === 'person' && showPersonStep && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>Choose a Person</p>
+                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>${jsx(t.bookingChoosePerson)}</p>
                     <button
                       type="button"
                       data-testid="button-select-anyone"
                       onClick={() => setSelectedMember('')}
                       style={{ textAlign: 'left', padding: '16px 20px', borderRadius: '12px', border: selectedMember === '' ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedMember === '' ? '#f0f4ff' : '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '15px', color: textColor }}
                     >
-                      Anyone available
+                      ${jsx(t.bookingAnyone)}
                     </button>
                     {availableMembers.map((member) => (
                       <button
@@ -5660,15 +5688,15 @@ export default function BookingForm({ styles, props }: Props) {
                       </button>
                     ))}
                     <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" data-testid="button-back-person" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
-                      <button type="button" data-testid="button-continue-person" onClick={() => goToStep(1)} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: 'pointer' }}>Continue</button>
+                      <button type="button" data-testid="button-back-person" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>${jsx(t.bookingBack)}</button>
+                      <button type="button" data-testid="button-continue-person" onClick={() => goToStep(1)} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: 'pointer' }}>${jsx(t.bookingContinue)}</button>
                     </div>
                   </div>
                 )}
 
                 {step === 'datetime' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>Select Date & Time</p>
+                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>${jsx(t.bookingChooseDateTime)}</p>
                     
                     {/* Calendar */}
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px' }}>
@@ -5685,7 +5713,7 @@ export default function BookingForm({ styles, props }: Props) {
                       </div>
                       
                       {loadingAvailability ? (
-                        <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>Loading availability...</div>
+                        <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>${jsx(t.bookingLoadingAvailability)}</div>
                       ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
                           {calendarDays.map((day, idx) => {
@@ -5697,7 +5725,7 @@ export default function BookingForm({ styles, props }: Props) {
                                 type="button"
                                 onClick={() => canSelect && setSelectedDate(day.dateStr)}
                                 disabled={!canSelect}
-                                title={day.isBlocked ? (day.blockReason || 'Unavailable') : undefined}
+                                title={day.isBlocked ? (day.blockReason || ${lit(t.bookingUnavailable)}) : undefined}
                                 style={{
                                   padding: '10px 4px',
                                   borderRadius: '8px',
@@ -5722,11 +5750,11 @@ export default function BookingForm({ styles, props }: Props) {
                         <div style={{ marginTop: '12px', display: 'flex', gap: '16px', justifyContent: 'center', fontSize: '12px' }}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <span style={{ width: '12px', height: '12px', borderRadius: '4px', backgroundColor: '#f0f4ff', border: \`1px solid \${accentColor}\` }}></span>
-                            Available
+                            ${jsx(t.bookingLegendAvailable)}
                           </span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <span style={{ width: '12px', height: '12px', borderRadius: '4px', backgroundColor: '#fef2f2' }}></span>
-                            Blocked
+                            ${jsx(t.bookingLegendBlocked)}
                           </span>
                         </div>
                       )}
@@ -5736,20 +5764,20 @@ export default function BookingForm({ styles, props }: Props) {
                     {selectedDate && (
                       <div>
                         <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>
-                          Available Times for {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                          ${jsx(t.bookingAvailableTimesFor)} {new Date(selectedDate + 'T00:00:00').toLocaleDateString(${lit(locale)}, { weekday: 'long', month: 'short', day: 'numeric' })}
                         </label>
                         {loadingSlots ? (
-                          <div style={{ textAlign: 'center', padding: '20px', opacity: 0.6 }}>Loading times...</div>
+                          <div style={{ textAlign: 'center', padding: '20px', opacity: 0.6 }}>${jsx(t.bookingLoadingTimes)}</div>
                         ) : availableSlots.length === 0 ? (
                           <div style={{ textAlign: 'center', padding: '20px', backgroundColor: '#fefce8', borderRadius: '8px', border: '1px solid #fde047' }}>
-                            <p style={{ color: '#854d0e', fontSize: '14px' }}>No available times for this date. Please select another date.</p>
+                            <p style={{ color: '#854d0e', fontSize: '14px' }}>${jsx(t.bookingNoTimes)}</p>
                           </div>
                         ) : (
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
                             {availableSlots.map((slot) => (
                               <button key={slot.time} type="button" data-testid={'button-slot-' + slot.time} onClick={() => setSelectedTime(slot.time)} style={{ padding: '12px', borderRadius: '8px', border: selectedTime === slot.time ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedTime === slot.time ? '#f0f4ff' : '#fff', color: selectedTime === slot.time ? accentColor : textColor, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}>
                                 {slot.time}
-                                {slot.openSlotId && <span style={{ display: 'block', fontSize: '11px', opacity: 0.6, fontWeight: 400 }}>Open slot</span>}
+                                {slot.openSlotId && <span style={{ display: 'block', fontSize: '11px', opacity: 0.6, fontWeight: 400 }}>${jsx(t.bookingOpenSlot)}</span>}
                               </button>
                             ))}
                           </div>
@@ -5762,53 +5790,53 @@ export default function BookingForm({ styles, props }: Props) {
                     )}
                     
                     <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" data-testid="button-back-datetime" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
-                      <button type="button" data-testid="button-continue-datetime" onClick={() => canProceedStep2 && goToStep(1)} disabled={!canProceedStep2} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: canProceedStep2 ? accentColor : '#e2e8f0', color: canProceedStep2 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep2 ? 'pointer' : 'default' }}>Continue</button>
+                      <button type="button" data-testid="button-back-datetime" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>${jsx(t.bookingBack)}</button>
+                      <button type="button" data-testid="button-continue-datetime" onClick={() => canProceedStep2 && goToStep(1)} disabled={!canProceedStep2} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: canProceedStep2 ? accentColor : '#e2e8f0', color: canProceedStep2 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep2 ? 'pointer' : 'default' }}>${jsx(t.bookingContinue)}</button>
                     </div>
                   </div>
                 )}
 
                 {step === 'details' && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>Your Details</p>
+                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>${jsx(t.bookingYourDetails)}</p>
                     {selectedServiceData && (
                       <div style={{ padding: '16px', backgroundColor: '#f8fafc', borderRadius: '10px', marginBottom: '8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                          <span style={{ opacity: 0.7 }}>Service:</span>
+                          <span style={{ opacity: 0.7 }}>${jsx(t.bookingService)}</span>
                           <span style={{ fontWeight: 600 }}>{selectedServiceData.name}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '4px' }}>
                           <span style={{ opacity: 0.7 }}>Date & Time:</span>
-                          <span style={{ fontWeight: 600 }}>{new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {selectedTime}</span>
+                          <span style={{ fontWeight: 600 }}>{new Date(selectedDate + 'T00:00:00').toLocaleDateString(${lit(locale)}, { weekday: 'short', month: 'short', day: 'numeric' })} ${jsx(t.bookingAt)} {selectedTime}</span>
                         </div>
                         {selectedMemberData && (
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '4px' }}>
-                            <span style={{ opacity: 0.7 }}>With:</span>
+                            <span style={{ opacity: 0.7 }}>${jsx(t.bookingWith)}</span>
                             <span style={{ fontWeight: 600 }}>{selectedMemberData.name}</span>
                           </div>
                         )}
                       </div>
                     )}
                     <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Full Name *</label>
-                      <input type="text" data-testid="input-customer-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingFullName)}</label>
+                      <input type="text" data-testid="input-customer-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={${lit(t.bookingNamePlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Email *</label>
-                      <input type="email" data-testid="input-customer-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingEmail)}</label>
+                      <input type="email" data-testid="input-customer-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={${lit(t.bookingEmailPlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Phone (optional)</label>
-                      <input type="tel" data-testid="input-customer-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 123-4567" style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingPhone)}</label>
+                      <input type="tel" data-testid="input-customer-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={${lit(t.bookingPhonePlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
                     </div>
                     <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Notes (optional)</label>
-                      <textarea data-testid="input-booking-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Any special requests..." style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '16px', resize: 'none' }} />
+                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingNotes)}</label>
+                      <textarea data-testid="input-booking-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={${lit(t.bookingNotesPlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '16px', resize: 'none' }} />
                     </div>
-                    {status === 'error' && <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{errorMessage || 'Please fill in all required fields and try again.'}</div>}
+                    {status === 'error' && <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{errorMessage || ${lit(t.bookingErrorRequired)}}</div>}
                     <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" data-testid="button-back-details" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>Back</button>
-                      <button type="submit" data-testid="button-confirm-booking" disabled={status === 'loading' || !name || !email} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: status === 'loading' || !name || !email ? 'default' : 'pointer', opacity: status === 'loading' || !name || !email ? 0.6 : 1 }}>{status === 'loading' ? 'Booking...' : (props.buttonText || 'Confirm Booking')}</button>
+                      <button type="button" data-testid="button-back-details" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>${jsx(t.bookingBack)}</button>
+                      <button type="submit" data-testid="button-confirm-booking" disabled={status === 'loading' || !name || !email} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: status === 'loading' || !name || !email ? 'default' : 'pointer', opacity: status === 'loading' || !name || !email ? 0.6 : 1 }}>{status === 'loading' ? ${lit(t.bookingSubmitting)} : (props.buttonText || ${lit(t.bookingSubmit)})}</button>
                     </div>
                   </div>
                 )}
@@ -5823,7 +5851,8 @@ export default function BookingForm({ styles, props }: Props) {
 `;
 }
 
-export function generateProductGrid(): string {
+export function generateProductGrid(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+  const t = PUBLISHED_SITE_STRINGS[lang];
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -5883,7 +5912,7 @@ export default function ProductGrid({ styles, props }: Props) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('checkout') === 'success') {
-      setSuccessMessage('Payment successful! Your order has been placed.');
+      setSuccessMessage(${lit(t.productPaymentSuccess)});
     }
   }, []);
 
@@ -5930,7 +5959,7 @@ export default function ProductGrid({ styles, props }: Props) {
     <section style={{ backgroundColor: styles.backgroundColor, color: styles.textColor, padding: styles.padding || '0' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <div style={{ marginBottom: '32px', textAlign: 'center' }}>
-          <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || 'Products'}</h2>
+          <h2 style={{ fontSize: '32px', fontWeight: 700 }}>{props.title || ${lit(t.productsTitle)}}</h2>
           {props.description && <p style={{ opacity: 0.7, marginTop: '8px' }}>{props.description}</p>}
         </div>
 
@@ -6059,11 +6088,11 @@ export default function ProductGrid({ styles, props }: Props) {
         \`}</style>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px' }}>Loading products...</div>
+          <div style={{ textAlign: 'center', padding: '40px' }}>${jsx(t.productsLoading)}</div>
         ) : fetchError ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#ef4444' }}>Unable to load products. Please try again later.</div>
+          <div style={{ textAlign: 'center', padding: '40px', color: '#ef4444' }}>${jsx(t.productsError)}</div>
         ) : products.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>No products available.</div>
+          <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>${jsx(t.productsEmpty)}</div>
         ) : (
           <div className="product-grid-responsive">
             {products.map(product => (
@@ -6079,7 +6108,7 @@ export default function ProductGrid({ styles, props }: Props) {
                   <h3 className="product-title">{product.name}</h3>
                   {product.category && <p className="product-category">{product.category}</p>}
                   <p className="product-price">
-                    {product.variants && product.variants.length > 0 ? 'From ' : ''}{formatCurrency(parseFloat(product.price), product.currency)}
+                    {product.variants && product.variants.length > 0 ? ${lit(t.productsFrom)} : ''}{formatCurrency(parseFloat(product.price), product.currency)}
                   </p>
                 </div>
               </a>
@@ -6094,7 +6123,8 @@ export default function ProductGrid({ styles, props }: Props) {
 }
 
 // Cookie consent banner for GDPR compliance
-export function generateCookieBanner(): string {
+export function generateCookieBanner(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+  const t = PUBLISHED_SITE_STRINGS[lang];
   return `'use client';
 
 import { useState, useEffect } from 'react';
@@ -6130,10 +6160,10 @@ type CookieBannerProps = {
 };
 
 export default function CookieBanner({
-  bannerText = "We use cookies to improve your experience and analyze site traffic.",
+  bannerText = ${lit(t.cookieText)},
   privacyPolicyUrl,
-  acceptButtonText = "Accept",
-  rejectButtonText = "Reject"
+  acceptButtonText = ${lit(t.cookieAccept)},
+  rejectButtonText = ${lit(t.cookieReject)}
 }: CookieBannerProps) {
   const [visible, setVisible] = useState(false);
 
@@ -6184,7 +6214,7 @@ export default function CookieBanner({
               target="_blank"
               rel="noopener noreferrer"
             >
-              Privacy Policy
+              ${jsx(t.cookiePrivacyPolicy)}
             </a>
           </>
         )}
@@ -6561,7 +6591,11 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
 `;
 }
 
-export function generateRootLayout(siteName: string, websiteId: string): string {
+export function generateRootLayout(
+  siteName: string,
+  websiteId: string,
+  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE
+): string {
   return `import type { Metadata } from 'next';
 import './globals.css';
 import { WebsiteProvider } from '@/components/WebsiteProvider';
@@ -6577,7 +6611,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="${lang}">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -6877,7 +6911,8 @@ export async function GET(request: NextRequest) {
 `;
 }
 
-export function generateProductDetailPage(): string {
+export function generateProductDetailPage(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+  const t = PUBLISHED_SITE_STRINGS[lang];
   return `'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -7070,7 +7105,7 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
         >
           <button
             onClick={(e) => { e.stopPropagation(); setIsLightboxOpen(false); }}
-            aria-label="Close image viewer"
+            aria-label={${lit(t.productCloseViewer)}}
             style={{
               position: 'absolute',
               top: '20px',
@@ -7095,7 +7130,7 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
             <>
               <button
                 onClick={(e) => { e.stopPropagation(); setSelectedIndex(prev => (prev > 0 ? prev - 1 : images.length - 1)); }}
-                aria-label="Previous image"
+                aria-label={${lit(t.productPreviousImage)}}
                 style={{
                   position: 'absolute',
                   left: '20px',
@@ -7119,7 +7154,7 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setSelectedIndex(prev => (prev < images.length - 1 ? prev + 1 : 0)); }}
-                aria-label="Next image"
+                aria-label={${lit(t.productNextImage)}}
                 style={{
                   position: 'absolute',
                   right: '20px',
@@ -7234,7 +7269,7 @@ function AccordionSections({ product }: { product: Product }) {
     <div style={{ marginTop: '60px', backgroundColor: '#fff', borderRadius: '16px', padding: '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #e5e7eb' }}>
       {(product.long_description || product.product_details) && (
         <AccordionSection
-          title="Product Details"
+          title={${lit(t.productSectionDetails)}}
           icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>}
           defaultOpen={true}
         >
@@ -7245,7 +7280,7 @@ function AccordionSections({ product }: { product: Product }) {
       )}
       {product.shipping_info && (
         <AccordionSection
-          title="Shipping & Returns"
+          title={${lit(t.productSectionShipping)}}
           icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13" /><path d="M16 8h4l3 3v5h-7V8z" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /></svg>}
         >
           <div style={{ whiteSpace: 'pre-wrap' }}>{product.shipping_info}</div>
@@ -7253,7 +7288,7 @@ function AccordionSections({ product }: { product: Product }) {
       )}
       {product.care_instructions && (
         <AccordionSection
-          title="Care Instructions"
+          title={${lit(t.productSectionCare)}}
           icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>}
         >
           <div style={{ whiteSpace: 'pre-wrap' }}>{product.care_instructions}</div>
@@ -7261,7 +7296,7 @@ function AccordionSections({ product }: { product: Product }) {
       )}
       {product.size_guide && (
         <AccordionSection
-          title="Size Guide"
+          title={${lit(t.productSectionSize)}}
           icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 3H3v7h18V3zM21 14H3v7h18v-7z"/></svg>}
         >
           <div style={{ whiteSpace: 'pre-wrap' }}>{product.size_guide}</div>
@@ -7313,8 +7348,8 @@ function RelatedProducts({ currentProductId, currency = 'USD' }: { currentProduc
     <div style={{ marginTop: '80px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '32px' }}>
         <div>
-          <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '4px' }}>You May Also Like</h2>
-          <p style={{ fontSize: '15px', color: '#6b7280', margin: 0 }}>Explore more products from our collection</p>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '4px' }}>${jsx(t.productRelatedTitle)}</h2>
+          <p style={{ fontSize: '15px', color: '#6b7280', margin: 0 }}>${jsx(t.productRelatedSubtitle)}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={() => scroll('left')} disabled={!canScrollLeft} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '1px solid #e5e7eb', backgroundColor: canScrollLeft ? '#fff' : '#f9fafb', cursor: canScrollLeft ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: canScrollLeft ? 1 : 0.4 }}>
@@ -7334,7 +7369,7 @@ function RelatedProducts({ currentProductId, currency = 'USD' }: { currentProduc
             <Link key={p.id} href={'/product/' + p.id} style={{ textDecoration: 'none', color: 'inherit', display: 'block', minWidth: '240px', maxWidth: '240px', backgroundColor: '#fff', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #e5e7eb', scrollSnapAlign: 'start', flexShrink: 0 }}>
               <div style={{ aspectRatio: '1', backgroundColor: '#f3f4f6', position: 'relative', overflow: 'hidden' }}>
                 {p.image_url && <img src={p.image_url} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                {hasDiscount && <div style={{ position: 'absolute', top: '12px', left: '12px', backgroundColor: '#dc2626', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600 }}>Sale</div>}
+                {hasDiscount && <div style={{ position: 'absolute', top: '12px', left: '12px', backgroundColor: '#dc2626', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600 }}>${jsx(t.productSale)}</div>}
               </div>
               <div style={{ padding: '16px' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: 600, color: '#111827', marginBottom: '8px', lineHeight: 1.4 }}>{p.name}</h3>
@@ -7458,9 +7493,9 @@ export default function ProductDetailPage() {
     if (!product?.inventory) return null;
     const stock = parseInt(product.inventory);
     if (isNaN(stock)) return null;
-    if (stock === 0) return { text: 'Out of Stock', color: '#ef4444' };
-    if (stock <= 5) return { text: 'Only ' + stock + ' left!', color: '#f59e0b' };
-    return { text: 'In Stock', color: '#22c55e' };
+    if (stock === 0) return { text: ${lit(t.productOutOfStock)}, color: '#ef4444' };
+    if (stock <= 5) return { text: ${lit(t.productOnlyLeftPrefix)} + stock + ${lit(t.productOnlyLeftSuffix)}, color: '#f59e0b' };
+    return { text: ${lit(t.productInStock)}, color: '#22c55e' };
   };
 
   if (loading) {
@@ -7468,7 +7503,7 @@ export default function ProductDetailPage() {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ width: '48px', height: '48px', border: '4px solid #e5e7eb', borderTopColor: '#4f46e5', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }} />
-          <p style={{ color: '#6b7280' }}>Loading product...</p>
+          <p style={{ color: '#6b7280' }}>${jsx(t.productLoading)}</p>
         </div>
         <style>{\`@keyframes spin { to { transform: rotate(360deg); } }\`}</style>
       </div>
@@ -7480,10 +7515,10 @@ export default function ProductDetailPage() {
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' }}>
         <div style={{ textAlign: 'center', maxWidth: '400px', padding: '40px' }}>
           <div style={{ fontSize: '64px', marginBottom: '16px' }}>📦</div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', color: '#111827' }}>Product Not Found</h1>
-          <p style={{ color: '#6b7280', marginBottom: '24px' }}>{error || 'The product you are looking for does not exist or is no longer available.'}</p>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', color: '#111827' }}>${jsx(t.productNotFound)}</h1>
+          <p style={{ color: '#6b7280', marginBottom: '24px' }}>{error || ${lit(t.productNotFoundBody)}}</p>
           <Link href="/" style={{ display: 'inline-block', padding: '12px 24px', backgroundColor: '#4f46e5', color: '#fff', borderRadius: '8px', textDecoration: 'none', fontWeight: 600 }}>
-            Back to Home
+            ${jsx(t.productBackHome)}
           </Link>
         </div>
       </div>
@@ -7492,7 +7527,7 @@ export default function ProductDetailPage() {
 
   const allImages = getAllImages();
   const stockStatus = getStockStatus();
-  const isOutOfStock = stockStatus?.text === 'Out of Stock';
+  const isOutOfStock = stockStatus?.text === ${lit(t.productOutOfStock)};
 
   return (
     <div style={{ backgroundColor: '#f9fafb' }}>
@@ -7565,7 +7600,7 @@ export default function ProductDetailPage() {
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          Back to Products
+          ${jsx(t.productBackToProducts)}
         </Link>
 
         <div className="product-layout">
@@ -7707,19 +7742,19 @@ export default function ProductDetailPage() {
                   gap: '8px',
                 }}
               >
-                {!allVariantsSelected() ? 'Select Options' : isOutOfStock ? 'Out of Stock' : addedToCart ? (
+                {!allVariantsSelected() ? ${lit(t.productSelectOptions)} : isOutOfStock ? ${lit(t.productOutOfStock)} : addedToCart ? (
                   <>
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                       <path d="M5 10L8.5 13.5L15 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
-                    Added to Cart
+                    ${jsx(t.productAdded)}
                   </>
                 ) : (
                   <>
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                       <path d="M3 3H5L5.4 5M7 13H15L17 5H5.4M7 13L5.4 5M7 13L4.7 15.3C4.1 15.9 4.5 17 5.3 17H15M15 17C14.2 17 13.5 17.7 13.5 18.5S14.2 20 15 20 16.5 19.3 16.5 18.5 15.8 17 15 17ZM7 17C6.2 17 5.5 17.7 5.5 18.5S6.2 20 7 20 8.5 19.3 8.5 18.5 7.8 17 7 17Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
-                    Add to Cart
+                    ${jsx(t.productAddToCart)}
                   </>
                 )}
               </button>
@@ -7730,19 +7765,19 @@ export default function ProductDetailPage() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M5 12h14M12 5l7 7-7 7"/>
                 </svg>
-                Free Shipping
+                ${jsx(t.productFreeShipping)}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280', fontSize: '14px' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
-                Secure Checkout
+                ${jsx(t.productSecureCheckout)}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280', fontSize: '14px' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
-                Easy Returns
+                ${jsx(t.productEasyReturns)}
               </div>
             </div>
           </div>
@@ -7752,37 +7787,37 @@ export default function ProductDetailPage() {
 
         <div style={{ marginTop: '60px', backgroundColor: '#f8fafc', borderRadius: '20px', padding: '48px', border: '1px solid #e2e8f0' }}>
           <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-            <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '8px', letterSpacing: '-0.02em' }}>Why Choose Us</h2>
-            <p style={{ fontSize: '15px', color: '#6b7280', maxWidth: '500px', margin: '0 auto' }}>We're committed to providing you with the best shopping experience</p>
+            <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '8px', letterSpacing: '-0.02em' }}>${jsx(t.productWhyTitle)}</h2>
+            <p style={{ fontSize: '15px', color: '#6b7280', maxWidth: '500px', margin: '0 auto' }}>${jsx(t.productWhySubtitle)}</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px' }}>
             <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
               <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
               </div>
-              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Premium Quality</h3>
-              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>Crafted with the finest materials</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>${jsx(t.productWhyQuality)}</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>${jsx(t.productWhyQualityBody)}</p>
             </div>
             <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
               <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
               </div>
-              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Easy Returns</h3>
-              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>30-day hassle-free returns</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>${jsx(t.productWhyReturns)}</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>${jsx(t.productWhyReturnsBody)}</p>
             </div>
             <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
               <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
               </div>
-              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>Fast Delivery</h3>
-              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>2-5 business days shipping</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>${jsx(t.productWhyDelivery)}</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>${jsx(t.productWhyDeliveryBody)}</p>
             </div>
             <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '28px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
               <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#fce7f3', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#db2777" strokeWidth="2"><path d="M12 2a10 10 0 00-10 10 10 10 0 0010 10 10 10 0 0010-10A10 10 0 0012 2z"/><path d="M12 6v6l4 2"/></svg>
               </div>
-              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>24/7 Support</h3>
-              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>Always here to help you</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#111827', marginBottom: '6px' }}>${jsx(t.productWhySupport)}</h3>
+              <p style={{ fontSize: '13px', color: '#6b7280', lineHeight: 1.5, margin: 0 }}>${jsx(t.productWhySupportBody)}</p>
             </div>
           </div>
         </div>
@@ -7795,7 +7830,8 @@ export default function ProductDetailPage() {
 `;
 }
 
-export function generateCheckoutPage(): string {
+export function generateCheckoutPage(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+  const t = PUBLISHED_SITE_STRINGS[lang];
   return `'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -7877,17 +7913,17 @@ export default function CheckoutPage() {
     setOutOfStock([]);
     
     if (!name.trim() || !email.trim() || !address.trim() || !city.trim() || !postalCode.trim()) {
-      setError('Udfyld venligst alle påkrævede felter');
+      setError(${lit(t.checkoutErrorRequired)});
       return;
     }
 
     if (!websiteId) {
-      setError('Unable to process order. Please try again.');
+      setError(${lit(t.checkoutErrorProcess)});
       return;
     }
 
     if (items.length === 0) {
-      setError('Your cart is empty');
+      setError(${lit(t.checkoutErrorEmptyCart)});
       return;
     }
 
@@ -7967,7 +8003,7 @@ export default function CheckoutPage() {
         }));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : ${lit(t.checkoutErrorGeneric)});
     } finally {
       setIsSubmitting(false);
     }
@@ -7976,7 +8012,7 @@ export default function CheckoutPage() {
   if (websiteLoading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' }}>
-        <div style={{ fontSize: '18px', color: '#6b7280' }}>Loading...</div>
+        <div style={{ fontSize: '18px', color: '#6b7280' }}>${jsx(t.checkoutLoading)}</div>
       </div>
     );
   }
@@ -7990,12 +8026,12 @@ export default function CheckoutPage() {
               <path d="M20 6L9 17l-5-5"/>
             </svg>
           </div>
-          <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '16px' }}>Order Confirmed!</h1>
-          <p style={{ fontSize: '18px', color: '#6b7280', marginBottom: '8px' }}>Thank you for your order.</p>
-          {orderId && <p style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '32px' }}>Order ID: {orderId}</p>}
-          <p style={{ fontSize: '16px', color: '#4b5563', marginBottom: '32px' }}>We'll send a confirmation email to <strong>{email}</strong></p>
+          <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '16px' }}>${jsx(t.checkoutConfirmedTitle)}</h1>
+          <p style={{ fontSize: '18px', color: '#6b7280', marginBottom: '8px' }}>${jsx(t.checkoutConfirmedBody)}</p>
+          {orderId && <p style={{ fontSize: '14px', color: '#9ca3af', marginBottom: '32px' }}>${jsx(t.checkoutOrderId)} {orderId}</p>}
+          <p style={{ fontSize: '16px', color: '#4b5563', marginBottom: '32px' }}>${jsx(t.checkoutConfirmationEmail)} <strong>{email}</strong></p>
           <Link href="/" style={{ display: 'inline-block', padding: '14px 32px', backgroundColor: '#4f46e5', color: '#fff', borderRadius: '12px', fontWeight: 600, textDecoration: 'none' }}>
-            Continue Shopping
+            ${jsx(t.checkoutContinueShopping)}
           </Link>
         </div>
       </div>
@@ -8007,10 +8043,10 @@ export default function CheckoutPage() {
       <div style={{ backgroundColor: '#f9fafb', padding: '60px 24px' }}>
         <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
           <div style={{ fontSize: '64px', marginBottom: '24px' }}>🛒</div>
-          <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#111827', marginBottom: '16px' }}>Your cart is empty</h1>
-          <p style={{ fontSize: '16px', color: '#6b7280', marginBottom: '32px' }}>Add some items to your cart to checkout.</p>
+          <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#111827', marginBottom: '16px' }}>${jsx(t.checkoutEmptyTitle)}</h1>
+          <p style={{ fontSize: '16px', color: '#6b7280', marginBottom: '32px' }}>${jsx(t.checkoutEmptyBody)}</p>
           <Link href="/" style={{ display: 'inline-block', padding: '14px 32px', backgroundColor: '#4f46e5', color: '#fff', borderRadius: '12px', fontWeight: 600, textDecoration: 'none' }}>
-            Browse Products
+            ${jsx(t.checkoutBrowseProducts)}
           </Link>
         </div>
       </div>
@@ -8024,50 +8060,50 @@ export default function CheckoutPage() {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M19 12H5M12 19l-7-7 7-7"/>
           </svg>
-          Back to shopping
+          ${jsx(t.checkoutBackToShopping)}
         </Link>
 
-        <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '40px' }}>Checkout</h1>
+        <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#111827', marginBottom: '40px' }}>${jsx(t.checkoutTitle)}</h1>
 
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 400px', gap: isMobile ? '24px' : '40px' }}>
           <div style={{ order: isMobile ? 2 : 1 }}>
             <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: isMobile ? '20px' : '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-              <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Dine oplysninger</h2>
+              <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>${jsx(t.checkoutYourDetails)}</h2>
               
               <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Fulde navn *</label>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>${jsx(t.checkoutFullName)}</label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="John Doe"
+                    placeholder={${lit(t.checkoutNamePlaceholder)}}
                     required
                     style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
                   />
                 </div>
 
                 <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>E-mail adresse *</label>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>${jsx(t.checkoutEmail)}</label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="john@example.com"
+                    placeholder={${lit(t.checkoutEmailPlaceholder)}}
                     required
                     style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
                   />
                 </div>
 
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '16px', marginTop: '32px' }}>Leveringsadresse</h3>
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '16px', marginTop: '32px' }}>${jsx(t.checkoutShippingAddress)}</h3>
 
                 <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Adresse *</label>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>${jsx(t.checkoutAddress)}</label>
                   <input
                     type="text"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Vejnavn 123"
+                    placeholder={${lit(t.checkoutAddressPlaceholder)}}
                     required
                     style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
                   />
@@ -8075,23 +8111,23 @@ export default function CheckoutPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: '16px', marginBottom: '24px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>By *</label>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>${jsx(t.checkoutCity)}</label>
                     <input
                       type="text"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
-                      placeholder="København"
+                      placeholder={${lit(t.checkoutCityPlaceholder)}}
                       required
                       style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Postnummer *</label>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>${jsx(t.checkoutPostalCode)}</label>
                     <input
                       type="text"
                       value={postalCode}
                       onChange={(e) => setPostalCode(e.target.value)}
-                      placeholder="2100"
+                      placeholder={${lit(t.checkoutPostalCodePlaceholder)}}
                       required
                       style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '16px', outline: 'none', boxSizing: 'border-box' }}
                     />
@@ -8105,7 +8141,7 @@ export default function CheckoutPage() {
                       <ul style={{ marginTop: '12px', marginLeft: '16px' }}>
                         {outOfStock.map((item) => (
                           <li key={item.productId} style={{ marginBottom: '4px' }}>
-                            <strong>{item.name}</strong>: {item.available === 0 ? 'Out of stock' : \`Only \${item.available} available (requested \${item.requested})\`}
+                            <strong>{item.name}</strong>: {item.available === 0 ? ${lit(t.checkoutOutOfStock)} : ${lit(t.checkoutOutOfStockDetail[0])} + item.available + ${lit(t.checkoutOutOfStockDetail[1])} + item.requested + ${lit(t.checkoutOutOfStockDetail[2])}}
                           </li>
                         ))}
                       </ul>
@@ -8128,7 +8164,7 @@ export default function CheckoutPage() {
                     cursor: isSubmitting ? 'default' : 'pointer',
                   }}
                 >
-                  {isSubmitting ? 'Behandler ordre...' : 'Bekræft ordre'}
+                  {isSubmitting ? ${lit(t.checkoutSubmitting)} : ${lit(t.checkoutSubmit)}}
                 </button>
               </form>
             </div>
@@ -8136,7 +8172,7 @@ export default function CheckoutPage() {
 
           <div style={{ order: isMobile ? 1 : 2 }}>
             <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: isMobile ? '20px' : '32px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', position: isMobile ? 'relative' : 'sticky', top: isMobile ? 'auto' : '24px' }}>
-              <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>Ordreoversigt</h2>
+              <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: 600, color: '#111827', marginBottom: '24px' }}>${jsx(t.checkoutSummary)}</h2>
               
               <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '20px', marginBottom: '20px' }}>
                 {items.map((item) => (
@@ -8148,7 +8184,7 @@ export default function CheckoutPage() {
                     )}
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 500, color: '#111827', marginBottom: '4px' }}>{item.product.name}</div>
-                      <div style={{ fontSize: '14px', color: '#6b7280' }}>Qty: {item.quantity}</div>
+                      <div style={{ fontSize: '14px', color: '#6b7280' }}>${jsx(t.checkoutQty)} {item.quantity}</div>
                     </div>
                     <div style={{ fontWeight: 600, color: '#111827' }}>
                       {formatCurrency(parseFloat(item.product.price) * item.quantity, item.product.currency)}
@@ -8158,17 +8194,17 @@ export default function CheckoutPage() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#6b7280', marginBottom: '12px' }}>
-                <span>Subtotal</span>
+                <span>${jsx(t.checkoutSubtotal)}</span>
                 <span>{formatCurrency(totalAmount, currency)}</span>
               </div>
 
               {isLoadingShipping ? (
                 <div style={{ padding: '16px', textAlign: 'center', color: '#6b7280', fontSize: '14px' }}>
-                  Loading shipping options...
+                  ${jsx(t.checkoutLoadingShipping)}
                 </div>
               ) : shippingMethods.length > 0 && (
                 <div style={{ marginBottom: '20px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '12px' }}>Shipping Method</div>
+                  <div style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '12px' }}>${jsx(t.checkoutShippingMethod)}</div>
                   {shippingMethods.map((method) => (
                     <label 
                       key={method.id}
@@ -8195,7 +8231,7 @@ export default function CheckoutPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ fontWeight: 500, color: '#111827' }}>{method.name}</span>
                           <span style={{ fontWeight: 600, color: '#111827' }}>
-                            {method.priceAmount === 0 ? 'Free' : formatCurrency(method.priceAmount / 100, method.currency)}
+                            {method.priceAmount === 0 ? ${lit(t.checkoutFree)} : formatCurrency(method.priceAmount / 100, method.currency)}
                           </span>
                         </div>
                         {method.deliveryTime && (
@@ -8209,20 +8245,20 @@ export default function CheckoutPage() {
 
               {!isLoadingShipping && shippingMethods.length === 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#6b7280', marginBottom: '20px' }}>
-                  <span>Shipping</span>
-                  <span>Free</span>
+                  <span>${jsx(t.checkoutShipping)}</span>
+                  <span>${jsx(t.checkoutFree)}</span>
                 </div>
               )}
 
               {selectedShipping && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#6b7280', marginBottom: '20px' }}>
-                  <span>Shipping ({selectedShipping.name})</span>
-                  <span>{shippingCost === 0 ? 'Free' : formatCurrency(shippingCost, currency)}</span>
+                  <span>${jsx(t.checkoutShipping)} ({selectedShipping.name})</span>
+                  <span>{shippingCost === 0 ? ${lit(t.checkoutFree)} : formatCurrency(shippingCost, currency)}</span>
                 </div>
               )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '20px', fontWeight: 700, color: '#111827', paddingTop: '20px', borderTop: '1px solid #e5e7eb' }}>
-                <span>Total</span>
+                <span>${jsx(t.checkoutTotal)}</span>
                 <span>{formatCurrency(grandTotal, currency)}</span>
               </div>
             </div>

@@ -27,6 +27,8 @@ const previewPage = read("client/src/pages/onboarding-preview.tsx");
 const workspace = read("client/src/components/onboarding/DecisionWorkspace.tsx");
 const paymentDialog = read("client/src/components/onboarding/PaymentChoiceDialog.tsx");
 const onboardingPage = read("client/src/pages/onboarding.tsx");
+// Onboarding renders its own copy per language; the Danish wording lives here.
+const onboardingCopy = read("client/src/pages/onboarding.copy.ts");
 const emailService = read("server/email/service.ts");
 
 /**
@@ -304,7 +306,7 @@ describe("paid is a fact from Stripe, not a hope from the browser", () => {
 
   it("the browser waits for the webhook after a successful return from Stripe", () => {
     expect(onboardingPage).toContain('checkoutParam() !== "success"');
-    expect(onboardingPage).toContain("Vi bekræfter din betaling hos Stripe");
+    expect(onboardingCopy).toContain("Vi bekræfter din betaling hos Stripe");
   });
 });
 

@@ -100,6 +100,8 @@ export type AvailableSlot = {
 };
 
 import { timeToMinutes, intervalsOverlap, TIME_RE } from "./bookingOverlap";
+import { normalizeSiteLanguage } from "@shared/siteLanguage";
+import { SEEDED_TEMPLATE_TYPES, defaultEmailTemplates } from "./email/defaultTemplates";
 
 // Use Supabase database as primary storage
 // Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
@@ -1916,47 +1918,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async ensureEmailTemplatesConfigured(websiteId: string): Promise<void> {
-    const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; bodyText: string; buttonText?: string }> = {
-      order_confirmation: {
-        subject: 'Order Confirmation - #{{orderId}}',
-        heading: 'Thank you for your order!',
-        bodyText: 'We have received your order and are processing it. You will receive another email when your order ships.',
-        buttonText: 'View Order',
-      },
-      booking_confirmation: {
-        subject: 'Booking Confirmation - {{serviceName}}',
-        heading: 'Your booking is confirmed!',
-        bodyText: 'We look forward to seeing you at your scheduled appointment.',
-        buttonText: 'View Booking',
-      },
-      booking_updated: {
-        subject: 'Booking Updated - {{serviceName}}',
-        heading: 'Your booking has been updated',
-        bodyText: 'The details of your booking have been modified. Please review the updated information below.',
-        buttonText: 'View Booking',
-      },
-      booking_cancelled: {
-        subject: 'Booking Cancelled - {{serviceName}}',
-        heading: 'Your booking has been cancelled',
-        bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
-      },
-      booking_reminder: {
-        subject: 'Reminder: {{serviceName}} on {{date}}',
-        heading: 'Your appointment is coming up',
-        bodyText: 'This is a friendly reminder about your upcoming appointment. We look forward to seeing you!',
-      },
-      booking_followup: {
-        subject: 'Thank you for your visit - {{serviceName}}',
-        heading: 'Thank you for visiting us!',
-        bodyText: 'We hope you enjoyed your appointment. We would love to see you again - book your next appointment anytime.',
-      },
-      website_published: {
-        subject: 'Your website is now live!',
-        heading: 'Congratulations! Your website is published',
-        bodyText: 'Your website is now live and accessible to the world. Click below to visit your site.',
-        buttonText: 'Visit Website',
-      },
-    };
+    // Seed in the website's own language. Existing rows are never touched, so
+    // a customer who edited a template keeps their wording.
+    const website = await this.getWebsite(websiteId);
+    const templates = defaultEmailTemplates(normalizeSiteLanguage(website?.language));
+    const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; bodyText: string; buttonText?: string }> =
+      Object.fromEntries(
+        SEEDED_TEMPLATE_TYPES.filter(type => templates[type]).map(type => [type, templates[type]])
+      );
 
     const existingTemplates = await this.getEmailTemplates(websiteId);
     const existingTypes = new Set(existingTemplates.map(t => t.templateType));

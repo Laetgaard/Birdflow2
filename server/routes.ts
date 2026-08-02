@@ -62,6 +62,7 @@ import { consumeAgentRun } from "./aiRateLimit";
 import { registerAssistantPlanRoutes } from "./assistantPlanRoutes";
 
 // Helper to migrate legacy element-based state to component-based state
+import { SITE_LANGUAGES, normalizeSiteLanguage } from "@shared/siteLanguage";
 function migrateBuilderState(state: any): BuilderStateData {
   // If already in component format, return as-is
   if (state.pages?.[0]?.components !== undefined) {
@@ -432,6 +433,15 @@ export async function registerRoutes(
       const timestamp = Date.now().toString(36);
       const uniqueSlug = `${baseSlug}-${timestamp}`;
 
+      // The language step comes right after the AI/DIY fork, which is before
+      // the draft website exists — so the choice is already sitting in the
+      // session answers and has to be carried onto the new row here. Absent
+      // means Danish, exactly as the column default.
+      const onboardingSession = await storage.getOnboardingSession(user.id);
+      const chosenLanguage = normalizeSiteLanguage(
+        (onboardingSession?.answers as any)?.language
+      );
+
       // Load template data before transaction (AI mode starts blank; the
       // generation pipeline fills it in afterwards)
       const { getTemplateById, cloneTemplateState } = await import("@shared/websiteTemplates");
@@ -447,6 +457,7 @@ export async function registerRoutes(
           slug: uniqueSlug,
           setupType: isAiMode ? "ai" : (websiteType || "template"),
           status: "draft",
+          language: chosenLanguage,
         }).returning();
 
         // 2. Create builder state
@@ -591,6 +602,7 @@ export async function registerRoutes(
   const recordBodySchema = z
     .object({
       path: z.enum(["ai", "diy"]).optional(),
+      language: z.enum(SITE_LANGUAGES).optional(),
       websiteId: z.string().max(64).optional(),
       palette: z
         .object({
@@ -654,6 +666,17 @@ export async function registerRoutes(
 
       if (body.path) patch.path = body.path;
       if (body.desiredDomain) patch.desiredDomain = body.desiredDomain;
+
+      // The language choice is mirrored straight onto the website row, not
+      // just kept in the session answers: everything downstream that needs it
+      // (generation, publishing, the builder agent, transactional email) has
+      // a websiteId but no onboarding session to read from.
+      if (body.language) {
+        patch.language = body.language;
+        if (websiteId) {
+          await storage.updateWebsite(websiteId, userId, { language: body.language });
+        }
+      }
       if (body.palette) patch.palette = body.palette;
       if (body.fontPair) patch.fontPair = body.fontPair;
 
@@ -724,12 +747,19 @@ export async function registerRoutes(
         res.write(`data: ${JSON.stringify(payload)}\n\n`);
       };
 
+      // Once a draft website exists its row is the source of truth for the
+      // language - the session answers can be stale, or missing entirely on a
+      // resumed or reused draft.
+      const agentSiteId = session?.websiteId ?? null;
+      const agentSite = agentSiteId ? await storage.getWebsite(agentSiteId) : undefined;
+
       const { runOnboardingAgent } = await import("./onboardingAgent");
       const outcome = await runOnboardingAgent({
         userId,
-        websiteId: session?.websiteId ?? null,
+        websiteId: agentSiteId,
         transcript,
         answers: session?.answers ?? {},
+        language: agentSite ? normalizeSiteLanguage(agentSite.language) : undefined,
         onEvent: send,
       });
 
@@ -2859,6 +2889,7 @@ export async function registerRoutes(
         vercelTeamId: process.env.VERCEL_TEAM_ID,
         customDomain: activeCustomDomain,
         birdflowApiUrl,
+        language: normalizeSiteLanguage(website.language),
       });
 
       if (result.success) {
@@ -5112,6 +5143,9 @@ export async function registerRoutes(
       return res.status(404).json({ message: "Builder state not found" });
     }
     const currentState = builderData.state as BuilderStateData;
+    // The website's own language: every word the agent writes onto the site
+    // follows the customer's onboarding choice, run after run.
+    const agentWebsite = await storage.getWebsite(req.params.id);
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -5128,6 +5162,7 @@ export async function registerRoutes(
         prompt: parsed.data.prompt,
         state: currentState,
         approvedLargeChanges: parsed.data.approvedLargeChanges === true,
+        language: normalizeSiteLanguage(agentWebsite?.language),
         onEvent: send,
       });
 
@@ -5308,13 +5343,18 @@ export async function registerRoutes(
 
       const { proposePalettes, proposeFontPairs, finalizeBrandGuide, CURATED_GOOGLE_FONTS } = await import("./designInterview");
 
+      // Palette names, font-pair rationales and the brand guide's tone notes
+      // are written in the website's own language.
+      const interviewWebsite = await storage.getWebsite(req.params.id);
+      const interviewLanguage = normalizeSiteLanguage(interviewWebsite?.language);
+
       if (body.step === "palettes") {
-        const palettes = await proposePalettes(body.feeling, currentState);
+        const palettes = await proposePalettes(body.feeling, currentState, interviewLanguage);
         return res.json({ success: true, palettes });
       }
 
       if (body.step === "typography") {
-        const fontPairs = await proposeFontPairs(body.feeling, body.palette, currentState);
+        const fontPairs = await proposeFontPairs(body.feeling, body.palette, currentState, interviewLanguage);
         return res.json({ success: true, fontPairs });
       }
 
@@ -5340,6 +5380,7 @@ export async function registerRoutes(
           fontPair: body.fontPair,
           imageUrls: safeImageUrls,
           notes: body.notes,
+          language: interviewLanguage,
         },
         currentState
       );
@@ -5444,7 +5485,13 @@ export async function registerRoutes(
       const logoUrl = body.logoUrl && owned.has(body.logoUrl) ? body.logoUrl : undefined;
       const logoMediaId = logoUrl && body.logoMediaId && ownedIds.has(body.logoMediaId) ? body.logoMediaId : undefined;
 
+      // The durable language lives on the website row, not on the request or
+      // the onboarding session: a restart mid-build must rebuild the site in
+      // the same language the customer chose.
+      const genWebsite = await storage.getWebsite(req.params.id);
+
       const status = startOnboardingGeneration(req.params.id, {
+        language: normalizeSiteLanguage(genWebsite?.language),
         business: body.business,
         wishes: body.wishes,
         feeling: body.feeling,

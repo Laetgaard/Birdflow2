@@ -3,6 +3,7 @@ import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean, uni
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { CustomComponentEntry, BrandGuide } from "./customComponents";
+import type { SiteLanguage } from "./siteLanguage";
 
 export type { CustomComponentEntry, BrandGuide } from "./customComponents";
 
@@ -176,6 +177,14 @@ export const websites = pgTable("websites", {
   // owner sees in /manage. Orders and products carry their own currency
   // for historical rows; this is the default and the display fallback.
   currency: text("currency").notNull().default("DKK"),
+  // One of SITE_LANGUAGES: the language this customer's website is written
+  // in, chosen once in onboarding. Drives the generated copy, the published
+  // site's document language and date formatting, later builder AI edits and
+  // the transactional emails this website sends. Plain text rather than
+  // $type<SiteLanguage> for the same reason as `kind` above - Partial<>
+  // update helpers elsewhere must keep typechecking. Danish is the default,
+  // so a row written before this column existed behaves exactly as before.
+  language: text("language").notNull().default("da"),
   deploymentUrl: text("deployment_url"),
   deploymentId: text("deployment_id"),
   lastPublishedAt: timestamp("last_published_at"),
@@ -249,6 +258,11 @@ export type OnboardingChatMessage = {
 // never round-tripped through the model.
 export type OnboardingAnswers = {
   path?: "ai" | "diy";
+  /**
+   * The language the customer picked right after the AI-vs-DIY fork. Mirrored
+   * onto websites.language the moment it is recorded; absent means Danish.
+   */
+  language?: SiteLanguage;
   businessName?: string;
   industry?: string;
   description?: string;

@@ -39,10 +39,13 @@ import {
   Globe,
   MessageSquare,
   Layout,
+  Languages,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { BrandGuide } from "@shared/customComponents";
 import type { OnboardingDecisionSnapshot, OnboardingResumeStage } from "@shared/onboardingDecision";
+import { normalizeSiteLanguage, type SiteLanguage } from "@shared/siteLanguage";
+import { ONBOARDING_UI_COPY, type OnboardingUiCopy } from "./onboarding.copy";
 import { DecisionWorkspace, type DecisionCopy, type DecisionPage } from "@/components/onboarding/DecisionWorkspace";
 import { PaymentChoiceDialog } from "@/components/onboarding/PaymentChoiceDialog";
 import type { PlatformMeeting } from "@/components/onboarding/MeetingBooking";
@@ -110,22 +113,8 @@ type GenStatus = {
   error?: string;
 };
 
-const GEN_PHASES: { id: string; label: string }[] = [
-  { id: "brandguide", label: "Skaber din brandguide" },
-  { id: "plan", label: "Planlægger dit website" },
-  { id: "build", label: "Bygger sider og indhold på dansk" },
-  { id: "enhance", label: "Designer unikke komponenter og billeder" },
-  { id: "check", label: "Kvalitetstjek: links, kontrast og mobilvisning" },
-];
-
-const RAIL: { label: string }[] = [
-  { label: "Virksomhed" },
-  { label: "Ønsker" },
-  { label: "Materiale" },
-  { label: "Design" },
-  { label: "AI bygger" },
-  { label: "Godkend" },
-];
+/** Pipeline phase ids, in order. The labels live in ONBOARDING_UI_COPY. */
+const GEN_PHASE_IDS = ["brandguide", "plan", "build", "enhance", "check"] as const;
 
 /** Which rail group the walkthrough has reached, derived from state. */
 function railProgress(answers: OnboardingAnswers, view: View): number {
@@ -152,7 +141,7 @@ function ensureGoogleFonts(fonts: string[]) {
   });
 }
 
-function ProgressRail({ current }: { current: number }) {
+function ProgressRail({ current, labels }: { current: number; labels: string[] }) {
   return (
     <div className="mx-auto mb-8 w-full max-w-3xl">
       <div className="relative">
@@ -161,16 +150,16 @@ function ProgressRail({ current }: { current: number }) {
             className="h-full"
             style={{ background: PURPLE }}
             initial={{ width: "0%" }}
-            animate={{ width: `${(current / (RAIL.length - 1)) * 100}%` }}
+            animate={{ width: `${(current / (labels.length - 1)) * 100}%` }}
             transition={{ duration: 0.5, ease: "easeInOut" }}
           />
         </div>
         <div className="relative flex justify-between">
-          {RAIL.map((item, index) => {
+          {labels.map((label, index) => {
             const isCompleted = index < current;
             const isCurrent = index === current;
             return (
-              <div key={item.label} className="flex flex-col items-center">
+              <div key={label} className="flex flex-col items-center">
                 <motion.div
                   className="z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-bold transition-colors"
                   style={
@@ -191,7 +180,7 @@ function ProgressRail({ current }: { current: number }) {
                     isCurrent ? "font-semibold text-neutral-900" : "text-neutral-500"
                   }`}
                 >
-                  {item.label}
+                  {label}
                 </span>
               </div>
             );
@@ -202,11 +191,11 @@ function ProgressRail({ current }: { current: number }) {
   );
 }
 
-function ReportCard({ report }: { report: BuildReport }) {
+function ReportCard({ report, t }: { report: BuildReport; t: OnboardingUiCopy }) {
   const groups: Array<{ title: string; icon: React.ReactNode; lines: string[]; color: string }> = [
-    { title: "Oprettet", icon: <PlusCircle className="w-3.5 h-3.5" />, lines: report.oprettet, color: "text-green-600 dark:text-green-400" },
-    { title: "Ændret", icon: <PenLine className="w-3.5 h-3.5" />, lines: report.aendret, color: "text-primary" },
-    { title: "Tjek", icon: <ListChecks className="w-3.5 h-3.5" />, lines: report.tjek, color: "text-amber-600 dark:text-amber-400" },
+    { title: t.reportCreated, icon: <PlusCircle className="w-3.5 h-3.5" />, lines: report.oprettet, color: "text-green-600 dark:text-green-400" },
+    { title: t.reportChanged, icon: <PenLine className="w-3.5 h-3.5" />, lines: report.aendret, color: "text-primary" },
+    { title: t.reportChecks, icon: <ListChecks className="w-3.5 h-3.5" />, lines: report.tjek, color: "text-amber-600 dark:text-amber-400" },
   ];
   const visible = groups.filter((g) => g.lines.length > 0);
   if (visible.length === 0) return null;
@@ -224,7 +213,7 @@ function ReportCard({ report }: { report: BuildReport }) {
             ))}
             {group.lines.length > 8 && (
               <li className="text-sm leading-snug text-muted-foreground/70 italic">
-                + {group.lines.length - 8} mere...
+                {t.reportMore(group.lines.length - 8)}
               </li>
             )}
           </ul>
@@ -285,11 +274,13 @@ function FontPairCards({
   chosenId,
   disabled,
   onChoose,
+  t,
 }: {
   pairs: FontPairProposal[];
   chosenId?: string;
   disabled: boolean;
   onChoose: (pair: FontPairProposal) => void;
+  t: OnboardingUiCopy;
 }) {
   useEffect(() => {
     ensureGoogleFonts(pairs.flatMap((p) => [p.heading, p.body]));
@@ -313,10 +304,10 @@ function FontPairCards({
               {chosen && <Check className="w-4 h-4 text-primary shrink-0" />}
             </div>
             <p className="mt-1.5 text-xl leading-tight" style={{ fontFamily: `'${pair.heading}', sans-serif` }}>
-              Overskrift der fanger
+              {t.fontSampleHeading}
             </p>
             <p className="text-sm text-muted-foreground" style={{ fontFamily: `'${pair.body}', sans-serif` }}>
-              Brødtekst som er behagelig at læse — {pair.heading} + {pair.body}
+              {t.fontSampleBody(pair.heading, pair.body)}
             </p>
             <Badge variant="outline" className="mt-1.5 text-[10px] py-0 font-normal">
               <Type className="w-3 h-3 mr-1" />
@@ -334,16 +325,18 @@ function UploadRequestCard({
   uploading,
   disabled,
   onPick,
+  t,
 }: {
   kind: "logo" | "images" | "inspiration";
   uploading: boolean;
   disabled: boolean;
   onPick: (kind: "logo" | "images" | "inspiration") => void;
+  t: OnboardingUiCopy;
 }) {
   const labels: Record<string, { title: string; hint: string }> = {
-    logo: { title: "Upload dit logo", hint: "PNG/SVG/JPG — det bedste du har" },
-    images: { title: "Upload egne billeder", hint: "Op til 4 billeder af jer, jeres produkter eller arbejde" },
-    inspiration: { title: "Upload inspirationsbilleder", hint: "Op til 3 screenshots af sider du kan lide" },
+    logo: { title: t.uploadLogoTitle, hint: t.uploadLogoHint },
+    images: { title: t.uploadImagesTitle, hint: t.uploadImagesHint },
+    inspiration: { title: t.uploadInspirationTitle, hint: t.uploadInspirationHint },
   };
   const meta = labels[kind];
   return (
@@ -356,18 +349,18 @@ function UploadRequestCard({
       <div className="mt-2.5 flex gap-2">
         <Button size="sm" variant="outline" disabled={disabled || uploading} onClick={() => onPick(kind)} data-testid={`button-upload-${kind}`}>
           {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <ImagePlus className="w-3.5 h-3.5 mr-1.5" />}
-          Vælg fil{kind === "logo" ? "" : "er"}
+          {kind === "logo" ? t.uploadPickOne : t.uploadPickMany}
         </Button>
       </div>
     </div>
   );
 }
 
-function LogoCard({ url, businessName }: { url: string; businessName: string }) {
+function LogoCard({ url, businessName, t }: { url: string; businessName: string; t: OnboardingUiCopy }) {
   return (
     <div className="mt-2 rounded-lg border p-3 bg-card inline-block" data-testid="logo-generated-card">
       <img src={url} alt={`${businessName} logo`} className="w-32 h-32 object-contain rounded" />
-      <p className="mt-1.5 text-xs text-muted-foreground text-center">Dit nye logo — gemt i mediebiblioteket</p>
+      <p className="mt-1.5 text-xs text-muted-foreground text-center">{t.logoCaption}</p>
     </div>
   );
 }
@@ -414,13 +407,56 @@ function PlanPreviewCard({ plan }: { plan: WebsitePlan }) {
   );
 }
 
+/** The second choice: which language the whole thing is written in. */
+function LanguageStepCard({
+  disabled,
+  onChoose,
+  t,
+}: {
+  disabled: boolean;
+  onChoose: (lang: SiteLanguage) => void;
+  t: OnboardingUiCopy;
+}) {
+  const options: Array<{ value: SiteLanguage; label: string; hint: string }> = [
+    { value: "da", label: t.languageDanish, hint: t.languageDanishHint },
+    { value: "en", label: t.languageEnglish, hint: t.languageEnglishHint },
+  ];
+  return (
+    <div className="mt-3 rounded-lg border p-3 bg-card" data-testid="onboarding-language-step">
+      <p className="text-sm font-medium flex items-center gap-2">
+        <Languages className="w-4 h-4 text-primary" />
+        {t.languageStepTitle}
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{t.languageStepHint}</p>
+      <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            className="rounded-lg border p-3 text-left transition-colors hover:border-primary/50 disabled:opacity-60"
+            disabled={disabled}
+            onClick={() => onChoose(option.value)}
+            data-testid={`button-language-${option.value}`}
+          >
+            <span className="text-sm font-semibold block">{option.label}</span>
+            <span className="text-[11px] text-muted-foreground leading-snug block mt-0.5">
+              {option.hint}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** DIY branch: pick a template, name the site, straight to payment. */
 function TemplatePickerCard({
   disabled,
   onPick,
+  t,
 }: {
   disabled: boolean;
   onPick: (templateId: string, name: string) => void;
+  t: OnboardingUiCopy;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -429,7 +465,7 @@ function TemplatePickerCard({
     <div className="mt-2 rounded-lg border p-3 bg-card" data-testid="template-picker-card">
       <p className="text-sm font-medium flex items-center gap-2">
         <LayoutTemplate className="w-4 h-4 text-primary" />
-        Vælg en skabelon at bygge videre på
+        {t.templatePickerTitle}
       </p>
       <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
         {templates.map((t) => (
@@ -453,7 +489,7 @@ function TemplatePickerCard({
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Hvad skal din hjemmeside hedde?"
+          placeholder={t.templateNamePlaceholder}
           className="h-9 text-sm"
           disabled={disabled}
           data-testid="input-diy-name"
@@ -465,7 +501,7 @@ function TemplatePickerCard({
           onClick={() => selected && onPick(selected, name.trim())}
           data-testid="button-diy-create"
         >
-          Fortsæt
+          {t.templateContinue}
           <ArrowRight className="w-3.5 h-3.5 ml-1" />
         </Button>
       </div>
@@ -519,6 +555,15 @@ export default function OnboardingPage() {
   const [downloadingGuide, setDownloadingGuide] = useState(false);
   const [meeting, setMeeting] = useState<PlatformMeeting | null>(null);
   const [awaitingWebhook, setAwaitingWebhook] = useState(false);
+
+  /* ---- The customer's language ----
+     Picked on the screen right after the fork and stored server-side with
+     the rest of the answers, so a reload or a device switch resumes in the
+     same language. Deliberately NOT read from useLocale(): that hook is the
+     marketing site's switcher, which is forced to Danish outside the public
+     pages. Absent means Danish - the experience this flow always had. */
+  const lang: SiteLanguage = normalizeSiteLanguage(answers.language);
+  const t = ONBOARDING_UI_COPY[lang];
 
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -662,13 +707,13 @@ export default function OnboardingPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || "Kunne ikke gemme dit valg");
+        throw new Error(body.message || t.saveFailed);
       }
       const data = await res.json();
       setAnswers(data.answers ?? {});
       return true;
     } catch (error: any) {
-      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
       return false;
     }
   };
@@ -717,25 +762,45 @@ export default function OnboardingPage() {
         ...m,
         working: false,
         error: true,
-        content: `Beklager, noget gik galt: ${error.message}. Prøv igen.`,
+        content: `${t.errorPrefix}: ${error.message}`,
       }));
     } finally {
       setIsLoading(false);
     }
   };
 
-  /* ---- The fork (first choice, client-rendered) ---- */
+  /* ---- The fork (first choice, client-rendered) ----
+     Choosing a path does NOT start the conversation any more: the language
+     question sits between the fork and the first agent turn, so the guide's
+     very first question already arrives in the right language. */
+  const [pendingPath, setPendingPath] = useState<"ai" | "diy" | null>(null);
+
   const chooseAiPath = async () => {
     if (isLoading) return;
-    await record({ path: "ai" });
-    await sendMessage("Jeg vil gerne have, at AI'en bygger min hjemmeside sammen med mig.");
+    if (await record({ path: "ai" })) setPendingPath("ai");
   };
 
   const [diyMode, setDiyMode] = useState(false);
   const chooseDiyPath = async () => {
     if (isLoading) return;
-    await record({ path: "diy" });
-    setDiyMode(true);
+    if (await record({ path: "diy" })) setPendingPath("diy");
+  };
+
+  /* ---- The language step (second choice, client-rendered) ----
+     Deterministic, so it is written straight through /record like the palette
+     and font picks - never round-tripped through the model. The chosen value
+     is mirrored onto the website row server-side, which is what generation,
+     publishing and the transactional emails read later. */
+  const chooseLanguage = async (choice: SiteLanguage) => {
+    if (isLoading) return;
+    const path = pendingPath;
+    if (!(await record({ language: choice, ...(websiteId ? { websiteId } : {}) }))) return;
+    setPendingPath(null);
+    if (path === "diy") {
+      setDiyMode(true);
+      return;
+    }
+    await sendMessage(ONBOARDING_UI_COPY[choice].say.aiPath);
   };
 
   const createDiyWebsite = async (templateId: string, name: string) => {
@@ -748,14 +813,14 @@ export default function OnboardingPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || "Kunne ikke oprette hjemmesiden");
+        throw new Error(body.message || t.createFailed);
       }
       const data = await res.json();
       setWebsiteId(data.websiteId);
       await record({ websiteId: data.websiteId, path: "diy" });
       applyStage(await loadDecision());
     } catch (error: any) {
-      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -803,13 +868,13 @@ export default function OnboardingPage() {
   const choosePalette = async (msgIndex: number, cardIndex: number, palette: PaletteProposal) => {
     if (!(await record({ palette }))) return;
     markChosen(msgIndex, cardIndex, palette.id);
-    await sendMessage(`Jeg vælger farvepaletten "${palette.name}".`);
+    await sendMessage(t.say.palette(palette.name));
   };
 
   const chooseFontPair = async (msgIndex: number, cardIndex: number, pair: FontPairProposal) => {
     if (!(await record({ fontPair: pair }))) return;
     markChosen(msgIndex, cardIndex, pair.id);
-    await sendMessage(`Jeg vælger skrifttyperne "${pair.name}".`);
+    await sendMessage(t.say.fontPair(pair.name));
   };
 
   const pickUpload = (kind: "logo" | "images" | "inspiration") => {
@@ -823,10 +888,7 @@ export default function OnboardingPage() {
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0 || !token) return;
     if (!websiteId) {
-      toast({
-        title: "Vent et øjeblik",
-        description: "Fortæl mig først hvad din virksomhed hedder, så jeg kan oprette dit projekt.",
-      });
+      toast({ title: t.waitTitle, description: t.waitBody });
       return;
     }
     const kind = uploadKindRef.current;
@@ -839,18 +901,18 @@ export default function OnboardingPage() {
       }
       if (kind === "logo") {
         await record({ logo: uploaded[0] });
-        await sendMessage("Jeg har uploadet mit logo.");
+        await sendMessage(t.say.logoUploaded);
       } else if (kind === "images") {
         const merged = [...(answers.ownImageUrls ?? []), ...uploaded.map((u) => u.url)].slice(0, 4);
         await record({ ownImageUrls: merged });
-        await sendMessage(`Jeg har uploadet ${uploaded.length} af mine egne billeder.`);
+        await sendMessage(t.say.imagesUploaded(uploaded.length));
       } else {
         const merged = [...(answers.inspirationUrls ?? []), ...uploaded.map((u) => u.url)].slice(0, 3);
         await record({ inspirationUrls: merged });
-        await sendMessage(`Jeg har uploadet ${uploaded.length} inspirationsbilleder.`);
+        await sendMessage(t.say.inspirationUploaded(uploaded.length));
       }
     } catch (error: any) {
-      toast({ title: "Upload fejlede", description: error.message, variant: "destructive" });
+      toast({ title: t.uploadFailedTitle, description: error.message, variant: "destructive" });
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -903,7 +965,7 @@ export default function OnboardingPage() {
   const restartBuild = async () => {
     setGenStalled(false);
     setView("chat");
-    await sendMessage("Serveren genstartede — fortsæt med at bygge min hjemmeside, tak.");
+    await sendMessage(t.say.restart);
   };
 
   /* ---- Post-build feedback: adjustments via the builder agent ---- */
@@ -939,13 +1001,13 @@ export default function OnboardingPage() {
         patchRound((r) => ({
           ...r,
           working: false,
-          summary: result.summary || "Ændringerne er gennemført!",
+          summary: result.summary || t.adjustDone,
           report: result.report as BuildReport | undefined,
         }));
       } else if (result.status === "no_changes") {
-        patchRound((r) => ({ ...r, working: false, summary: result.summary || "Ingen ændringer var nødvendige." }));
+        patchRound((r) => ({ ...r, working: false, summary: result.summary || t.adjustNoop }));
       } else {
-        patchRound((r) => ({ ...r, working: false, summary: "Ændringen krævede godkendelse og blev sprunget over — brug editoren bagefter." }));
+        patchRound((r) => ({ ...r, working: false, summary: t.adjustNeededApproval }));
       }
     } catch (error: any) {
       patchRound((r) => ({ ...r, working: false, error: error.message }));
@@ -966,13 +1028,13 @@ export default function OnboardingPage() {
         { headers: authHeaders }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Kunne ikke tjekke domænet");
+      if (!res.ok) throw new Error(data.message || t.domainCheckFailed);
       setDomainResult({ domain: data.domain ?? domain, available: !!data.available, price: data.price });
       if (data.available) {
         await record({ desiredDomain: data.domain ?? domain });
       }
     } catch (error: any) {
-      toast({ title: "Domænetjek fejlede", description: error.message, variant: "destructive" });
+      toast({ title: t.domainCheckFailedTitle, description: error.message, variant: "destructive" });
     } finally {
       setDomainBusy(false);
     }
@@ -1001,10 +1063,10 @@ export default function OnboardingPage() {
         body: JSON.stringify({ websiteId }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || "Kunne ikke åbne booking.");
+      if (!res.ok) throw new Error(body.message || t.bookingOpenFailed);
       applyStage(await loadDecision());
     } catch (error: any) {
-      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
     } finally {
       setDecisionBusy(false);
     }
@@ -1020,7 +1082,7 @@ export default function OnboardingPage() {
       window.history.replaceState(null, "", "/onboarding");
       applyStage(await loadDecision());
     } catch (error: any) {
-      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
     } finally {
       setDecisionBusy(false);
     }
@@ -1065,7 +1127,11 @@ export default function OnboardingPage() {
     );
   }
 
-  const showFork = messages.length === 0 && !diyMode && answers.path !== "ai";
+  // The fork is the first screen; the language question is the second. Both
+  // are client-rendered and both disappear once they have been answered - a
+  // returning customer whose language is already stored is never asked again.
+  const showFork = messages.length === 0 && !diyMode && !pendingPath && answers.path !== "ai";
+  const showLanguageStep = pendingPath !== null;
 
   return (
     <div className="bf2-page flex min-h-screen flex-col" style={{ background: BLUSH, color: "#111" }}>
@@ -1093,7 +1159,7 @@ export default function OnboardingPage() {
           view === "decision" ? "max-w-[1500px]" : "max-w-3xl"
         }`}
       >
-        <ProgressRail current={railProgress(answers, view)} />
+        <ProgressRail current={railProgress(answers, view)} labels={t.rail} />
 
         <AnimatePresence mode="wait">
           {view === "chat" && (
@@ -1109,26 +1175,24 @@ export default function OnboardingPage() {
                 {/* Standing welcome + fork */}
                 <div className="flex justify-start">
                   <div className="max-w-[92%] rounded-2xl rounded-bl-md border border-black/10 bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,0,0,0.05)]">
-                    <p className="text-sm leading-relaxed">
-                      Hej{user?.email ? ` ${user.email.split("@")[0]}` : ""}! Jeg er din AI-guide hos
-                      Birdflow. Sammen bygger vi din hjemmeside — jeg spørger, du svarer, og til sidst
-                      bygger jeg det hele for dig. Vil du have, at jeg bygger den, eller vil du hellere
-                      selv bygge ud fra en skabelon?
-                    </p>
+                    <p className="text-sm leading-relaxed">{t.welcome(user?.email ? user.email.split("@")[0] : "")}</p>
                     {showFork && (
                       <div className="mt-3 flex flex-wrap gap-2" data-testid="onboarding-fork">
                         <Button size="sm" onClick={chooseAiPath} disabled={isLoading} data-testid="button-fork-ai">
                           <Wand2 className="w-4 h-4 mr-1.5" />
-                          AI bygger den
+                          {t.forkAi}
                         </Button>
                         <Button size="sm" variant="outline" onClick={chooseDiyPath} disabled={isLoading} data-testid="button-fork-diy">
                           <LayoutTemplate className="w-4 h-4 mr-1.5" />
-                          Jeg bygger selv
+                          {t.forkDiy}
                         </Button>
                       </div>
                     )}
+                    {showLanguageStep && (
+                      <LanguageStepCard disabled={isLoading} onChoose={chooseLanguage} t={t} />
+                    )}
                     {diyMode && !websiteId && (
-                      <TemplatePickerCard disabled={isLoading} onPick={createDiyWebsite} />
+                      <TemplatePickerCard disabled={isLoading} onPick={createDiyWebsite} t={t} />
                     )}
                   </div>
                 </div>
@@ -1166,7 +1230,7 @@ export default function OnboardingPage() {
                       {message.working && (
                         <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                           <Loader2 className="w-3 h-3 animate-spin" />
-                          Tænker…
+                          {t.thinking}
                         </p>
                       )}
 
@@ -1186,6 +1250,7 @@ export default function OnboardingPage() {
                               chosenId={display.chosenId ?? (answers.fontPair && (display.value as FontPairProposal[]).some((f) => f.id === answers.fontPair!.id) ? answers.fontPair.id : undefined)}
                               disabled={isLoading}
                               onChoose={(f) => chooseFontPair(msgIndex, cardIndex, f)}
+                              t={t}
                             />
                           )}
                           {display.kind === "uploadRequest" && (
@@ -1194,12 +1259,14 @@ export default function OnboardingPage() {
                               uploading={uploading}
                               disabled={isLoading}
                               onPick={pickUpload}
+                              t={t}
                             />
                           )}
                           {display.kind === "logoGenerated" && (
                             <LogoCard
                               url={(display.value as { url: string }).url}
                               businessName={answers.businessName ?? ""}
+                              t={t}
                             />
                           )}
                           {display.kind === "sitePlan" && (
@@ -1213,13 +1280,13 @@ export default function OnboardingPage() {
               </div>
 
               {/* Composer */}
-              {!showFork && !diyMode && (
+              {!showFork && !showLanguageStep && !diyMode && (
                 <div className="pt-3 border-t">
                   <div className="flex gap-2 items-end">
                     <Textarea
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
-                      placeholder="Skriv dit svar…"
+                      placeholder={t.composerPlaceholder}
                       className="min-h-[48px] max-h-[120px] resize-none text-sm rounded-xl"
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
@@ -1260,18 +1327,16 @@ export default function OnboardingPage() {
                 >
                   <Wand2 className="h-8 w-8 animate-pulse" style={{ color: LIME }} />
                 </div>
-                <h1 className="mb-2 text-3xl font-extrabold tracking-tight">Jeg bygger din hjemmeside</h1>
-                <p className="text-neutral-700">
-                  {genStatus?.detail || "Det tager typisk et par minutter — bliv endelig på siden."}
-                </p>
+                <h1 className="mb-2 text-3xl font-extrabold tracking-tight">{t.generatingTitle}</h1>
+                <p className="text-neutral-700">{genStatus?.detail || t.generatingHint}</p>
               </div>
 
               <Card className="space-y-3 rounded-3xl border-2 border-black/10 p-5" data-testid="generation-checklist">
-                {GEN_PHASES.map((phase) => {
-                  const isDone = genStatus?.phasesDone?.includes(phase.id) || genStatus?.done;
-                  const isActive = genStatus?.phase === phase.id && !genStatus?.done;
+                {GEN_PHASE_IDS.map((phaseId, phaseIndex) => {
+                  const isDone = genStatus?.phasesDone?.includes(phaseId) || genStatus?.done;
+                  const isActive = genStatus?.phase === phaseId && !genStatus?.done;
                   return (
-                    <div key={phase.id} className="flex items-center gap-3">
+                    <div key={phaseId} className="flex items-center gap-3">
                       <div
                         className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
                           isDone
@@ -1288,7 +1353,7 @@ export default function OnboardingPage() {
                         ) : null}
                       </div>
                       <span className={`text-sm ${isDone || isActive ? "text-foreground" : "text-muted-foreground"}`}>
-                        {phase.label}
+                        {t.genPhases[phaseIndex]}
                       </span>
                     </div>
                   );
@@ -1299,9 +1364,9 @@ export default function OnboardingPage() {
                 <div className="mt-4 flex gap-3 items-start bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-4 text-sm text-amber-800 dark:text-amber-200">
                   <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                   <div>
-                    <p>Opbygningen ser ud til at være afbrudt (serveren kan være genstartet).</p>
+                    <p>{t.stalledTitle}</p>
                     <Button size="sm" variant="outline" className="mt-2" onClick={restartBuild} data-testid="button-restart-build">
-                      Genstart opbygningen
+                      {t.stalledButton}
                     </Button>
                   </div>
                 </div>
@@ -1313,7 +1378,7 @@ export default function OnboardingPage() {
                   <div>
                     <p>{genStatus.error}</p>
                     <Button size="sm" variant="outline" className="mt-2" onClick={restartBuild}>
-                      Prøv igen
+                      {t.retryButton}
                     </Button>
                   </div>
                 </div>
@@ -1335,13 +1400,11 @@ export default function OnboardingPage() {
                   {decision.stage === "ready_for_review"
                     ? decision.copy.readyForReview
                     : decision.stage === "paid"
-                    ? "Tak — din hjemmeside er din"
-                    : "Sådan ser din hjemmeside ud"}
+                    ? t.paidHeading
+                    : t.previewHeading}
                 </h1>
                 <p className="mt-1.5 max-w-prose text-neutral-700">
-                  {decision.stage === "paid"
-                    ? "Betalingen er registreret. Du kan nu arbejde videre i dit kontrolpanel."
-                    : "Se den igennem, hent din brandguide — og vælg så, om vi skal sætte den i luften, eller om du vil have den tilpasset først."}
+                  {decision.stage === "paid" ? t.paidSubhead : t.previewSubhead}
                 </p>
                 {awaitingWebhook && (
                   <p
@@ -1349,7 +1412,7 @@ export default function OnboardingPage() {
                     data-testid="text-awaiting-webhook"
                   >
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Vi bekræfter din betaling hos Stripe…
+                    {t.awaitingWebhook}
                   </p>
                 )}
               </div>
@@ -1357,10 +1420,7 @@ export default function OnboardingPage() {
               {genStatus?.fallback && (
                 <div className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                  <span>
-                    AI'en kunne ikke nå hele vejen denne gang, så vi har bygget en solid startside ud fra dine svar.
-                    AI-assistenten i editoren kender din brandguide og kan bygge videre.
-                  </span>
+                  <span>{t.fallbackNotice}</span>
                 </div>
               )}
 
@@ -1389,22 +1449,18 @@ export default function OnboardingPage() {
                   }}
                   reportSlot={
                     report ? (
-                      <ReportCard report={report} />
+                      <ReportCard report={report} t={t} />
                     ) : (
-                      <p className="text-sm text-neutral-600">
-                        Dit website er bygget og gemt. Du finder alle detaljer i editoren.
-                      </p>
+                      <p className="text-sm text-neutral-600">{t.reportEmpty}</p>
                     )
                   }
                   adjustmentsSlot={
                     <div data-testid="feedback-card">
                       <p className="flex items-center gap-2 text-sm font-bold">
                         <MessageSquare className="h-4 w-4" style={{ color: PURPLE }} />
-                        Skal vi justere noget med det samme?
+                        {t.adjustTitle}
                       </p>
-                      <p className="mt-0.5 text-xs text-neutral-600">
-                        Fx "gør forsiden mere rolig", "tilføj et afsnit om priser" eller "flyt kontakt op".
-                      </p>
+                      <p className="mt-0.5 text-xs text-neutral-600">{t.adjustHint}</p>
 
                       {feedbackRounds.map((round, i) => (
                         <div key={i} className="mt-3 rounded-xl border border-black/10 p-3">
@@ -1426,14 +1482,14 @@ export default function OnboardingPage() {
                           {round.working && (
                             <p className="mt-1 flex items-center gap-1.5 text-xs text-neutral-600">
                               <Loader2 className="h-3 w-3 animate-spin" />
-                              Justerer…
+                              {t.adjusting}
                             </p>
                           )}
                           {round.summary && <p className="mt-1.5 text-xs text-neutral-600">{round.summary}</p>}
                           {round.error && <p className="mt-1.5 text-xs text-red-600">{round.error}</p>}
                           {round.report && (
                             <div className="mt-2">
-                              <ReportCard report={round.report} />
+                              <ReportCard report={round.report} t={t} />
                             </div>
                           )}
                         </div>
@@ -1443,7 +1499,7 @@ export default function OnboardingPage() {
                         <Textarea
                           value={feedbackInput}
                           onChange={(e) => setFeedbackInput(e.target.value)}
-                          placeholder="Beskriv din justering…"
+                          placeholder={t.adjustPlaceholder}
                           className="max-h-[100px] min-h-[44px] resize-none rounded-xl text-sm"
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && !e.shiftKey) {
@@ -1468,17 +1524,14 @@ export default function OnboardingPage() {
                       <div className="mt-5 border-t border-black/10 pt-4" data-testid="domain-card">
                         <p className="flex items-center gap-2 text-sm font-bold">
                           <Globe className="h-4 w-4" style={{ color: PURPLE }} />
-                          Skal siden have sit eget domæne?
+                          {t.domainTitle}
                         </p>
-                        <p className="mt-0.5 text-xs text-neutral-600">
-                          Tjek om det er ledigt nu — du køber eller forbinder det under "Indstillinger", når dit
-                          abonnement er aktivt.
-                        </p>
+                        <p className="mt-0.5 text-xs text-neutral-600">{t.domainHint}</p>
                         <div className="mt-2.5 flex gap-2">
                           <Input
                             value={domainInput}
                             onChange={(e) => setDomainInput(e.target.value)}
-                            placeholder="fx dinvirksomhed.dk"
+                            placeholder={t.domainPlaceholder}
                             className="h-9 text-sm"
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
@@ -1496,7 +1549,7 @@ export default function OnboardingPage() {
                             disabled={!domainInput.trim() || domainBusy}
                             data-testid="button-check-domain"
                           >
-                            {domainBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Tjek"}
+                            {domainBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t.domainCheck}
                           </Button>
                         </div>
                         {domainResult && (
@@ -1509,15 +1562,15 @@ export default function OnboardingPage() {
                             {domainResult.available ? (
                               <>
                                 <CheckCircle2 className="h-3.5 w-3.5" />
-                                {domainResult.domain} er ledigt
-                                {typeof domainResult.price === "number" ? ` (~$${domainResult.price}/år)` : ""} — gemt
-                                som dit ønske.
+                                {t.domainAvailable(
+                                  domainResult.domain,
+                                  typeof domainResult.price === "number" ? t.domainPricePerYear(domainResult.price) : ""
+                                )}
                               </>
                             ) : (
                               <>
                                 <AlertCircle className="h-3.5 w-3.5" />
-                                {domainResult.domain} er optaget — du kan forbinde et domæne, du ejer, under
-                                Indstillinger.
+                                {t.domainTaken(domainResult.domain)}
                               </>
                             )}
                           </p>
@@ -1528,14 +1581,14 @@ export default function OnboardingPage() {
                 />
               ) : (
                 <div className="rounded-3xl border-2 border-black/10 bg-white p-6 text-sm text-neutral-700">
-                  Vi kunne ikke finde din hjemmeside. Prøv at genindlæse siden.
+                  {t.websiteMissing}
                 </div>
               )}
 
               {decision.stage === "paid" && (
                 <div className="mt-5 flex justify-center">
                   <Button size="lg" className="h-12" onClick={() => navigate("/dashboard")} data-testid="button-go-dashboard">
-                    Gå til kontrolpanelet
+                    {t.goToDashboard}
                     <ArrowRight className="ml-2 h-5 w-5" />
                   </Button>
                 </div>

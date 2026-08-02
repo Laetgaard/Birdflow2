@@ -48,6 +48,12 @@ import { checkCopy, pageHeadings } from "./copyRules";
 import { describeScope, validateStepScope } from "./planScope";
 import { SCOPE_ANY_PAGE } from "@shared/assistantPlan";
 import { storage } from "./storage";
+import {
+  DEFAULT_SITE_LANGUAGE,
+  copyLanguageInstruction,
+  normalizeSiteLanguage,
+  type SiteLanguage,
+} from "@shared/siteLanguage";
 import { bumpSiteRevision } from "./onboardingDecision";
 import {
   readBuildStatus,
@@ -158,8 +164,13 @@ function makeStepGuard(step: PlanStep) {
 
 /* ─────────────────────── step prompts ─────────────────────── */
 
-function buildStepSystemPrompt(plan: AssistantPlan, step: PlanStep, index: number): string {
-  return `You are Birdflow's website-building agent, executing ONE step of a plan the customer has already approved. You work by CALLING TOOLS on a real Danish website — you never output website JSON, and you never write code.
+function buildStepSystemPrompt(
+  plan: AssistantPlan,
+  step: PlanStep,
+  index: number,
+  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+): string {
+  return `You are Birdflow's website-building agent, executing ONE step of a plan the customer has already approved. You work by CALLING TOOLS on a real website — you never output website JSON, and you never write code.
 
 ## The plan
 "${plan.title}" — ${plan.steps.length} steps. You are on step ${index + 1}.
@@ -172,7 +183,7 @@ ${step.detail}
 - Do THIS step and nothing else. Later steps belong to later runs; earlier steps are already done. The server enforces it: a mutation outside this step's scope is refused and you will have to correct yourself.
 - A "${step.type}" step may only use these actions: they are the ones the customer approved for it. If you think the plan is wrong, finish with a Danish note saying so rather than doing something else.
 - The brand guide is LAW: only its colours and fonts, its spacing, radius, shadow and motion levels, its tone of voice.
-- ALL user-visible copy is Danish, specific and concrete. Never lorem ipsum, never "Din tekst her" — those are rejected automatically and you will have to rewrite them.
+- ${copyLanguageInstruction(lang)} All user-visible copy is specific and concrete. Never lorem ipsum, never placeholder text — those are rejected automatically and you will have to rewrite them.
 - Custom components must work on phones: always give tabletStyles and mobileStyles alongside base styles. Fixed widths and grids that cannot collapse are rejected automatically.
 - The image budget of ${MAX_IMAGES_PER_BUILD} is shared by the WHOLE build, not by this step. Prefer photography that is already on the site.
 - Orient before you write: get_page on the page you are about to change.
@@ -283,6 +294,11 @@ function summarize(
 export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> {
   const { websiteId, plan, build, emit } = options;
 
+  // The site's own language: everything this build writes onto the page
+  // follows it, while the notes the customer reads stay Danish.
+  const website = await storage.getWebsite(websiteId).catch(() => undefined);
+  const language = normalizeSiteLanguage(website?.language);
+
   const results: PlanStepResult[] =
     build.stepResults.length === plan.steps.length ? [...build.stepResults] : initialStepResults(plan);
 
@@ -344,6 +360,7 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
       results,
       imageCache,
       approvedLargeChanges: options.approvedLargeChanges,
+      language,
       emit,
     });
 
@@ -424,6 +441,7 @@ async function runStep(args: {
   results: PlanStepResult[];
   imageCache: Map<string, string>;
   approvedLargeChanges: boolean;
+  language: SiteLanguage;
   emit: (event: BuildStreamEvent) => void;
 }): Promise<StepOutcome> {
   const { websiteId, plan, step, index, emit } = args;
@@ -469,7 +487,7 @@ async function runStep(args: {
   try {
     loop = await runAgentLoop({
       tools: buildToolCatalogue(),
-      systemPrompt: buildStepSystemPrompt(plan, step, index),
+      systemPrompt: buildStepSystemPrompt(plan, step, index, args.language),
       userMessage: buildStepUserMessage(plan, step, index, ctx.state, args.results),
       ctx,
       emit: onAgentEvent,

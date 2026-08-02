@@ -324,6 +324,53 @@ describe("startOnboardingGeneration — fallback", () => {
   });
 });
 
+describe("the customer's language", () => {
+  it("is written into the copy the pipeline asks the AI for", async () => {
+    const id = "site-english";
+    startOnboardingGeneration(id, makeInput({ language: "en" }));
+    await waitForDone(id);
+
+    const planPrompt = String(analyzeAndPlanWebsiteMock.mock.calls[0]?.[0] ?? "");
+    expect(planPrompt).toContain("English");
+    expect(planPrompt).not.toContain("in Danish");
+
+    // The enhancement pass takes the language as its own argument, so a
+    // second model never quietly rewrites the site back into Danish.
+    expect(processAIBuildRequestMock).toHaveBeenCalled();
+    const enhanceCall = processAIBuildRequestMock.mock.calls[0];
+    expect(enhanceCall[3]).toBe("en");
+    expect(String(enhanceCall[0])).toContain("English");
+  });
+
+  it("still asks for Danish when no choice was ever made", async () => {
+    const id = "site-default-danish";
+    startOnboardingGeneration(id, makeInput());
+    await waitForDone(id);
+
+    const planPrompt = String(analyzeAndPlanWebsiteMock.mock.calls[0]?.[0] ?? "");
+    expect(planPrompt).toContain("Danish");
+    expect(processAIBuildRequestMock.mock.calls[0][3]).toBe("da");
+  });
+
+  it("survives a degraded build: the deterministic starter site is English too", async () => {
+    buildFromPlanMock.mockResolvedValue({ success: false, error: "boom" });
+    const id = "site-english-fallback";
+    startOnboardingGeneration(id, makeInput({ language: "en" }));
+    const status = await waitForDone(id);
+
+    expect(status.fallback).toBe(true);
+    const finalState = updateBuilderStateMock.mock.calls[updateBuilderStateMock.mock.calls.length - 1][1] as BuilderStateData;
+    const paths = finalState.pages.map((p) => p.path);
+    expect(paths).toContain("/about");
+    expect(paths).toContain("/contact");
+    const home = finalState.pages.find((p) => p.path === "/")!;
+    const header = home.components.find((c) => c.type === "header")!;
+    expect(JSON.stringify(header.props)).toContain("Contact");
+    const footer = home.components.find((c) => c.type === "footer")!;
+    expect(JSON.stringify(footer.props)).toContain("All rights reserved");
+  });
+});
+
 describe("buildFallbackState", () => {
   const guide = (() => {
     const g = createDefaultBrandGuide({

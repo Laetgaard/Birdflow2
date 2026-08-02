@@ -11,6 +11,7 @@ import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
+import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
 
 const app = express();
 const httpServer = createServer(app);
@@ -167,6 +168,11 @@ app.use((req, res, next) => {
   // and assistant_builds tables. Same idempotent-DDL-at-boot pattern, and the
   // same readiness promise guards every read and write in server/planStore.ts.
   void startAssistantPlanSchema(db);
+
+  // The per-website language choice made in onboarding. Same idempotent-DDL
+  // reasoning again; the column defaults to Danish so a database that has not
+  // caught up yet still behaves exactly as it did before the choice existed.
+  void startWebsiteLanguageSchema(db);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

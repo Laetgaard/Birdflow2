@@ -12,7 +12,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { BuilderStateData } from "@shared/schema";
 import { createDefaultBrandGuide, type BrandGuide } from "@shared/customComponents";
-import { ONBOARDING_COPY } from "@shared/onboardingDecision";
+import { ONBOARDING_COPY, onboardingCopy } from "@shared/onboardingDecision";
+import { normalizeSiteLanguage } from "@shared/siteLanguage";
 import { storage } from "./storage";
 import { getAuthedUser } from "./websiteAccess";
 import {
@@ -38,6 +39,17 @@ export type OnboardingDecisionDeps = {
   requireAuth: Middleware;
   requireAdmin: Middleware;
 };
+
+/**
+ * The language the customer picked in onboarding, read off their website.
+ * No website yet (or a row from before the choice existed) means Danish,
+ * which is what these screens have always shown.
+ */
+async function languageOfWebsite(websiteId: string | null | undefined) {
+  if (!websiteId) return normalizeSiteLanguage(undefined);
+  const website = await storage.getWebsite(websiteId).catch(() => undefined);
+  return normalizeSiteLanguage(website?.language);
+}
 
 /** The brand guide as stored, or a default so the view always has something. */
 function guideOf(state: BuilderStateData | undefined, fallbackName: string): BrandGuide {
@@ -67,7 +79,7 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         stage: resume.stage,
         snapshot: resume.snapshot,
         approvalStale: resume.approvalStale,
-        copy: ONBOARDING_COPY,
+        copy: onboardingCopy(await languageOfWebsite(resume.snapshot.websiteId)),
       });
     } catch (error: any) {
       console.error("[Onboarding] resume failed:", error);
@@ -106,7 +118,7 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         stage: resume.stage,
         snapshot,
         approvalStale: resume.approvalStale,
-        copy: ONBOARDING_COPY,
+        copy: onboardingCopy(normalizeSiteLanguage(website.language)),
         website: { id: website.id, name: website.name, slug: website.slug },
         pages,
         brandGuide: guideOf(state, website.name),
@@ -308,9 +320,11 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       const owned = await requireOwnedOnboardingWebsite(user.id, req.body?.websiteId);
       if (!owned.ok) return res.status(owned.status).json({ message: owned.message });
 
+      const copy = onboardingCopy(await languageOfWebsite(owned.websiteId));
+
       // A customer who already booked stays on their confirmation.
       if (owned.snapshot.decisionState === "meeting_booked") {
-        return res.json({ decisionState: "meeting_booked", pitch: ONBOARDING_COPY.meetingPitch });
+        return res.json({ decisionState: "meeting_booked", pitch: copy.meetingPitch });
       }
 
       await updateDecisionByUser(user.id, {
@@ -318,7 +332,7 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         paymentMethodChoice: "none",
         decidedAt: new Date(),
       });
-      res.json({ decisionState: "customisation_requested", pitch: ONBOARDING_COPY.meetingPitch });
+      res.json({ decisionState: "customisation_requested", pitch: copy.meetingPitch });
     } catch (error: any) {
       console.error("[Onboarding] customisation request failed:", error);
       res.status(500).json({ message: error.message });

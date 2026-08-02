@@ -16,6 +16,7 @@ import type {
   OnboardingPaymentMethodChoice,
   OnboardingPaymentState,
 } from "./schema";
+import type { SiteLanguage } from "./siteLanguage";
 
 /** The screens the onboarding page can resume onto. */
 export const ONBOARDING_RESUME_STAGES = [
@@ -133,13 +134,38 @@ export function deriveResumeStage(
   }
 }
 
-/** Danish copy that must be identical everywhere it appears. */
-export const ONBOARDING_COPY = {
-  invoiceTerms: "Vi sender fakturaen til din e-mail. Betalingsfristen er den 1. i næste måned.",
-  meetingPitch:
-    "Book et gratis møde på 30 minutter, hvor vi gennemgår, hvordan hjemmesiden skal forbedres. Du betaler først, når du har godkendt det færdige resultat.",
-  readyForReview: "Din opdaterede hjemmeside er klar",
-} as const;
+/** End-of-onboarding copy that must be identical everywhere it appears. */
+export type OnboardingCopy = {
+  invoiceTerms: string;
+  meetingPitch: string;
+  readyForReview: string;
+};
+
+export const ONBOARDING_COPY_BY_LANGUAGE: Record<SiteLanguage, OnboardingCopy> = {
+  da: {
+    invoiceTerms: "Vi sender fakturaen til din e-mail. Betalingsfristen er den 1. i næste måned.",
+    meetingPitch:
+      "Book et gratis møde på 30 minutter, hvor vi gennemgår, hvordan hjemmesiden skal forbedres. Du betaler først, når du har godkendt det færdige resultat.",
+    readyForReview: "Din opdaterede hjemmeside er klar",
+  },
+  en: {
+    invoiceTerms: "We'll send the invoice to your email. Payment is due on the 1st of next month.",
+    meetingPitch:
+      "Book a free 30-minute call where we go through how the website should be improved. You only pay once you have approved the finished result.",
+    readyForReview: "Your updated website is ready",
+  },
+};
+
+/**
+ * Danish copy, kept as the module-level export so every existing call site
+ * that has no website in hand keeps its current behaviour. Anywhere the
+ * customer's website is known, use `onboardingCopy(website.language)`.
+ */
+export const ONBOARDING_COPY: OnboardingCopy = ONBOARDING_COPY_BY_LANGUAGE.da;
+
+export function onboardingCopy(lang: SiteLanguage): OnboardingCopy {
+  return ONBOARDING_COPY_BY_LANGUAGE[lang] ?? ONBOARDING_COPY_BY_LANGUAGE.da;
+}
 
 /**
  * The 1st of the next calendar month, in Europe/Copenhagen, as a UTC Date at
