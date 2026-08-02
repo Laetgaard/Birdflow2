@@ -53,7 +53,7 @@ import {
   websiteInputs, type WebsiteInputs, type InsertWebsiteInputs,
   builderState, type BuilderState, type InsertBuilderState, type BuilderStateData,
   orders, type Order, type InsertOrder,
-  bookings, type Booking, type InsertBooking,
+  bookings, type Booking, type InsertBooking, type BookingContext,
   formSubmissions, type FormSubmission, type InsertFormSubmission,
   customers, type Customer, type InsertCustomer,
   products, type Product, type InsertProduct,
@@ -83,7 +83,7 @@ import {
   adminAuditLog, type AdminAuditEntry, type InsertAdminAuditEntry,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
-  type AdminUserWithStats, type AdminWebsiteWithOwner,
+  type AdminUserWithStats, type AdminWebsiteWithOwner, type PlatformMeetingLink,
   type AdminAnalyticsOverview, type AdminTrafficSource, type AdminDailyVisitors,
   type AdminUserSubscription
 } from "@shared/schema";
@@ -215,6 +215,7 @@ export interface IStorage {
   
   // Website methods
   getWebsite(id: string): Promise<Website | undefined>;
+  /** Customer sites only - BirdFlow's platform calendar is never included. */
   getWebsitesByOwner(ownerId: string): Promise<Website[]>;
   getWebsiteByDeploymentUrl(url: string): Promise<Website | undefined>;
   createWebsite(website: InsertWebsite): Promise<Website>;
@@ -555,7 +556,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getWebsitesByOwner(ownerId: string): Promise<Website[]> {
-    return await db.select().from(websites).where(eq(websites.ownerId, ownerId));
+    // BirdFlow's own platform calendar is a websites row too. It must never
+    // surface in a user's site list, site count or plan limit, so it is
+    // filtered here rather than at each of the dozen call sites.
+    return await db
+      .select()
+      .from(websites)
+      .where(and(eq(websites.ownerId, ownerId), ne(websites.kind, "platform")));
   }
 
   async getWebsiteByDeploymentUrl(url: string): Promise<Website | undefined> {
@@ -673,8 +680,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Bookings methods
-  async getBookings(websiteId: string): Promise<Booking[]> {
-    return db.select().from(bookings).where(eq(bookings.websiteId, websiteId));
+  async getBookings(websiteId: string, context?: BookingContext): Promise<Booking[]> {
+    const where = context
+      ? and(eq(bookings.websiteId, websiteId), eq(bookings.context, context))
+      : eq(bookings.websiteId, websiteId);
+    return db.select().from(bookings).where(where);
   }
 
   async getBooking(bookingId: string, websiteId: string): Promise<Booking | undefined> {
@@ -934,6 +944,7 @@ export class DatabaseStorage implements IStorage {
                  max(${bookings.createdAt}) as last_booking_at
           from ${bookings}
           where ${bookings.websiteId} = ${customers.websiteId}
+            and ${bookings.context} = 'customer_site'
             and lower(${bookings.customerEmail}) = lower(${customers.email})
         ) b`,
         sql`true`
@@ -1747,14 +1758,18 @@ export class DatabaseStorage implements IStorage {
       recentOrderRows,
       live,
     ] = await Promise.all([
+      // A customer's overview only ever counts appointments made through
+      // their own site, never BirdFlow's internal onboarding meetings.
       db.select({ n: count() }).from(bookings).where(and(
         eq(bookings.websiteId, websiteId),
+        eq(bookings.context, 'customer_site'),
         gte(bookings.date, todayStart),
         sql`${bookings.date} < ${todayEnd}`,
         sql`${bookings.status} != 'cancelled'`
       )),
       db.select().from(bookings).where(and(
         eq(bookings.websiteId, websiteId),
+        eq(bookings.context, 'customer_site'),
         gte(bookings.date, todayStart),
         sql`${bookings.status} != 'cancelled'`
       )).orderBy(bookings.date).limit(5),
@@ -2050,6 +2065,60 @@ export class DatabaseStorage implements IStorage {
       .where(eq(onboardingSessions.websiteId, websiteId));
   }
 
+  /**
+   * Everyone BirdFlow should notify about a new internal meeting. Derived from
+   * the admin flag rather than configuration, so a fresh environment needs no
+   * extra setup.
+   */
+  async getAdminNotificationEmails(): Promise<string[]> {
+    try {
+      const rows = await db
+        .select({ email: profiles.email })
+        .from(profiles)
+        .where(eq(profiles.isAdmin, true));
+      return rows.map(r => r.email).filter((email): email is string => !!email);
+    } catch (error: any) {
+      if (error.message?.includes("is_admin")) return [];
+      throw error;
+    }
+  }
+
+  /**
+   * Customer, website and onboarding session behind each of BirdFlow's own
+   * onboarding meetings, for the admin Bookinger tab's link-through.
+   */
+  async getPlatformMeetingLinks(platformWebsiteId: string): Promise<PlatformMeetingLink[]> {
+    const rows = await db
+      .select({
+        bookingId: bookings.id,
+        customerUserId: bookings.customerUserId,
+        customerWebsiteId: bookings.customerWebsiteId,
+        onboardingSessionId: bookings.onboardingSessionId,
+        customerName: profiles.fullName,
+        customerEmail: profiles.email,
+        customerWebsiteName: websites.name,
+      })
+      .from(bookings)
+      .leftJoin(profiles, eq(profiles.id, bookings.customerUserId))
+      .leftJoin(websites, eq(websites.id, bookings.customerWebsiteId))
+      .where(
+        and(
+          eq(bookings.websiteId, platformWebsiteId),
+          eq(bookings.context, "platform_onboarding")
+        )
+      );
+
+    return rows.map(row => ({
+      bookingId: row.bookingId,
+      customerUserId: row.customerUserId ?? null,
+      customerName: row.customerName ?? null,
+      customerEmail: row.customerEmail ?? null,
+      customerWebsiteId: row.customerWebsiteId ?? null,
+      customerWebsiteName: row.customerWebsiteName ?? null,
+      onboardingSessionId: row.onboardingSessionId ?? null,
+    }));
+  }
+
   // Admin methods
   async isUserAdmin(userId: string): Promise<boolean> {
     try {
@@ -2097,11 +2166,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAdminOverviewStats(): Promise<AdminOverviewStats> {
+    // Customer data only: BirdFlow's own platform calendar and the internal
+    // onboarding meetings on it are not customer activity and must not move
+    // these numbers.
     const [usersResult, websitesResult, ordersResult, bookingsResult] = await Promise.all([
       db.select({ count: count() }).from(profiles),
-      db.select().from(websites),
+      db.select().from(websites).where(ne(websites.kind, "platform")),
       db.select().from(orders),
-      db.select().from(bookings),
+      db.select().from(bookings).where(eq(bookings.context, "customer_site")),
     ]);
 
     const totalUsers = usersResult[0]?.count ?? 0;
@@ -2145,9 +2217,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(websites).where(gte(websites.createdAt, startDate)),
+      db.select().from(websites).where(and(gte(websites.createdAt, startDate), ne(websites.kind, "platform"))),
       db.select().from(orders).where(gte(orders.createdAt, startDate)),
-      db.select().from(bookings).where(gte(bookings.createdAt, startDate)),
+      db.select().from(bookings).where(and(gte(bookings.createdAt, startDate), eq(bookings.context, "customer_site"))),
     ]);
 
     // Helper to safely parse date (handles both Date objects and strings)
@@ -2214,9 +2286,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(websites),
+      db.select().from(websites).where(ne(websites.kind, "platform")),
       db.select().from(orders),
-      db.select().from(bookings),
+      db.select().from(bookings).where(eq(bookings.context, "customer_site")),
     ]);
 
     const totalSignups = allProfiles.length;
@@ -2263,9 +2335,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(websites),
+      db.select().from(websites).where(ne(websites.kind, "platform")),
       db.select().from(orders),
-      db.select().from(bookings),
+      db.select().from(bookings).where(eq(bookings.context, "customer_site")),
     ]);
 
     return allProfiles.map(profile => {
@@ -2302,7 +2374,7 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    const allWebsites = await db.select().from(websites);
+    const allWebsites = await db.select().from(websites).where(ne(websites.kind, "platform"));
 
     return allProfiles.map(profile => {
       const userWebsites = allWebsites.filter(w => w.ownerId === profile.id);
@@ -2337,9 +2409,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(websites).orderBy(desc(websites.createdAt)),
+      db.select().from(websites).where(ne(websites.kind, "platform")).orderBy(desc(websites.createdAt)),
       db.select().from(orders),
-      db.select().from(bookings),
+      db.select().from(bookings).where(eq(bookings.context, "customer_site")),
     ]);
 
     const profileMap = new Map(allProfiles.map(p => [p.id, p]));

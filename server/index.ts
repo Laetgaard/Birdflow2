@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { startBookingEmailScheduler } from "./email/bookingScheduler";
 import { startDomainVerificationScheduler } from "./domainVerificationScheduler";
+import { ensurePlatformCalendar } from "./platformCalendar";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
@@ -142,6 +143,14 @@ app.use((req, res, next) => {
   // Server-side re-check of pending custom domains so they verify (and go
   // truly live) even when the manage tab is closed
   startDomainVerificationScheduler();
+
+  // BirdFlow's own booking calendar (the free improvement meeting). Created
+  // idempotently at boot so a fresh environment works without hand-editing
+  // the database. A database that is briefly unreachable must not stop the
+  // server from coming up - the next boot will retry.
+  ensurePlatformCalendar().catch((err) => {
+    console.warn("[PlatformCalendar] setup skipped:", err?.message || err);
+  });
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

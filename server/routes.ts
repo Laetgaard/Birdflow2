@@ -1,12 +1,13 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
-import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { getPlatformCalendar } from "./platformCalendar";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
 import { isAllowedMediaStoragePath } from "./mediaPaths";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
@@ -1898,6 +1899,9 @@ export async function registerRoutes(
               booking.service
             );
             console.log(`Booking cancelled email sent to ${booking.customerEmail}`);
+          } else if (body.status === 'completed' && !rescheduled) {
+            // Marking a past appointment as held is bookkeeping, not a change
+            // the customer needs an email about.
           } else if ((body.status && originalBooking.status !== body.status) || rescheduled) {
             await emailService.sendBookingUpdated(
               booking,
@@ -6059,6 +6063,392 @@ export async function registerRoutes(
     }
     next();
   };
+
+  // ============ BIRDFLOW PLATFORM CALENDAR ============
+  //
+  // BirdFlow's own bookable calendar for the free 30-minute improvement
+  // meeting. It reuses the whole booking engine (availability rules, slot
+  // generation, open slots, atomic claim, conflict checks, confirmation
+  // emails) against a websites row with kind = 'platform' - see
+  // server/platformCalendar.ts.
+  //
+  // Two audiences, two levels of access:
+  //   * signed-in customers may LIST free slots and CLAIM one (below);
+  //   * everything that reads or changes the calendar itself goes through
+  //     requireAdmin here, or through requireWebsitePermission on the normal
+  //     /api/websites/:id/... manage routes, which only ever resolves a
+  //     platform website for a verified administrator.
+
+  /** Copenhagen wall-clock "now", as the calendar's own timezone sees it. */
+  function copenhagenNow(): { date: string; minutes: number } {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: PLATFORM_CALENDAR_TIMEZONE,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(now);
+    const get = (type: string) => parts.find(p => p.type === type)?.value ?? '00';
+    // ICU can report hour "24" at local midnight for some locales/versions.
+    const hour = get('hour') === '24' ? 0 : Number(get('hour'));
+    return {
+      date: `${get('year')}-${get('month')}-${get('day')}`,
+      minutes: hour * 60 + Number(get('minute')),
+    };
+  }
+
+  function addDays(dateStr: string, days: number): string {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // How far ahead customers may book, and how much notice BirdFlow needs.
+  const PLATFORM_SLOTS_HORIZON_DAYS = 28;
+  const PLATFORM_BOOKING_LEAD_MINUTES = 60;
+
+  /** The signed-in user's own upcoming meeting, if they already have one. */
+  async function findUpcomingPlatformMeeting(platformWebsiteId: string, userId: string) {
+    const rows = await db
+      .select()
+      .from(bookingsTable)
+      .where(
+        andOp(
+          eqOp(bookingsTable.websiteId, platformWebsiteId),
+          eqOp(bookingsTable.context, 'platform_onboarding'),
+          eqOp(bookingsTable.customerUserId, userId),
+          neOp(bookingsTable.status, 'cancelled'),
+          gteOp(bookingsTable.date, new Date(Date.now() - 24 * 3600 * 1000))
+        )
+      )
+      .orderBy(bookingsTable.date)
+      .limit(1);
+    return rows[0];
+  }
+
+  // What the meeting is, and whether this customer already has one booked.
+  app.get("/api/platform-calendar", requireAuth, async (req, res) => {
+    try {
+      const user = getAuthedUser(req);
+      const { website, service } = await getPlatformCalendar();
+      const existing = await findUpcomingPlatformMeeting(website.id, user.id);
+
+      res.json({
+        service: {
+          id: service.id,
+          name: service.name,
+          description: service.description,
+          durationMinutes: service.durationMinutes,
+        },
+        timezone: PLATFORM_CALENDAR_TIMEZONE,
+        myMeeting: existing ?? null,
+      });
+    } catch (error: any) {
+      console.error("[PlatformCalendar] meeting lookup failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Free 30-minute slots for the coming weeks, in Europe/Copenhagen.
+  app.get("/api/platform-calendar/slots", requireAuth, async (req, res) => {
+    try {
+      const { website, service } = await getPlatformCalendar();
+
+      const requestedDays = parseInt(String(req.query.days ?? ''), 10);
+      const days = Number.isFinite(requestedDays)
+        ? Math.min(Math.max(requestedDays, 1), PLATFORM_SLOTS_HORIZON_DAYS)
+        : PLATFORM_SLOTS_HORIZON_DAYS;
+
+      const { date: today, minutes: nowMinutes } = copenhagenNow();
+      const earliestToday = nowMinutes + PLATFORM_BOOKING_LEAD_MINUTES;
+
+      const dates = Array.from({ length: days }, (_, i) => addDays(today, i));
+
+      const days_ = await Promise.all(
+        dates.map(async (date) => {
+          const [blocked, inRange] = await Promise.all([
+            storage.isDateBlocked(service.id, date),
+            storage.isDateInActiveRange(service.id, date),
+          ]);
+          if (blocked || !inRange) return { date, slots: [] };
+
+          const slots = await storage.getAvailableSlotsForDate(service.id, website.id, date);
+          return {
+            date,
+            slots: slots
+              .filter(slot => slot.available)
+              .filter(slot => {
+                if (date !== today) return true;
+                const [h, m] = slot.time.split(':').map(Number);
+                return h * 60 + m >= earliestToday;
+              })
+              .map(slot => ({ time: slot.time, openSlotId: slot.openSlotId })),
+          };
+        })
+      );
+
+      res.json({
+        timezone: PLATFORM_CALENDAR_TIMEZONE,
+        durationMinutes: service.durationMinutes,
+        days: days_.filter(day => day.slots.length > 0),
+      });
+    } catch (error: any) {
+      console.error("[PlatformCalendar] slot lookup failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Claim a slot. Same conflict checking and atomic open-slot claim the
+  // public booking route uses, so two customers clicking at the same moment
+  // cannot both take the same time.
+  app.post("/api/platform-calendar/bookings", requireAuth, async (req, res) => {
+    try {
+      const user = getAuthedUser(req);
+      const { website, service } = await getPlatformCalendar();
+      const { date, time, openSlotId, websiteId, notes, customerPhone } = req.body || {};
+
+      if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "Ugyldig dato. Brug formatet ÅÅÅÅ-MM-DD" });
+      }
+      if (typeof time !== 'string' || !/^\d{2}:\d{2}$/.test(time)) {
+        return res.status(400).json({ message: "Ugyldigt tidspunkt. Brug formatet TT:MM" });
+      }
+
+      // Not in the past, and not inside the notice window.
+      const nowCph = copenhagenNow();
+      const [hh, mm] = time.split(':').map(Number);
+      if (date < nowCph.date || (date === nowCph.date && hh * 60 + mm < nowCph.minutes + PLATFORM_BOOKING_LEAD_MINUTES)) {
+        return res.status(400).json({ message: "Vælg venligst et tidspunkt længere ude i fremtiden" });
+      }
+
+      const existing = await findUpcomingPlatformMeeting(website.id, user.id);
+      if (existing) {
+        return res.status(409).json({
+          message: "Du har allerede et møde booket. Flyt eller aflys det først.",
+          code: "MEETING_ALREADY_BOOKED",
+          booking: existing,
+        });
+      }
+
+      const profile = await storage.getProfile(user.id);
+      const customerEmail = profile?.email || user.email;
+      if (!customerEmail) {
+        return res.status(400).json({ message: "Din konto mangler en e-mailadresse" });
+      }
+      const customerName = profile?.fullName?.trim() || customerEmail.split('@')[0];
+
+      // The meeting is about one of the customer's own websites - verify the
+      // claim rather than trusting the body.
+      let customerWebsiteId: string | null = null;
+      let customerWebsiteName: string | null = null;
+      if (typeof websiteId === 'string' && websiteId) {
+        const customerWebsite = await storage.getWebsite(websiteId);
+        if (!customerWebsite || customerWebsite.ownerId !== user.id) {
+          return res.status(403).json({ message: "Ukendt hjemmeside" });
+        }
+        customerWebsiteId = customerWebsite.id;
+        customerWebsiteName = customerWebsite.name;
+      }
+
+      const onboardingSession = await storage.getOnboardingSession(user.id);
+
+      let booking;
+      if (typeof openSlotId === 'string' && openSlotId) {
+        // Owner-placed slot: claim atomically first, then build from it.
+        const claimed = await storage.claimOpenSlot(openSlotId, website.id);
+        if (!claimed) {
+          return res.status(409).json({
+            message: "Tidspunktet er desværre lige blevet taget. Vælg venligst et andet.",
+            code: "SLOT_UNAVAILABLE",
+          });
+        }
+        try {
+          booking = await storage.createBooking({
+            websiteId: website.id,
+            context: 'platform_onboarding',
+            customerUserId: user.id,
+            customerWebsiteId,
+            onboardingSessionId: onboardingSession?.id ? String(onboardingSession.id) : null,
+            customerName,
+            customerEmail,
+            customerPhone: typeof customerPhone === 'string' ? customerPhone : (profile?.phoneNumber || null),
+            service: service.name,
+            serviceId: service.id,
+            date: new Date(claimed.date + 'T00:00:00'),
+            time: claimed.time,
+            durationMinutes: claimed.durationMinutes || service.durationMinutes,
+            status: 'confirmed',
+            notes: typeof notes === 'string' && notes ? notes : null,
+          });
+          await storage.linkOpenSlotBooking(claimed.id, booking.id);
+        } catch (createErr) {
+          await storage.releaseOpenSlot(claimed.id).catch(() => {});
+          throw createErr;
+        }
+      } else {
+        const isAvailable = await storage.checkSlotAvailable(service.id, website.id, date, time);
+        if (!isAvailable) {
+          return res.status(409).json({
+            message: "Tidspunktet er desværre ikke længere ledigt. Vælg venligst et andet.",
+            code: "SLOT_UNAVAILABLE",
+          });
+        }
+        const overlap = await storage.findServiceConflict(
+          website.id, service.id, date, time, service.durationMinutes
+        );
+        if (overlap) {
+          return res.status(409).json({
+            message: "Tidspunktet er desværre ikke længere ledigt. Vælg venligst et andet.",
+            code: "SLOT_UNAVAILABLE",
+          });
+        }
+
+        booking = await storage.createBooking({
+          websiteId: website.id,
+          context: 'platform_onboarding',
+          customerUserId: user.id,
+          customerWebsiteId,
+          onboardingSessionId: onboardingSession?.id ? String(onboardingSession.id) : null,
+          customerName,
+          customerEmail,
+          customerPhone: typeof customerPhone === 'string' ? customerPhone : (profile?.phoneNumber || null),
+          service: service.name,
+          serviceId: service.id,
+          date: new Date(date + 'T00:00:00'),
+          time,
+          durationMinutes: service.durationMinutes,
+          status: 'confirmed',
+          notes: typeof notes === 'string' && notes ? notes : null,
+        });
+
+        // Two requests can both clear the pre-checks; the later insert loses.
+        const race = await storage.findPlacementConflict(website.id, booking.id);
+        if (race) {
+          await storage.deleteBooking(booking.id, website.id);
+          return res.status(409).json({
+            message: "Tidspunktet er desværre lige blevet taget. Vælg venligst et andet.",
+            code: "SLOT_UNAVAILABLE",
+          });
+        }
+      }
+
+      // Confirmation with calendar invite to the customer, notification to
+      // BirdFlow. Neither may turn a booked meeting into an error.
+      try {
+        await emailService.sendBookingConfirmation(booking, customerEmail, service.name);
+      } catch (emailErr) {
+        console.error(`[PlatformCalendar] confirmation email failed for booking ${booking.id}:`, emailErr);
+      }
+      try {
+        const adminEmails = await storage.getAdminNotificationEmails();
+        const adminUrl = `${resolveAppOrigin(req.headers.host)}/admin`;
+        for (const adminEmail of adminEmails) {
+          await emailService.sendPlatformMeetingNotification(booking, adminEmail, service.name, {
+            customerWebsiteName,
+            adminUrl,
+          });
+        }
+      } catch (notifyErr) {
+        console.error(`[PlatformCalendar] admin notification failed for booking ${booking.id}:`, notifyErr);
+      }
+
+      res.status(201).json({
+        booking,
+        timezone: PLATFORM_CALENDAR_TIMEZONE,
+        service: { id: service.id, name: service.name, durationMinutes: service.durationMinutes },
+      });
+    } catch (error: any) {
+      console.error("[PlatformCalendar] booking failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // --- Admin side of the calendar (the "Bookinger" tab) ---
+
+  // Everything the tab needs to render: which website row is the calendar,
+  // the meeting service, the weekly hours and who each meeting is with.
+  app.get("/api/admin/platform-calendar", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { website, service } = await getPlatformCalendar();
+      const [availability, meetings] = await Promise.all([
+        storage.getServiceAvailability(service.id),
+        storage.getPlatformMeetingLinks(website.id),
+      ]);
+      res.json({ website, service, availability, meetings, timezone: PLATFORM_CALENDAR_TIMEZONE });
+    } catch (error: any) {
+      console.error("[PlatformCalendar] admin load failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // BirdFlow's available meeting times, through the existing availability
+  // functions - admin only, never reachable from a customer's manage view.
+  app.post("/api/admin/platform-calendar/availability", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { website, service } = await getPlatformCalendar();
+      const { dayOfWeek, specificDate, startTime, endTime, slotDurationMinutes, isActive } = req.body || {};
+
+      if (typeof startTime !== 'string' || typeof endTime !== 'string') {
+        return res.status(400).json({ message: "Start- og sluttidspunkt er påkrævet" });
+      }
+      if (dayOfWeek === undefined && !specificDate) {
+        return res.status(400).json({ message: "Ugedag eller dato er påkrævet" });
+      }
+
+      const availability = await storage.createServiceAvailability({
+        serviceId: service.id,
+        websiteId: website.id,
+        dayOfWeek: dayOfWeek !== undefined ? dayOfWeek : null,
+        specificDate: specificDate || null,
+        startTime,
+        endTime,
+        slotDurationMinutes: slotDurationMinutes || service.durationMinutes,
+        isActive: isActive !== undefined ? isActive : true,
+      });
+      res.status(201).json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/admin/platform-calendar/availability/:availabilityId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { service } = await getPlatformCalendar();
+      const rules = await storage.getServiceAvailability(service.id);
+      if (!rules.some(rule => rule.id === req.params.availabilityId)) {
+        return res.status(404).json({ message: "Reglen findes ikke" });
+      }
+
+      const { dayOfWeek, specificDate, startTime, endTime, slotDurationMinutes, isActive } = req.body || {};
+      const availability = await storage.updateServiceAvailability(req.params.availabilityId, {
+        dayOfWeek: dayOfWeek !== undefined ? dayOfWeek : undefined,
+        specificDate: specificDate !== undefined ? specificDate : undefined,
+        startTime,
+        endTime,
+        slotDurationMinutes: slotDurationMinutes !== undefined ? slotDurationMinutes : undefined,
+        isActive: isActive !== undefined ? isActive : undefined,
+      });
+      if (!availability) {
+        return res.status(404).json({ message: "Reglen findes ikke" });
+      }
+      res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/platform-calendar/availability/:availabilityId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { service } = await getPlatformCalendar();
+      const rules = await storage.getServiceAvailability(service.id);
+      if (!rules.some(rule => rule.id === req.params.availabilityId)) {
+        return res.status(404).json({ message: "Reglen findes ikke" });
+      }
+      await storage.deleteServiceAvailability(req.params.availabilityId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
 
   // Admin Dashboard Routes
   app.get("/api/admin/overview", requireAuth, requireAdmin, async (req, res) => {

@@ -62,8 +62,28 @@ export type Booking = {
   sendReminder?: boolean;
   price?: string;
   notes?: string;
-  status: 'pending' | 'confirmed' | 'cancelled';
+  // "completed" = the appointment was actually held. Set from the booking
+  // dialog; excluded from reminders and follow-ups.
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
   createdAt?: string;
+  // Which calendar the booking belongs to. Customer-site appointments are
+  // "customer_site"; BirdFlow's own onboarding meetings are
+  // "platform_onboarding" and carry the fields below.
+  context?: 'customer_site' | 'platform_onboarding';
+  customerUserId?: string | null;
+  customerWebsiteId?: string | null;
+  onboardingSessionId?: string | null;
+};
+
+/** Who a BirdFlow onboarding meeting is with, for the admin Bookinger tab. */
+export type PlatformMeetingLink = {
+  bookingId: string;
+  customerUserId: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerWebsiteId: string | null;
+  customerWebsiteName: string | null;
+  onboardingSessionId: string | null;
 };
 
 export type TeamMemberAvailabilityWindow = {

@@ -141,6 +141,25 @@ export type UserInvoice = typeof userInvoices.$inferSelect;
 // Website plans
 export type WebsitePlan = 'free' | 'starter' | 'professional' | 'enterprise';
 
+// A website row is either a customer's site or BirdFlow's own platform
+// calendar. The platform kind exists so BirdFlow can host its own bookings
+// in the shared booking engine without a fake customer account: the row is
+// owned by PLATFORM_CALENDAR_OWNER_ID, never by a real user, and is filtered
+// out of every user-facing website list, count and plan limit.
+export const WEBSITE_KINDS = ['customer', 'platform'] as const;
+export type WebsiteKind = (typeof WEBSITE_KINDS)[number];
+
+/**
+ * Sentinel owner for BirdFlow's own platform records. Deliberately not a
+ * uuid, so it can never collide with a Supabase auth user id.
+ */
+export const PLATFORM_CALENDAR_OWNER_ID = 'birdflow-platform';
+export const PLATFORM_CALENDAR_SLUG = 'birdflow-platform-calendar';
+export const PLATFORM_CALENDAR_NAME = 'BirdFlow';
+export const PLATFORM_CALENDAR_TIMEZONE = 'Europe/Copenhagen';
+export const PLATFORM_MEETING_SERVICE_NAME = 'Forbedringsmøde';
+export const PLATFORM_MEETING_DURATION_MINUTES = 30;
+
 // Websites table
 export const websites = pgTable("websites", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -149,6 +168,10 @@ export const websites = pgTable("websites", {
   slug: text("slug").notNull(),
   status: text("status").notNull().default("draft"),
   setupType: text("setup_type").notNull(),
+  // One of WEBSITE_KINDS. Left as plain text rather than $type<WebsiteKind>
+  // so Partial<InsertWebsite> updates elsewhere still typecheck; the writers
+  // of this column are platformCalendar.ts and the normal create path.
+  kind: text("kind").notNull().default("customer"),
   // The website's own trading currency, used by every money figure the
   // owner sees in /manage. Orders and products carry their own currency
   // for historical rows; this is the default and the display fallback.
@@ -473,10 +496,29 @@ export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
 export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
 export type OrderItem = typeof orderItems.$inferSelect;
 
+/**
+ * Which calendar a booking belongs to. `customer_site` is an appointment a
+ * visitor made through a customer's published website; `platform_onboarding`
+ * is one of BirdFlow's own 30-minute improvement meetings. A first-class
+ * column, not a naming convention, so neither side can leak into the other's
+ * lists, counts or automated emails.
+ */
+export const BOOKING_CONTEXTS = ['customer_site', 'platform_onboarding'] as const;
+export type BookingContext = (typeof BOOKING_CONTEXTS)[number];
+
 // Bookings table (for appointments/services)
 export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   websiteId: varchar("website_id").notNull(),
+  // Defaulted in the database as well: published sites insert booking rows
+  // straight into Supabase without going through this schema.
+  context: text("context").$type<BookingContext>().notNull().default("customer_site"),
+  // Only populated for platform_onboarding bookings - who the meeting is
+  // with, which of their websites it concerns and which onboarding session
+  // it came out of. Null for every customer-site appointment.
+  customerUserId: varchar("customer_user_id"),
+  customerWebsiteId: varchar("customer_website_id"),
+  onboardingSessionId: varchar("onboarding_session_id"),
   serviceId: varchar("service_id"),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
@@ -1353,6 +1395,20 @@ export type AdminWebsiteWithOwner = {
   ownerName: string;
   orderCount: number;
   bookingCount: number;
+};
+
+/**
+ * One of BirdFlow's own onboarding meetings, resolved far enough for the admin
+ * Bookinger tab to show who it is with and jump to the right record.
+ */
+export type PlatformMeetingLink = {
+  bookingId: string;
+  customerUserId: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerWebsiteId: string | null;
+  customerWebsiteName: string | null;
+  onboardingSessionId: string | null;
 };
 
 // Admin platform-wide analytics types

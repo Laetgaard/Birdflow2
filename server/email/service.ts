@@ -50,6 +50,13 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; body
     heading: 'Thank you for visiting us!',
     bodyText: 'We hope you enjoyed your appointment. We would love to see you again - book your next appointment anytime.',
   },
+  // Internal: BirdFlow telling itself that a customer booked one of its own
+  // onboarding meetings. Never sent to a customer.
+  platform_meeting_notification: {
+    subject: 'Nyt forbedringsmøde booket - {{date}} {{time}}',
+    heading: 'Der er booket et nyt møde',
+    bodyText: 'En kunde har booket et forbedringsmøde. Detaljerne står nedenfor.',
+  },
   website_published: {
     subject: 'Your website is now live!',
     heading: 'Congratulations! Your website is published',
@@ -476,6 +483,32 @@ export class EmailService {
       templateType: 'booking_followup',
       variables: this.bookingVariables(booking, serviceName),
       buttonUrl: websiteUrl,
+    });
+  }
+
+  /**
+   * Tell BirdFlow that a customer just claimed one of its own onboarding
+   * meetings. Goes to the platform calendar's own templates, so it never
+   * reaches a customer and never touches a customer site's email settings.
+   */
+  async sendPlatformMeetingNotification(
+    booking: Booking,
+    adminEmail: string,
+    serviceName: string,
+    details: { customerWebsiteName?: string | null; adminUrl?: string }
+  ): Promise<boolean> {
+    return this.sendEmail({
+      to: adminEmail,
+      websiteId: booking.websiteId,
+      templateType: 'platform_meeting_notification',
+      variables: {
+        ...this.bookingVariables(booking, serviceName),
+        customerEmail: booking.customerEmail || '',
+        customerPhone: booking.customerPhone || '',
+        website: details.customerWebsiteName || 'Ingen hjemmeside endnu',
+        notes: booking.notes || '',
+      },
+      buttonUrl: details.adminUrl,
     });
   }
 

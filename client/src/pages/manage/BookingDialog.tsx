@@ -240,7 +240,9 @@ export function BookingDialog({
             ? "Bookingen er bekræftet."
             : status === "cancelled"
               ? "Bookingen er annulleret."
-              : "Bookingen er genåbnet.",
+              : status === "completed"
+                ? "Bookingen er markeret som afholdt."
+                : "Bookingen er genåbnet.",
       });
     } catch (error: any) {
       toast({ title: "Fejl", description: error.message, variant: "destructive" });
@@ -388,6 +390,7 @@ export function BookingDialog({
                 <SelectContent>
                   <SelectItem value="pending">Afventer</SelectItem>
                   <SelectItem value="confirmed">Bekræftet</SelectItem>
+                  <SelectItem value="completed">Afholdt</SelectItem>
                   <SelectItem value="cancelled">Annulleret</SelectItem>
                 </SelectContent>
               </Select>

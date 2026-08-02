@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PlatformCalendarTab } from "@/components/admin/PlatformCalendarTab";
 import {
   Table,
   TableBody,
@@ -1550,6 +1551,9 @@ export default function AdminPage() {
             <TabsTrigger value="support" data-testid="tab-support">
               Support ({supportTickets?.length || 0})
             </TabsTrigger>
+            <TabsTrigger value="bookings" data-testid="tab-bookings">
+              Bookinger
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -1645,6 +1649,14 @@ export default function AdminPage() {
                 isUpdating={updateTicketMutation.isPending}
               />
             ) : null}
+          </TabsContent>
+
+          {/* BirdFlows egen bookingkalender. Mountes først når fanen er valgt,
+              så admin-dashboardet ikke henter kalenderen ved hver visning. */}
+          <TabsContent value="bookings">
+            {activeTab === "bookings" && session?.access_token && (
+              <PlatformCalendarTab accessToken={session.access_token} />
+            )}
           </TabsContent>
         </Tabs>
       </div>

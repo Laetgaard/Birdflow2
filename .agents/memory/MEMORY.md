@@ -9,4 +9,5 @@
 - [Vercel publishing](vercel-publishing.md) — hashed deployment URLs are SSO-walled, store the stable production alias + ssoProtection:null; v9 PATCH is top-level-fields only.
 - [Vercel custom domains](vercel-custom-domains.md) — `verified` = ownership only (instantly true for unclaimed domains); DNS truth = v6 config `misconfigured`; NULLS FIRST for recheck queues.
 - [Workspace E2E quirks](workspace-e2e-quirks.md) — ShellExec background servers die per session; dev can't send email (prod-only Resend connector); dev+prod share one Supabase DB.
+- [Platform calendar & booking context](platform-calendar.md) — BirdFlow's own bookings sit on a sentinel-owned `websites` row; filter it from user queries, keep booking context DB-defaulted, don't `$type` shared columns.
 - [Landing image assets](landing-image-assets.md) — full-res originals only in git history ("Add files via upload"); serve resized webp; display:none+lazy img fallback deadlocks.

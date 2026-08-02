@@ -11,8 +11,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getSupabase } from "@/lib/supabaseClient";
 import { addDays, format, startOfMonth, startOfWeek } from "date-fns";
-import { Calendar, Clock, CheckCircle, XCircle, MapPin, Plus, CalendarPlus } from "lucide-react";
-import type { SectionProps, Booking, BookingService, OpenSlot, TeamMember } from "./types";
+import { Calendar, Clock, CheckCircle, XCircle, MapPin, Plus, CalendarPlus, ExternalLink, Sparkles } from "lucide-react";
+import type { SectionProps, Booking, BookingService, OpenSlot, PlatformMeetingLink, TeamMember } from "./types";
 import {
   authHeaders,
   jsonAuthHeaders,
@@ -38,7 +38,18 @@ function formatShortWeekdayDa(date: Date): string {
 const BOOKING_STATUS_LABELS: Record<Booking['status'], string> = {
   pending: 'Afventer',
   confirmed: 'Bekræftet',
+  completed: 'Afholdt',
   cancelled: 'Annulleret',
+};
+
+/**
+ * Ekstra tilstand når sektionen kører mod BirdFlows egen platformkalender
+ * (admin-dashboardets "Bookinger"-fane) i stedet for en kundes hjemmeside.
+ * Uden denne prop opfører sektionen sig præcis som før.
+ */
+export type PlatformCalendarMode = {
+  /** Hvem hvert onboarding-møde er med, slået op på booking-id. */
+  meetingLinks: Record<string, PlatformMeetingLink>;
 };
 
 type BookingsView = 'list' | 'week' | 'month';
@@ -50,8 +61,13 @@ function readStoredView(): BookingsView {
   return stored === 'week' || stored === 'month' || stored === 'list' ? stored : 'list';
 }
 
-export function BookingsSection({ websiteId, accessToken }: SectionProps) {
+export function BookingsSection({
+  websiteId,
+  accessToken,
+  platformCalendar,
+}: SectionProps & { platformCalendar?: PlatformCalendarMode }) {
   const { toast } = useToast();
+  const isPlatform = !!platformCalendar;
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -64,8 +80,11 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
   const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
   const [memberFilter, setMemberFilter] = useState<string>('all');
 
-  const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled'>('all');
+  const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled'>('all');
   const [bookingSearch, setBookingSearch] = useState('');
+  // Kun i platformkalenderen: adskil BirdFlows egne onboarding-møder fra
+  // eventuelle øvrige aftaler i samme kalender.
+  const [contextFilter, setContextFilter] = useState<'all' | 'platform_onboarding' | 'other'>('all');
 
   const [bookingDialogOpen, setBookingDialogOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -199,6 +218,10 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
             notes: newBooking.notes,
             status: newBooking.status,
             createdAt: newBooking.created_at,
+            context: newBooking.context,
+            customerUserId: newBooking.customer_user_id,
+            customerWebsiteId: newBooking.customer_website_id,
+            onboardingSessionId: newBooking.onboarding_session_id,
           };
 
           setBookings((prev) => {
@@ -226,6 +249,17 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
     teamMembers.forEach(m => map.set(m.id, m));
     return map;
   }, [teamMembers]);
+
+  // Kontekstfilteret gælder både liste, kalender og optællingerne på
+  // statusknapperne, så de tre altid viser det samme udsnit.
+  const visibleBookings = useMemo(() => {
+    if (contextFilter === 'all') return bookings;
+    return bookings.filter(b =>
+      contextFilter === 'platform_onboarding'
+        ? b.context === 'platform_onboarding'
+        : b.context !== 'platform_onboarding',
+    );
+  }, [bookings, contextFilter]);
 
   const futureOpenSlotCount = useMemo(() => {
     const todayKey = dayKey(new Date());
@@ -372,7 +406,11 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <CardTitle>Bookinger</CardTitle>
-              <CardDescription>Håndtér aftaler og bookinger af ydelser</CardDescription>
+              <CardDescription>
+                {isPlatform
+                  ? 'BirdFlows egen kalender - forbedringsmøder med kunderne'
+                  : 'Håndtér aftaler og bookinger af ydelser'}
+              </CardDescription>
               {futureOpenSlotCount > 0 && (
                 <p className="mt-1 text-xs text-muted-foreground" data-testid="open-slot-hint">
                   {futureOpenSlotCount} ledig{futureOpenSlotCount === 1 ? '' : 'e'} tid
@@ -397,6 +435,36 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
             </div>
           </div>
 
+          {isPlatform && (
+            <div className="mt-4 flex flex-wrap gap-2" data-testid="platform-context-filters">
+              <Button
+                variant={contextFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setContextFilter('all')}
+                data-testid="filter-context-all"
+              >
+                Alle ({bookings.length})
+              </Button>
+              <Button
+                variant={contextFilter === 'platform_onboarding' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setContextFilter('platform_onboarding')}
+                data-testid="filter-context-onboarding"
+              >
+                <Sparkles className="w-3 h-3 mr-1" />
+                Onboarding-møder ({bookings.filter(b => b.context === 'platform_onboarding').length})
+              </Button>
+              <Button
+                variant={contextFilter === 'other' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setContextFilter('other')}
+                data-testid="filter-context-other"
+              >
+                Øvrige ({bookings.filter(b => b.context !== 'platform_onboarding').length})
+              </Button>
+            </div>
+          )}
+
           {view === 'list' && (
             <>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -406,7 +474,7 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                   onClick={() => setBookingFilter('all')}
                   data-testid="filter-all"
                 >
-                  Alle ({bookings.length})
+                  Alle ({visibleBookings.length})
                 </Button>
                 <Button
                   variant={bookingFilter === 'pending' ? 'default' : 'outline'}
@@ -416,7 +484,7 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                   data-testid="filter-pending"
                 >
                   <Clock className="w-3 h-3 mr-1" />
-                  Afventer ({bookings.filter(b => b.status === 'pending').length})
+                  Afventer ({visibleBookings.filter(b => b.status === 'pending').length})
                 </Button>
                 <Button
                   variant={bookingFilter === 'confirmed' ? 'default' : 'outline'}
@@ -426,7 +494,17 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                   data-testid="filter-confirmed"
                 >
                   <CheckCircle className="w-3 h-3 mr-1" />
-                  Bekræftet ({bookings.filter(b => b.status === 'confirmed').length})
+                  Bekræftet ({visibleBookings.filter(b => b.status === 'confirmed').length})
+                </Button>
+                <Button
+                  variant={bookingFilter === 'completed' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setBookingFilter('completed')}
+                  className={bookingFilter !== 'completed' ? 'border-blue-300 text-blue-700 hover:bg-blue-50' : 'bg-blue-500 hover:bg-blue-600'}
+                  data-testid="filter-completed"
+                >
+                  <CheckCircle className="w-3 h-3 mr-1" />
+                  Afholdt ({visibleBookings.filter(b => b.status === 'completed').length})
                 </Button>
                 <Button
                   variant={bookingFilter === 'cancelled' ? 'default' : 'outline'}
@@ -436,7 +514,7 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                   data-testid="filter-cancelled"
                 >
                   <XCircle className="w-3 h-3 mr-1" />
-                  Annulleret ({bookings.filter(b => b.status === 'cancelled').length})
+                  Annulleret ({visibleBookings.filter(b => b.status === 'cancelled').length})
                 </Button>
               </div>
               <div className="mt-4">
@@ -459,7 +537,7 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
               view={view}
               anchorDate={anchorDate}
               onAnchorDateChange={setAnchorDate}
-              bookings={bookings}
+              bookings={visibleBookings}
               openSlots={openSlots}
               teamMembers={teamMembers}
               memberFilter={memberFilter}
@@ -470,11 +548,13 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
               onCreateSlot={(date, time) => openNewSlot(date, time)}
               onMoveBooking={handleMoveBooking}
             />
-          ) : bookings.length === 0 ? (
+          ) : visibleBookings.length === 0 ? (
             <EmptyState
               icon={<Calendar className="w-12 h-12" />}
               title="Ingen bookinger endnu"
-              description="Bookinger vises her, når kunder booker en tid."
+              description={isPlatform
+                ? "Møder vises her, når kunder booker et forbedringsmøde."
+                : "Bookinger vises her, når kunder booker en tid."}
               action={(
                 <Button onClick={() => openNewBooking()} data-testid="button-add-first-booking">
                   <CalendarPlus className="mr-2 h-4 w-4" /> Opret en booking
@@ -483,7 +563,7 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
             />
           ) : (
             <div className="space-y-3">
-              {bookings
+              {visibleBookings
                 .filter(b => bookingFilter === 'all' || b.status === bookingFilter)
                 .filter(matchesSearch)
                 .sort((a, b) =>
@@ -503,6 +583,7 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                     bookingDayStr > todayKey ||
                     (isToday && bookingTime >= format(new Date(), "HH:mm"));
                   const member = booking.teamMemberId ? memberById.get(booking.teamMemberId) : undefined;
+                  const meetingLink = platformCalendar?.meetingLinks[booking.id];
 
                   return (
                     <div
@@ -510,6 +591,7 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                       className={`p-4 border rounded-xl transition-all hover:shadow-md cursor-pointer ${
                         booking.status === 'pending' ? 'border-l-4 border-l-yellow-400 bg-yellow-50/30' :
                         booking.status === 'confirmed' ? 'border-l-4 border-l-green-400 bg-green-50/30' :
+                        booking.status === 'completed' ? 'border-l-4 border-l-blue-400 bg-blue-50/30' :
                         'border-l-4 border-l-red-400 bg-red-50/30 opacity-75'
                       }`}
                       onClick={() => openEditBooking(booking)}
@@ -519,13 +601,19 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                         <div className="flex items-start gap-4">
                           <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold ${
                             booking.status === 'pending' ? 'bg-yellow-500' :
-                            booking.status === 'confirmed' ? 'bg-green-500' : 'bg-red-500'
+                            booking.status === 'confirmed' ? 'bg-green-500' :
+                            booking.status === 'completed' ? 'bg-blue-500' : 'bg-red-500'
                           }`}>
                             {booking.customerName.charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="font-semibold text-lg">{booking.customerName}</p>
+                              {isPlatform && booking.context === 'platform_onboarding' && (
+                                <Badge className="bg-indigo-100 text-indigo-700 text-xs flex items-center gap-1" data-testid={`booking-context-${booking.id}`}>
+                                  <Sparkles className="w-3 h-3" /> Onboarding
+                                </Badge>
+                              )}
                               {isToday && <Badge className="bg-blue-100 text-blue-700 text-xs">I dag</Badge>}
                               {!isToday && isUpcoming && booking.status !== 'cancelled' && (
                                 <Badge className="bg-purple-100 text-purple-700 text-xs">Kommende</Badge>
@@ -565,6 +653,31 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                                 {booking.place && (
                                   <span className="flex items-center gap-1" data-testid={`booking-place-${booking.id}`}>
                                     <MapPin className="h-3 w-3" /> {booking.place}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {meetingLink && (
+                              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs" onClick={(e) => e.stopPropagation()}>
+                                {meetingLink.customerWebsiteId ? (
+                                  <a
+                                    href={`/manage/${meetingLink.customerWebsiteId}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center gap-1 font-medium text-primary hover:underline"
+                                    data-testid={`meeting-website-${booking.id}`}
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                    {meetingLink.customerWebsiteName || 'Kundens hjemmeside'}
+                                  </a>
+                                ) : (
+                                  <span className="text-muted-foreground" data-testid={`meeting-website-${booking.id}`}>
+                                    Ingen hjemmeside endnu
+                                  </span>
+                                )}
+                                {meetingLink.onboardingSessionId && (
+                                  <span className="text-muted-foreground" data-testid={`meeting-onboarding-${booking.id}`}>
+                                    Onboarding-forløb {meetingLink.onboardingSessionId.slice(0, 8)}
                                   </span>
                                 )}
                               </div>
@@ -617,6 +730,20 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                                 <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
                                   <CheckCircle className="w-3 h-3" /> Bekræftet
                                 </Badge>
+                                {isPlatform && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-blue-600 hover:bg-blue-50 h-7 text-xs"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleUpdateBookingStatus(booking.id, 'completed');
+                                    }}
+                                    data-testid={`btn-complete-${booking.id}`}
+                                  >
+                                    Markér afholdt
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -630,6 +757,11 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                                   Annuller
                                 </Button>
                               </div>
+                            )}
+                            {booking.status === 'completed' && (
+                              <Badge className="bg-blue-100 text-blue-700 flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" /> Afholdt
+                              </Badge>
                             )}
                             {booking.status === 'cancelled' && (
                               <Badge className="bg-red-100 text-red-700 flex items-center gap-1">
@@ -651,7 +783,7 @@ export function BookingsSection({ websiteId, accessToken }: SectionProps) {
                   );
                 })}
 
-              {bookings
+              {visibleBookings
                 .filter(b => bookingFilter === 'all' || b.status === bookingFilter)
                 .filter(matchesSearch).length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
