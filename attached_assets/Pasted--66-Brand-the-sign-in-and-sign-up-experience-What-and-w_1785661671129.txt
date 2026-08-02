@@ -1,0 +1,761 @@
+#66 — Brand the sign-in and sign-up experience
+What and why
+
+The authentication page is the first product screen people see after clicking “Få din hjemmeside”.
+
+It currently looks disconnected from the Birdflow marketing site because it uses generic starter-kit styling, an indigo-purple gradient, a Sparkles placeholder icon and default card components.
+
+This creates doubt at the exact moment a potential customer decides whether to create an account.
+
+Rebuild the existing sign-in and sign-up page so it feels like the next step in the Birdflow journey: warm, confident, clear and visually consistent with the marketing site.
+
+This task is a visual, responsive and copy-focused redesign.
+
+Do not change the authentication architecture or behaviour.
+
+Product outcome
+
+After clicking “Få din hjemmeside” on the marketing site, the visitor should land directly in sign-up mode and immediately understand:
+
+They are creating a Birdflow account.
+Their website journey starts here.
+Birdflow will guide them through their practice, brand and website.
+They are still inside the same product and brand experience.
+
+Returning users should see a dedicated sign-in message focused on continuing their website and managing their digital practice.
+
+Done looks like
+The page uses Birdflow Purple, Bird Blue, Lime, Blush, black and white according to their defined roles.
+The real Birdflow bird and wordmark replace the Sparkles placeholder.
+Agbalumo is used only for the main emotional headline and wordmark.
+Nunito is used for forms, labels, tabs, buttons, validation and body copy.
+Visitors arriving from “Få din hjemmeside” land in sign-up mode.
+The sign-up headline is “Få din hjemmeside”.
+The sign-in state has separate returning-user copy.
+The desktop layout includes a meaningful Birdflow brand panel and a focused authentication panel.
+The mobile version retains the important reassurance content instead of simply hiding the branded side.
+All visible copy is Danish.
+Existing sign-in, sign-up, provider, validation, toast, loading and redirect behaviour remains unchanged.
+The page works at mobile, tablet and desktop widths.
+The result looks like Birdflow rather than a generic SaaS login template.
+Out of scope
+
+Do not change:
+
+Authentication providers.
+Sign-in or sign-up API requests.
+Session handling.
+Cookie or token behaviour.
+Email verification logic.
+Password reset logic.
+Auth callback logic.
+Post-login destinations.
+Protected-route behaviour.
+Onboarding questions.
+Onboarding wizard styling.
+Check-email screen.
+Verify-email screen.
+Reset-password screen.
+Auth-callback screen.
+Source of truth
+
+Use the uploaded Birdflow Visual Identity & Brand Guide, version 1.0, July 2026 as the primary visual reference.
+
+Inspect the existing marketing site and shared BF2 components to understand how the brand has already been implemented.
+
+Relevant files:
+
+client/src/pages/auth.tsx
+client/src/components/bf2/theme.ts
+client/src/components/bf2/primitives.tsx
+client/public/logo.png
+
+Also locate:
+
+The current marketing-site header
+The canonical Birdflow bird asset
+The canonical Birdflow wordmark
+Existing Agbalumo and Nunito font loading
+Existing Birdflow button primitives
+Existing wave components or SVG paths
+Auth route and query-parameter handling
+Existing form-validation and toast logic
+
+Do not create local copies of brand tokens inside auth.tsx when reusable tokens already exist.
+
+Mandatory first step: inspect the current implementation
+
+Before changing UI, document the existing behaviour of the page.
+
+Identify:
+
+How sign-in and sign-up mode is selected.
+Whether the page uses a query parameter such as mode=signup.
+Which fields exist in each mode.
+How field validation works.
+How errors are shown.
+How loading states work.
+Which auth providers are available.
+Where successful sign-in redirects.
+Where successful sign-up redirects.
+How forgot-password and email-verification flows are reached.
+
+Preserve all of this behaviour.
+
+Do not refactor auth logic unless required to prevent duplication caused by the visual redesign.
+
+Official Birdflow brand rules
+Colour system
+
+Use these exact colours:
+
+export const birdflowColors = {
+  purple: "#8016C3",
+  blue: "#306DDA",
+  lime: "#F6FFD3",
+  blush: "#FFF7F7",
+  black: "#000000",
+  white: "#FFFFFF",
+};
+Birdflow Purple
+
+Use for:
+
+Large brand fields.
+The branded side panel.
+Wave ribbons.
+Short accents and labels.
+Final brand statements.
+
+Text placed directly on Purple must be white.
+
+Do not use Purple for full paragraphs on Lime, Blush or white backgrounds.
+
+Bird Blue
+
+Use for:
+
+The bird logo.
+Primary buttons.
+Important links.
+Active functional emphasis.
+
+Do not use Bird Blue as a large background field.
+
+Lime
+
+Use as the primary light background.
+
+It is appropriate for the main authentication area or large supporting surfaces.
+
+Blush
+
+Use as the secondary light background.
+
+It may be used for the form surface, reassurance block or alternating areas.
+
+Black
+
+Use for headings and body copy on light backgrounds.
+
+Do not replace primary body text with grey.
+
+White
+
+Use for text on Purple and Bird Blue.
+
+A Bird Blue button on a light background should use the brand guide’s standard no-border treatment.
+
+A Bird Blue button placed directly on Purple should receive a white border to preserve contrast.
+
+Forbidden colour treatments
+
+Do not use:
+
+Indigo gradients.
+Purple-to-blue gradients.
+Mesh gradients.
+Tinted variants of the six colours.
+Additional accent colours.
+Black text on Purple.
+Purple text on Bird Blue.
+Lime text.
+Grey as the main text colour.
+Typography
+Agbalumo
+
+Use Agbalumo for:
+
+The Birdflow wordmark.
+The main sign-up headline.
+The main sign-in headline.
+At most one supporting emotional statement in the brand panel.
+
+Rules:
+
+Sentence case.
+No uppercase.
+No letter spacing.
+No artificial bold weight.
+Never use for form UI, labels or body text.
+Nunito
+
+Use Nunito for everything functional:
+
+Body copy.
+Form labels.
+Inputs.
+Tabs.
+Buttons.
+Links.
+Helper text.
+Validation messages.
+Error messages.
+Toasts.
+
+Recommended hierarchy:
+
+Body:
+Nunito 400
+16–17px
+Line-height around 1.7
+
+Inline emphasis and links:
+Nunito 700
+
+Labels and primary buttons:
+Nunito 800
+12–14px for labels
+Letter-spaced uppercase where appropriate
+
+Do not make every heading Agbalumo. Product and functional headings should remain Nunito ExtraBold or Black.
+
+Page architecture
+Desktop
+
+Create a balanced two-column layout.
+
+Suggested proportion:
+
+Brand panel: 44–46%
+Authentication area: 54–56%
+Left: Birdflow brand panel
+
+Use a solid Birdflow Purple field.
+
+Include:
+
+Birdflow bird and wordmark.
+One strong emotional statement.
+A short explanation of the journey.
+Three useful process steps.
+A restrained Birdflow wave or flow connector.
+Optional product-relevant visual elements derived from existing Birdflow UI.
+
+This panel must communicate value rather than acting as decoration.
+
+Right: authentication area
+
+Use Lime as the main background and optionally Blush or white for the form surface.
+
+Include:
+
+Mode-specific eyebrow.
+Mode-specific headline.
+Supporting copy.
+Sign-in/sign-up tabs.
+Existing authentication form.
+Existing social/provider buttons.
+Existing forgot-password action.
+Mode-switching prompt.
+
+Avoid the appearance of a default white shadcn card floating in empty space.
+
+The form should feel integrated into the composition.
+
+Tablet layout
+
+At tablet widths:
+
+Keep two columns where readability remains good.
+Reduce decorative content before reducing form width.
+Maintain comfortable input sizes.
+Prevent the brand panel from becoming a narrow strip.
+Switch to a stacked layout when the available width no longer supports both sides.
+
+The layout must work around 768px.
+
+Mobile layout
+
+Use a single-column layout.
+
+Recommended order:
+
+Compact logo link.
+Headline and supporting copy.
+Authentication tabs.
+Authentication form.
+Compact reassurance block.
+Relevant secondary links.
+
+Do not hide all brand-panel content on mobile.
+
+Convert the most important message and process reassurance into a compact block below the form or between the introduction and form.
+
+Do not add horizontal scrolling.
+
+Test at:
+
+375px
+768px
+1200px
+1440px
+Logo implementation
+
+Remove the Sparkles icon and all related placeholder styling.
+
+Use the canonical Birdflow bird and wordmark.
+
+Implementation priority:
+
+Reuse the logo component from the marketing site.
+Reuse the official SVG assets.
+Use client/public/logo.png only if it matches the current official logo and has sufficient resolution.
+If necessary, render the official bird asset with the wordmark in Agbalumo.
+
+Do not create an approximate new bird icon.
+
+The logo must link back to:
+
+/
+
+Accessibility:
+
+aria-label="Gå til Birdflows forside"
+
+Use appropriate alt text where the asset is rendered as an image.
+
+Birdflow brand panel content
+Main statement
+Din digitale praksis. Skabt omkring dig.
+
+Use Agbalumo.
+
+Supporting text
+Birdflow hjælper dig fra de første valg til en færdig hjemmeside, brandguide og de værktøjer, du bruger i hverdagen.
+Process
+01 — Fortæl om din praksis
+Du bliver guidet gennem din målgruppe, stil, indhold og de funktioner, din praksis har brug for.
+02 — Se dit resultat
+Birdflow samler dine valg til en rigtig hjemmeside og et visuelt udtryk, der passer til dig.
+03 — Godkend, når du er tilfreds
+Du får mulighed for at gennemgå resultatet og få det tilpasset, før du godkender det.
+Account reassurance
+Det tager kun et øjeblik at oprette din konto. Derefter bliver du guidet trin for trin.
+
+Do not state an exact onboarding duration unless that duration is already verified and used elsewhere in the product.
+
+Sign-up mode
+
+Visitors arriving from the main marketing CTA should land in sign-up mode.
+
+Preferred route:
+
+/auth?mode=signup
+
+Preserve the current routing convention if another parameter is already used.
+
+Eyebrow
+DIN HJEMMESIDE STARTER HER
+
+Use Nunito ExtraBold, uppercase and restrained letter spacing.
+
+Main heading
+Få din hjemmeside
+
+Use Agbalumo.
+
+Supporting text
+Opret din konto, og fortæl os om din praksis. Derefter guider Birdflow dig gennem din hjemmeside, dit visuelle udtryk og det indhold, du har brug for.
+Primary action
+Opret konto
+
+Loading state:
+
+Opretter din konto…
+
+Preserve the current submission state and duplicate-submit protection.
+
+Existing-user prompt
+Har du allerede en konto?
+
+Action:
+
+Log ind
+Sign-in mode
+Eyebrow
+VELKOMMEN TILBAGE
+Main heading
+Fortsæt med din hjemmeside
+
+Use Agbalumo.
+
+Supporting text
+Log ind for at fortsætte med din hjemmeside, dine bookinger og resten af din digitale praksis.
+Primary action
+Log ind
+
+Loading state:
+
+Logger ind…
+New-user prompt
+Har du ikke en konto endnu?
+
+Action:
+
+Få din hjemmeside
+Authentication tabs
+
+Use:
+
+Log ind
+Opret konto
+
+The active state must not rely only on colour.
+
+Use a combination of:
+
+Background or surface change.
+Font weight.
+Indicator or border.
+Correct semantic state.
+Visible focus state.
+
+Where the current component supports it, maintain:
+
+aria-selected
+role="tab"
+role="tablist"
+
+Switching tabs must preserve expected browser behaviour and route state.
+
+Form visual design
+
+Do not change the existing field names, form schema or handlers.
+
+Labels
+Always visible.
+Nunito ExtraBold.
+Black on light backgrounds.
+Clear association with the input.
+
+Do not replace labels with placeholders.
+
+Inputs
+
+Use:
+
+Comfortable height of approximately 46–50px.
+Radius around 10–12px.
+Black readable input text.
+Clear focus-visible treatment using Bird Blue.
+Clear error treatment.
+Sufficient spacing between fields.
+Existing browser autocomplete attributes.
+
+Avoid exaggerated pill inputs.
+
+Primary button
+
+Default treatment on a light background:
+
+Bird Blue background
+White Nunito 800 text
+Approximately 10px radius
+Soft blue shadow
+No gradient
+No border
+
+When placed directly on a Purple field:
+
+Bird Blue background
+White text
+White border for separation
+
+Support:
+
+Hover.
+Active.
+Focus-visible.
+Disabled.
+Loading.
+Keyboard activation.
+Secondary actions
+
+Use restrained Purple underlined text links.
+
+Do not create several competing secondary button styles.
+
+Provider buttons
+
+Preserve the existing providers and handlers.
+
+Restyle only their container, spacing, typography and states.
+
+Do not change their provider icons into Birdflow assets.
+
+Wave system
+
+Use the Birdflow wave only where it improves the composition.
+
+The wave must be:
+
+Birdflow Purple.
+Flat fill.
+Full-bleed where used as a section transition.
+Long and calm.
+Free from gradients, outlines and shadows.
+Limited to one directional change.
+
+For this page, one restrained wave transition between the Purple brand area and Lime or Blush authentication area is enough.
+
+Do not:
+
+Fill empty space with waves.
+Add repeated scallops.
+Add tight S-curves.
+Add multiple decorative ribbons.
+Draw a random new curve if an existing master ribbon can be reused or mirrored.
+Photography and illustration
+
+This page does not require photography.
+
+If existing photography is added, it must follow the brand guide:
+
+Practice owner rather than patient.
+Relaxed and confident.
+No therapy scene.
+No vulnerability imagery.
+No generic corporate stock pose.
+One subject only.
+Cut out directly onto a Birdflow background where possible.
+Clothing may echo the blue and purple palette.
+
+Do not introduce:
+
+Line-art illustrations.
+3D renders.
+Abstract mental-health imagery.
+Generic SaaS illustration packs.
+Sparkles or magic-wand imagery.
+Decorative icon clouds.
+
+The Birdflow bird, typography, colour fields and wave system should carry the identity.
+
+Errors, validation and loading
+
+Preserve all existing behaviour:
+
+Required-field validation.
+Email validation.
+Password validation.
+Server-side auth errors.
+Existing error toasts.
+Existing success toasts.
+Disabled submission state.
+Duplicate-submit prevention.
+Loading indicators.
+
+All user-facing messages should remain Danish.
+
+Do not make authentication errors playful, unclear or overly branded.
+
+Maintain or improve accessibility:
+
+aria-invalid
+aria-describedby
+role="alert"
+
+Errors must remain associated with their corresponding fields.
+
+Loading must be communicated with text or accessible state, not only animation.
+
+Component structure
+
+Avoid turning auth.tsx into one large block of presentation code.
+
+Extract components where they create useful separation:
+
+AuthPageShell
+AuthBrandPanel
+AuthLogo
+AuthModeTabs
+AuthFormHeader
+AuthReassurance
+
+Keep existing auth logic in its current component or hook unless there is already an established shared abstraction.
+
+Do not create separate duplicated sign-in and sign-up form logic merely to support different copy.
+
+Mode-specific text should come from a small configuration object.
+
+Example:
+
+const authCopy = {
+  signup: {
+    eyebrow: "DIN HJEMMESIDE STARTER HER",
+    heading: "Få din hjemmeside",
+    description:
+      "Opret din konto, og fortæl os om din praksis. Derefter guider Birdflow dig gennem din hjemmeside, dit visuelle udtryk og det indhold, du har brug for.",
+  },
+  signin: {
+    eyebrow: "VELKOMMEN TILBAGE",
+    heading: "Fortsæt med din hjemmeside",
+    description:
+      "Log ind for at fortsætte med din hjemmeside, dine bookinger og resten af din digitale praksis.",
+  },
+};
+Implementation plan
+Phase 1 — Protect existing auth behaviour
+
+Before redesigning:
+
+Run the current auth page.
+Record all sign-in and sign-up fields.
+Record route parameters and initial modes.
+Record redirects.
+Record provider behaviour.
+Record validation and toast behaviour.
+Add or preserve tests for these flows where test infrastructure exists.
+Phase 2 — Align shared brand foundations
+Compare bf2/theme.ts with the official brand guide.
+Add or correct reusable colour tokens.
+Confirm Agbalumo and Nunito loading.
+Locate the canonical bird and wordmark.
+Locate any official wave SVG or component.
+Avoid duplicate font imports and duplicate colour constants.
+Phase 3 — Build the responsive shell
+Replace the generic auth-page background.
+Add the desktop split layout.
+Add the purposeful Purple brand panel.
+Add the Lime or Blush form side.
+Add the real logo.
+Add one restrained wave treatment.
+Add tablet and mobile collapse behaviour.
+Phase 4 — Add mode-specific content
+Make sign-up lead with “Få din hjemmeside”.
+Add returning-user sign-in copy.
+Add the three-step brand-panel journey.
+Preserve the existing mode-switching logic.
+Confirm the marketing CTA opens sign-up mode.
+Phase 5 — Restyle forms without changing logic
+Restyle tabs.
+Restyle labels and inputs.
+Restyle the primary action.
+Restyle provider buttons.
+Restyle helper text and links.
+Preserve all validation and loading behaviour.
+Remove the Sparkles placeholder completely.
+Phase 6 — Verify
+
+Run the project’s existing commands, including where available:
+
+npm run check
+npm run test
+npm run build
+
+Fix only regressions introduced by this task.
+
+Testing requirements
+Sign-up flow
+
+Verify:
+
+Marketing CTA opens sign-up mode.
+/auth?mode=signup opens the correct state.
+The headline is Få din hjemmeside.
+Registration payload is unchanged.
+Existing validation works.
+Existing email-confirmation flow works.
+Loading prevents duplicate submission.
+Successful redirect is unchanged.
+Sign-in flow
+
+Verify:
+
+Sign-in mode opens correctly.
+Existing credentials flow works.
+Invalid credentials show the existing error.
+Forgot-password link is unchanged.
+Provider sign-in remains functional.
+Successful redirect is unchanged.
+Responsive behaviour
+
+Verify at:
+
+375px
+768px
+1200px
+1440px
+
+Check:
+
+No horizontal overflow.
+Inputs remain usable.
+Buttons remain at least approximately 44px high.
+Brand content remains visible on mobile.
+Form content is not compressed.
+Tall screens do not create an excessive empty area.
+Accessibility
+
+Verify:
+
+Complete keyboard navigation.
+Visible focus states.
+Correct label/input relationships.
+Error association.
+Correct tab semantics.
+Accessible logo link.
+Loading announced accessibly.
+Sufficient text contrast.
+Reduced-motion preferences respected.
+Visual brand verification
+
+Verify:
+
+No Sparkles icon remains.
+No indigo gradient remains.
+No purple-to-blue gradient remains.
+The official bird is used.
+The wordmark is visible.
+Birdflow Purple is the field colour.
+Bird Blue is used for primary actions.
+Lime and Blush are used as light grounds.
+Body copy is black on light backgrounds.
+Agbalumo is limited to emotional headlines.
+Nunito is used throughout the functional UI.
+The page does not resemble a generic starter-kit login.
+Definition of done
+
+The task is complete when:
+
+The authentication page clearly belongs to Birdflow.
+The real Birdflow bird and wordmark replace the placeholder.
+The official colour roles are followed.
+The sign-up state leads with “Få din hjemmeside”.
+Sign-in has dedicated returning-user copy.
+The brand panel explains what the customer receives.
+The mobile version retains the important reassurance.
+All visible copy is Danish.
+Existing sign-in logic remains unchanged.
+Existing sign-up logic remains unchanged.
+Existing providers remain unchanged.
+Existing validation and errors remain unchanged.
+Existing redirects remain unchanged.
+Existing loading behaviour remains unchanged.
+The page works on mobile, tablet and desktop.
+Excluded auth screens remain untouched.
+Type checking passes.
+Tests pass where available.
+The production build succeeds.
+No new visual system is created outside the existing BF2 brand foundation.
