@@ -112,6 +112,10 @@ export function BandWave({ top, bottom, flip = false }: { top: string; bottom: s
   );
 }
 
+/** The single edge curve, drawn in a 1440×205 box, shared by both edge waves. */
+const EDGE_WAVE_PATH =
+  "M0 0 L1440 0 L1440 205 C1370 160 1290 118 1160 95 C1000 70 860 72 640 76 C420 80 200 55 0 0 Z";
+
 /** Short edge wave into/out of a purple field (viewBox 1440×205) */
 export function EdgeWave({ other, flip }: { other: string; flip?: "x" | "xy" }) {
   const transform =
@@ -125,10 +129,42 @@ export function EdgeWave({ other, flip }: { other: string; flip?: "x" | "xy" }) 
       aria-hidden="true"
     >
       <rect x="0" y="0" width="1440" height="205" fill={PURPLE} />
-      <path
-        d="M0 0 L1440 0 L1440 205 C1370 160 1290 118 1160 95 C1000 70 860 72 640 76 C420 80 200 55 0 0 Z"
-        fill={other}
-      />
+      <path d={EDGE_WAVE_PATH} fill={other} />
+    </svg>
+  );
+}
+
+/**
+ * The same edge curve turned on its side — purple on the left, `other` on
+ * the right — for a seam where a purple field meets a light ground
+ * vertically instead of horizontally (the /auth two-column composition).
+ *
+ * The drawing stays in the 1440×205 space so the curve is literally the
+ * same one the horizontal wave uses; the group rotates it into the
+ * 205×1440 viewBox, and preserveAspectRatio="none" stretches that to
+ * whatever strip it is placed in.
+ */
+export function EdgeWaveVertical({
+  other,
+  className,
+  style,
+}: {
+  other: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <svg
+      viewBox="0 0 205 1440"
+      preserveAspectRatio="none"
+      className={className}
+      style={style}
+      aria-hidden="true"
+    >
+      <g transform="translate(205,0) rotate(90)">
+        <rect x="0" y="0" width="1440" height="205" fill={PURPLE} />
+        <path d={EDGE_WAVE_PATH} fill={other} />
+      </g>
     </svg>
   );
 }

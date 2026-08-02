@@ -5,6 +5,9 @@ import { defineConfig } from "vitest/config";
 // which sets root to client/ - tests live across tests/, shared/, server/
 // and client/src/.
 export default defineConfig({
+  // tsconfig leaves JSX to Vite, which is not in play here — tests that
+  // render a component need the automatic runtime to compile their JSX.
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
