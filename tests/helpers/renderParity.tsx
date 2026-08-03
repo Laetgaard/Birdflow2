@@ -131,7 +131,8 @@ export function renderBuilder(
     borderRadius: TEST_THEME.borderRadius,
   }
   ,
-  navItems?: Array<{ id: string; title: string; href: string }>
+  navItems?: Array<{ id: string; title: string; href: string }>,
+  svgAssets?: Record<string, { id: string; svg: string; colorSlots?: unknown }>
 ): string {
   return renderToStaticMarkup(
     React.createElement(BuilderComponentRenderer as never, {
@@ -140,6 +141,7 @@ export function renderBuilder(
       allComponents,
       globalStyles,
       ...(navItems ? { navItems } : {}),
+      ...(svgAssets ? { svgAssets } : {}),
     })
   );
 }

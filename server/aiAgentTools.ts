@@ -354,7 +354,15 @@ export function buildReadTools(): AgentTool[] {
     run: (_args, ctx) => ({
       ok: true,
       summary: "Læste komponentbibliotek",
-      data: (ctx.state.customComponents ?? []).map((e) => ({ id: e.id, name: e.name })),
+      data: (ctx.state.customComponents ?? []).map((e) => ({
+        id: e.id,
+        name: e.name,
+        ...(e.description ? { description: e.description } : {}),
+        ...(e.category ? { category: e.category } : {}),
+        ...(e.tags?.length ? { tags: e.tags } : {}),
+        ...(e.origin ? { origin: e.origin } : {}),
+        ...(e.version ? { version: e.version } : {}),
+      })),
     }),
   });
 

@@ -102,12 +102,16 @@ type Props = {
   /** Item clicked on the canvas: scroll to and highlight its card. */
   focusItemIndex?: number | null;
   onFocusItemHandled?: () => void;
+  /** Stored SVG illustrations by id (svg_assets) — for asset-backed svg nodes. */
+  svgAssets?: Record<string, import("@shared/schema").SvgAsset>;
+  /** Called after the editor stores a new illustration, so the map refreshes. */
+  onSvgAssetsChanged?: () => void;
 };
 
 type TabId = 'content' | 'design' | 'animation';
 
 
-export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, globalStyles, selectedNodeId, onNodeSelect, focusItemIndex, onFocusItemHandled }: Props) {
+export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, globalStyles, selectedNodeId, onNodeSelect, focusItemIndex, onFocusItemHandled, svgAssets, onSvgAssetsChanged }: Props) {
   const definition = componentRegistry[component.type];
   const resolvedTokens = useMemo<ResolvedTokens>(() => resolveDesignTokens(globalStyles), [globalStyles]);
   const [activeTab, setActiveTab] = useState<TabId>('content');
@@ -1531,6 +1535,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               selectedNodeId={selectedNodeId}
               onNodeSelect={onNodeSelect}
               globalStyles={globalStyles}
+              svgAssets={svgAssets}
+              onSvgAssetsChanged={onSvgAssetsChanged}
             />
           ) : (
             renderContentTab()

@@ -231,6 +231,69 @@ describe('custom components', () => {
     const { source } = loadPublishedRenderer();
     expect(source).toContain(':hover');
   });
+
+  it('draws referenced SVG illustrations identically on both sides', async () => {
+    // The builder resolves svgAssetId live against the asset map; the
+    // publisher inlines the same markup before generating the project.
+    // Both must show the same drawing with the same override colours.
+    const { extractSvgColorSlots, resolveSvgAssetsInComponent } = await import('@shared/svgAssets');
+
+    const markup =
+      '<svg viewBox="0 0 24 24"><path d="M2 12h20" fill="#111111"></path><circle cx="12" cy="12" r="6" fill="#222222"></circle></svg>';
+    const asset = {
+      id: 'asset-parity-1',
+      svg: markup,
+      colorSlots: extractSvgColorSlots(markup),
+    };
+
+    const component = {
+      id: 'custom-svg-parity',
+      type: 'custom' as const,
+      props: {
+        customTree: {
+          id: 'root',
+          type: 'box',
+          children: [
+            {
+              id: 'art',
+              type: 'svg',
+              svgAssetId: asset.id,
+              // One brand-bound colour, one hard override.
+              svgColors: { c1: '{color.primary}', c2: '#ff0000' },
+            },
+          ],
+        },
+      },
+      styles: {},
+    } as unknown as BuilderComponentData;
+
+    const builder = renderBuilder(component, [component], undefined, undefined, {
+      [asset.id]: asset,
+    });
+
+    // Publisher path: resolve references to inline markup, then render the
+    // generated project's renderer — exactly what server/publisher does.
+    const resolved = structuredClone(component);
+    const result = resolveSvgAssetsInComponent(
+      resolved as never,
+      new Map([[asset.id, asset]]),
+      TEST_TOKENS as unknown as Record<string, string>
+    );
+    expect(result).toEqual({ resolved: 1, missing: 0 });
+    const published = renderPublished(resolved);
+
+    for (const html of [builder, published]) {
+      expect(html).toContain('M2 12h20'); // the drawing itself
+      expect(html).toContain(TEST_TOKENS['color.primary']); // token override applied
+      expect(html).toContain('#ff0000'); // literal override applied
+      expect(html).not.toContain('#111111'); // original colours replaced
+      expect(html).not.toContain('#222222');
+    }
+
+    // A stale reference must degrade to the fallback, never crash.
+    const orphan = structuredClone(component);
+    expect(() => renderBuilder(orphan, [orphan], undefined, undefined, {})).not.toThrow();
+  });
 });
 
 describe('design tokens resolve to the same picture on both sides', () => {

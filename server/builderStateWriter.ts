@@ -45,7 +45,12 @@ export async function saveBuilderStateGuarded(
   newState: BuilderStateData,
   expectedRevision: number | undefined
 ): Promise<GuardedSave> {
-  const saved = await storage.updateBuilderState(websiteId, newState, expectedRevision);
+  // Inline illustration markup is moved into the SVG asset store by the
+  // persistence layer itself; AI writers only declare the origin so the
+  // extracted assets are labelled correctly.
+  const saved = await storage.updateBuilderState(websiteId, newState, expectedRevision, {
+    svgAssetOrigin: "ai",
+  });
   if (saved) return { ok: true, revision: saved.revision };
 
   const current = await storage.getBuilderState(websiteId);

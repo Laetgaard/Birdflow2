@@ -12,6 +12,7 @@ import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
 import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
+import { startSvgAssetSchema } from "./svgAssetSchema";
 
 const app = express();
 const httpServer = createServer(app);
@@ -173,6 +174,12 @@ app.use((req, res, next) => {
   // reasoning again; the column defaults to Danish so a database that has not
   // caught up yet still behaves exactly as it did before the choice existed.
   void startWebsiteLanguageSchema(db);
+
+  // The SVG asset store (reusable illustrations referenced from primitive
+  // trees). Same pattern once more: until the table is ready, svg markup
+  // simply stays inline in the builder state, which both renderers render
+  // exactly as before.
+  void startSvgAssetSchema(db);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -15,6 +15,8 @@ import { createDefaultBrandGuide, type BrandGuide } from "@shared/customComponen
 import { ONBOARDING_COPY, onboardingCopy } from "@shared/onboardingDecision";
 import { normalizeSiteLanguage } from "@shared/siteLanguage";
 import { migrateSiteStructure, resolveNavItems } from "@shared/siteStructure";
+import { resolveSvgAssetsInState, type SvgAssetLike } from "@shared/svgAssets";
+import { resolveDesignTokens } from "@shared/designTokens";
 import { storage } from "./storage";
 import { getAuthedUser } from "./websiteAccess";
 import {
@@ -153,6 +155,25 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       // same structure the builder works with: shared header and footer and
       // the resolved navigation, not just the raw page list.
       const structured = migrateSiteStructure(state);
+
+      // Inline svg-asset references server-side so every read-only surface
+      // renders stored drawings without carrying its own asset map (same
+      // resolution the publisher performs). Preview is a transient view, so
+      // a store hiccup degrades to the renderer's placeholder instead of
+      // blocking the whole preview — publish is where we fail closed.
+      try {
+        const assets = await storage.getSvgAssets(owned.websiteId);
+        if (assets.length > 0) {
+          const tokens = resolveDesignTokens((structured.globalStyles ?? {}) as never);
+          resolveSvgAssetsInState(
+            structured as Parameters<typeof resolveSvgAssetsInState>[0],
+            new Map<string, SvgAssetLike>(assets.map((asset) => [asset.id, asset])),
+            tokens
+          );
+        }
+      } catch (error: any) {
+        console.warn("[Onboarding] preview svg assets unavailable:", error?.message || error);
+      }
 
       res.json({
         websiteId: owned.websiteId,

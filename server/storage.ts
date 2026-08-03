@@ -3,6 +3,8 @@ import pkg from "pg";
 const { Pool } = pkg;
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
+import { performSvgExtraction } from "./svgExtraction";
+import { svgAssetSchemaReady } from "./svgAssetSchema";
 
 // Encryption helpers for sensitive data
 // ENCRYPTION_KEY must be a 64-character hex string (32 bytes)
@@ -58,6 +60,7 @@ import {
   customers, type Customer, type InsertCustomer,
   products, type Product, type InsertProduct,
   mediaAssets, type MediaAsset, type InsertMediaAsset,
+  svgAssets, type SvgAsset, type InsertSvgAsset,
   bookingServices, type BookingService, type InsertBookingService,
   bookingTeamMembers, type BookingTeamMember, type InsertBookingTeamMember,
   bookingOpenSlots, type BookingOpenSlot, type InsertBookingOpenSlot,
@@ -231,7 +234,11 @@ export interface IStorage {
   
   // Builder state methods
   getBuilderState(websiteId: string): Promise<BuilderState | undefined>;
-  createBuilderState(websiteId: string, state?: BuilderStateData): Promise<BuilderState>;
+  createBuilderState(
+    websiteId: string,
+    state?: BuilderStateData,
+    opts?: { svgAssetOrigin?: "ai" | "customer" }
+  ): Promise<BuilderState>;
   /**
    * Persist builder state and bump its revision.
    *
@@ -241,11 +248,16 @@ export interface IStorage {
    * long time (the AI assistant, a multi-step build) MUST pass it — omitting
    * it means "last write wins", which is only correct for the canvas's own
    * immediate save.
+   *
+   * Both write methods run inline-SVG extraction on the state first (this is
+   * the persistence choke point no writer can bypass); AI writers pass
+   * `opts.svgAssetOrigin: "ai"` so extracted assets are labelled correctly.
    */
   updateBuilderState(
     websiteId: string,
     state: BuilderStateData,
-    expectedRevision?: number
+    expectedRevision?: number,
+    opts?: { svgAssetOrigin?: "ai" | "customer" }
   ): Promise<BuilderState | undefined>;
   
   // Custom domain methods
@@ -642,7 +654,32 @@ export class DatabaseStorage implements IStorage {
     return result[0] as BuilderState | undefined;
   }
 
-  async createBuilderState(websiteId: string, state?: BuilderStateData): Promise<BuilderState> {
+  /**
+   * Move inline illustration markup into the svg_assets store before a
+   * builder-state write lands. This lives INSIDE the persistence layer on
+   * purpose: every writer — canvas autosave, AI builds, onboarding
+   * generation, Plan/Byg steps, undo restores, future callers — goes through
+   * createBuilderState/updateBuilderState, so none of them can forget it.
+   * Never throws; when the store is not ready the markup stays inline and
+   * the next save tries again.
+   */
+  private async extractSvgAssetsBeforeSave(
+    websiteId: string,
+    state: BuilderStateData,
+    origin?: "ai" | "customer"
+  ): Promise<void> {
+    await performSvgExtraction(state, origin ?? "customer", {
+      schemaReady: () => svgAssetSchemaReady(db),
+      createAsset: (input) => this.createSvgAsset({ websiteId, ...input }),
+    });
+  }
+
+  async createBuilderState(
+    websiteId: string,
+    state?: BuilderStateData,
+    opts?: { svgAssetOrigin?: "ai" | "customer" }
+  ): Promise<BuilderState> {
+    if (state) await this.extractSvgAssetsBeforeSave(websiteId, state, opts?.svgAssetOrigin);
     const result = await db
       .insert(builderState)
       .values({
@@ -656,8 +693,10 @@ export class DatabaseStorage implements IStorage {
   async updateBuilderState(
     websiteId: string,
     state: BuilderStateData,
-    expectedRevision?: number
+    expectedRevision?: number,
+    opts?: { svgAssetOrigin?: "ai" | "customer" }
   ): Promise<BuilderState | undefined> {
+    await this.extractSvgAssetsBeforeSave(websiteId, state, opts?.svgAssetOrigin);
     const where =
       typeof expectedRevision === "number"
         ? and(eq(builderState.websiteId, websiteId), eq(builderState.revision, expectedRevision))
@@ -1084,6 +1123,44 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(mediaAssets)
       .where(and(eq(mediaAssets.id, mediaId), eq(mediaAssets.websiteId, websiteId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  // SVG assets methods (reusable illustrations referenced by svgAssetId)
+  async getSvgAssets(websiteId: string): Promise<SvgAsset[]> {
+    return db.select().from(svgAssets).where(eq(svgAssets.websiteId, websiteId));
+  }
+
+  async getSvgAsset(assetId: string, websiteId: string): Promise<SvgAsset | undefined> {
+    const result = await db.select().from(svgAssets).where(
+      and(eq(svgAssets.id, assetId), eq(svgAssets.websiteId, websiteId))
+    ).limit(1);
+    return result[0];
+  }
+
+  /**
+   * Insert-or-return-existing, keyed on (website_id, content_hash): saving
+   * the same illustration twice must reuse the row, so extraction and
+   * re-uploads stay idempotent. The no-op update makes RETURNING yield the
+   * existing row on conflict.
+   */
+  async createSvgAsset(asset: InsertSvgAsset): Promise<SvgAsset> {
+    const result = await db
+      .insert(svgAssets)
+      .values(asset as any)
+      .onConflictDoUpdate({
+        target: [svgAssets.websiteId, svgAssets.contentHash],
+        set: { updatedAt: new Date() },
+      })
+      .returning();
+    return result[0];
+  }
+
+  async deleteSvgAsset(assetId: string, websiteId: string): Promise<boolean> {
+    const result = await db
+      .delete(svgAssets)
+      .where(and(eq(svgAssets.id, assetId), eq(svgAssets.websiteId, websiteId)))
       .returning();
     return result.length > 0;
   }

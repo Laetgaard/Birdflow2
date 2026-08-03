@@ -35,6 +35,8 @@ import {
   inferEditableSchema,
   findFunctionalBindings,
   cloneLibrarySource,
+  findDuplicateLibraryEntry,
+  normalizeLibraryEntryInPlace,
   type EditableSchema,
   type PrimitiveNode,
   type CustomComponentEntry,
@@ -675,8 +677,12 @@ IMPORTANT: never use "update_custom_component" on a component you create in the 
   "tree": { "type": "box", "name": "Sektion", "styles": {...}, "children": [...] },
   "position": 2,            // optional, defaults to end of page
   "saveToLibrary": false,   // true if reusable across pages → appears under "Mine komponenter"
+  "description": "Kort dansk beskrivelse af sektionen (≤200 tegn)",  // with saveToLibrary
+  "category": "hero",       // with saveToLibrary: hero|sektion|kort|cta|galleri|dekoration|andet
+  "tags": ["bånd", "usp"],  // with saveToLibrary: few short Danish keywords
   "styles": {}              // optional section-level styles (incl. animation keys)
 }
+When saveToLibrary is true, ALWAYS include description, category and tags so the library stays searchable. If the library already holds a structurally identical component, it is reused — no duplicate entry is created.
 
 Node types & fields:
 - "box": container; "children": [nodes]; layout via styles (display flex/grid, gap, padding…)
@@ -717,6 +723,7 @@ svg nodes let you draw on-brand decoration: section dividers, organic blobs, abs
 - Always include viewBox; size via node styles (width/height), not attributes
 - Use brand-guide colors or "currentColor" for fills/strokes
 - Keep markup small (under 2000 chars), pure vector shapes — scripts and event handlers are stripped automatically
+- Existing svg nodes may carry "svgAssetId"/"svgColors" instead of inline markup (a stored illustration reference). When update_custom_component returns a full tree, KEEP those two fields exactly as they are — never invent, change or drop them. New drawings still use inline "svg" markup; the server stores it automatically.
 Example: { "type": "svg", "name": "Bølge-divider", "svg": "<svg viewBox=\\"0 0 1440 120\\" fill=\\"none\\"><path d=\\"M0 60 Q360 0 720 60 T1440 60 V120 H0 Z\\" fill=\\"#0ea5e9\\"/></svg>", "styles": { "width": "100%" } }
 
 ## MOTION (entrance animations)
@@ -1774,13 +1781,28 @@ export function applyMutation(
         page.components.splice(position, 0, component);
         
         if (mutation.saveToLibrary) {
-          const entry: CustomComponentEntry = {
-            id: generateComponentId(),
-            name: mutation.name,
-            source: structuredClone(component) as CustomComponentEntry['source'],
-            createdAt: new Date().toISOString(),
-          };
-          newState.customComponents = [...(newState.customComponents ?? []), entry];
+          const source = structuredClone(component) as CustomComponentEntry['source'];
+          // Duplicate guard: if the library already holds a structurally
+          // identical component, reuse it instead of growing the library.
+          // The component itself still lands on the page either way.
+          const duplicate = findDuplicateLibraryEntry(newState.customComponents, source);
+          if (!duplicate) {
+            const entry: CustomComponentEntry = {
+              id: generateComponentId(),
+              name: mutation.name,
+              source,
+              createdAt: new Date().toISOString(),
+              ...(mutation.description ? { description: mutation.description } : {}),
+              ...(mutation.category ? { category: mutation.category as CustomComponentEntry['category'] } : {}),
+              ...(mutation.tags?.length ? { tags: mutation.tags } : {}),
+              origin: 'ai',
+              version: 1,
+            };
+            // Clamps the metadata, validates the category and generates the
+            // wireframe thumbnail — same normalization every save runs.
+            normalizeLibraryEntryInPlace(entry);
+            newState.customComponents = [...(newState.customComponents ?? []), entry];
+          }
         }
       }
       break;

@@ -398,6 +398,68 @@ describe("applyMutations — every AI custom-component write stores a schema", (
   });
 });
 
+describe("applyMutations — saveToLibrary metadata and duplicate guard", () => {
+  const tree = {
+    id: "n0",
+    type: "box",
+    children: [{ id: "n1", type: "text", tag: "h2", text: "Hej" }],
+  };
+
+  it("stores metadata, origin 'ai', version and a thumbnail on the entry", () => {
+    const next = applyMutations(makeState(), [
+      {
+        action: "add_custom_component",
+        pageId: "p1",
+        name: "Bånd",
+        tree,
+        saveToLibrary: true,
+        description: "Et smalt bånd med USP'er",
+        category: "cta",
+        tags: ["bånd", "usp"],
+      } as any,
+    ]);
+    expect(next.customComponents).toHaveLength(1);
+    const entry: any = next.customComponents![0];
+    expect(entry.origin).toBe("ai");
+    expect(entry.version).toBe(1);
+    expect(entry.description).toBe("Et smalt bånd med USP'er");
+    expect(entry.category).toBe("cta");
+    expect(entry.tags).toEqual(["bånd", "usp"]);
+    expect(entry.thumbnail).toContain("<svg");
+  });
+
+  it("skips the entry when a structurally identical one exists — the page still gets its component", () => {
+    const first = applyMutations(makeState(), [
+      { action: "add_custom_component", pageId: "p1", name: "A", tree, saveToLibrary: true } as any,
+    ]);
+    const next = applyMutations(first, [
+      {
+        action: "add_custom_component",
+        pageId: "p1",
+        name: "B",
+        tree: structuredClone(tree),
+        saveToLibrary: true,
+      } as any,
+    ]);
+    expect(next.customComponents).toHaveLength(1);
+    expect(next.pages[0].components.filter((c: any) => c.type === "custom")).toHaveLength(2);
+  });
+
+  it("falls back to the inferred category when the AI sends nonsense", () => {
+    const next = applyMutations(makeState(), [
+      {
+        action: "add_custom_component",
+        pageId: "p1",
+        name: "X",
+        tree,
+        saveToLibrary: true,
+        category: "nonsense",
+      } as any,
+    ]);
+    expect(next.customComponents![0].category).toBe("sektion");
+  });
+});
+
 describe("duplicate_component — custom components stay independent", () => {
   it("gives the duplicate fresh node ids and a schema bound to them", () => {
     const withComp = applyMutations(makeState(), [

@@ -514,7 +514,7 @@ async function runPipeline(
   stateWithGuide.brandGuide = guide;
   stateWithGuide.businessContext = businessContext;
   stateWithGuide.globalStyles = { ...stateWithGuide.globalStyles, ...brandGuideToDesignTokens(guide) };
-  await storage.updateBuilderState(websiteId, stateWithGuide);
+  await storage.updateBuilderState(websiteId, stateWithGuide, undefined, { svgAssetOrigin: "ai" });
 
   // ---- Phase 2: plan ----
   setPhase(status, "plan", t.phasePlan);
@@ -625,7 +625,7 @@ async function runPipeline(
   // navigation, one header/footer, page roles — instead of waiting for the
   // first editor load to migrate the copies it was built with.
   finalState = migrateSiteStructure(finalState);
-  await storage.updateBuilderState(websiteId, finalState);
+  await storage.updateBuilderState(websiteId, finalState, undefined, { svgAssetOrigin: "ai" });
 
   // ---- Phase 6: brand-guide enrichment ----
   // Runs on the finished site so the guide can show the customer's own
@@ -668,7 +668,7 @@ async function applyFallback(
   sanitizeBuilderStateCustomContent(state);
   // Fallback sites get the same structure a generated site is born with.
   state = migrateSiteStructure(state);
-  await storage.updateBuilderState(websiteId, state);
+  await storage.updateBuilderState(websiteId, state, undefined, { svgAssetOrigin: "ai" });
 
   // A fallback site still gets a full brand guide - it is half of what the
   // customer is about to be shown.

@@ -16,6 +16,7 @@
 import type { BuilderComponentData } from './componentRegistry';
 import { sanitizeSvg } from './svgSanitizer';
 import { isTokenRef } from './designTokens';
+import { sanitizeSvgColorOverrides } from './svgAssets';
 
 // ============ Primitive nodes ============
 
@@ -92,8 +93,16 @@ export type PrimitiveNode = {
   href?: string;
   variant?: PrimitiveButtonVariant;
 
-  // svg (sanitized markup)
+  // svg (sanitized markup) — legacy inline form; new nodes reference an asset
   svg?: string;
+  /**
+   * Reference into the website's SVG asset store (svg_assets). The builder
+   * resolves it at render time, the publisher inlines it at generation time.
+   * Keeps the autosaved JSONB document free of repeated illustration markup.
+   */
+  svgAssetId?: string;
+  /** Per-instance colour-slot overrides: slot id → colour or `{color.*}` ref. */
+  svgColors?: Record<string, string>;
 
   // box
   children?: PrimitiveNode[];
@@ -104,6 +113,27 @@ export const MAX_CUSTOM_TREE_NODES = 400;
 
 // ============ Library entries ============
 
+export const LIBRARY_CATEGORIES = ['hero', 'sektion', 'kort', 'cta', 'galleri', 'dekoration', 'andet'] as const;
+
+export type LibraryCategory = (typeof LIBRARY_CATEGORIES)[number];
+
+export const LIBRARY_CATEGORY_LABELS: Record<LibraryCategory, string> = {
+  hero: 'Hero',
+  sektion: 'Sektion',
+  kort: 'Kort',
+  cta: 'Call-to-action',
+  galleri: 'Galleri',
+  dekoration: 'Dekoration',
+  andet: 'Andet',
+};
+
+export const MAX_LIBRARY_NAME_LENGTH = 80;
+export const MAX_LIBRARY_DESCRIPTION_LENGTH = 200;
+export const MAX_LIBRARY_TAGS = 8;
+export const MAX_LIBRARY_TAG_LENGTH = 24;
+/** Thumbnails are tiny generated wireframes; anything bigger is not one. */
+export const MAX_LIBRARY_THUMBNAIL_LENGTH = 4000;
+
 export type CustomComponentEntry = {
   id: string;
   name: string;
@@ -111,7 +141,208 @@ export type CustomComponentEntry = {
   source: BuilderComponentData;
   createdAt: string;
   updatedAt?: string;
+  /** Short Danish description of what the component is for. */
+  description?: string;
+  category?: LibraryCategory;
+  tags?: string[];
+  /** Who saved it: the AI builder or the customer. Defaults to customer. */
+  origin?: 'ai' | 'customer';
+  /** Tiny generated wireframe SVG shown in the library list. */
+  thumbnail?: string;
+  /** Snapshot version; bumped if the stored source is ever replaced. */
+  version?: number;
 };
+
+// ============ Library metadata (categories, duplicates, thumbnails) ============
+
+/** Best-effort category for entries saved before categories existed. */
+export function inferLibraryCategory(source: BuilderComponentData | undefined | null): LibraryCategory {
+  const type = source?.type;
+  if (!type) return 'andet';
+  if (type === 'hero') return 'hero';
+  if (type === 'cta' || type === 'newsletter') return 'cta';
+  if (type === 'gallery' || type === 'image-slider' || type === 'before-after') return 'galleri';
+  if (type === 'features' || type === 'services' || type === 'pricing-table' || type === 'team' || type === 'testimonials') return 'kort';
+  if (type === 'divider' || type === 'spacer' || type === 'marquee' || type === 'logo-cloud') return 'dekoration';
+  return 'sektion';
+}
+
+/**
+ * Structure-only fingerprint of a snapshot: node types and child shapes in
+ * document order — no text, styles or ids. Two entries with the same
+ * signature are the same skeleton with different words, which is what
+ * "duplicate" means for a component library. Only custom trees get a real
+ * signature; standard-section snapshots differ by their props, which a
+ * structural fingerprint cannot honestly compare.
+ */
+export function treeSignature(source: BuilderComponentData | undefined | null): string {
+  const tree = (source?.props as { customTree?: PrimitiveNode } | undefined)?.customTree;
+  if (!source || source.type !== 'custom' || !tree) return 'type:' + String(source?.type ?? 'unknown');
+  const sig = (node: PrimitiveNode): string => {
+    const kids = Array.isArray(node.children) ? node.children : [];
+    return kids.length ? `${node.type}(${kids.map(sig).join(',')})` : String(node.type);
+  };
+  return 'tree:' + sig(tree);
+}
+
+/** The existing entry a new snapshot would duplicate, if any. */
+export function findDuplicateLibraryEntry(
+  entries: CustomComponentEntry[] | undefined | null,
+  source: BuilderComponentData
+): CustomComponentEntry | undefined {
+  if (!entries?.length) return undefined;
+  const candidate = treeSignature(source);
+  if (!candidate.startsWith('tree:')) return undefined;
+  return entries.find((entry) => treeSignature(entry.source) === candidate);
+}
+
+// ---- Thumbnails: a deterministic wireframe drawn FROM the tree ----
+// A raster screenshot would put kilobytes of base64 into the autosaved
+// JSONB document per entry; a few grey rectangles tell the customer just as
+// much about which component this is, in a few hundred bytes.
+
+const THUMB_W = 120;
+const THUMB_H = 80;
+
+function thumbRect(x: number, y: number, w: number, h: number, fill: string, rx = 0, stroke?: string): string {
+  const attrs =
+    `x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, w).toFixed(1)}" height="${Math.max(1, h).toFixed(1)}"` +
+    (rx > 0 ? ` rx="${rx.toFixed(1)}"` : '') +
+    ` fill="${fill}"` +
+    (stroke ? ` stroke="${stroke}" stroke-width="1"` : '');
+  return `<rect ${attrs}/>`;
+}
+
+function thumbLeaf(node: PrimitiveNode, x: number, y: number, w: number, h: number, parts: string[]): void {
+  switch (node.type) {
+    case 'text': {
+      const heading = typeof node.tag === 'string' && node.tag.startsWith('h');
+      const lineH = heading ? 5 : 3;
+      const lineW = Math.max(8, Math.min(w - 6, w * (heading ? 0.72 : 0.88)));
+      parts.push(thumbRect(x + 3, y + h / 2 - lineH / 2, lineW, lineH, heading ? '#64748b' : '#94a3b8', lineH / 2));
+      break;
+    }
+    case 'image': {
+      parts.push(thumbRect(x + 2, y + 2, w - 4, h - 4, '#e2e8f0', 2));
+      const r = Math.max(2, Math.min(w, h) / 6);
+      parts.push(`<circle cx="${(x + w / 2).toFixed(1)}" cy="${(y + h / 2).toFixed(1)}" r="${r.toFixed(1)}" fill="#cbd5e1"/>`);
+      break;
+    }
+    case 'button': {
+      const bw = Math.max(10, Math.min(w - 6, 26));
+      const bh = Math.max(6, Math.min(h - 4, 9));
+      parts.push(thumbRect(x + 3, y + h / 2 - bh / 2, bw, bh, '#475569', bh / 2));
+      break;
+    }
+    case 'svg': {
+      const r = Math.max(3, Math.min(w, h) / 4);
+      parts.push(`<circle cx="${(x + w / 2).toFixed(1)}" cy="${(y + h / 2).toFixed(1)}" r="${r.toFixed(1)}" fill="#a5b4fc"/>`);
+      break;
+    }
+    default:
+      parts.push(thumbRect(x + 2, y + 2, Math.max(4, w - 4), Math.max(4, h - 4), 'none', 2, '#cbd5e1'));
+  }
+}
+
+function thumbLayout(node: PrimitiveNode, x: number, y: number, w: number, h: number, depth: number, parts: string[]): void {
+  if (parts.length > 60) return; // hard output cap
+  const kids = Array.isArray(node.children) ? node.children.slice(0, 6) : [];
+  if (!kids.length || depth >= 3 || w < 14 || h < 10) {
+    thumbLeaf(node, x, y, w, h, parts);
+    return;
+  }
+  const styles = node.styles ?? {};
+  const columns =
+    typeof styles.gridTemplateColumns === 'string'
+      ? styles.gridTemplateColumns.trim().split(/\s+/).length
+      : 0;
+  const row =
+    (styles.display === 'flex' && styles.flexDirection !== 'column') ||
+    (styles.display === 'grid' && columns > 1);
+  const gap = 2;
+  if (row) {
+    const cw = (w - gap * (kids.length - 1)) / kids.length;
+    kids.forEach((kid, i) => thumbLayout(kid, x + i * (cw + gap), y, cw, h, depth + 1, parts));
+  } else {
+    const ch = (h - gap * (kids.length - 1)) / kids.length;
+    kids.forEach((kid, i) => thumbLayout(kid, x, y + i * (ch + gap), w, ch, depth + 1, parts));
+  }
+}
+
+/**
+ * Deterministic wireframe thumbnail for a library entry: same input, same
+ * markup. Custom trees are laid out approximately (rows/columns from their
+ * styles); standard-section snapshots get a generic section glyph.
+ */
+export function generateEntryThumbnail(source: BuilderComponentData | undefined | null): string {
+  const parts: string[] = [thumbRect(0, 0, THUMB_W, THUMB_H, '#f8fafc')];
+  const tree = (source?.props as { customTree?: PrimitiveNode } | undefined)?.customTree;
+  if (source?.type === 'custom' && tree) {
+    thumbLayout(tree, 4, 4, THUMB_W - 8, THUMB_H - 8, 0, parts);
+  } else {
+    parts.push(thumbRect(8, 14, 66, 6, '#64748b', 3));
+    parts.push(thumbRect(8, 28, 104, 3, '#cbd5e1', 1.5));
+    parts.push(thumbRect(8, 35, 92, 3, '#cbd5e1', 1.5));
+    parts.push(thumbRect(8, 48, 28, 10, '#475569', 5));
+  }
+  const svg = `<svg viewBox="0 0 ${THUMB_W} ${THUMB_H}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${parts.join('')}</svg>`;
+  if (svg.length > MAX_LIBRARY_THUMBNAIL_LENGTH) {
+    return generateEntryThumbnail(undefined);
+  }
+  return svg;
+}
+
+/**
+ * Backfill + clamp an entry's metadata in place. Runs at the same choke
+ * point that sanitizes every save (sanitizeBuilderStateCustomContent), so
+ * entries saved before metadata existed pick up category, origin, version
+ * and a thumbnail the first time the site is saved again.
+ */
+export function normalizeLibraryEntryInPlace(entry: CustomComponentEntry): void {
+  if (!entry || typeof entry !== 'object') return;
+  entry.name = typeof entry.name === 'string' && entry.name.trim()
+    ? entry.name.trim().slice(0, MAX_LIBRARY_NAME_LENGTH)
+    : 'Komponent';
+
+  if (typeof entry.description === 'string') {
+    const description = entry.description.replace(/\s+/g, ' ').trim().slice(0, MAX_LIBRARY_DESCRIPTION_LENGTH);
+    if (description) entry.description = description;
+    else delete entry.description;
+  } else if (entry.description !== undefined) {
+    delete entry.description;
+  }
+
+  entry.category = (LIBRARY_CATEGORIES as readonly string[]).includes(entry.category as string)
+    ? entry.category
+    : inferLibraryCategory(entry.source);
+
+  if (Array.isArray(entry.tags)) {
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const raw of entry.tags) {
+      if (typeof raw !== 'string') continue;
+      const tag = raw.replace(/\s+/g, ' ').trim().slice(0, MAX_LIBRARY_TAG_LENGTH);
+      const key = tag.toLowerCase();
+      if (!tag || seen.has(key)) continue;
+      seen.add(key);
+      tags.push(tag);
+      if (tags.length >= MAX_LIBRARY_TAGS) break;
+    }
+    if (tags.length) entry.tags = tags;
+    else delete entry.tags;
+  } else if (entry.tags !== undefined) {
+    delete entry.tags;
+  }
+
+  entry.origin = entry.origin === 'ai' ? 'ai' : 'customer';
+  entry.version = Number.isInteger(entry.version) && (entry.version as number) >= 1 ? entry.version : 1;
+
+  const thumbnail = typeof entry.thumbnail === 'string' ? sanitizeSvg(entry.thumbnail) : '';
+  entry.thumbnail =
+    thumbnail && thumbnail.length <= MAX_LIBRARY_THUMBNAIL_LENGTH
+      ? thumbnail
+      : generateEntryThumbnail(entry.source);
+}
 
 // ============ Brand guide ============
 // Shape is aligned with DesignSystemSchema in websitePlanSchema.ts so the
@@ -703,8 +934,20 @@ export function sanitizePrimitiveTree(root: PrimitiveNode): PrimitiveNode {
     node.mobileStyles = sanitizeStyleRecord(node.mobileStyles);
     node.hoverStyles = sanitizeStyleRecord(node.hoverStyles);
 
-    if (node.type === 'svg' && node.svg) {
-      node.svg = sanitizeSvg(node.svg);
+    if (node.type === 'svg') {
+      if (node.svg) node.svg = sanitizeSvg(node.svg);
+      // Asset references: id must be id-shaped, colour overrides must be
+      // safe paints or token refs — anything else is dropped, never kept.
+      if (node.svgAssetId !== undefined) {
+        if (typeof node.svgAssetId !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(node.svgAssetId)) {
+          delete node.svgAssetId;
+        }
+      }
+      if (node.svgColors !== undefined) {
+        const overrides = sanitizeSvgColorOverrides(node.svgColors);
+        if (overrides) node.svgColors = overrides;
+        else delete node.svgColors;
+      }
     }
     if (node.type === 'button') {
       node.href = sanitizeLinkHref(node.href);
@@ -767,7 +1010,15 @@ export function sanitizeBuilderStateCustomContent<T extends BuilderStateLike>(st
   };
 
   state.pages?.forEach((page) => page.components?.forEach(sanitizeComponent));
-  state.customComponents?.forEach((entry) => sanitizeComponent(entry.source));
+  state.customComponents?.forEach((entry) => {
+    sanitizeComponent(entry.source);
+    // Same choke point backfills library metadata (category, origin,
+    // version, thumbnail), so entries from before metadata existed catch
+    // up on the next save without a migration.
+    if (entry && typeof entry === 'object' && entry.source) {
+      normalizeLibraryEntryInPlace(entry as CustomComponentEntry);
+    }
+  });
   return state;
 }
 

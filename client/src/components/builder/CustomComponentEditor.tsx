@@ -42,9 +42,11 @@ import {
   type PrimitiveTextTag,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
+import { applySvgAssetColors, isSvgColorTokenRef } from "@shared/svgAssets";
+import { resolveDesignTokens } from "@shared/designTokens";
 import { uploadImage } from "@/lib/builderUpload";
 import SemanticFieldsPanel from "./SemanticFieldsPanel";
-import type { DesignTokens } from "@shared/schema";
+import type { DesignTokens, SvgAsset } from "@shared/schema";
 
 /**
  * Which style bucket the panel is editing. Hover sits alongside the device
@@ -62,6 +64,10 @@ type Props = {
   onNodeSelect?: (nodeId: string | null) => void;
   /** Design tokens so semantic colour fields can offer brand swatches. */
   globalStyles?: DesignTokens;
+  /** Stored SVG illustrations by id — svg nodes reference them via svgAssetId. */
+  svgAssets?: Record<string, SvgAsset>;
+  /** Called after a new illustration is stored, so the caller refreshes the map. */
+  onSvgAssetsChanged?: () => void;
 };
 
 const NODE_TYPE_META: Record<PrimitiveNodeType, { label: string; icon: typeof BoxIcon }> = {
@@ -91,6 +97,29 @@ const VARIANT_OPTIONS: { value: PrimitiveButtonVariant; label: string }[] = [
 ];
 
 const INHERIT = "__inherit__";
+
+/**
+ * Brand roles an illustration colour can bind to. The value is stored as a
+ * token reference (`{color.primary}`) on the node, so a later brand-colour
+ * change flows into every bound drawing automatically.
+ */
+const SVG_BRAND_ROLES: { value: string; label: string }[] = [
+  { value: "{color.primary}", label: "Primær farve" },
+  { value: "{color.secondary}", label: "Sekundær farve" },
+  { value: "{color.accent}", label: "Accentfarve" },
+  { value: "{color.background}", label: "Baggrundsfarve" },
+  { value: "{color.surface}", label: "Fladefarve" },
+  { value: "{color.text}", label: "Tekstfarve" },
+];
+
+/** `<input type="color">` only accepts #rrggbb — coerce what we can. */
+function toColorInputValue(value: string): string {
+  const v = (value || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v;
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(v);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  return "#888888";
+}
 
 type StyleFieldDef = {
   key: PrimitiveStyleKey;
@@ -157,11 +186,15 @@ export default function CustomComponentEditor({
   selectedNodeId,
   onNodeSelect,
   globalStyles,
+  svgAssets,
+  onSvgAssetsChanged,
 }: Props) {
   const tree = component.props.customTree;
   const [deviceTab, setDeviceTab] = useState<DeviceKey>("styles");
   const [svgDraft, setSvgDraft] = useState<string | null>(null);
   const [svgError, setSvgError] = useState<string | null>(null);
+  const [svgNotice, setSvgNotice] = useState<string | null>(null);
+  const [savingSvg, setSavingSvg] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -174,8 +207,16 @@ export default function CustomComponentEditor({
   useEffect(() => {
     setSvgDraft(null);
     setSvgError(null);
+    setSvgNotice(null);
     setEditorError(null);
   }, [selectedNodeId]);
+
+  // Same token resolution the canvas renderer uses, so colour previews here
+  // match what the customer sees on the page.
+  const svgTokens = useMemo(
+    () => resolveDesignTokens((globalStyles ?? {}) as Parameters<typeof resolveDesignTokens>[0]),
+    [globalStyles]
+  );
 
   useEffect(() => {
     setShowAdvanced(false);
@@ -326,17 +367,61 @@ export default function CustomComponentEditor({
     }
   };
 
-  const applySvg = () => {
+  /**
+   * Store the drawing in the illustration library (svg_assets) and point the
+   * node at it by id. If the store is unavailable the markup is kept inline
+   * on the node instead — the customer is never stranded.
+   */
+  const applySvg = async () => {
     if (!selected) return;
-    const raw = svgDraft ?? selected.svg ?? "";
+    const currentMarkup =
+      selected.svg ?? (selected.svgAssetId ? svgAssets?.[selected.svgAssetId]?.svg : "") ?? "";
+    const raw = svgDraft ?? currentMarkup;
     const safe = sanitizeSvg(raw);
     if (!safe) {
       setSvgError("SVG-koden kunne ikke godkendes. Brug simpel SVG uden scripts eller eksterne links.");
       return;
     }
-    patchNode(selected.id, { svg: safe });
-    setSvgDraft(null);
+    setSavingSvg(true);
     setSvgError(null);
+    setSvgNotice(null);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/svg-assets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ svg: safe, name: selected.name || "Grafik" }),
+      });
+      if (res.ok) {
+        const asset: SvgAsset = await res.json();
+        patchNode(selected.id, { svgAssetId: asset.id, svg: undefined, svgColors: undefined });
+        setSvgDraft(null);
+        onSvgAssetsChanged?.();
+      } else if (res.status === 400) {
+        // Validation refusals carry a customer-readable Danish message
+        // (too large, too complex, unreadable) — show it verbatim.
+        const body = await res.json().catch(() => null);
+        setSvgError(body?.message ?? "SVG-koden kunne ikke godkendes.");
+      } else {
+        patchNode(selected.id, { svg: safe, svgAssetId: undefined, svgColors: undefined });
+        setSvgDraft(null);
+        setSvgNotice("Gemt direkte i sektionen — grafikbiblioteket er ikke tilgængeligt lige nu.");
+      }
+    } catch {
+      patchNode(selected.id, { svg: safe, svgAssetId: undefined, svgColors: undefined });
+      setSvgDraft(null);
+      setSvgNotice("Gemt direkte i sektionen — grafikbiblioteket er ikke tilgængeligt lige nu.");
+    } finally {
+      setSavingSvg(false);
+    }
+  };
+
+  /** Set, replace or clear (value = null) one colour-slot override. */
+  const setSvgColorOverride = (slotId: string, value: string | null) => {
+    if (!selected) return;
+    const next = { ...(selected.svgColors ?? {}) };
+    if (value === null) delete next[slotId];
+    else next[slotId] = value;
+    patchNode(selected.id, { svgColors: Object.keys(next).length ? next : undefined });
   };
 
   const renderLayer = (node: PrimitiveNode, depth: number): ReactElement => {
@@ -619,30 +704,118 @@ export default function CustomComponentEditor({
             </>
           )}
 
-          {selected.type === "svg" && (
-            <>
-              <div className="space-y-1">
-                <Label className="text-xs">SVG-kode</Label>
-                <textarea
-                  className="w-full min-h-[100px] p-2 text-xs font-mono border rounded-md resize-y bg-background"
-                  value={svgDraft ?? selected.svg ?? ""}
-                  onChange={(e) => setSvgDraft(e.target.value)}
-                  placeholder='<svg viewBox="0 0 24 24">...</svg>'
-                  data-testid="node-svg-code"
-                />
-                {svgError && <p className="text-xs text-destructive">{svgError}</p>}
-                <Button size="sm" variant="outline" className="w-full" onClick={applySvg} disabled={svgDraft === null} data-testid="node-svg-apply">
-                  Anvend SVG
-                </Button>
-              </div>
-              {selected.svg && !svgDraft && (
-                <div
-                  className="border rounded-md p-3 bg-muted/30 flex items-center justify-center [&_svg]:max-h-16 [&_svg]:max-w-full"
-                  dangerouslySetInnerHTML={{ __html: sanitizeSvg(selected.svg) || "" }}
-                />
-              )}
-            </>
-          )}
+          {selected.type === "svg" && (() => {
+            const selectedAsset = selected.svgAssetId ? svgAssets?.[selected.svgAssetId] : undefined;
+            const baseMarkup = selected.svg ?? selectedAsset?.svg ?? "";
+            const previewMarkup = selectedAsset
+              ? sanitizeSvg(
+                  applySvgAssetColors(
+                    selectedAsset.svg,
+                    selectedAsset.colorSlots ?? undefined,
+                    selected.svgColors,
+                    svgTokens
+                  )
+                )
+              : sanitizeSvg(selected.svg ?? "");
+            const assetList = Object.values(svgAssets ?? {});
+            return (
+              <>
+                <div className="space-y-1">
+                  <Label className="text-xs">SVG-kode</Label>
+                  <textarea
+                    className="w-full min-h-[100px] p-2 text-xs font-mono border rounded-md resize-y bg-background"
+                    value={svgDraft ?? baseMarkup}
+                    onChange={(e) => setSvgDraft(e.target.value)}
+                    placeholder='<svg viewBox="0 0 24 24">...</svg>'
+                    data-testid="node-svg-code"
+                  />
+                  {svgError && <p className="text-xs text-destructive" data-testid="svg-error">{svgError}</p>}
+                  {svgNotice && <p className="text-xs text-amber-600" data-testid="svg-notice">{svgNotice}</p>}
+                  <Button size="sm" variant="outline" className="w-full" onClick={applySvg} disabled={svgDraft === null || savingSvg} data-testid="node-svg-apply">
+                    {savingSvg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                    {savingSvg ? "Gemmer…" : "Anvend SVG"}
+                  </Button>
+                </div>
+                {previewMarkup && !svgDraft && (
+                  <div
+                    className="border rounded-md p-3 bg-muted/30 flex items-center justify-center [&_svg]:max-h-16 [&_svg]:max-w-full"
+                    dangerouslySetInnerHTML={{ __html: previewMarkup }}
+                  />
+                )}
+                {selectedAsset?.colorSlots?.length ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Farver i grafikken</Label>
+                    {selectedAsset.colorSlots.map((slot) => {
+                      const override = selected.svgColors?.[slot.id] ?? "";
+                      const isToken = isSvgColorTokenRef(override);
+                      const effectiveColor = isToken
+                        ? svgTokens[override.trim().slice(1, -1)] ?? slot.original
+                        : override || slot.original;
+                      const selectValue = !override ? "__original__" : isToken ? override.trim() : "__custom__";
+                      return (
+                        <div key={slot.id} className="flex items-center gap-1.5">
+                          <Input
+                            type="color"
+                            value={toColorInputValue(effectiveColor)}
+                            onChange={(e) => setSvgColorOverride(slot.id, e.target.value)}
+                            className="w-9 h-8 p-1 cursor-pointer shrink-0"
+                            data-testid={`svg-color-${slot.id}`}
+                          />
+                          <Select
+                            value={selectValue}
+                            onValueChange={(v) => {
+                              if (v === "__original__") setSvgColorOverride(slot.id, null);
+                              else if (v === "__custom__") setSvgColorOverride(slot.id, toColorInputValue(effectiveColor));
+                              else setSvgColorOverride(slot.id, v);
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs flex-1" data-testid={`svg-color-role-${slot.id}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__original__">Original ({slot.label})</SelectItem>
+                              {SVG_BRAND_ROLES.map((role) => (
+                                <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+                              ))}
+                              <SelectItem value="__custom__">Egen farve</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
+                    <p className="text-[11px] text-muted-foreground">
+                      Vælg en brandfarve, så følger grafikken automatisk med, når farverne ændres.
+                    </p>
+                  </div>
+                ) : null}
+                {assetList.length > 0 && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Genbrug gemt grafik</Label>
+                    <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                      {assetList.map((asset) => (
+                        <button
+                          key={asset.id}
+                          type="button"
+                          title={asset.name}
+                          onClick={() => {
+                            patchNode(selected.id, { svgAssetId: asset.id, svg: undefined, svgColors: undefined });
+                            setSvgDraft(null);
+                            setSvgError(null);
+                            setSvgNotice(null);
+                          }}
+                          className={`border rounded-md p-1.5 bg-background hover:border-primary/40 transition-colors flex items-center justify-center aspect-square [&_svg]:max-w-full [&_svg]:max-h-full ${
+                            selected.svgAssetId === asset.id ? "ring-2 ring-primary border-primary" : ""
+                          }`}
+                          data-testid={`svg-asset-${asset.id}`}
+                          dangerouslySetInnerHTML={{ __html: sanitizeSvg(asset.svg) || "" }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {selected.type === "box" && (
             <p className="text-[11px] text-muted-foreground">

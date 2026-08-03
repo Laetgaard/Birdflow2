@@ -3,6 +3,7 @@ import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean, uni
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { CustomComponentEntry, BrandGuide } from "./customComponents";
+import type { SvgColorSlot } from "./svgAssets";
 import type { BusinessContext } from "./businessContext";
 import type { SiteLanguage } from "./siteLanguage";
 
@@ -966,6 +967,36 @@ export const insertMediaAssetSchema = createInsertSchema(mediaAssets).omit({
 
 export type InsertMediaAsset = z.infer<typeof insertMediaAssetSchema>;
 export type MediaAsset = typeof mediaAssets.$inferSelect;
+
+// SVG assets table: reusable illustrations referenced from primitive trees
+// by `svgAssetId`, so the markup lives OUTSIDE the autosaved builder-state
+// JSONB document. Deduped per website by content hash (unique index created
+// in server/svgAssetSchema.ts — this project applies DDL at boot, not via
+// db:push).
+export const svgAssets = pgTable("svg_assets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  name: text("name").notNull(),
+  /** Sanitized SVG markup (sanitizeSvg ran before insert; renderers re-sanitize). */
+  svg: text("svg").notNull(),
+  /** sha256 hex of the sanitized markup — dedupe key within a website. */
+  contentHash: varchar("content_hash", { length: 64 }).notNull(),
+  /** Named colour slots extracted at creation (see shared/svgAssets.ts). */
+  colorSlots: jsonb("color_slots").$type<SvgColorSlot[]>().default([]),
+  /** Who created it: 'ai' or 'customer'. */
+  origin: text("origin").notNull().default("customer"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSvgAssetSchema = createInsertSchema(svgAssets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSvgAsset = z.infer<typeof insertSvgAssetSchema>;
+export type SvgAsset = typeof svgAssets.$inferSelect;
 
 // Booking services table
 export const bookingServices = pgTable("booking_services", {

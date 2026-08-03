@@ -672,7 +672,9 @@ async function runStep(args: {
   // Compare-and-swap: if the customer edited on the canvas while this step
   // ran, their work wins and the build pauses. Overwriting them silently is
   // the one failure mode a long build must not have.
-  const saved = await storage.updateBuilderState(websiteId, newState, baseRevision);
+  const saved = await storage.updateBuilderState(websiteId, newState, baseRevision, {
+    svgAssetOrigin: "ai",
+  });
   if (!saved) {
     return {
       result: {

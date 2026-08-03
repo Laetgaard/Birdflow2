@@ -410,6 +410,11 @@ export type ComponentProps = {
   // edit ("Overskrift", "Knap – link") and binds each field to a tree node.
   // Panel-only metadata; the publisher ignores it. See shared/customComponents.ts
   customSchema?: EditableSchema;
+  // Provenance of an instance inserted from the component library: which
+  // entry (and which version of it) this section was cloned from. The
+  // instance stays a fully detached copy — this is bookkeeping only, and
+  // the publisher ignores it.
+  libraryRef?: { entryId: string; version: number };
   // Product detail props
   showReviews?: boolean;
   showRelated?: boolean;

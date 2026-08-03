@@ -2,6 +2,9 @@ import { generateNextJsProject, cleanupProject } from './generator';
 import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, getProductionAliasUrl, type VercelConfig } from './vercel';
 import type { BuilderStateData } from '../../shared/schema';
 import { DEFAULT_SITE_LANGUAGE, type SiteLanguage } from '../../shared/siteLanguage';
+import { collectReferencedSvgAssetIds, resolveSvgAssetsInState, type SvgAssetLike } from '../../shared/svgAssets';
+import { resolveDesignTokens } from '../../shared/designTokens';
+import { storage } from '../storage';
 
 export type PublishConfig = {
   websiteId: string;
@@ -33,11 +36,59 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
   
   try {
     const projectName = `site-${config.websiteId}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    
+
+    // Resolve svgAssetId references back to inline markup BEFORE generation:
+    // the generated Next.js project renders node.svg and never needs to know
+    // the asset store exists. Colour-slot overrides (including {color.*}
+    // token refs) are applied here, against the same resolved tokens the
+    // generator uses.
+    //
+    // This FAILS CLOSED: an unresolved reference on a page or in the site
+    // chrome would ship as a silently blank drawing on the live site, so an
+    // unreachable store or a dangling reference aborts the publish with an
+    // actionable Danish error instead. Sites that reference no assets never
+    // touch the store at all. Dangling references that live only in unused
+    // library entries don't block — the published site never renders those.
+    let stateForPublish = config.builderState;
+    const referencedSvgIds = collectReferencedSvgAssetIds(
+      config.builderState as Parameters<typeof collectReferencedSvgAssetIds>[0]
+    );
+    if (referencedSvgIds.size > 0) {
+      let assets: SvgAssetLike[];
+      try {
+        assets = await storage.getSvgAssets(config.websiteId);
+      } catch (error: any) {
+        console.error('[Publisher] SVG asset store unreachable:', error?.message || error);
+        throw new Error(
+          'Webstedets illustrationer kunne ikke hentes fra grafikbiblioteket, så udgivelsen blev stoppet. Prøv igen om et øjeblik.'
+        );
+      }
+      stateForPublish = structuredClone(config.builderState);
+      const tokens = resolveDesignTokens((stateForPublish as { globalStyles?: unknown }).globalStyles ?? {} as never);
+      const assetMap = new Map<string, SvgAssetLike>(assets.map((asset) => [asset.id, asset]));
+      const { resolved, missing } = resolveSvgAssetsInState(
+        stateForPublish as Parameters<typeof resolveSvgAssetsInState>[0],
+        assetMap,
+        tokens
+      );
+      console.log(`[Publisher] SVG assets resolved: ${resolved}, missing: ${missing}`);
+      // Resolution removes svgAssetId from every node it inlined, so any id
+      // still referenced by pages/chrome is a drawing the live site cannot show.
+      const stillDangling = collectReferencedSvgAssetIds({
+        pages: (stateForPublish as { pages?: unknown }).pages,
+        siteChrome: (stateForPublish as { siteChrome?: unknown }).siteChrome,
+      } as Parameters<typeof collectReferencedSvgAssetIds>[0]);
+      if (stillDangling.size > 0) {
+        throw new Error(
+          `${stillDangling.size} ${stillDangling.size === 1 ? 'illustration' : 'illustrationer'} på webstedet mangler i grafikbiblioteket, så udgivelsen blev stoppet. Åbn byggeren, erstat eller fjern de berørte illustrationer, og udgiv igen.`
+        );
+      }
+    }
+
     projectDir = await generateNextJsProject({
       websiteId: config.websiteId,
       siteName: config.siteName,
-      builderState: config.builderState,
+      builderState: stateForPublish,
       supabaseUrl: config.supabaseUrl,
       supabaseAnonKey: config.supabaseAnonKey,
       language: config.language ?? DEFAULT_SITE_LANGUAGE,

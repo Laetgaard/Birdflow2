@@ -5,6 +5,8 @@ import { respondSpendLimit } from "./spendLimitResponse";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import { saveBuilderStateGuarded } from "./builderStateWriter";
+import { createSvgAssetSafe } from "./svgAssetStore";
+import { collectReferencedSvgAssetIds } from "@shared/svgAssets";
 import { migrateSiteStructure } from "@shared/siteStructure";
 import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { getPlatformCalendar } from "./platformCalendar";
@@ -1371,7 +1373,10 @@ export async function registerRoutes(
       }
 
       // Strip unsafe SVG markup and enforce node limits inside custom
-      // components before anything is persisted.
+      // components before anything is persisted. (Inline illustration markup
+      // is then moved into the SVG asset store by the persistence layer
+      // itself — storage.create/updateBuilderState — so every save path
+      // shares the same extraction.)
       sanitizeBuilderStateCustomContent(state);
 
       const previous = await storage.getBuilderState(req.params.id);
@@ -2972,6 +2977,68 @@ export async function registerRoutes(
   });
 
   // ============ MEDIA ASSETS ROUTES ============
+
+  // ---- SVG assets: reusable illustrations referenced by svgAssetId ----
+  // Same permission as saving the builder state (updateBuilder): the asset
+  // store is part of the document being edited, not media management.
+
+  app.get("/api/websites/:id/svg-assets", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      const assets = await storage.getSvgAssets(req.params.id);
+      res.json(assets);
+    } catch (error: any) {
+      // A missing table (store not ready yet) is an empty library, not an
+      // error — the builder then falls back to inline markup everywhere.
+      console.warn("[SvgAssets] list failed:", error?.message || error);
+      res.json([]);
+    }
+  });
+
+  app.post("/api/websites/:id/svg-assets", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      const { name, svg } = req.body ?? {};
+      if (typeof svg !== "string" || !svg.trim()) {
+        return res.status(400).json({ message: "SVG-markup mangler." });
+      }
+      const result = await createSvgAssetSafe({
+        websiteId: req.params.id,
+        name: typeof name === "string" ? name : undefined,
+        svg,
+        origin: "customer",
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ message: result.message });
+      }
+      res.status(201).json(result.asset);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/websites/:id/svg-assets/:assetId", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      // Refuse to delete an illustration a page still points at — the node
+      // would silently render nothing in the builder and the published site.
+      const builderState = await storage.getBuilderState(req.params.id);
+      if (builderState?.state) {
+        const referenced = collectReferencedSvgAssetIds(
+          builderState.state as Parameters<typeof collectReferencedSvgAssetIds>[0]
+        );
+        if (referenced.has(req.params.assetId)) {
+          return res.status(409).json({
+            message: "Grafikken bruges stadig på websitet. Fjern den fra siderne, før den slettes.",
+          });
+        }
+      }
+      const deleted = await storage.deleteSvgAsset(req.params.assetId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Grafikken findes ikke." });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
 
   // Get all media assets for a website. Owner or administrator
   // (manageMedia permission - media is part of builder editing).

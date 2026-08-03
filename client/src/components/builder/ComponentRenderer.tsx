@@ -406,6 +406,8 @@ type RenderProps = {
   deviceMode?: DeviceMode;
   onComponentClick?: (componentId: string) => void;
   globalStyles?: GlobalStyles;
+  /** Stored illustrations by id — resolved inside custom components. */
+  svgAssets?: Record<string, import("@shared/svgAssets").SvgAssetLike>;
   /** Node selection inside custom components (primitive node trees). */
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
@@ -3992,9 +3994,10 @@ type ContainerComponentProps = ComponentRenderProps & {
   websiteId?: string;
   pages?: BuilderPage[];
   navItems?: NavItem[];
+  svgAssets?: Record<string, import("@shared/svgAssets").SvgAssetLike>;
 };
 
-function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, navItems, deviceMode, onClick, globalStyles }: ContainerComponentProps) {
+function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, navItems, deviceMode, onClick, globalStyles, svgAssets }: ContainerComponentProps) {
   const children = props.children || [];
   const layout = props.layout || 'vertical';
   const gap = props.gap || '24px';
@@ -4057,6 +4060,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
             allComponents={allComponents}
             deviceMode={deviceMode}
             globalStyles={globalStyles}
+            svgAssets={svgAssets}
             onClick={onComponentClick ? (e) => {
               e.stopPropagation();
               onComponentClick(childComponent.id);
@@ -4068,7 +4072,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
   );
 }
 
-export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, navItems, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect, onItemFocus }: RenderProps) {
+export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, navItems, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, svgAssets, selectedNodeId, onNodeSelect, onItemFocus }: RenderProps) {
   // What is stored may point at the brand ("{color.primary}") rather than
   // repeat its value. Resolve once, here, so every section below draws real
   // values and no section has to know that tokens exist. The publisher does
@@ -4208,7 +4212,7 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
       case 'services':
         return <ServicesComponent {...commonProps} />;
       case 'container':
-        return <ContainerComponent {...commonProps} allComponents={allComponents} onComponentClick={onComponentClick} />;
+        return <ContainerComponent {...commonProps} allComponents={allComponents} onComponentClick={onComponentClick} websiteId={websiteId} pages={pages} navItems={navItems} svgAssets={svgAssets} />;
       case 'custom':
         return (
           <CustomComponentRenderer
@@ -4223,6 +4227,7 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
             editingField={editingField}
             onEditField={onEditField}
             globalStyles={globalStyles}
+            svgAssets={svgAssets}
           />
         );
       default:

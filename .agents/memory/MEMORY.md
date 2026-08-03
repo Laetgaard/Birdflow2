@@ -1,6 +1,6 @@
 # Memory index
 
-- [Builder custom components](builder-custom-components.md) — data trees, breakpoint cascade, sanitize points, editable-schema binding/clone/lock rules, AI pipeline order, upload auth, tsc quirks.
+- [Builder custom components](builder-custom-components.md) — data trees, breakpoint cascade, sanitize points, editable-schema rules, svg asset store + library dedupe/thumbnails, AI pipeline order, tsc quirks.
 - [AI onboarding pipeline](ai-onboarding-pipeline.md) — never-stranded fallbacks, guide-saved-first ordering, user picks override AI, sync single-flight claims, media ownership filter, client resume model.
 - [Onboarding decision flow](onboarding-decision-flow.md) — four state dimensions with one writer, revision-scoped approval (bump only on explicit site writes), per-consumer webhook dedup, paid-only-on-webhook, no price literals.
 - [Timezone & DST](timezone-daylight-saving.md) — local-day windows end at next local midnight (never +24h), iterate series by calendar date, ICU h23 quirk.

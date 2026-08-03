@@ -321,6 +321,14 @@ export type AIPrimitiveNode = {
   href?: string;
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'link';
   svg?: string;
+  /**
+   * Reference to a stored illustration (svg_assets). The AI never invents
+   * these, but update_custom_component round-trips whole trees — if the
+   * schema stripped the field, an AI edit would silently delete the
+   * illustration the node points at.
+   */
+  svgAssetId?: string;
+  svgColors?: Record<string, string>;
   children?: AIPrimitiveNode[];
 };
 
@@ -341,6 +349,8 @@ export const AIPrimitiveNodeSchema: z.ZodType<AIPrimitiveNode> = z.lazy(() =>
     href: z.string().optional(),
     variant: z.enum(['primary', 'secondary', 'outline', 'ghost', 'link']).optional(),
     svg: z.string().optional(),
+    svgAssetId: z.string().max(80).optional(),
+    svgColors: z.record(z.string().max(64)).optional(),
     children: z.array(AIPrimitiveNodeSchema).optional(),
   })
 );
@@ -380,6 +390,11 @@ export const AddCustomComponentMutation = z.object({
   schema: AIEditableSchemaSchema.optional(),
   position: z.number().optional(),
   saveToLibrary: z.boolean().optional(),
+  // Library metadata, used when saveToLibrary is true. Kept loose here;
+  // normalizeLibraryEntryInPlace clamps and validates on apply.
+  description: z.string().max(300).optional(),
+  category: z.string().max(24).optional(),
+  tags: z.array(z.string().max(40)).max(12).optional(),
   styles: ComponentStylesSchema.optional(),
 });
 

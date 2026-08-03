@@ -11,7 +11,8 @@ import {
   type PrimitiveNode,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
-import { TOKEN_FALLBACKS, readableTextOn } from "@shared/designTokens";
+import { TOKEN_FALLBACKS, readableTextOn, resolveDesignTokens } from "@shared/designTokens";
+import { applySvgAssetColors, type SvgAssetLike } from "@shared/svgAssets";
 
 type DeviceMode = "desktop" | "tablet" | "mobile";
 
@@ -37,6 +38,8 @@ type Props = {
   editingField?: string | null;
   onEditField?: (field: string | null) => void;
   globalStyles?: GlobalStylesLike;
+  /** Stored illustrations by id — svg nodes with svgAssetId resolve here. */
+  svgAssets?: Record<string, SvgAssetLike>;
 };
 
 /** Ensure inline SVG scales to its wrapper node. */
@@ -198,6 +201,9 @@ type NodeRendererProps = {
    * enforces. Absent for legacy components: everything stays editable.
    */
   canInlineEdit?: (nodeId: string) => boolean;
+  svgAssets?: Record<string, SvgAssetLike>;
+  /** Resolved design tokens for {color.*} refs in svg colour overrides. */
+  svgTokens?: Record<string, string>;
   depth: number;
 };
 
@@ -212,6 +218,8 @@ function NodeRenderer({
   onEditField,
   globalStyles,
   canInlineEdit,
+  svgAssets,
+  svgTokens,
   depth,
 }: NodeRendererProps) {
   // Hover is a real style layer, not an editor nicety: the published site
@@ -269,6 +277,8 @@ function NodeRenderer({
               onEditField={onEditField}
               globalStyles={globalStyles}
               canInlineEdit={canInlineEdit}
+              svgAssets={svgAssets}
+              svgTokens={svgTokens}
               depth={depth + 1}
             />
           ))}
@@ -402,7 +412,15 @@ function NodeRenderer({
     }
 
     case "svg": {
-      const safe = sanitizeSvg(node.svg);
+      // Asset-backed nodes resolve their reference here; legacy nodes keep
+      // rendering their inline markup. A referenced asset that is not in
+      // the map (store unreachable, stale id) falls back to the same
+      // placeholder an empty node gets — never a broken canvas.
+      const asset = node.svgAssetId && svgAssets ? svgAssets[node.svgAssetId] : undefined;
+      const markup = asset
+        ? applySvgAssetColors(asset.svg, asset.colorSlots ?? undefined, node.svgColors, svgTokens)
+        : node.svg;
+      const safe = sanitizeSvg(markup);
       const style: React.CSSProperties = {
         display: "block",
         lineHeight: 0,
@@ -467,9 +485,17 @@ export default function CustomComponentRenderer({
   editingField,
   onEditField,
   globalStyles,
+  svgAssets,
 }: Props) {
   const tree = component.props.customTree;
   const sectionStyles: ComponentStyles = component.styles || {};
+
+  // Flat token map for {color.*} refs in svg colour overrides — same
+  // resolution the publisher runs at generation time.
+  const svgTokens = useMemo(
+    () => resolveDesignTokens((globalStyles ?? {}) as Parameters<typeof resolveDesignTokens>[0]),
+    [globalStyles]
+  );
 
   // Only a STORED schema gates inline editing: legacy components without one
   // keep every text node editable exactly as before.
@@ -539,6 +565,8 @@ export default function CustomComponentRenderer({
         onEditField={onEditField}
         globalStyles={globalStyles}
         canInlineEdit={canInlineEdit}
+        svgAssets={svgAssets}
+        svgTokens={svgTokens}
         depth={0}
       />
     </section>

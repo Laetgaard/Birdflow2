@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -51,7 +51,7 @@ import {
   type ComponentProps,
   type ComponentStyles
 } from "@shared/componentRegistry";
-import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext } from "@shared/schema";
+import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext, SvgAsset } from "@shared/schema";
 import {
   cloneLibrarySource,
   clonePrimitiveTree,
@@ -62,9 +62,16 @@ import {
   applySemanticEdit,
   effectiveEditableSchema,
   fieldBindingForNode,
+  findDuplicateLibraryEntry,
+  inferLibraryCategory,
+  normalizeLibraryEntryInPlace,
+  LIBRARY_CATEGORIES,
+  LIBRARY_CATEGORY_LABELS,
+  type LibraryCategory,
   type CustomComponentEntry,
   type PrimitiveNode,
 } from "@shared/customComponents";
+import { sanitizeSvg } from "@shared/svgSanitizer";
 import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
 import BusinessFactsPanel from "@/components/builder/BusinessFactsPanel";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
@@ -160,9 +167,20 @@ export default function BuilderPage() {
   // Custom component library dialogs
   const [saveComponentOpen, setSaveComponentOpen] = useState(false);
   const [saveComponentName, setSaveComponentName] = useState("");
+  const [saveComponentDescription, setSaveComponentDescription] = useState("");
+  const [saveComponentCategory, setSaveComponentCategory] = useState<LibraryCategory | "">("");
+  const [saveComponentTags, setSaveComponentTags] = useState("");
+  // Duplicate warning: set when saving would duplicate an existing entry;
+  // the customer confirms once to save anyway (warn, never block).
+  const [saveDuplicateOf, setSaveDuplicateOf] = useState<CustomComponentEntry | null>(null);
   const [renameEntry, setRenameEntry] = useState<CustomComponentEntry | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
+  // Library browse controls (search + category filter)
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [libraryCategory, setLibraryCategory] = useState<LibraryCategory | null>(null);
+  // Stored SVG illustrations (svg_assets) — svg nodes reference them by id.
+  const [svgAssets, setSvgAssets] = useState<SvgAsset[]>([]);
   const [device, setDevice] = useState<DeviceType>('desktop');
   const [pageDialogOpen, setPageDialogOpen] = useState(false);
   const [editingPage, setEditingPage] = useState<BuilderPage | null>(null);
@@ -993,9 +1011,62 @@ export default function BuilderPage() {
 
   // ============ Custom component library ("Mine komponenter") ============
 
+  // Stored SVG illustrations: svg nodes carrying svgAssetId resolve against
+  // this map on the canvas. Loaded alongside the site; reloaded after the
+  // editor stores a new drawing. Unreachable store = empty list, and nodes
+  // that still hold inline markup keep rendering exactly as before.
+  const reloadSvgAssets = useCallback(async () => {
+    if (!session || !id) return;
+    try {
+      const res = await fetch(`/api/websites/${id}/svg-assets`, {
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+      if (res.ok) setSvgAssets(await res.json());
+    } catch {
+      // keep whatever we have — the canvas falls back per node
+    }
+  }, [session, id]);
+
+  useEffect(() => {
+    void reloadSvgAssets();
+  }, [reloadSvgAssets]);
+
+  const svgAssetMap = useMemo(() => {
+    const map: Record<string, SvgAsset> = {};
+    for (const asset of svgAssets) map[asset.id] = asset;
+    return map;
+  }, [svgAssets]);
+
+  // Library browsing: free-text search over name/description/tags plus a
+  // category filter. Chips only appear for categories actually in use.
+  const libraryEntries = builderState?.customComponents ?? [];
+
+  const libraryCategoriesInUse = useMemo(() => {
+    const present = new Set(libraryEntries.map((entry) => entry.category ?? "andet"));
+    return LIBRARY_CATEGORIES.filter((category) => present.has(category));
+  }, [libraryEntries]);
+
+  const filteredLibraryEntries = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+    return libraryEntries.filter((entry) => {
+      if (libraryCategory && (entry.category ?? "andet") !== libraryCategory) return false;
+      if (!query) return true;
+      const haystack = [entry.name, entry.description ?? "", ...(entry.tags ?? [])]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [libraryEntries, librarySearch, libraryCategory]);
+
   const insertLibraryEntry = useCallback((entry: CustomComponentEntry) => {
     if (!builderState) return;
     const instance = cloneLibrarySource(entry.source);
+    // Provenance: remember which entry (and version) this copy came from.
+    // The instance stays fully detached — this is bookkeeping, not linking.
+    instance.props = {
+      ...instance.props,
+      libraryRef: { entryId: entry.id, version: entry.version ?? 1 },
+    } as typeof instance.props;
     const newState: BuilderStateData = {
       ...builderState,
       pages: builderState.pages.map(page =>
@@ -1009,22 +1080,58 @@ export default function BuilderPage() {
     setSidebarTab("properties");
   }, [builderState, updateStateWithHistory]);
 
+  const resetSaveComponentDialog = () => {
+    setSaveComponentOpen(false);
+    setSaveComponentName("");
+    setSaveComponentDescription("");
+    setSaveComponentCategory("");
+    setSaveComponentTags("");
+    setSaveDuplicateOf(null);
+  };
+
   const saveSelectionAsComponent = () => {
     if (!builderState || !selectedComponent) return;
     const name = saveComponentName.trim();
     if (!name) return;
+
+    // Duplicate check: warn once, never block — the second click saves anyway.
+    if (!saveDuplicateOf) {
+      const duplicate = findDuplicateLibraryEntry(
+        builderState.customComponents,
+        selectedComponent as BuilderComponentData
+      );
+      if (duplicate) {
+        setSaveDuplicateOf(duplicate);
+        return;
+      }
+    }
+
+    const tags = saveComponentTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
     const entry: CustomComponentEntry = {
       id: generateLibraryEntryId(),
       name,
       source: JSON.parse(JSON.stringify(selectedComponent)),
       createdAt: new Date().toISOString(),
+      ...(saveComponentDescription.trim() ? { description: saveComponentDescription.trim() } : {}),
+      ...(saveComponentCategory ? { category: saveComponentCategory } : {}),
+      ...(tags.length ? { tags } : {}),
+      origin: "customer",
+      version: 1,
     };
+    // The snapshot is its own origin now — drop any provenance it inherited
+    // from the section it was cloned from.
+    delete (entry.source.props as { libraryRef?: unknown }).libraryRef;
+    // Same clamps and backfills (incl. the wireframe thumbnail) that the
+    // server runs on every save.
+    normalizeLibraryEntryInPlace(entry);
     updateStateWithHistory(
       { ...builderState, customComponents: [...(builderState.customComponents ?? []), entry] },
       `Gem komponent: ${name}`
     );
-    setSaveComponentOpen(false);
-    setSaveComponentName("");
+    resetSaveComponentDialog();
     toast({ title: "Komponent gemt", description: `"${name}" ligger nu under Mine komponenter.` });
   };
 
@@ -1590,6 +1697,7 @@ export default function BuilderPage() {
                         onHover={setHoveredComponentId}
                         deviceMode={device}
                         globalStyles={builderState?.globalStyles}
+                        svgAssets={svgAssetMap}
                         selectedNodeId={selectedComponentId === comp.id ? selectedNodeId : null}
                         onNodeSelect={(nodeId) => {
                           setSelectedComponentId(comp.id);
@@ -1759,16 +1867,74 @@ export default function BuilderPage() {
                     Vælg en sektion og klik "Gem som komponent" — så kan du genbruge den her på alle sider.
                   </p>
                 ) : (
-                  <div className="space-y-1.5">
-                    {(builderState?.customComponents ?? []).map((entry) => (
+                  <div className="space-y-2">
+                    {libraryEntries.length > 3 && (
+                      <Input
+                        placeholder="Søg i komponenter…"
+                        value={librarySearch}
+                        onChange={(e) => setLibrarySearch(e.target.value)}
+                        className="h-8 text-xs"
+                        data-testid="library-search"
+                      />
+                    )}
+                    {libraryCategoriesInUse.length > 1 && (
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          onClick={() => setLibraryCategory(null)}
+                          className={`px-2 py-0.5 rounded-full border text-[11px] transition-colors ${
+                            libraryCategory === null
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-background text-muted-foreground hover:border-primary/40"
+                          }`}
+                          data-testid="library-category-all"
+                        >
+                          Alle
+                        </button>
+                        {libraryCategoriesInUse.map((category) => (
+                          <button
+                            key={category}
+                            onClick={() => setLibraryCategory(libraryCategory === category ? null : category)}
+                            className={`px-2 py-0.5 rounded-full border text-[11px] transition-colors ${
+                              libraryCategory === category
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-background text-muted-foreground hover:border-primary/40"
+                            }`}
+                            data-testid={`library-category-${category}`}
+                          >
+                            {LIBRARY_CATEGORY_LABELS[category]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {filteredLibraryEntries.length === 0 && (
+                      <p className="text-xs text-muted-foreground" data-testid="library-empty-filter">
+                        Ingen komponenter matcher søgningen.
+                      </p>
+                    )}
+                    {filteredLibraryEntries.map((entry) => (
                       <div key={entry.id} className="flex items-center gap-1">
                         <button
                           onClick={() => insertLibraryEntry(entry)}
-                          className="flex-1 min-w-0 flex items-center gap-2 p-2.5 rounded-lg border bg-background hover:bg-primary/5 hover:border-primary/30 transition-all text-left"
+                          title={entry.description}
+                          className="flex-1 min-w-0 flex items-center gap-2 p-2 rounded-lg border bg-background hover:bg-primary/5 hover:border-primary/30 transition-all text-left"
                           data-testid={`insert-custom-component-${entry.id}`}
                         >
-                          <Puzzle className="w-4 h-4 text-primary shrink-0" />
-                          <span className="text-xs font-medium truncate">{entry.name}</span>
+                          {entry.thumbnail ? (
+                            <span
+                              aria-hidden="true"
+                              className="w-12 h-8 shrink-0 rounded border bg-white overflow-hidden [&>svg]:w-full [&>svg]:h-full"
+                              dangerouslySetInnerHTML={{ __html: sanitizeSvg(entry.thumbnail) }}
+                            />
+                          ) : (
+                            <Puzzle className="w-4 h-4 text-primary shrink-0" />
+                          )}
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-xs font-medium truncate">{entry.name}</span>
+                            <span className="block text-[10px] text-muted-foreground truncate">
+                              {LIBRARY_CATEGORY_LABELS[entry.category ?? "andet"]}
+                              {entry.origin === "ai" ? " · AI" : ""}
+                            </span>
+                          </span>
                         </button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1815,6 +1981,8 @@ export default function BuilderPage() {
                               ? 'Min komponent'
                               : componentRegistry[selectedComponent.type]?.name ?? 'Min komponent'
                           );
+                          setSaveComponentCategory(inferLibraryCategory(selectedComponent as BuilderComponentData));
+                          setSaveDuplicateOf(null);
                           setSaveComponentOpen(true);
                         }}
                         data-testid="save-as-component"
@@ -1834,6 +2002,8 @@ export default function BuilderPage() {
                         onNodeSelect={setSelectedNodeId}
                         focusItemIndex={focusItemIndex}
                         onFocusItemHandled={() => setFocusItemIndex(null)}
+                        svgAssets={svgAssetMap}
+                        onSvgAssetsChanged={reloadSvgAssets}
                       />
                     </>
                   ) : (
@@ -2010,7 +2180,7 @@ export default function BuilderPage() {
       </AlertDialog>
 
       {/* Save selection as custom component */}
-      <Dialog open={saveComponentOpen} onOpenChange={setSaveComponentOpen}>
+      <Dialog open={saveComponentOpen} onOpenChange={(open) => { if (!open) resetSaveComponentDialog(); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Gem som komponent</DialogTitle>
@@ -2018,7 +2188,7 @@ export default function BuilderPage() {
               Komponenten gemmes i "Mine komponenter", så du kan genbruge den på alle sider.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4 space-y-3">
             <Input
               placeholder="Navn på komponent"
               value={saveComponentName}
@@ -2026,11 +2196,56 @@ export default function BuilderPage() {
               onKeyDown={(e) => e.key === 'Enter' && saveSelectionAsComponent()}
               data-testid="input-component-name"
             />
+            <textarea
+              placeholder="Kort beskrivelse (valgfrit)"
+              value={saveComponentDescription}
+              onChange={(e) => setSaveComponentDescription(e.target.value)}
+              maxLength={200}
+              rows={2}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+              data-testid="input-component-description"
+            />
+            <div className="flex gap-2">
+              <select
+                value={saveComponentCategory}
+                onChange={(e) => setSaveComponentCategory(e.target.value as LibraryCategory | "")}
+                className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                data-testid="select-component-category"
+              >
+                <option value="">Vælg kategori…</option>
+                {LIBRARY_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {LIBRARY_CATEGORY_LABELS[category]}
+                  </option>
+                ))}
+              </select>
+              <Input
+                placeholder="Tags, adskilt med komma"
+                value={saveComponentTags}
+                onChange={(e) => setSaveComponentTags(e.target.value)}
+                className="flex-1"
+                data-testid="input-component-tags"
+              />
+            </div>
+            {saveDuplicateOf && (
+              <div
+                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                data-testid="duplicate-component-warning"
+              >
+                Denne sektion ligner "{saveDuplicateOf.name}", som allerede ligger i biblioteket.
+                Vil du gemme den alligevel?
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSaveComponentOpen(false)}>Annuller</Button>
-            <Button onClick={saveSelectionAsComponent} disabled={!saveComponentName.trim()} data-testid="button-save-component">
-              Gem komponent
+            <Button variant="outline" onClick={resetSaveComponentDialog}>Annuller</Button>
+            <Button
+              onClick={saveSelectionAsComponent}
+              disabled={!saveComponentName.trim()}
+              variant={saveDuplicateOf ? "destructive" : "default"}
+              data-testid="button-save-component"
+            >
+              {saveDuplicateOf ? "Gem alligevel" : "Gem komponent"}
             </Button>
           </DialogFooter>
         </DialogContent>
