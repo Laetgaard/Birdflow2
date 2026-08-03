@@ -1,0 +1,9 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "-jnSAf1pgDNp3pBv41k9a"
+uri = "file://exports/birdflow-ai-builder-capability-review.pdf"
+type = "pdf"
+title = "BirdFlow AI Builder — Capability Review"
+description = "15-page answer to the 20-section architecture questionnaire, with file:line citations throughout: data model, AI tool coverage, premade and custom component editing, preview/publish parity, design system and cascade, typography, colour, motion, SVG, media, content safety, functional components, self-review, library organisation, models and limits — plus the ten decisions that still need your sign-off."
