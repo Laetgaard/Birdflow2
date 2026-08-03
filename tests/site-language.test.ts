@@ -132,7 +132,7 @@ describe("published sites", () => {
       "generateBookingForm(language)",
       "generateProductGrid(language)",
       "generateCookieBanner(language)",
-      "generateProductDetailPage(language)",
+      "generateProductDetailPage(language, productPageDesign)",
       "generateCheckoutPage(language)",
       "generateRootLayout(siteName, websiteId, language)",
     ]) {

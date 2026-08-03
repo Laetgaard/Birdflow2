@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import type React from "react";
 import { ImageIcon } from "lucide-react";
 import type { BuilderComponentData, ComponentStyles } from "@shared/componentRegistry";
@@ -198,7 +198,18 @@ function NodeRenderer({
   globalStyles,
   depth,
 }: NodeRendererProps) {
-  const resolved = resolvePrimitiveStyles(node, deviceMode) as React.CSSProperties;
+  // Hover is a real style layer, not an editor nicety: the published site
+  // emits the same declarations as a `:hover` rule, so what the customer
+  // sees here is what visitors get.
+  const [isHovered, setIsHovered] = useState(false);
+  const hasHover = !!node.hoverStyles && Object.keys(node.hoverStyles).length > 0;
+  const resolved = resolvePrimitiveStyles(node, deviceMode, hasHover && isHovered) as React.CSSProperties;
+  const hoverHandlers = hasHover
+    ? {
+        onMouseEnter: () => setIsHovered(true),
+        onMouseLeave: () => setIsHovered(false),
+      }
+    : {};
   const isNodeSelected = !isPreview && selectedNodeId === node.id;
 
   const selectionStyles: React.CSSProperties = isNodeSelected
@@ -216,6 +227,7 @@ function NodeRenderer({
   const dataAttrs = {
     "data-node-id": node.id,
     "data-node-type": node.type,
+    ...hoverHandlers,
   };
 
   switch (node.type) {

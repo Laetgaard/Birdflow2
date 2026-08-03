@@ -68,6 +68,14 @@ export type PrimitiveNode = {
   tabletStyles?: PrimitiveStyles;
   /** Overrides applied at <= 640px (mobile). */
   mobileStyles?: PrimitiveStyles;
+  /**
+   * Styles applied while the pointer is over the node.
+   *
+   * The builder swaps them in on mouse enter; the published site emits a
+   * `:hover` rule for the node's class. Same declarations either way, so a
+   * hover effect that works in the builder survives publishing.
+   */
+  hoverStyles?: PrimitiveStyles;
 
   // text
   text?: string;
@@ -548,7 +556,8 @@ export function createDefaultCustomTree(): PrimitiveNode {
  */
 export function resolvePrimitiveStyles(
   node: PrimitiveNode,
-  deviceMode?: 'desktop' | 'tablet' | 'mobile'
+  deviceMode?: 'desktop' | 'tablet' | 'mobile',
+  isHovered?: boolean
 ): PrimitiveStyles {
   const resolved: PrimitiveStyles = { ...(node.styles ?? {}) };
   if (deviceMode === 'tablet' || deviceMode === 'mobile') {
@@ -556,6 +565,11 @@ export function resolvePrimitiveStyles(
   }
   if (deviceMode === 'mobile') {
     Object.assign(resolved, node.mobileStyles ?? {});
+  }
+  // Hover wins over the breakpoint cascade, matching a `:hover` rule emitted
+  // after the media queries on the published site.
+  if (isHovered) {
+    Object.assign(resolved, node.hoverStyles ?? {});
   }
   return resolved;
 }
@@ -650,6 +664,7 @@ export function sanitizePrimitiveTree(root: PrimitiveNode): PrimitiveNode {
     node.styles = sanitizeStyleRecord(node.styles);
     node.tabletStyles = sanitizeStyleRecord(node.tabletStyles);
     node.mobileStyles = sanitizeStyleRecord(node.mobileStyles);
+    node.hoverStyles = sanitizeStyleRecord(node.hoverStyles);
 
     if (node.type === 'svg' && node.svg) {
       node.svg = sanitizeSvg(node.svg);

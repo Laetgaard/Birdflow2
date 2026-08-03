@@ -3,6 +3,7 @@ import type { BuilderComponentData } from "@shared/componentRegistry";
 import type { DesignTokens } from "@shared/schema";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
+import { topLevelComponents } from "@shared/rendering/contract";
 
 /* ─────────────────────────────────────────────────────────────
    The customer's real website, rendered read-only.
@@ -191,12 +192,13 @@ export function ReadOnlySitePreview({
         style={{ width: PREVIEW_WIDTHS[device], maxWidth: "100%" }}
         data-testid="readonly-site-preview"
       >
-        {activePage.components.map((component) => (
+        {topLevelComponents(activePage.components).map((component) => (
           <ComponentRenderer
             key={component.id}
             component={component}
             isPreview
             pages={pages}
+            allComponents={activePage.components}
             deviceMode={device}
             globalStyles={globalStyles}
           />

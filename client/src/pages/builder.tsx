@@ -66,6 +66,7 @@ import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
+import { topLevelComponents } from "@shared/rendering/contract";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
@@ -1402,7 +1403,7 @@ export default function BuilderPage() {
                 <>
                   {/* Insert point before first component */}
                   <SectionInsertPoint index={0} onAddComponent={addComponentAtIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
-                  {activePage?.components.map((comp, idx) => (
+                  {topLevelComponents(activePage?.components || []).map((comp, idx) => (
                     <div key={comp.id}>
                       <ComponentRenderer
                         component={comp}
@@ -1413,6 +1414,11 @@ export default function BuilderPage() {
                         }}
                         websiteId={id}
                         pages={builderState?.pages}
+                        allComponents={activePage?.components}
+                        onComponentClick={(componentId) => {
+                          setSelectedComponentId(componentId);
+                          setSidebarTab("properties");
+                        }}
                         onTextChange={handleTextChange(comp.id)}
                         editingField={selectedComponentId === comp.id ? editingField : null}
                         onEditField={selectedComponentId === comp.id ? setEditingField : undefined}

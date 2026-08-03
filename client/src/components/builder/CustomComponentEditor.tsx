@@ -42,7 +42,12 @@ import {
 import { sanitizeSvg } from "@shared/svgSanitizer";
 import { uploadImage } from "@/lib/builderUpload";
 
-type DeviceKey = "styles" | "tabletStyles" | "mobileStyles";
+/**
+ * Which style bucket the panel is editing. Hover sits alongside the device
+ * buckets because it works the same way — declarations layered over the base
+ * styles — and because the published site emits it as a real `:hover` rule.
+ */
+type DeviceKey = "styles" | "tabletStyles" | "mobileStyles" | "hoverStyles";
 
 type Props = {
   component: BuilderComponentData;
@@ -571,6 +576,7 @@ export default function CustomComponentEditor({
                   { key: "styles" as DeviceKey, icon: Monitor, label: "Desktop" },
                   { key: "tabletStyles" as DeviceKey, icon: Tablet, label: "Tablet" },
                   { key: "mobileStyles" as DeviceKey, icon: Smartphone, label: "Mobil" },
+                  { key: "hoverStyles" as DeviceKey, icon: MousePointerClick, label: "Hover" },
                 ]).map(({ key, icon: Icon, label }) => (
                   <button
                     key={key}
@@ -587,7 +593,9 @@ export default function CustomComponentEditor({
             </div>
             {deviceTab !== "styles" && (
               <p className="text-[11px] text-muted-foreground">
-                Nedarver fra desktop — udfyld kun det, der skal ændres på {deviceTab === "tabletStyles" ? "tablet" : "mobil"}.
+                {deviceTab === "hoverStyles"
+                  ? "Vises når musen holdes over elementet — udfyld kun det, der skal ændre sig."
+                  : `Nedarver fra desktop — udfyld kun det, der skal ændres på ${deviceTab === "tabletStyles" ? "tablet" : "mobil"}.`}
               </p>
             )}
             <div className="space-y-3">

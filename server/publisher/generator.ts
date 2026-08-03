@@ -4,6 +4,8 @@ import { randomUUID } from 'crypto';
 import type { BuilderStateData } from '../../shared/schema';
 import { sanitizeBuilderStateCustomContent } from '../../shared/customComponents';
 import type { ThemeConfig } from '../../shared/rendering/types';
+import { resolveApprovedFontStack } from '../../shared/fonts';
+import { missingRendererCases, unrenderableComponents, describeUnrenderable } from './coverage';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
   generatePackageJson,
@@ -22,6 +24,7 @@ import {
   generateBookingForm,
   generateProductGrid,
   generateProductDetailPage,
+  resolveProductPageDesign,
   generateCheckoutPage,
   generateOrderApiRoute,
   generateShippingMethodsApiRoute,
@@ -227,7 +230,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   const theme: ThemeConfig = {
     primaryColor: globalStyles.primaryColor || '#4f46e5',
     secondaryColor: globalStyles.secondaryColor || '#22c55e',
-    fontFamily: globalStyles.fontFamily || 'Inter, system-ui, sans-serif',
+    fontFamily: resolveApprovedFontStack(globalStyles.fontFamily),
     backgroundColor: globalStyles.backgroundColor || '#ffffff',
     textColor: globalStyles.textColor || '#1f2937',
     borderRadius: globalStyles.borderRadius || '8px',
@@ -237,6 +240,33 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     cardStyle: globalStyles.cardStyle || 'elevated',
   };
   
+  // A component type the publisher cannot draw would come out as a blank
+  // space on the live site while looking finished in the builder. Refuse to
+  // build instead of shipping that difference.
+  const unrenderable = unrenderableComponents(processedBuilderState);
+  if (unrenderable.length) {
+    throw new Error(describeUnrenderable(unrenderable));
+  }
+
+  // The builder's "Product Page Design" section configures the generated
+  // product pages rather than the page it sits on, so its settings are read
+  // here and baked into those pages.
+  const productPageDesign = resolveProductPageDesign(
+    processedBuilderState.pages
+      ?.flatMap((page) => page.components ?? [])
+      .find((component) => (component as { type?: string }).type === 'product-detail')
+      ?.props as Record<string, unknown> | undefined
+  );
+
+  const componentRendererSource = generateComponentRenderer(language);
+  const uncovered = missingRendererCases(componentRendererSource);
+  if (uncovered.length) {
+    throw new Error(
+      `Udgivelsen blev stoppet: den genererede renderer mangler sektionstyperne ${uncovered.join(', ')}. ` +
+        'Det udgivne website ville ikke se ud som i editoren.'
+    );
+  }
+
   const files: Array<{ path: string; content: string }> = [
     { path: 'package.json', content: generatePackageJson(siteName) },
     { path: 'tsconfig.json', content: generateTsConfig() },
@@ -249,7 +279,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/WebsiteProvider.tsx', content: generateWebsiteProvider() },
     { path: 'components/CartProvider.tsx', content: generateCartProvider() },
     { path: 'components/CartDrawer.tsx', content: generateCartDrawer(language) },
-    { path: 'components/ComponentRenderer.tsx', content: generateComponentRenderer(language) },
+    { path: 'components/ComponentRenderer.tsx', content: componentRendererSource },
     { path: 'components/ContactForm.tsx', content: generateContactForm(language) },
     { path: 'components/BookingForm.tsx', content: generateBookingForm(language) },
     { path: 'components/ProductGrid.tsx', content: generateProductGrid(language) },
@@ -270,7 +300,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/api/products/route.ts', content: generateProductApiRoute(websiteId) },
     { path: 'app/api/orders/route.ts', content: generateOrderApiRoute(websiteId) },
     { path: 'app/api/shipping-methods/route.ts', content: generateShippingMethodsApiRoute(websiteId) },
-    { path: 'app/product/[id]/page.tsx', content: generateProductDetailPage(language) },
+    { path: 'app/product/[id]/page.tsx', content: generateProductDetailPage(language, productPageDesign) },
     { path: 'app/checkout/page.tsx', content: generateCheckoutPage(language) },
   ];
   

@@ -2,6 +2,7 @@ export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'fe
 
 import type { PrimitiveNode } from './customComponents';
 import { createDefaultCustomTree } from './customComponents';
+import { APPROVED_FONTS } from './fonts';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text' | 'boolean';
 
@@ -163,73 +164,18 @@ export const alignmentPresets = [
   { name: 'Right', value: 'right' },
 ];
 
-// Font family presets - 50+ professional Google Fonts
-export const fontFamilyPresets = [
-  // Sans-Serif - Modern & Clean
-  { name: 'Inter', value: 'Inter, system-ui, sans-serif' },
-  { name: 'Poppins', value: 'Poppins, sans-serif' },
-  { name: 'Montserrat', value: 'Montserrat, sans-serif' },
-  { name: 'Open Sans', value: 'Open Sans, sans-serif' },
-  { name: 'Roboto', value: 'Roboto, sans-serif' },
-  { name: 'Lato', value: 'Lato, sans-serif' },
-  { name: 'Nunito', value: 'Nunito, sans-serif' },
-  { name: 'Nunito Sans', value: 'Nunito Sans, sans-serif' },
-  { name: 'Raleway', value: 'Raleway, sans-serif' },
-  { name: 'Work Sans', value: 'Work Sans, sans-serif' },
-  { name: 'DM Sans', value: 'DM Sans, sans-serif' },
-  { name: 'Plus Jakarta Sans', value: 'Plus Jakarta Sans, sans-serif' },
-  { name: 'Manrope', value: 'Manrope, sans-serif' },
-  { name: 'Outfit', value: 'Outfit, sans-serif' },
-  { name: 'Figtree', value: 'Figtree, sans-serif' },
-  { name: 'Space Grotesk', value: 'Space Grotesk, sans-serif' },
-  { name: 'Sora', value: 'Sora, sans-serif' },
-  { name: 'Urbanist', value: 'Urbanist, sans-serif' },
-  { name: 'Lexend', value: 'Lexend, sans-serif' },
-  { name: 'Rubik', value: 'Rubik, sans-serif' },
-  { name: 'Quicksand', value: 'Quicksand, sans-serif' },
-  { name: 'Josefin Sans', value: 'Josefin Sans, sans-serif' },
-  { name: 'Barlow', value: 'Barlow, sans-serif' },
-  { name: 'Mulish', value: 'Mulish, sans-serif' },
-  { name: 'Karla', value: 'Karla, sans-serif' },
-  { name: 'Cabin', value: 'Cabin, sans-serif' },
-  { name: 'Archivo', value: 'Archivo, sans-serif' },
-  { name: 'Exo 2', value: 'Exo 2, sans-serif' },
-  { name: 'Overpass', value: 'Overpass, sans-serif' },
-  
-  // Serif - Elegant & Classic
-  { name: 'Playfair Display', value: 'Playfair Display, serif' },
-  { name: 'Merriweather', value: 'Merriweather, serif' },
-  { name: 'Lora', value: 'Lora, serif' },
-  { name: 'PT Serif', value: 'PT Serif, serif' },
-  { name: 'Source Serif 4', value: 'Source Serif 4, serif' },
-  { name: 'Libre Baskerville', value: 'Libre Baskerville, serif' },
-  { name: 'Crimson Text', value: 'Crimson Text, serif' },
-  { name: 'EB Garamond', value: 'EB Garamond, serif' },
-  { name: 'Cormorant Garamond', value: 'Cormorant Garamond, serif' },
-  { name: 'Spectral', value: 'Spectral, serif' },
-  { name: 'Bitter', value: 'Bitter, serif' },
-  { name: 'Vollkorn', value: 'Vollkorn, serif' },
-  { name: 'Cardo', value: 'Cardo, serif' },
-  { name: 'Frank Ruhl Libre', value: 'Frank Ruhl Libre, serif' },
-  
-  // Display - Headlines & Impact
-  { name: 'Bebas Neue', value: 'Bebas Neue, sans-serif' },
-  { name: 'Oswald', value: 'Oswald, sans-serif' },
-  { name: 'Anton', value: 'Anton, sans-serif' },
-  { name: 'Righteous', value: 'Righteous, sans-serif' },
-  { name: 'Teko', value: 'Teko, sans-serif' },
-  { name: 'Cinzel', value: 'Cinzel, serif' },
-  { name: 'Abril Fatface', value: 'Abril Fatface, serif' },
-  { name: 'Big Shoulders Display', value: 'Big Shoulders Display, sans-serif' },
-  
-  // Monospace - Code & Technical
-  { name: 'Fira Code', value: 'Fira Code, monospace' },
-  { name: 'JetBrains Mono', value: 'JetBrains Mono, monospace' },
-  { name: 'Source Code Pro', value: 'Source Code Pro, monospace' },
-  { name: 'IBM Plex Mono', value: 'IBM Plex Mono, monospace' },
-  { name: 'Roboto Mono', value: 'Roboto Mono, monospace' },
-  { name: 'Space Mono', value: 'Space Mono, monospace' },
-];
+/**
+ * Fonts offered in every builder picker.
+ *
+ * Derived from the one approved list (shared/fonts.ts) that the published
+ * site also loads, so the builder can never offer a font the customer's live
+ * website would silently fall back from.
+ */
+export const fontFamilyPresets = APPROVED_FONTS.map((font) => ({
+  name: font.name,
+  value: font.stack,
+}));
+
 
 // Font size presets
 export const fontSizePresets = {
@@ -355,6 +301,8 @@ export type ComponentItem = {
   content?: string;
   values?: string[];
   highlighted?: boolean;
+  /** Column heading used by comparison tables (older templates use this instead of `name`). */
+  label?: string;
   // Pricing plan extras
   period?: string;
   features?: string[];
@@ -474,6 +422,10 @@ export type ComponentProps = {
   socialLinks?: Array<{ platform: string; url: string }>;
   // Newsletter props
   privacyNote?: string;
+  /** Heading over the row-label column of a comparison table. */
+  featuresLabel?: string;
+  /** Pricing plans. Older templates use this instead of `items`. */
+  plans?: ComponentItem[];
   socialProof?: string;
   // Image slider props
   captions?: string[];
@@ -1345,6 +1297,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       styledSubtitle: { text: 'Choose the perfect plan for your needs' },
       title: 'Compare Plans',
       subtitle: 'Choose the perfect plan for your needs',
+      // Heading over the row-label column. Editable so preview and the
+      // published site can agree on one word in one language.
+      featuresLabel: 'Funktion',
       tableColumns: [
         { id: '1', name: 'Starter', price: '$9', highlighted: false },
         { id: '2', name: 'Professional', price: '$29', highlighted: true },
@@ -1369,6 +1324,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
+      { key: 'featuresLabel', label: 'Feature Column Heading', type: 'text', group: 'content' },
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
       { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },

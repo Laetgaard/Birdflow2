@@ -236,7 +236,7 @@ export default function ElementOverlay({
     if (tag === 'p') {
       // Count p elements within component to determine which one
       const allP = componentEl.querySelectorAll('p');
-      const pIndex = Array.from(allP).indexOf(element);
+      const pIndex = Array.from<HTMLElement>(allP).indexOf(element);
 
       if (fields.includes('styledDescription')) return 'styledDescription';
       if (fields.includes('description')) return 'description';

@@ -18,3 +18,4 @@
 - [Source-tripwire tests](source-tripwire-tests.md) — some suites assert on server source TEXT; a rename breaks them, so re-point the tripwire (keep it specific), never delete it.
 - [Landing image assets](landing-image-assets.md) — full-res originals only in git history ("Add files via upload"); serve resized webp; display:none+lazy img fallback deadlocks.
 - [Customer website language](customer-site-language.md) — language lives on the websites row; publisher `${'${jsx()}'}` double-escape ships code as text; email defaults are seeded in the DB too.
+- [Preview vs published parity](renderer-parity.md) — compare by rendering both sides from registry defaults, reasoned exceptions only; escape every generated literal and compile the emitted project.

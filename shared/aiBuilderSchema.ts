@@ -234,6 +234,8 @@ export type AIPrimitiveNode = {
   styles?: Record<string, string | number>;
   tabletStyles?: Record<string, string | number>;
   mobileStyles?: Record<string, string | number>;
+  /** Applied while the pointer is over the node, in both renderers. */
+  hoverStyles?: Record<string, string | number>;
   text?: string;
   tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p' | 'span' | 'blockquote';
   src?: string;
@@ -253,6 +255,7 @@ export const AIPrimitiveNodeSchema: z.ZodType<AIPrimitiveNode> = z.lazy(() =>
     styles: AIPrimitiveStylesSchema.optional(),
     tabletStyles: AIPrimitiveStylesSchema.optional(),
     mobileStyles: AIPrimitiveStylesSchema.optional(),
+    hoverStyles: AIPrimitiveStylesSchema.optional(),
     text: z.string().optional(),
     tag: z.enum(['h1', 'h2', 'h3', 'h4', 'p', 'span', 'blockquote']).optional(),
     src: z.string().optional(),

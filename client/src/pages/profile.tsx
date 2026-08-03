@@ -560,6 +560,14 @@ export default function ProfilePage() {
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {subscriptionPlans.map((plan) => {
+                    // The plan data carries amounts in ører and a trial length;
+                    // the card wording is derived here rather than duplicated
+                    // as extra fields on the shared plan definition.
+                    const planPrice = `${Math.round(plan.monthlyPrice / 100)} kr`;
+                    const planPriceDetail = ' / md.';
+                    const planTrialText = plan.trialDays > 0 ? `${plan.trialDays} dages gratis prøveperiode` : '';
+                    const planCta = plan.trialDays > 0 ? 'Start gratis prøveperiode' : 'Vælg plan';
+                    const planCtaVariant = plan.popular ? 'default' as const : 'outline' as const;
                     const PlanIcon = planIcons[plan.id] || Zap;
                     const bgGradient = planBgGradients[plan.id] || "from-gray-500/10 to-gray-400/10";
                     const borderColor = planBorderColors[plan.id] || "border-gray-500/20";
@@ -596,10 +604,10 @@ export default function ProfilePage() {
                           </div>
                           <CardTitle className="text-xl">{plan.name}</CardTitle>
                           <div className="mt-3">
-                            <span className="text-4xl font-bold">{plan.price}</span>
-                            <span className="text-muted-foreground">{plan.priceDetail}</span>
+                            <span className="text-4xl font-bold">{planPrice}</span>
+                            <span className="text-muted-foreground">{planPriceDetail}</span>
                           </div>
-                          <p className="text-sm font-medium text-emerald-600 mt-2">{plan.trialText}</p>
+                          {planTrialText && <p className="text-sm font-medium text-emerald-600 mt-2">{planTrialText}</p>}
                           <CardDescription className="mt-2">{plan.description}</CardDescription>
                         </CardHeader>
                         
@@ -660,7 +668,7 @@ export default function ProfilePage() {
                                   ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600" 
                                   : ""
                             }`}
-                            variant={isCurrentPlan ? "outline" : plan.ctaVariant}
+                            variant={isCurrentPlan ? "outline" : planCtaVariant}
                             onClick={() => {
                               if (isCurrentPlan) {
                                 billingPortalMutation.mutate();
@@ -684,7 +692,7 @@ export default function ProfilePage() {
                             ) : isDowngrade(subscription?.plan || null, plan.id) ? (
                               'Skift plan'
                             ) : (
-                              plan.cta
+                              planCta
                             )}
                           </Button>
                         </CardFooter>

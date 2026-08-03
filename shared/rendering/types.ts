@@ -1,111 +1,30 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer';
+/**
+ * The rendering contract shared by the builder preview and the published site.
+ *
+ * These two renderers are separate implementations of the same picture. The
+ * only thing keeping them honest is that they agree on the vocabulary: what
+ * component types exist, what props and styles mean, and where the
+ * breakpoints are. That vocabulary is defined once, here — and it is taken
+ * from the component registry rather than written out again, because the
+ * hand-written copy that used to live in this file had already drifted into
+ * a stale subset (it was missing `product-detail`, `custom`, `container` and
+ * more), which is exactly how a type goes missing from the publisher without
+ * anything failing.
+ */
 
-export type ComponentItem = {
-  id: string;
-  title: string;
-  description: string;
-  icon?: string;
-  imageUrl?: string;
-};
+export type {
+  ComponentType,
+  ComponentProps,
+  ComponentStyles,
+  ComponentItem,
+  FormField,
+  StatItem,
+  PricingItem,
+  StyledText,
+  BuilderComponentData,
+} from '../componentRegistry';
 
-export type FormField = {
-  id: string;
-  label: string;
-  type: 'text' | 'email' | 'phone' | 'textarea' | 'select';
-  required?: boolean;
-  placeholder?: string;
-};
-
-export type StatItem = {
-  id: string;
-  value: string;
-  label: string;
-  prefix?: string;
-  suffix?: string;
-};
-
-export type PricingItem = ComponentItem & {
-  featured?: boolean;
-  features?: string[];
-};
-
-export type ComponentProps = {
-  title?: string;
-  subtitle?: string;
-  description?: string;
-  buttonText?: string;
-  buttonLink?: string;
-  imageUrl?: string;
-  images?: string[];
-  items?: ComponentItem[];
-  alignment?: 'left' | 'center' | 'right';
-  imageSide?: 'left' | 'right';
-  autoPlay?: boolean;
-  speed?: number;
-  columns?: number;
-  productLimit?: number;
-  productMode?: 'all' | 'curated';
-  curatedProductIds?: string[];
-  showAddToCart?: boolean;
-  imageWidth?: string;
-  imageHeight?: string;
-  videoUrl?: string;
-  videoProvider?: 'youtube' | 'vimeo' | 'custom';
-  layout?: 'grid' | 'masonry' | 'carousel';
-  formFields?: FormField[];
-  stats?: StatItem[];
-  height?: string;
-  style?: 'solid' | 'dashed' | 'gradient';
-};
-
-export type ComponentStyles = {
-  backgroundColor?: string;
-  textColor?: string;
-  padding?: string;
-  margin?: string;
-  fontFamily?: string;
-  titleFontSize?: string;
-  bodyFontSize?: string;
-  fontWeight?: string;
-  borderRadius?: string;
-  border?: string;
-  boxShadow?: string;
-  backgroundGradient?: string;
-  backgroundImage?: string;
-  backgroundSize?: string;
-  backgroundPosition?: string;
-  opacity?: string;
-  transform?: string;
-  transition?: string;
-  animation?: string;
-  display?: string;
-  flexDirection?: string;
-  justifyContent?: string;
-  alignItems?: string;
-  gap?: string;
-  gridTemplateColumns?: string;
-  maxWidth?: string;
-  minHeight?: string;
-  overflow?: string;
-  accentColor?: string;
-  buttonHoverColor?: string;
-  buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
-  buttonRadius?: string;
-  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
-  // Header scroll behavior settings
-  isTransparent?: boolean | string;
-  overlayMode?: boolean | string;
-  scrollBehavior?: 'static' | 'sticky' | 'show-on-scroll-up' | string;
-  scrolledBackgroundColor?: string;
-  hoverColor?: string;
-};
-
-export type BuilderComponentData = {
-  id: string;
-  type: ComponentType;
-  props: ComponentProps;
-  styles: ComponentStyles;
-};
+import type { BuilderComponentData } from '../componentRegistry';
 
 export type ThemeConfig = {
   primaryColor: string;
