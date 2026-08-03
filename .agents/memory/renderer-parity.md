@@ -57,6 +57,17 @@ build, and it fails on the host, not here. Verify by *compiling* generated
 output (esbuild, `tsx` loader) with a hostile site name; substring assertions
 never catch escaping bugs.
 
+**The publisher source itself is one giant template literal.** Every character
+spliced into it — hand-written comments included — is string content between
+backticks. A code-quoted word in a comment (`` `stagger` ``) terminates the
+literal and breaks the **server build** with an esbuild parse error, not the
+emitted project. Dev keeps looking healthy because the dev server doesn't
+watch server files, but the user can hit Publish at any moment and the
+deploy build fails on the spot. **How to apply:** never use backticks or
+`${` anywhere in text spliced into the publisher template (comments count);
+run `npm run build` (or at minimum tsc) immediately after editing the
+template — never leave it unverified between turns.
+
 ## Guards
 
 Refuse to publish rather than ship a blank space: before writing files, check

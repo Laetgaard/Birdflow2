@@ -233,6 +233,43 @@ describe("write tools", () => {
     const hero = c.state.pages[0].components.find((x) => x.id === "c1")!;
     expect(hero.styles).toMatchObject({ animationType: "fade-in", animationTrigger: "load" });
   });
+
+  it("set_motion replaces the whole motion overlay on every call", async () => {
+    const c = ctx();
+    const hero = () => c.state.pages[0].components.find((x) => x.id === "c1")!;
+
+    await tool("set_motion").run(
+      { pageId: "home", componentId: "c1", animationType: "zoom-in", easing: "spring", repeat: "every-view" },
+      c
+    );
+    expect(hero().styles.motion).toEqual({ easing: "spring", repeat: "every-view" });
+
+    // A later call that omits easing/distance/repeat clears them — it must
+    // not inherit the spring/replay from the previous call.
+    await tool("set_motion").run(
+      { pageId: "home", componentId: "c1", animationType: "slide-up" },
+      c
+    );
+    expect(hero().styles.motion).toEqual({});
+    expect(hero().styles.animationType).toBe("slide-up");
+  });
+
+  it("set_motion 'none' clears overrides so a re-enable starts from defaults", async () => {
+    const c = ctx();
+    const hero = () => c.state.pages[0].components.find((x) => x.id === "c1")!;
+
+    await tool("set_motion").run(
+      { pageId: "home", componentId: "c1", animationType: "bounce", easing: "spring", repeat: "every-view", distance: "long" },
+      c
+    );
+    await tool("set_motion").run({ pageId: "home", componentId: "c1", animationType: "none" }, c);
+    expect(hero().styles.motion).toEqual({});
+    expect(hero().styles.animationType).toBe("none");
+
+    await tool("set_motion").run({ pageId: "home", componentId: "c1", animationType: "fade-in" }, c);
+    expect(hero().styles.motion).toEqual({});
+    expect(hero().styles.animationType).toBe("fade-in");
+  });
 });
 
 describe("generate_image budget", () => {

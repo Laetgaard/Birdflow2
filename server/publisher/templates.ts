@@ -5337,8 +5337,10 @@ function safeCustomHref(href?: string): string {
 }
 
 // Entrance motion per node, from the same shared model as sections: a box
-// with `stagger` hands its entrance to its children (one after another);
-// a child with its OWN entrance opts out. Inline motion styles exist only
+// with 'stagger' hands its entrance to its children (one after another);
+// a child with its OWN entrance opts out. Direct children animate as whole
+// units — grandchildren ride along inside them, hidden and moved by their
+// parent's opacity/transform. Inline motion styles exist only
 // while the entrance plays — at 'done' they clear, so the per-node classes
 // and :hover rules take over again.
 function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParent?: any }) {

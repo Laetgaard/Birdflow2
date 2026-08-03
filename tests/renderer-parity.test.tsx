@@ -378,6 +378,49 @@ describe('motion draws the same hidden first frame on both sides', () => {
     expect(bStyles[1]).toContain(' 0ms'); // and no stagger delay
   });
 
+  it('a nested box staggers as one unit — grandchildren ride along inside it', () => {
+    // The stagger contract is direct-children-as-units: a child box plays the
+    // inherited entrance itself (its opacity/transform hides everything inside
+    // it), so grandchildren must NOT carry their own data-motion. Nothing
+    // inside a hidden card can be left visible, and nothing double-animates.
+    const component = customMotion({
+      id: 'root',
+      type: 'box',
+      motion: { stagger: 'normal' },
+      children: [
+        {
+          id: 'card',
+          type: 'box',
+          children: [
+            { id: 'g1', type: 'text', text: 'Indeni kortet', children: [] },
+            { id: 'g2', type: 'text', text: 'Også indeni', children: [] },
+          ],
+        },
+        { id: 'c2', type: 'text', text: 'Ved siden af', children: [] },
+      ],
+    });
+    const builder = renderBuilder(component);
+    const published = renderPublished(component);
+
+    // A box carries its layout inline in the builder but via its per-node
+    // class when published (deliberate delivery difference), so compare the
+    // declarations the motion runtime actually manages.
+    const pick = (style: string) =>
+      style
+        .split(';')
+        .filter((d) => /^(opacity|transform|transition)/.test(d.trim()))
+        .join(';');
+    const bStyles = motionStyles(builder).map(pick);
+    // Exactly two animated units: the card box and its sibling text.
+    expect(bStyles).toHaveLength(2);
+    expect(motionStyles(published).map(pick)).toEqual(bStyles);
+    expect(bStyles[0]).toContain('opacity:0'); // the card itself is the hidden element
+    expect(bStyles[0]).toContain(' 0ms');
+    expect(bStyles[1]).toContain('120ms');
+    // Grandchildren are unmarked — they ride inside the card's entrance.
+    expect(visibleText(builder)).toContain('Indeni kortet');
+  });
+
   it('the four legacy section fields still hide the section the same way', () => {
     const component = {
       ...componentFor('rich-text'),

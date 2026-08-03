@@ -555,7 +555,8 @@ export function buildToolCatalogue(): AgentTool[] {
       "Set the entrance animation on a section. Use 'load' above the fold and 'scroll' below it; stagger " +
       "consecutive sections with increasing delays. Motion is data — only these preset names exist, and calm " +
       "defaults (fade/slide, 'soft', 'medium', 'once') convert best; reserve 'spring'/'bounce' for one playful " +
-      "accent per page. Respect the brand guide's motion level.",
+      "accent per page. Respect the brand guide's motion level. Each call replaces any previous " +
+      "easing/distance/repeat overrides — omitted fields return to their defaults.",
     parameters: z.object({
       pageId: z.string(),
       componentId: z.string(),
@@ -575,11 +576,19 @@ export function buildToolCatalogue(): AgentTool[] {
     }),
     mutates: true,
     run: (args, ctx) => {
-      const motion = {
-        ...(args.easing ? { easing: args.easing } : {}),
-        ...(args.distance ? { distance: args.distance } : {}),
-        ...(args.repeat ? { repeat: args.repeat } : {}),
-      };
+      // Idempotent overlay: every call fully restates the motion overrides.
+      // 'none' and omitted fields CLEAR earlier values instead of inheriting
+      // them — the (possibly empty) object below replaces styles.motion
+      // wholesale in the styles merge, so a later re-enable never resurrects
+      // a stale easing or repeat.
+      const motion =
+        args.animationType === "none"
+          ? {}
+          : {
+              ...(args.easing ? { easing: args.easing } : {}),
+              ...(args.distance ? { distance: args.distance } : {}),
+              ...(args.repeat ? { repeat: args.repeat } : {}),
+            };
       const mutation = {
         action: "update_component" as const,
         pageId: args.pageId,
@@ -589,7 +598,7 @@ export function buildToolCatalogue(): AgentTool[] {
           ...(args.animationTrigger ? { animationTrigger: args.animationTrigger } : {}),
           ...(args.animationDuration ? { animationDuration: args.animationDuration } : {}),
           ...(args.animationDelay ? { animationDelay: args.animationDelay } : {}),
-          ...(Object.keys(motion).length > 0 ? { motion } : {}),
+          motion,
         },
       } as BuilderMutation;
       return applyWrite(mutation, ctx, () => `Satte animation ${args.animationType}`);
