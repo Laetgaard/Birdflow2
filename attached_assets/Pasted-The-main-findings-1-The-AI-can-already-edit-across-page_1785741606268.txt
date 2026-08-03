@@ -1,0 +1,408 @@
+The main findings
+1. The AI can already edit across pages
+
+BirdFlow stores the complete website in one builder_state.state JSONB object containing all pages, global styles, media, functional configuration, custom components and the brand guide.
+
+The AI already has tools to:
+
+Read pages and components.
+Add, rename and delete pages.
+Add, edit, move, duplicate and remove sections.
+Create and update custom components.
+Change global colours and typography.
+Apply presets.
+Generate images.
+Add section-level motion.
+Update the brand guide.
+Run a deterministic self-check.
+
+But it cannot currently reorder pages, edit separately stored navigation, apply page-level styling or edit SEO metadata because those concepts do not yet exist in the data model.
+
+2. Cross-page editing is possible, but the architecture is weak
+
+Navigation is derived from the page list rather than stored separately.
+
+Headers and footers are ordinary components copied into every page. That means changing a six-page website header requires six separate edits. There is no shared global header or footer definition.
+
+A complex whole-site AI needs:
+
+Page reordering.
+Page roles.
+Shared global header/footer support.
+Separate navigation labels.
+SEO fields.
+Better concurrency protection for the single state object.
+3. Premade components are editable but not truly responsive through data
+
+Premade components use a registry-driven schema, so the Properties panel dynamically understands text, images, colours, lists, toggles, selects and ranges.
+
+However:
+
+Premade components have no tabletStyles or mobileStyles.
+Responsive behaviour is hardcoded inside each renderer.
+Nested list items are not individually selectable.
+Inline editing and the Properties panel use separate editing logic.
+Some components contain duplicate legacy fields, such as both title and styledTitle.
+
+The AI can edit premade components, but it cannot reliably reason about their internal responsive behaviour.
+
+4. Custom components are more capable than expected
+
+AI-generated custom components already support:
+
+Nested boxes.
+Text.
+Images.
+Buttons.
+Sanitised SVG.
+Base, tablet and mobile styling.
+Nested-node selection.
+Inline text editing.
+Image replacement.
+Colour editing.
+Spacing and typography editing.
+Child duplication and deletion.
+Preview and publishing.
+
+The missing piece is not basic editability. It is semantic editability.
+
+The customer can edit raw nodes, but BirdFlow does not understand that one node is the headline, another is the CTA and another group is a repeatable card collection. There is no editableSchema, field role or repeater model.
+
+This is one of the biggest changes needed:
+
+type EditableFieldDefinition =
+  | TextFieldDefinition
+  | ImageFieldDefinition
+  | LinkFieldDefinition
+  | ColourFieldDefinition
+  | RepeaterFieldDefinition
+  | StyleGroupDefinition;
+
+An AI-created component should contain both:
+
+{
+  tree: PrimitiveNode[];
+  editableSchema: EditableFieldDefinition[];
+}
+5. Component instances are detached copies
+
+When a customer inserts a component from their library, BirdFlow deep-clones it and assigns new node IDs.
+
+That means:
+
+Updating the library definition does not update inserted instances.
+Deleting a library entry does not break existing instances.
+The AI cannot globally update every use of one component.
+There are no local overrides versus shared defaults.
+
+The report recommends keeping this copied-instance model for now, adding component identity and version metadata, and eventually moving toward a hybrid linked/detached model after semantic design tokens exist.
+
+That recommendation is correct.
+
+6. Preview and publishing do not use the same renderer
+
+This is the most serious technical problem.
+
+The builder preview uses client-side renderer components.
+
+Publishing generates a separate Next.js project containing a different generated renderer implementation. The two systems process the same data but do not share the same actual renderer.
+
+The report identified existing parity failures:
+
+Arbitrary Google Fonts work in preview but silently fall back after publishing.
+product-detail is supported in preview but missing from the publisher renderer.
+Published container sections can render empty while preview renders their children.
+Custom component hover states are unsupported.
+Reduced-motion preferences are not respected.
+Every new rendering capability must currently be implemented twice.
+
+Before expanding the AI substantially, BirdFlow needs automated preview/publish parity tests and ideally more shared rendering logic. Otherwise the AI will create increasingly complex designs that look correct in the builder but break after publishing.
+
+7. Global design values are literal, not token-based
+
+BirdFlow has brand-guide roles such as:
+
+{
+  primary,
+  secondary,
+  accent,
+  background,
+  surface,
+  text
+}
+
+But components do not actually reference those roles. They store literal hex values and CSS strings.
+
+That means changing the brand palette does not reliably update the website. The AI must rewrite every affected section individually.
+
+The single highest-leverage architecture improvement is introducing semantic tokens:
+
+type DesignTokens = {
+  color: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    surface: string;
+    heading: string;
+    body: string;
+    border: string;
+    muted: string;
+  };
+  typography: {
+    headingFont: string;
+    bodyFont: string;
+    displayFont?: string;
+    sizes: Record<TypeScaleKey, ResponsiveValue>;
+  };
+  spacing: Record<SpacingToken, string>;
+  radius: Record<RadiusToken, string>;
+  shadow: Record<ShadowToken, string>;
+  container: {
+    maxWidth: string;
+    inlinePadding: ResponsiveValue;
+  };
+};
+
+Components should be able to store:
+
+backgroundColor: "token:color.surface"
+
+with literal values available only as visible local overrides.
+
+Semantic tokens are a prerequisite for reliable:
+
+Whole-site colour changes.
+Typography changes.
+Brand consistency.
+Linked components.
+Self-review.
+Design-system enforcement.
+8. Motion is too limited
+
+Current motion is attached only to whole sections and supports:
+
+Fade.
+Directional slides.
+Zoom.
+Bounce.
+Flip.
+Load or scroll triggers.
+A few fixed durations and delays.
+
+It does not support:
+
+Primitive-node animation.
+Hover animation.
+Child staggering.
+Easing selection.
+Motion distance.
+Repetition controls.
+Reduced-motion handling.
+
+Before adding more expressive motion, prefers-reduced-motion should be enforced in preview and published websites.
+
+The AI should then receive controlled animation properties on primitive nodes, never arbitrary JavaScript or CSS keyframes.
+
+9. SVG works, but is opaque and heavy
+
+SVG markup can already exist inside custom primitive nodes and supports sanitised SMIL animation.
+
+But SVGs:
+
+Are stored inline in the component tree.
+Are not reusable assets.
+Cannot reference semantic colour tokens.
+Cannot be edited through structured controls.
+May be up to 300 KB per node.
+Are copied into the full state blob on every autosave.
+
+SVG illustrations need:
+
+Practical complexity limits.
+Path/node limits.
+Tokenised colours.
+Reusable asset support.
+Editable colour roles.
+Structured metadata.
+Preview/publish tests.
+10. The AI lacks essential business context
+
+The AI receives:
+
+Pages.
+Active page.
+Component names.
+Brand colours.
+Brand voice.
+
+It does not reliably receive:
+
+Business description.
+Target audience.
+Services.
+Location.
+Important factual claims.
+Conversion goals.
+Credentials and professional facts.
+
+That explains generic copy more than the quality of the model or prompt.
+
+The AI is currently being asked to write a complete psychology-practice website while often not knowing what the practice actually does or whom it serves.
+
+BirdFlow needs a persistent website context object:
+
+type WebsiteBusinessContext = {
+  businessName: string;
+  businessDescription: string;
+  industry: string;
+  audience: string[];
+  services: ServiceFact[];
+  location?: string;
+  primaryConversionGoal: string;
+  secondaryConversionGoals?: string[];
+  factualClaims: ProtectedFact[];
+  forbiddenClaims?: string[];
+};
+
+The AI should be allowed to rewrite presentation, but never invent or alter protected facts.
+
+11. Functional custom components must stay controlled
+
+The custom primitive model is visual only. A custom button can navigate, but it cannot safely:
+
+Submit a form.
+Create a booking.
+Start checkout.
+Open a functional modal.
+Connect to backend data.
+
+That is a good safety boundary.
+
+The AI should create custom visual layouts around trusted functional components, not fabricate fake booking calendars or forms that look functional but do nothing.
+
+Later, BirdFlow can add reviewed behaviours such as:
+
+behavior: {
+  type: "accordion" | "tabs" | "modal-trigger";
+}
+
+But arbitrary runtime code generation should remain forbidden.
+
+12. Self-review is currently narrow
+
+The deterministic self-check currently handles:
+
+Broken button links.
+Explicit colour contrast.
+A few custom-component responsive hazards.
+
+It does not yet review:
+
+Information architecture.
+Content quality.
+Brand consistency.
+Semantics and accessibility.
+Functional bindings.
+Performance.
+Motion safety.
+Publishing parity.
+SEO.
+
+The best structure is:
+
+Level A — deterministic repair
+
+Automatically repair safe, provable problems.
+
+Level B — AI design review
+
+Report subjective recommendations without applying them automatically.
+
+Level C — approved redesign
+
+Require customer approval for broad changes.
+
+Preview/publish parity should be part of Level A: a build should not be reported as successful when the published renderer cannot reproduce the preview.
+
+13. The component library will not scale
+
+Custom library entries currently contain only:
+
+{
+  id,
+  name,
+  source,
+  createdAt,
+  updatedAt
+}
+
+There are no:
+
+Descriptions.
+Categories.
+Tags.
+Source labels.
+Thumbnails.
+Versions.
+Duplicate detection.
+
+That works while the library is nearly empty. A creative AI will quickly make it unusable.
+
+It should become:
+
+type CustomComponentEntry = {
+  id: string;
+  websiteId: string;
+  name: string;
+  description: string;
+  category: ComponentCategory;
+  tags: string[];
+  sourceType: "ai" | "user";
+  thumbnail?: ComponentThumbnail;
+  version: number;
+  source: BuilderComponentData;
+  createdAt: string;
+  updatedAt: string;
+};
+14. Current AI limits
+
+The report confirms:
+
+Planning model: gpt-5.1.
+Build model: gpt-5.1.
+Site architect: gpt-4o.
+Image model: gpt-image-1.
+Plan completion limit: 4,096 tokens.
+Build completion limit: 4,096 tokens per step.
+Planning limit: eight turns.
+Build limit: eight turns per step.
+Plan input limit: 4,000 characters.
+Two attempts per step.
+Ten AI runs per ten minutes per user.
+Three unique images per run/build.
+No separate cost ceiling.
+No configurable reasoning effort.
+Planning, building and copywriting share one model constant.
+Context is mostly reset between build steps.
+
+These limits directly explain why big plans fail or become shallow.
+
+Product decisions still needed
+
+The PDF reduces the remaining decisions to these ten. My recommended answers are included.
+
+Instances: keep copied instances now; introduce tokens first; design toward a hybrid model later.
+Fonts: use an approved font allowlist and make the preview and publisher load fonts from the same source.
+Colours: introduce semantic tokens; keep full-palette replacement approval-gated.
+Copy safety: prohibit invented testimonials, qualifications, prices, statistics, credentials and treatment results in server-side validation.
+Whole-site editing: allow approved cross-page content/design changes, but add page roles so legal, booking, draft and landing pages can have enforceable protections.
+Functionality: custom components remain visual; trusted premade components provide booking, forms and commerce behaviour.
+Self-review: use the three-level repair/recommend/approve model and add publishing parity to deterministic checks.
+Design freedom: balanced but creative, with restrained motion and conversion clarity taking priority.
+Images: keep a build cap, but make the planner explicitly allocate generated images and potentially scale the cap according to approved page scope.
+Models: configure models and token budgets by role instead of sharing one constant.
+
+These recommendations are strong enough to use as defaults unless you disagree with one.
+
+The next plan should not only rewrite #93. It should turn this into a dependency-ordered AI Builder Capability Programme, with #93 as the first phase and preview/publish parity plus semantic tokens moved near the beginning.
