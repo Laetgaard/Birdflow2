@@ -58,6 +58,7 @@ import {
 import { applyMutations, assertSaneJsonDepth } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
+import { completeSelfReview } from "./selfReview";
 import { checkMutationClaims, scrubStateClaims } from "./claimRules";
 import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
@@ -5327,11 +5328,24 @@ export async function registerRoutes(
       // and any approval that has not been paid for is void.
       await bumpSiteRevision(req.params.id).catch(() => {});
 
+      // The three-level self-review, on the state the customer actually
+      // keeps (post-repair, post-scrub, post-save). Level A findings were
+      // collected by the runSelfCheck above; this adds publish parity and
+      // the AI recommendation/proposal levels. Advisory by construction:
+      // the save above stands whatever the review finds — but a parity
+      // failure leads the report, so the run is never PRESENTED as clean
+      // while the published site would diverge.
+      const review = await completeSelfReview(newState, {
+        findings: check.findings,
+        language: normalizeSiteLanguage(agentWebsite?.language),
+      });
+
       const report = buildReport(
         outcome.mutations,
         newState,
         [...outcome.notes, ...check.notes, ...claimScrub.notes],
-        outcome.createdImages
+        outcome.createdImages,
+        review
       );
 
       send({

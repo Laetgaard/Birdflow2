@@ -30,6 +30,18 @@ vi.mock("../server/planStore", () => ({
 
 vi.mock("../server/onboardingDecision", () => ({ bumpSiteRevision: async () => {} }));
 
+// The three-level self-review that runs after a COMPLETED build would reach
+// for the model and the publish-parity compiler; these tests are about spend
+// ceilings, so it reports an empty, honest review instead.
+vi.mock("../server/selfReview", () => ({
+  completeSelfReview: async () => ({
+    findings: [],
+    parity: { status: "passed", problems: [] },
+    proposals: [],
+    ai: { ran: false, skippedReason: "slået fra i denne test." },
+  }),
+}));
+
 vi.mock("../server/storage", () => ({
   storage: {
     getWebsite: async () => ({ id: "site-1", language: "da" }),

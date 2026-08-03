@@ -1148,7 +1148,7 @@ function compactCustomTree(node: PrimitiveNode): Record<string, unknown> {
   return compact;
 }
 
-function getCurrentStateContext(state: BuilderStateData): string {
+export function getCurrentStateContext(state: BuilderStateData): string {
   const pages = state.pages.map(page => ({
     id: page.id,
     name: page.name,

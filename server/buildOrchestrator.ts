@@ -37,6 +37,7 @@ import {
   type PlanStepResult,
 } from "@shared/assistantPlan";
 import { runAgentLoop, type AgentEvent } from "./aiAgent";
+import { completeSelfReview } from "./selfReview";
 import { assumedCallCostUsd, createSpendMeter, type SpendMeter } from "./aiSpend";
 import { aiConfig } from "./aiConfig";
 import {
@@ -264,9 +265,19 @@ function summarize(
   if (totalMutations > 0) parts.push(`${totalMutations} ændringer`);
   if (imagesUsed > 0) parts.push(`${imagesUsed} billeder`);
 
+  // The review is attached to the final step result (step results are what
+  // a build persists); the summary lifts it out so the client reads one
+  // place. A failed publish-parity check makes the headline say so — a
+  // build whose published output would diverge from the preview is never
+  // reported as simply done.
+  const review = [...results].reverse().find((r) => r.review)?.review;
+  const parityFailed = review?.parity.status === "failed";
+
   const headline =
     status === "completed"
-      ? `Planen "${plan.title}" er bygget: ${parts.join(", ") || "ingen ændringer"}.`
+      ? parityFailed
+        ? `Planen "${plan.title}" er bygget (${parts.join(", ") || "ingen ændringer"}), men udgivelse er blokeret: den udgivne udgave ville afvige fra forhåndsvisningen.`
+        : `Planen "${plan.title}" er bygget: ${parts.join(", ") || "ingen ændringer"}.`
       : status === "paused"
         ? `Bygningen af "${plan.title}" er sat på pause: ${parts.join(", ") || "ingen ændringer endnu"}.`
         : status === "cancelled"
@@ -284,6 +295,7 @@ function summarize(
     imagesUsed,
     headline,
     canUndo: totalMutations > 0 && status !== "undone",
+    ...(review ? { review } : {}),
   };
 }
 
@@ -470,13 +482,45 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
     });
   }
 
-  const summary = summarize(
-    build,
-    plan,
-    results,
-    finalStatus === "completed" && index >= plan.steps.length ? "completed" : finalStatus,
-    imagesUsed
-  );
+  const finalOutcome =
+    finalStatus === "completed" && index >= plan.steps.length ? "completed" : finalStatus;
+
+  // The three-level self-review runs ONCE, on the finished site — per-step
+  // work stays Level A (each step already self-checked before its save).
+  // It rides the build's own meter, so it can never outspend the run, and
+  // it must never take down a build that finished: any failure inside it
+  // degrades to a review that says it could not run.
+  if (finalOutcome === "completed" && results.length > 0) {
+    try {
+      const finalData = await storage.getBuilderState(websiteId);
+      if (finalData) {
+        const finalState = finalData.state as BuilderStateData;
+        const website = await storage.getWebsite(websiteId).catch(() => null);
+        // Every step's save already ran the deterministic repairs, so this
+        // pass finds no new ones — it is re-run for its FINDINGS (the
+        // report-only coverage: budgets, SEO, semantics), and its returned
+        // state is deliberately discarded.
+        const finalCheck = runSelfCheck(finalState);
+        const review = await completeSelfReview(finalState, {
+          findings: finalCheck.findings,
+          meter: spendMeter,
+          language: website?.language === "en" ? "en" : "da",
+        });
+        // The review's model call charged the build's meter, so the last
+        // step's running total must include it — the numbers the customer
+        // sees add up to what actually ran.
+        results[results.length - 1] = {
+          ...results[results.length - 1],
+          review,
+          spentUsd: spendMeter.spentUsd,
+        };
+      }
+    } catch (err) {
+      console.error("[build] self-review after build failed:", err);
+    }
+  }
+
+  const summary = summarize(build, plan, results, finalOutcome, imagesUsed);
 
   await updateBuildProgress(build.id, {
     currentStep: index,

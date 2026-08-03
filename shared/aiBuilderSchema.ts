@@ -555,6 +555,11 @@ export type BuildReport = {
   aendret: string[];
   /** Self-check findings and auto-fixes (links, contrast, responsive). */
   tjek: string[];
+  /**
+   * The three-level self-review, when the run performed one: repairs,
+   * publish parity, AI recommendations and approval-gated proposals.
+   */
+  review?: import('./selfReview').SelfReview;
 };
 
 // ============ Design interview (brand guide wizard) ============

@@ -13,6 +13,8 @@ import {
   Undo2,
 } from "lucide-react";
 import type { BuildStreamEvent, BuildSummary, PlanStep, PlanStepResult } from "@shared/assistantPlan";
+import type { ReviewProposal } from "@shared/selfReview";
+import { SelfReviewSection } from "@/components/builder/SelfReviewSection";
 
 /* ─────────────────────────────────────────────────────────────
    Live per-step progress for a build, and the Danish summary card
@@ -49,6 +51,8 @@ type BuildProgressCardProps = {
   onSkip: () => void;
   onRetry: () => void;
   onUndo: () => void;
+  /** Approving a Level C proposal sends its instruction through the chat. */
+  onApproveProposal?: (proposal: ReviewProposal) => void;
 };
 
 /** Apply one streamed event to the view — the panel's reducer lives here. */
@@ -126,6 +130,7 @@ export default function BuildProgressCard({
   onSkip,
   onRetry,
   onUndo,
+  onApproveProposal,
 }: BuildProgressCardProps) {
   const running = view.status === "running";
   const paused = view.status === "paused";
@@ -265,6 +270,16 @@ export default function BuildProgressCard({
         <p className="m-0 mt-2 text-[10.5px] text-muted-foreground">
           {view.summary.imagesUsed} af 3 AI-billeder brugt i denne bygning.
         </p>
+      )}
+
+      {/* The three-level review that ran after the last step — the same
+          grouped Danish report the single-shot assistant shows. */}
+      {view.summary?.review && (
+        <SelfReviewSection
+          review={view.summary.review}
+          disabled={busy}
+          onApprove={onApproveProposal}
+        />
       )}
     </div>
   );

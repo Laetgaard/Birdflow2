@@ -20,6 +20,6 @@
 - [Customer website language](customer-site-language.md) — language lives on the websites row; publisher `${'${jsx()}'}` double-escape ships code as text; email defaults are seeded in the DB too.
 - [Design tokens](design-tokens.md) — publisher resolves at generation time (resolve before sanitising), sanitiser must allow whole-value refs, migrate fonts via the approved-font resolver, enforce at the mutation choke point.
 - [Builder CAS writes](builder-cas-writes.md) — guarded saves pass the read revision, never retry; every save response must return its new revision and clients must adopt it, or autosave 409s.
-- [Preview vs published parity](renderer-parity.md) — render both sides from registry defaults, reasoned exceptions only; escape every generated literal (template comments are string content too) and compile the output.
+- [Preview vs published parity](renderer-parity.md) — render both sides from registry defaults; escape generated literals (comments too) and compile output; runtime checks are three-valued (unavailable ≠ failed).
 - [Builder motion system](builder-motion.md) — motion specs are data, resolvers stay stringifiable, done-phase = {} so hover wins, stagger is box-only, reduced-motion needs the baked CSS unhide rule.
 - [Invented-claims gate](invented-claims-gate.md) — mutations judge against facts+site copy, whole-state scrubs against facts only; forbidden ≠ evidence; scrub again after registry defaults.

@@ -43,6 +43,8 @@ export const AI_ROLES = [
   "brandGuide",
   /** The onboarding walkthrough's own tool-using loop. */
   "onboarding",
+  /** Level B of the self-review: recommendations, never mutations. */
+  "selfReview",
   /** Image generation. */
   "image",
 ] as const;
@@ -137,6 +139,14 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
     model: REASONING_MODEL,
     maxCompletionTokens: 2048,
     maxRunCostUsd: 1,
+  },
+  // The review is advisory-only and rides on a build that already paid for
+  // its mutations, so it gets a deliberately small ceiling: when the money
+  // is gone the review is skipped and says so, never the other way around.
+  selfReview: {
+    model: REASONING_MODEL,
+    maxCompletionTokens: 4096,
+    maxRunCostUsd: 0.25,
   },
   image: {
     model: "gpt-image-1",

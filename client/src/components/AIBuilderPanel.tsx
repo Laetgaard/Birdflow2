@@ -33,6 +33,7 @@ import type { BuilderMutation, BuildReport, PaletteProposal, FontPairProposal } 
 import { runAgent, applyApprovedMutations, type AgentStreamEvent } from "@/lib/aiAgentStream";
 import { uploadImage } from "@/lib/builderUpload";
 import PlanChecklistCard from "@/components/builder/PlanChecklistCard";
+import { SelfReviewSection } from "@/components/builder/SelfReviewSection";
 import BuildProgressCard, {
   reduceBuildEvent,
   type BuildView,
@@ -882,7 +883,16 @@ export default function AIBuilderPanel({
                 )}
 
                 {message.role === "assistant" && message.report && (
-                  <BuildReportCard report={message.report} />
+                  <>
+                    <BuildReportCard report={message.report} />
+                    {message.report.review && (
+                      <SelfReviewSection
+                        review={message.report.review}
+                        disabled={isLoading}
+                        onApprove={(proposal) => sendMessage(proposal.instruction)}
+                      />
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -905,6 +915,7 @@ export default function AIBuilderPanel({
               <BuildProgressCard
                 view={buildView}
                 busy={planBusy}
+                onApproveProposal={(proposal) => sendMessage(proposal.instruction)}
                 onStop={stopBuildRun}
                 onResume={() => continueBuild("resume")}
                 onSkip={() => continueBuild("skip")}

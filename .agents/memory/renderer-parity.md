@@ -68,6 +68,28 @@ deploy build fails on the spot. **How to apply:** never use backticks or
 run `npm run build` (or at minimum tsc) immediately after editing the
 template — never leave it unverified between turns.
 
+## Checking parity at runtime (inside the app, not just tests)
+
+The published renderer can be verified from server code: emit the generated
+renderer source, compile it with a dynamically imported esbuild
+(`transformSync`, tsx→cjs), and execute it against a stub map (react,
+jsx-runtime, theme, next/link, next/image, interactive client components as
+inert placeholders). Cache the compiled factory per language.
+
+- **The verdict must be three-valued: passed / failed / unavailable.** A
+  missing compiler or an unknown stub means "could not check" — report it,
+  never block on it, and never let it masquerade as "checked and fine".
+  Only a real compile error, render throw, missing sampled copy or
+  code-as-text artifact is "failed".
+- **"Blocks a successful outcome" ≠ "blocks the save".** State saves
+  honestly either way; a parity failure rewrites the headline and shows a
+  blocking banner so the run is never *reported* successful. A hard gate at
+  publish time is a separate enforcement point (own task).
+- Fixtures for this check must satisfy the registry contract (`styles` is
+  required on every component) — the published renderer is entitled to it,
+  so a "tolerant" checker that papers over missing fields would hide real
+  published crashes.
+
 ## Guards
 
 Refuse to publish rather than ship a blank space: before writing files, check

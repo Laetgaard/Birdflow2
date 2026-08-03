@@ -18,12 +18,14 @@ function dedupe(lines: string[]): string[] {
  * @param state     Post-apply state, used to resolve page names.
  * @param checkNotes Self-check + image notes for the "Tjek" group.
  * @param createdExtras Extra "Oprettet" lines (e.g. generated images).
+ * @param review    The three-level self-review, when the run performed one.
  */
 export function buildReport(
   mutations: BuilderMutation[],
   state: BuilderStateData,
   checkNotes: string[],
-  createdExtras: string[] = []
+  createdExtras: string[] = [],
+  review?: import("@shared/selfReview").SelfReview
 ): BuildReport {
   const oprettet: string[] = [];
   const aendret: string[] = [];
@@ -116,5 +118,6 @@ export function buildReport(
     oprettet: dedupe([...oprettet, ...createdExtras]),
     aendret: dedupe(aendret),
     tjek,
+    ...(review ? { review } : {}),
   };
 }

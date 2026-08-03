@@ -49,6 +49,21 @@ and no ceiling at all.
   and needs the same explicit message; a meter that only speaks once it is
   empty leaves the earlier stop looking like an unexplained halt.
 
+# Ride-along calls inside a bigger metered run
+
+A sub-feature that makes its own model call inside an already-metered run (a
+post-build review, a summary pass) must NOT be handed the run's meter as its
+own: the metered wrapper applies the role's ceiling only when it creates the
+meter itself, so passing the parent silently voids the sub-feature's ceiling
+and lets it spend the run's whole remaining budget.
+
+**How to apply:** give it a child meter capped at
+`min(its role ceiling, parent remaining)`, then charge the child's real spend
+back onto the parent (`recordFlat`) on every exit path — success and failure —
+and refresh any persisted per-step running total afterwards, so the numbers
+the customer sees add up to what actually ran. Advisory ride-alongs must
+degrade to "skipped: ceiling reached" instead of failing the run.
+
 # Recovering a cut-off answer
 
 Rewinding truncated JSON is for reading and for delivering a plan. Never

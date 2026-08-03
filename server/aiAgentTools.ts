@@ -23,6 +23,7 @@ import {
 import { buildBrandContext } from "@shared/customComponents";
 import { applyMutation, validateMutation, analyzeDesign, assertSaneJsonDepth } from "./aiBuilder";
 import { runSelfCheck } from "./selfCheck";
+import { checkPublishParity } from "./publishParity";
 import { generateAndStoreImage, readObjectImageAsDataUrl, type ImageAspect } from "./aiImages";
 import { proposePalettes, proposeFontPairs } from "./designInterview";
 import { analyzeAndPlanWebsite } from "./websiteArchitect";
@@ -385,15 +386,33 @@ export function buildReadTools(): AgentTool[] {
   tools.push({
     name: "run_self_check",
     description:
-      "Run the deterministic quality check (link targets, WCAG contrast, responsive hazards) and read its notes.",
+      "Run the deterministic quality check (link targets, WCAG contrast, responsive hazards, design tokens, SEO, accessibility, publish parity) and read its notes.",
     parameters: z.object({}),
     mutates: false,
-    run: (_args, ctx) => {
+    run: async (_args, ctx) => {
+      // Read-only: findings describe what the save-time check WOULD repair
+      // (marked as such) and what it can only report; nothing is applied here.
       const check = runSelfCheck(ctx.state);
+      const parity = await checkPublishParity(ctx.state).catch(() => ({
+        status: "unavailable" as const,
+        problems: [] as string[],
+      }));
+      const parityLine =
+        parity.status === "passed"
+          ? "Udgivelsestjek: den udgivne udgave stemmer overens med forhåndsvisningen."
+          : parity.status === "failed"
+            ? `Udgivelsestjek FEJLEDE: ${parity.problems.join(" ")}`
+            : "Udgivelsestjek: kunne ikke køre i dette miljø.";
+      const lines = [
+        ...check.findings.map((f) =>
+          f.repaired ? `[rettes automatisk ved gem] ${f.message}` : f.message
+        ),
+        parityLine,
+      ];
       return {
         ok: true,
-        summary: `Kvalitetstjek: ${check.notes.length} bemærkninger`,
-        data: check.notes.length > 0 ? check.notes : ["Ingen problemer fundet."],
+        summary: `Kvalitetstjek: ${check.findings.length} fund`,
+        data: lines,
       };
     },
   });

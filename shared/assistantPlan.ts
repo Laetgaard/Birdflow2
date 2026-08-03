@@ -203,6 +203,12 @@ export type PlanStepResult = {
   notes: string[];
   /** Mutations the scope validator or a rule refused, in Danish. */
   rejections: string[];
+  /**
+   * The three-level self-review, attached to the FINAL step of a finished
+   * build. It lives on a step result because step results are what a build
+   * persists — the summary is rebuilt from them on reload.
+   */
+  review?: import('./selfReview').SelfReview;
   imagesUsed: number;
   attempts: number;
   /**
@@ -226,6 +232,8 @@ export type BuildSummary = {
   headline: string;
   /** True while the pre-build snapshot is still restorable. */
   canUndo: boolean;
+  /** The three-level self-review that ran after the last step, if any. */
+  review?: import('./selfReview').SelfReview;
 };
 
 /**
