@@ -7,6 +7,8 @@ import ImageResizer from './ImageResizer';
 import CustomComponentRenderer from './CustomComponentRenderer';
 import { resolveApprovedFontStack } from '@shared/fonts';
 import { prefersReducedMotion } from '@shared/rendering/contract';
+import { MOTION_TABLES, computeMotion, sectionMotionSpec } from '@shared/motion';
+import { useMotionPhase } from './useMotionPhase';
 import { resolveDesignTokens, resolveTokensDeep } from '@shared/designTokens';
 import { resolveNavItems, type NavItem } from '@shared/siteStructure';
 
@@ -111,18 +113,6 @@ function resolveFontFamily(styles: ComponentStyles, globalStyles?: GlobalStyles)
   );
 }
 
-const animationMap: Record<string, string> = {
-  'fade-in': 'fadeIn',
-  'slide-up': 'slideUp',
-  'slide-down': 'slideDown',
-  'slide-left': 'slideLeft',
-  'slide-right': 'slideRight',
-  'zoom-in': 'zoomIn',
-  'zoom-out': 'zoomOut',
-  'bounce': 'bounce',
-  'flip': 'flip',
-};
-
 function AnimatedWrapper({ 
   children, 
   styles, 
@@ -132,62 +122,22 @@ function AnimatedWrapper({
   styles: ComponentStyles; 
   isPreview?: boolean;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const [hasAnimated, setHasAnimated] = useState(false);
-  const [reduceMotion] = useState(() => prefersReducedMotion());
-  
-  const animationType = styles.animationType || 'none';
-  const animationTrigger = styles.animationTrigger || 'load';
-  const animationDuration = styles.animationDuration || '0.5s';
-  const animationDelay = styles.animationDelay || '0s';
-  
-  useEffect(() => {
-    if (reduceMotion || animationType === 'none' || hasAnimated) return;
-    
-    if (animationTrigger === 'load') {
-      setIsVisible(true);
-      setHasAnimated(true);
-    } else if (animationTrigger === 'scroll') {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting && !hasAnimated) {
-              setIsVisible(true);
-              setHasAnimated(true);
-            }
-          });
-        },
-        { threshold: 0.1 }
-      );
-      
-      if (ref.current) {
-        observer.observe(ref.current);
-      }
-      
-      return () => observer.disconnect();
-    }
-  }, [animationType, animationTrigger, hasAnimated, reduceMotion]);
-  
+  // One shared model: the four legacy animation* fields plus styles.motion
+  // resolve through shared/motion.ts — the same tables and functions the
+  // published renderer bakes in. Changing a value replays the entrance,
+  // which doubles as the live preview while editing.
+  const spec = sectionMotionSpec(styles);
+  const resolved = computeMotion(MOTION_TABLES, spec);
+  const { ref, style, active } = useMotionPhase(resolved, '');
+
   // Entrance animations are decoration: with reduced motion the section is
   // simply there, fully visible, exactly as the published site renders it.
-  if (reduceMotion || animationType === 'none' || !animationMap[animationType]) {
+  if (!active) {
     return <>{children}</>;
   }
-  
-  const animationName = animationMap[animationType];
-  const shouldAnimate = isVisible;
-  
+
   return (
-    <div
-      ref={ref}
-      style={{
-        opacity: shouldAnimate ? 1 : 0,
-        animation: shouldAnimate 
-          ? `${animationName} ${animationDuration} ${animationDelay} ease-out forwards`
-          : 'none',
-      }}
-    >
+    <div ref={ref} data-motion="" style={style}>
       {children}
     </div>
   );

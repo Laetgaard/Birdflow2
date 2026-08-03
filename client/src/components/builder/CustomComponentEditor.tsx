@@ -43,6 +43,7 @@ import {
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
 import { applySvgAssetColors, isSvgColorTokenRef } from "@shared/svgAssets";
+import type { MotionSpec } from "@shared/motion";
 import { resolveDesignTokens } from "@shared/designTokens";
 import { uploadImage } from "@/lib/builderUpload";
 import SemanticFieldsPanel from "./SemanticFieldsPanel";
@@ -97,6 +98,125 @@ const VARIANT_OPTIONS: { value: PrimitiveButtonVariant; label: string }[] = [
 ];
 
 const INHERIT = "__inherit__";
+
+/**
+ * Motion controls: preset names from the controlled vocabulary in
+ * shared/motion.ts, with Danish labels. The default of every scale is the
+ * calm option; picking it removes the key so specs stay minimal.
+ */
+const MOTION_DEFAULTS: Record<string, string> = {
+  effect: "none",
+  trigger: "scroll",
+  duration: "normal",
+  delay: "none",
+  easing: "soft",
+  distance: "medium",
+  repeat: "once",
+  stagger: "none",
+  hover: "none",
+};
+
+const MOTION_FIELDS: { key: keyof MotionSpec; label: string; options: [string, string][]; boxOnly?: boolean; entranceOnly?: boolean }[] = [
+  {
+    key: "effect",
+    label: "Indgang",
+    options: [
+      ["none", "Ingen"],
+      ["fade-in", "Fade ind"],
+      ["slide-up", "Glid op"],
+      ["slide-down", "Glid ned"],
+      ["slide-left", "Glid fra højre"],
+      ["slide-right", "Glid fra venstre"],
+      ["zoom-in", "Zoom ind"],
+      ["zoom-out", "Zoom ud"],
+      ["bounce", "Hop"],
+      ["flip", "Flip"],
+    ],
+  },
+  {
+    key: "trigger",
+    label: "Afspil",
+    entranceOnly: true,
+    options: [
+      ["scroll", "Ved scroll"],
+      ["load", "Ved indlæsning"],
+    ],
+  },
+  {
+    key: "duration",
+    label: "Varighed",
+    entranceOnly: true,
+    options: [
+      ["fast", "Hurtig"],
+      ["normal", "Normal"],
+      ["slow", "Langsom"],
+      ["very-slow", "Meget langsom"],
+    ],
+  },
+  {
+    key: "delay",
+    label: "Forsinkelse",
+    entranceOnly: true,
+    options: [
+      ["none", "Ingen"],
+      ["short", "Kort"],
+      ["medium", "Mellem"],
+      ["long", "Lang"],
+    ],
+  },
+  {
+    key: "easing",
+    label: "Kurve",
+    entranceOnly: true,
+    options: [
+      ["soft", "Blød"],
+      ["ease-out", "Ease-out"],
+      ["ease-in-out", "Jævn"],
+      ["linear", "Lineær"],
+      ["spring", "Fjedrende"],
+    ],
+  },
+  {
+    key: "distance",
+    label: "Afstand",
+    entranceOnly: true,
+    options: [
+      ["short", "Kort"],
+      ["medium", "Mellem"],
+      ["long", "Lang"],
+    ],
+  },
+  {
+    key: "repeat",
+    label: "Gentagelse",
+    entranceOnly: true,
+    options: [
+      ["once", "Én gang"],
+      ["every-view", "Hver visning"],
+    ],
+  },
+  {
+    key: "stagger",
+    label: "Børn forskudt",
+    boxOnly: true,
+    options: [
+      ["none", "Ingen"],
+      ["tight", "Tæt"],
+      ["normal", "Normal"],
+      ["relaxed", "Afslappet"],
+    ],
+  },
+  {
+    key: "hover",
+    label: "Hover-effekt",
+    options: [
+      ["none", "Ingen"],
+      ["lift", "Løft"],
+      ["grow", "Forstør"],
+      ["glow", "Glød"],
+    ],
+  },
+];
 
 /**
  * Brand roles an illustration colour can bind to. The value is stored as a
@@ -859,6 +979,54 @@ export default function CustomComponentEditor({
             <div className="space-y-3">
               {STYLE_FIELDS.map(renderStyleField)}
             </div>
+          </div>
+
+          <Separator />
+
+          {/* Motion — controlled presets only; the canvas replays the
+              entrance live whenever a value changes. */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Bevægelse</h4>
+            <div className="space-y-2">
+              {MOTION_FIELDS.filter((field) => {
+                if (field.boxOnly && selected.type !== "box") return false;
+                if (field.entranceOnly) {
+                  const effect = (selected.motion?.effect as string | undefined) ?? "none";
+                  if (effect === "none") return false;
+                }
+                return true;
+              }).map((field) => {
+                const current = ((selected.motion as Record<string, string> | undefined)?.[field.key] as string) ?? MOTION_DEFAULTS[field.key];
+                return (
+                  <div key={field.key} className="flex items-center gap-2">
+                    <Label className="text-xs w-24 shrink-0">{field.label}</Label>
+                    <Select
+                      value={current}
+                      onValueChange={(value) => {
+                        const next = { ...(selected.motion ?? {}) } as Record<string, string>;
+                        if (value === MOTION_DEFAULTS[field.key]) delete next[field.key];
+                        else next[field.key] = value;
+                        patchNode(selected.id, {
+                          motion: Object.keys(next).length > 0 ? (next as MotionSpec) : undefined,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs flex-1" data-testid={`node-motion-${field.key}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {field.options.map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Rolig bevægelse konverterer bedst — brug fade eller glid, og lad resten stå på standard.
+            </p>
           </div>
         </>
       ) : (

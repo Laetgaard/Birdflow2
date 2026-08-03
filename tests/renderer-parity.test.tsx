@@ -7,7 +7,7 @@
  * render both from identical state and fail when they disagree.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   componentRegistry,
   type BuilderComponentData,
@@ -293,6 +293,174 @@ describe('custom components', () => {
     // A stale reference must degrade to the fallback, never crash.
     const orphan = structuredClone(component);
     expect(() => renderBuilder(orphan, [orphan], undefined, undefined, {})).not.toThrow();
+  });
+});
+
+describe('motion draws the same hidden first frame on both sides', () => {
+  /** The inline styles of every element the motion runtime manages. */
+  function motionStyles(html: string): string[] {
+    return Array.from(html.matchAll(/<[^>]*\bdata-motion\b[^>]*>/g)).map((tag) => {
+      const style = tag[0].match(/style="([^"]*)"/);
+      return style ? style[1] : '';
+    });
+  }
+
+  function customMotion(tree: Record<string, unknown>): BuilderComponentData {
+    return {
+      id: 'custom-motion',
+      type: 'custom',
+      props: { customTree: tree },
+      styles: {},
+    } as unknown as BuilderComponentData;
+  }
+
+  it('a node with an entrance starts hidden identically in preview and published', () => {
+    const component = customMotion({
+      id: 'root',
+      type: 'box',
+      children: [
+        { id: 't1', type: 'text', text: 'Ro på nervesystemet', motion: { effect: 'slide-up' }, children: [] },
+      ],
+    });
+    const builder = renderBuilder(component);
+    const published = renderPublished(component);
+
+    expect(visibleText(published)).toBe(visibleText(builder));
+    const bStyles = motionStyles(builder);
+    const pStyles = motionStyles(published);
+    expect(bStyles).toHaveLength(1);
+    // The parity promise: byte-identical hidden state on both sides.
+    expect(pStyles).toEqual(bStyles);
+    expect(bStyles[0]).toContain('opacity:0');
+    expect(bStyles[0]).toContain('translateY(30px)');
+    expect(bStyles[0]).toContain('cubic-bezier(0.16, 1, 0.3, 1)');
+  });
+
+  it('a staggering box delays each child by the same step on both sides', () => {
+    const component = customMotion({
+      id: 'root',
+      type: 'box',
+      motion: { stagger: 'normal' },
+      children: [
+        { id: 'c1', type: 'text', text: 'Et', children: [] },
+        { id: 'c2', type: 'text', text: 'To', children: [] },
+        { id: 'c3', type: 'text', text: 'Tre', children: [] },
+      ],
+    });
+    const builder = renderBuilder(component);
+    const published = renderPublished(component);
+
+    const bStyles = motionStyles(builder);
+    // Three children animate; the box itself stays visible (it handed its
+    // entrance to them).
+    expect(bStyles).toHaveLength(3);
+    expect(motionStyles(published)).toEqual(bStyles);
+    expect(bStyles[0]).toContain(' 0ms');
+    expect(bStyles[1]).toContain('120ms');
+    expect(bStyles[2]).toContain('240ms');
+  });
+
+  it('a child with its own entrance opts out of the stagger on both sides', () => {
+    const component = customMotion({
+      id: 'root',
+      type: 'box',
+      motion: { stagger: 'tight' },
+      children: [
+        { id: 'c1', type: 'text', text: 'Arver', children: [] },
+        { id: 'c2', type: 'text', text: 'Egen', motion: { effect: 'zoom-in', distance: 'short' }, children: [] },
+      ],
+    });
+    const builder = renderBuilder(component);
+    const bStyles = motionStyles(builder);
+    expect(bStyles).toHaveLength(2);
+    expect(motionStyles(renderPublished(component))).toEqual(bStyles);
+    expect(bStyles[1]).toContain('scale(0.96)'); // its own effect, not the inherited fade
+    expect(bStyles[1]).toContain(' 0ms'); // and no stagger delay
+  });
+
+  it('the four legacy section fields still hide the section the same way', () => {
+    const component = {
+      ...componentFor('rich-text'),
+      styles: {
+        ...componentRegistry['rich-text'].defaultStyles,
+        animationType: 'slide-up',
+        animationDuration: '0.8s',
+        animationDelay: '0.1s',
+      },
+    } as BuilderComponentData;
+    const builder = renderBuilder(component);
+    const published = renderPublished(component);
+
+    const bStyles = motionStyles(builder);
+    expect(bStyles).toHaveLength(1);
+    expect(motionStyles(published)).toEqual(bStyles);
+    expect(bStyles[0]).toContain('opacity:0');
+    expect(bStyles[0]).toContain('translateY(30px)');
+    expect(bStyles[0]).toContain('800ms');
+    expect(bStyles[0]).toContain('ease-out 100ms'); // legacy feel preserved
+  });
+
+  it('styles.motion refines a legacy section entrance identically on both sides', () => {
+    const component = {
+      ...componentFor('rich-text'),
+      styles: {
+        ...componentRegistry['rich-text'].defaultStyles,
+        animationType: 'slide-up',
+        motion: { distance: 'long', easing: 'spring', duration: 'fast' },
+      },
+    } as unknown as BuilderComponentData;
+    const builder = renderBuilder(component);
+    const bStyles = motionStyles(builder);
+    expect(bStyles).toHaveLength(1);
+    expect(motionStyles(renderPublished(component))).toEqual(bStyles);
+    expect(bStyles[0]).toContain('translateY(56px)'); // distance: long
+    expect(bStyles[0]).toContain('cubic-bezier(0.34, 1.56, 0.64, 1)'); // easing: spring
+    expect(bStyles[0]).toContain('300ms'); // duration: fast overrides the legacy default
+  });
+
+  it('reduced motion: the preview simply shows the finished page', () => {
+    vi.stubGlobal('window', {
+      matchMedia: () => ({ matches: true }),
+    });
+    try {
+      const node = customMotion({
+        id: 'root',
+        type: 'box',
+        motion: { stagger: 'normal' },
+        children: [
+          { id: 'c1', type: 'text', text: 'Roligt indhold', motion: { effect: 'slide-up' }, children: [] },
+        ],
+      });
+      const section = {
+        ...componentFor('rich-text'),
+        styles: { ...componentRegistry['rich-text'].defaultStyles, animationType: 'fade-in' },
+      } as BuilderComponentData;
+
+      for (const html of [renderBuilder(node), renderBuilder(section)]) {
+        expect(html).not.toContain('data-motion');
+        expect(html).not.toContain('opacity:0');
+      }
+      expect(visibleText(renderBuilder(node))).toContain('Roligt indhold');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('hover presets: inline glide in the preview, a :hover rule on the published site', () => {
+    const component = customMotion({
+      id: 'root',
+      type: 'box',
+      children: [
+        { id: 'b1', type: 'button', label: 'Book samtale', href: '/kontakt', motion: { hover: 'lift' }, children: [] },
+      ],
+    });
+    // Preview: the rest state carries the transition that makes the hover glide.
+    expect(renderBuilder(component)).toContain('transform 0.2s cubic-bezier');
+    // Published: the preset becomes a real :hover rule with the same declarations.
+    const published = renderPublished(component);
+    expect(published).toContain(':hover');
+    expect(published).toContain('translateY(-4px)');
+    expect(published).toContain('transform 0.2s cubic-bezier');
   });
 });
 

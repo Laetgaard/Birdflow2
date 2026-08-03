@@ -233,6 +233,36 @@ export const animationPresets = {
     { name: 'Medium', value: '0.3s' },
     { name: 'Long', value: '0.5s' },
   ],
+  // Newer controlled properties (stored in styles.motion / node.motion —
+  // values are vocabulary names from shared/motion.ts, never CSS)
+  easing: [
+    { name: 'Blød', value: 'soft' },
+    { name: 'Ease-out', value: 'ease-out' },
+    { name: 'Jævn', value: 'ease-in-out' },
+    { name: 'Lineær', value: 'linear' },
+    { name: 'Fjedrende', value: 'spring' },
+  ],
+  distance: [
+    { name: 'Kort', value: 'short' },
+    { name: 'Mellem', value: 'medium' },
+    { name: 'Lang', value: 'long' },
+  ],
+  repeat: [
+    { name: 'Én gang', value: 'once' },
+    { name: 'Hver visning', value: 'every-view' },
+  ],
+  stagger: [
+    { name: 'Ingen', value: 'none' },
+    { name: 'Tæt', value: 'tight' },
+    { name: 'Normal', value: 'normal' },
+    { name: 'Afslappet', value: 'relaxed' },
+  ],
+  hover: [
+    { name: 'Ingen', value: 'none' },
+    { name: 'Løft', value: 'lift' },
+    { name: 'Forstør', value: 'grow' },
+    { name: 'Glød', value: 'glow' },
+  ],
 };
 
 // Editable text fields per component type
@@ -491,6 +521,12 @@ export type ComponentStyles = {
   animationTrigger?: 'load' | 'scroll';
   animationDuration?: string;
   animationDelay?: string;
+  /**
+   * Newer motion properties (easing, distance, repeat, …) as preset names
+   * from shared/motion.ts. Overlaid key-by-key on the four legacy fields via
+   * sectionMotionSpec(), so old sites keep playing exactly as saved.
+   */
+  motion?: import('./motion').MotionSpec;
   // Header scroll behavior settings
   isTransparent?: boolean | string;
   overlayMode?: boolean | string;

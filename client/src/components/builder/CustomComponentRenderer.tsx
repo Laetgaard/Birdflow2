@@ -13,6 +13,8 @@ import {
 import { sanitizeSvg } from "@shared/svgSanitizer";
 import { TOKEN_FALLBACKS, readableTextOn, resolveDesignTokens } from "@shared/designTokens";
 import { applySvgAssetColors, type SvgAssetLike } from "@shared/svgAssets";
+import { MOTION_TABLES, computeMotion, staggerChildSpec, type MotionSpec } from "@shared/motion";
+import { useMotionPhase } from "./useMotionPhase";
 
 type DeviceMode = "desktop" | "tablet" | "mobile";
 
@@ -205,6 +207,12 @@ type NodeRendererProps = {
   /** Resolved design tokens for {color.*} refs in svg colour overrides. */
   svgTokens?: Record<string, string>;
   depth: number;
+  /**
+   * Set when the parent box staggers its children: the parent's motion spec
+   * plus this node's position among its siblings. A child with its own
+   * entrance opts out (staggerChildSpec returns null for it).
+   */
+  staggerParent?: { spec: MotionSpec; index: number };
 };
 
 function NodeRenderer({
@@ -221,13 +229,39 @@ function NodeRenderer({
   svgAssets,
   svgTokens,
   depth,
+  staggerParent,
 }: NodeRendererProps) {
   // Hover is a real style layer, not an editor nicety: the published site
   // emits the same declarations as a `:hover` rule, so what the customer
-  // sees here is what visitors get.
+  // sees here is what visitors get. A hover PRESET from the motion
+  // vocabulary counts too — resolvePrimitiveStyles merges it in.
   const [isHovered, setIsHovered] = useState(false);
-  const hasHover = !!node.hoverStyles && Object.keys(node.hoverStyles).length > 0;
+  const hasHover =
+    (!!node.hoverStyles && Object.keys(node.hoverStyles).length > 0) ||
+    !!(node.motion?.hover && node.motion.hover !== "none");
   const resolved = resolvePrimitiveStyles(node, deviceMode, hasHover && isHovered) as React.CSSProperties;
+
+  // Entrance motion — same shared model as the published site. A box with
+  // `stagger` set does not hide itself: its children inherit its entrance,
+  // one after another, via staggerParent.
+  const ownMotion = node.motion;
+  const hasOwnEntrance = !!ownMotion?.effect && ownMotion.effect !== "none";
+  const staggerStepMs =
+    node.type === "box" && ownMotion?.stagger ? MOTION_TABLES.staggers[ownMotion.stagger] ?? 0 : 0;
+  const isStaggerBox = staggerStepMs > 0;
+  const inheritedSpec =
+    !hasOwnEntrance && staggerParent ? staggerChildSpec(staggerParent.spec, ownMotion) : null;
+  const entranceSpec = isStaggerBox ? null : hasOwnEntrance ? ownMotion : inheritedSpec;
+  const entranceResolved = computeMotion(
+    MOTION_TABLES,
+    entranceSpec,
+    inheritedSpec && staggerParent ? staggerParent.index : undefined
+  );
+  // Changing any motion property replays the entrance — the live preview
+  // while editing in the panel.
+  const motion = useMotionPhase(entranceResolved, JSON.stringify(ownMotion ?? null));
+  const motionProps = motion.active ? { ref: motion.ref, "data-motion": "" } : {};
+  const motionStyle = motion.active ? motion.style : {};
   const hoverHandlers = hasHover
     ? {
         onMouseEnter: () => setIsHovered(true),
@@ -261,10 +295,11 @@ function NodeRenderer({
         flexDirection: "column",
         ...resolved,
         ...selectionStyles,
+        ...motionStyle,
       };
       return (
-        <div {...dataAttrs} style={style} onClick={handleNodeClick}>
-          {(node.children ?? []).map((child) => (
+        <div {...dataAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
+          {(node.children ?? []).map((child, childIndex) => (
             <NodeRenderer
               key={child.id}
               node={child}
@@ -280,6 +315,9 @@ function NodeRenderer({
               svgAssets={svgAssets}
               svgTokens={svgTokens}
               depth={depth + 1}
+              staggerParent={
+                isStaggerBox && ownMotion ? { spec: ownMotion, index: childIndex } : undefined
+              }
             />
           ))}
           {!isPreview && (node.children ?? []).length === 0 && (
@@ -309,7 +347,7 @@ function NodeRenderer({
       const field = `node:${node.id}:text`;
       const inlineEditable = !canInlineEdit || canInlineEdit(node.id);
       return (
-        <div {...dataAttrs} style={{ ...selectionStyles }} onClick={handleNodeClick}>
+        <div {...dataAttrs} {...motionProps} style={{ ...selectionStyles, ...motionStyle }} onClick={handleNodeClick}>
           <NodeEditableText
             value={node.text ?? ""}
             field={field}
@@ -330,6 +368,7 @@ function NodeRenderer({
         maxWidth: "100%",
         ...resolved,
         ...selectionStyles,
+        ...motionStyle,
       };
       if (!node.src) {
         if (isPreview) return null;
@@ -357,7 +396,7 @@ function NodeRenderer({
           </div>
         );
       }
-      return <img {...dataAttrs} src={node.src} alt={node.alt ?? ""} style={style} onClick={handleNodeClick} />;
+      return <img {...dataAttrs} {...motionProps} src={node.src} alt={node.alt ?? ""} style={style} onClick={handleNodeClick} />;
     }
 
     case "button": {
@@ -386,7 +425,7 @@ function NodeRenderer({
       }
       if (isPreview) {
         return (
-          <a {...dataAttrs} href={sanitizeLinkHref(node.href)} style={style}>
+          <a {...dataAttrs} {...motionProps} href={sanitizeLinkHref(node.href)} style={{ ...style, ...motionStyle }}>
             {node.label ?? ""}
           </a>
         );
@@ -395,7 +434,8 @@ function NodeRenderer({
       return (
         <span
           {...dataAttrs}
-          style={style}
+          {...motionProps}
+          style={{ ...style, ...motionStyle }}
           onClick={handleNodeClick}
           onDoubleClick={
             onEditField && inlineEditable
@@ -455,7 +495,8 @@ function NodeRenderer({
       return (
         <div
           {...dataAttrs}
-          style={style}
+          {...motionProps}
+          style={{ ...style, ...motionStyle }}
           onClick={handleNodeClick}
           dangerouslySetInnerHTML={{ __html: fitSvg(safe) }}
         />

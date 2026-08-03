@@ -518,7 +518,10 @@ export function buildToolCatalogue(): AgentTool[] {
       "create_custom_component",
       "Build a brand new component from primitive nodes (box/text/image/button/svg) when no standard section fits. " +
         "Supply base styles plus tabletStyles and mobileStyles so it is responsive. SVG nodes may contain SMIL " +
-        "(animate, animateTransform, animateMotion) for real motion graphics. ALWAYS include \"schema\" declaring " +
+        "(animate, animateTransform, animateMotion) for real motion graphics. Nodes accept a \"motion\" object of " +
+        "presets (effect/trigger/duration/delay/easing/distance/repeat/hover; boxes also stagger) — motion is data, " +
+        "never keyframes or scripts. Use it sparingly: one entrance per block, children via stagger on the parent box. " +
+        "ALWAYS include \"schema\" declaring " +
         "the editable fields (Danish labels, node-id bindings, repeaters for lists) — give referenced nodes explicit ids. " +
         "Custom components are visual-only: never imitate booking/forms/checkout; insert the trusted section types instead.",
       AddCustomComponentMutation,
@@ -529,7 +532,8 @@ export function buildToolCatalogue(): AgentTool[] {
     writeTool(
       "update_custom_component",
       "Replace the tree or styles of an existing custom component. Keep node ids and schema keys stable where " +
-        "possible, and include \"schema\" again whenever the structure changed.",
+        "possible, and include \"schema\" again whenever the structure changed. Node \"motion\" presets " +
+        "(effect/…/hover, stagger on boxes) are the only way to animate nodes — keep it calm and purposeful.",
       UpdateCustomComponentMutation,
       () => "Opdaterede en egen komponent"
     )
@@ -549,7 +553,9 @@ export function buildToolCatalogue(): AgentTool[] {
     name: "set_motion",
     description:
       "Set the entrance animation on a section. Use 'load' above the fold and 'scroll' below it; stagger " +
-      "consecutive sections with increasing delays. Respect the brand guide's motion level.",
+      "consecutive sections with increasing delays. Motion is data — only these preset names exist, and calm " +
+      "defaults (fade/slide, 'soft', 'medium', 'once') convert best; reserve 'spring'/'bounce' for one playful " +
+      "accent per page. Respect the brand guide's motion level.",
     parameters: z.object({
       pageId: z.string(),
       componentId: z.string(),
@@ -560,9 +566,20 @@ export function buildToolCatalogue(): AgentTool[] {
       animationTrigger: z.enum(["load", "scroll"]).optional(),
       animationDuration: z.enum(["0.3s", "0.5s", "0.8s", "1.2s"]).optional(),
       animationDelay: z.enum(["0s", "0.1s", "0.3s", "0.5s"]).optional(),
+      easing: z.enum(["soft", "ease-out", "ease-in-out", "linear", "spring"]).optional()
+        .describe("Bevægelseskurve — 'soft' er standarden."),
+      distance: z.enum(["short", "medium", "long"]).optional()
+        .describe("Hvor langt slide-effekter bevæger sig."),
+      repeat: z.enum(["once", "every-view"]).optional()
+        .describe("'every-view' afspiller igen hver gang sektionen scrolles ind."),
     }),
     mutates: true,
     run: (args, ctx) => {
+      const motion = {
+        ...(args.easing ? { easing: args.easing } : {}),
+        ...(args.distance ? { distance: args.distance } : {}),
+        ...(args.repeat ? { repeat: args.repeat } : {}),
+      };
       const mutation = {
         action: "update_component" as const,
         pageId: args.pageId,
@@ -572,6 +589,7 @@ export function buildToolCatalogue(): AgentTool[] {
           ...(args.animationTrigger ? { animationTrigger: args.animationTrigger } : {}),
           ...(args.animationDuration ? { animationDuration: args.animationDuration } : {}),
           ...(args.animationDelay ? { animationDelay: args.animationDelay } : {}),
+          ...(Object.keys(motion).length > 0 ? { motion } : {}),
         },
       } as BuilderMutation;
       return applyWrite(mutation, ctx, () => `Satte animation ${args.animationType}`);

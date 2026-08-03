@@ -1,5 +1,17 @@
 import { z } from "zod";
 import type { ComponentType } from "./componentRegistry";
+import {
+  MOTION_EFFECTS,
+  MOTION_TRIGGERS,
+  MOTION_DURATIONS,
+  MOTION_DELAYS,
+  MOTION_EASINGS,
+  MOTION_DISTANCES,
+  MOTION_REPEATS,
+  MOTION_STAGGERS,
+  MOTION_HOVERS,
+  type MotionSpec,
+} from "./motion";
 
 // Every registry type the AI may place with add_component. 'custom' is
 // deliberately absent: custom components are created through
@@ -66,6 +78,32 @@ export const ComponentPropsSchema = z.object({
  */
 const TOKEN_HINT = 'Brug en token-reference som "{color.primary}" frem for en hex-værdi, medmindre kunden bad om præcis denne farve.';
 
+/**
+ * Motion as a CONTROLLED vocabulary — every field is an enum and the object
+ * is strict, so raw CSS, keyframes or scripts cannot pass through here.
+ * Both renderers interpret the names via shared/motion.ts.
+ *
+ * Restraint: sider for psykologpraksisser skal konvertere, ikke imponere.
+ * Standardværdierne (trigger 'scroll', duration 'normal', easing 'soft',
+ * distance 'medium', repeat 'once') er bevidst rolige — udelad felter frem
+ * for at skrue op, og brug 'fade-in'/'slide-up' som førstevalg.
+ */
+export const MotionSpecSchema = z
+  .object({
+    effect: z.enum(MOTION_EFFECTS).optional().describe('Indgangseffekt. Brug sparsomt: fade-in eller slide-up er næsten altid nok.'),
+    trigger: z.enum(MOTION_TRIGGERS).optional(),
+    duration: z.enum(MOTION_DURATIONS).optional(),
+    delay: z.enum(MOTION_DELAYS).optional(),
+    easing: z.enum(MOTION_EASINGS).optional(),
+    distance: z.enum(MOTION_DISTANCES).optional().describe('Hvor langt slides bevæger sig / hvor meget zooms skalerer.'),
+    repeat: z.enum(MOTION_REPEATS).optional().describe("'once' som standard; 'every-view' afspiller igen hver gang elementet kommer i syne."),
+    stagger: z.enum(MOTION_STAGGERS).optional().describe('Kun box-noder: børnene kommer ind ét ad gangen med denne rytme.'),
+    hover: z.enum(MOTION_HOVERS).optional().describe('Hover-respons som preset (lift/grow/glow) — aldrig rå CSS.'),
+  })
+  .strict();
+
+export type AIMotionSpec = MotionSpec;
+
 export const ComponentStylesSchema = z.object({
   backgroundColor: z.string().optional().describe(TOKEN_HINT),
   textColor: z.string().optional().describe(TOKEN_HINT),
@@ -100,6 +138,9 @@ export const ComponentStylesSchema = z.object({
   animationTrigger: z.enum(['load', 'scroll']).optional(),
   animationDuration: z.string().optional(),
   animationDelay: z.string().optional(),
+  // Newer motion properties (easing, distance, repeat …) — preset names
+  // only, overlaid on the four legacy fields by sectionMotionSpec().
+  motion: MotionSpecSchema.optional(),
 });
 
 export const ComponentSchema = z.object({
@@ -329,6 +370,8 @@ export type AIPrimitiveNode = {
    */
   svgAssetId?: string;
   svgColors?: Record<string, string>;
+  /** Controlled motion presets (entrance/hover/stagger) — never raw CSS. */
+  motion?: MotionSpec;
   children?: AIPrimitiveNode[];
 };
 
@@ -351,6 +394,7 @@ export const AIPrimitiveNodeSchema: z.ZodType<AIPrimitiveNode> = z.lazy(() =>
     svg: z.string().optional(),
     svgAssetId: z.string().max(80).optional(),
     svgColors: z.record(z.string().max(64)).optional(),
+    motion: MotionSpecSchema.optional(),
     children: z.array(AIPrimitiveNodeSchema).optional(),
   })
 );

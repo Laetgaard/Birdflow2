@@ -1467,6 +1467,67 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             ))}
           </div>
         </div>
+
+        {/* Newer controlled properties — stored as preset names in
+            styles.motion and overlaid on the four legacy fields. */}
+        <div className="space-y-2">
+          <Label className="text-xs">Kurve</Label>
+          <Select
+            value={component.styles.motion?.easing || 'soft'}
+            onValueChange={(value) =>
+              onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), easing: value as any } } })
+            }
+          >
+            <SelectTrigger className="h-8" data-testid="select-animation-easing">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {animationPresets.easing.map((preset) => (
+                <SelectItem key={preset.value} value={preset.value}>
+                  {preset.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Afstand</Label>
+          <div className="flex flex-wrap gap-1">
+            {animationPresets.distance.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${(component.styles.motion?.distance || 'medium') === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() =>
+                  onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), distance: preset.value as any } } })
+                }
+                data-testid={`animation-distance-${preset.value}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Gentagelse</Label>
+          <div className="flex flex-wrap gap-1">
+            {animationPresets.repeat.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${(component.styles.motion?.repeat || 'once') === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() =>
+                  onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), repeat: preset.value as any } } })
+                }
+                data-testid={`animation-repeat-${preset.value}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Animation preview hint */}

@@ -1,5 +1,12 @@
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
+import {
+  MOTION_TABLES,
+  computeMotion,
+  motionPhaseStyle,
+  sectionMotionSpec,
+  staggerChildSpec,
+} from '../../shared/motion';
 import { APPROVED_FONTS, DEFAULT_FONT_STACK, googleFontsHref, resolveApprovedFontStack } from '../../shared/fonts';
 import { resolveDesignTokens } from '../../shared/designTokens';
 import {
@@ -2818,36 +2825,80 @@ function HoverCard({ children, style, accentColor }: { children: React.ReactNode
   );
 }
 
-const animationKeyframes = \`
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes slideDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes slideLeft { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes slideRight { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes zoomIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
-@keyframes zoomOut { from { opacity: 0; transform: scale(1.1); } to { opacity: 1; transform: scale(1); } }
-@keyframes bounce { 
-  0% { opacity: 0; transform: translateY(30px); }
-  60% { opacity: 1; transform: translateY(-10px); }
-  80% { transform: translateY(5px); }
-  100% { transform: translateY(0); }
-}
-@keyframes flip { from { opacity: 0; transform: perspective(400px) rotateX(90deg); } to { opacity: 1; transform: perspective(400px) rotateX(0); } }
-@keyframes staggerFadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-\`;
+// ============ Motion (shared model, baked from shared/motion.ts) ============
+// The generated project cannot import @shared, so the vocabulary tables are
+// baked in as JSON and the resolver functions as their compiled source —
+// the SAME functions the builder preview imports. Motion is data (preset
+// names); unknown names resolve to no motion, never to arbitrary CSS.
+// tests/motion.test.ts holds the stringified sources equivalent to direct
+// calls, and the parity suite renders both sides from them.
+const MOTION_TABLES: any = ${JSON.stringify(MOTION_TABLES)};
+const computeMotion = ${computeMotion.toString()};
+const motionPhaseStyle = ${motionPhaseStyle.toString()};
+const sectionMotionSpec = ${sectionMotionSpec.toString()};
+const staggerChildSpec = ${staggerChildSpec.toString()};
 
-const animationMap: Record<string, string> = {
-  'fade-in': 'fadeIn',
-  'slide-up': 'slideUp',
-  'slide-down': 'slideDown',
-  'slide-left': 'slideLeft',
-  'slide-right': 'slideRight',
-  'zoom-in': 'zoomIn',
-  'zoom-out': 'zoomOut',
-  'bounce': 'bounce',
-  'flip': 'flip',
-  'stagger-fade-up': 'staggerFadeUp',
-};
+// Drives one entrance through hidden → entering → done. 'done' clears the
+// inline styles so classes and :hover rules win again; repeat 'every-view'
+// swings back to 'hidden' when the element scrolls out. Server-side the
+// phase starts 'hidden' (same initial markup as the builder preview);
+// reduced-motion visitors are unhidden pre-hydration by the [data-motion]
+// rule in globals.css and post-hydration by this hook.
+function useMotionPhase(resolved: any, replayKey: string) {
+  const ref = useRef<any>(null);
+  const reduceMotion = usePrefersReducedMotion();
+  const [phase, setPhase] = useState<string>(resolved ? 'hidden' : 'done');
+  const signature = resolved
+    ? [resolved.effect, resolved.trigger, resolved.durationMs, resolved.delayMs, resolved.easing, resolved.hiddenTransform, resolved.once, replayKey].join('|')
+    : 'none|' + replayKey;
+  useEffect(() => {
+    if (!resolved || reduceMotion) {
+      setPhase('done');
+      return;
+    }
+    setPhase('hidden');
+    if (resolved.trigger === 'load') {
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setPhase('entering'));
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        if (raf2) cancelAnimationFrame(raf2);
+      };
+    }
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setPhase('entering');
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setPhase('entering');
+            if (resolved.once) observer.disconnect();
+          } else if (!resolved.once) {
+            setPhase('hidden');
+          }
+        });
+      },
+      { threshold: 0.15 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [signature, reduceMotion]);
+  useEffect(() => {
+    if (phase !== 'entering' || !resolved || !resolved.once) return;
+    const timer = window.setTimeout(() => setPhase('done'), resolved.durationMs + resolved.delayMs + 80);
+    return () => window.clearTimeout(timer);
+  }, [phase, signature]);
+  return {
+    ref,
+    style: motionPhaseStyle(resolved, reduceMotion ? 'done' : (phase as any)) as React.CSSProperties,
+    active: !!resolved && !reduceMotion,
+  };
+}
 
 function AnimatedWrapper({ 
   children, 
@@ -2856,60 +2907,18 @@ function AnimatedWrapper({
   children: React.ReactNode; 
   styles: ComponentStyles;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const [hasAnimated, setHasAnimated] = useState(false);
-  const reduceMotion = usePrefersReducedMotion();
-  
-  const animationType = styles.animationType || 'none';
-  const animationTrigger = styles.animationTrigger || 'load';
-  const animationDuration = styles.animationDuration || '0.5s';
-  const animationDelay = styles.animationDelay || '0s';
-  
-  useEffect(() => {
-    if (reduceMotion || animationType === 'none' || hasAnimated) return;
-    
-    if (animationTrigger === 'load') {
-      setIsVisible(true);
-      setHasAnimated(true);
-    } else if (animationTrigger === 'scroll') {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting && !hasAnimated) {
-              setIsVisible(true);
-              setHasAnimated(true);
-            }
-          });
-        },
-        { threshold: 0.1 }
-      );
-      
-      if (ref.current) {
-        observer.observe(ref.current);
-      }
-      
-      return () => observer.disconnect();
-    }
-  }, [animationType, animationTrigger, hasAnimated, reduceMotion]);
-  
-  if (reduceMotion || animationType === 'none' || !animationMap[animationType]) {
+  // Legacy animation* fields plus styles.motion, resolved through the same
+  // shared model the builder preview uses.
+  const spec = sectionMotionSpec(styles);
+  const resolved = computeMotion(MOTION_TABLES, spec);
+  const m = useMotionPhase(resolved, '');
+
+  if (!m.active) {
     return <>{children}</>;
   }
-  
-  const animationName = animationMap[animationType];
-  const shouldAnimate = isVisible;
-  
+
   return (
-    <div
-      ref={ref}
-      style={{
-        opacity: shouldAnimate ? 1 : 0,
-        animation: shouldAnimate 
-          ? \`\${animationName} \${animationDuration} \${animationDelay} ease-out forwards\`
-          : 'none',
-      }}
-    >
+    <div ref={m.ref} data-motion="" style={m.style}>
       {children}
     </div>
   );
@@ -2926,6 +2935,7 @@ type ComponentStyles = {
   animationTrigger?: string;
   animationDuration?: string;
   animationDelay?: string;
+  motion?: any;
   boxShadow?: string;
   backgroundGradient?: string;
   backgroundImage?: string;
@@ -5165,6 +5175,8 @@ type PrimitiveNode = {
   type: 'box' | 'text' | 'image' | 'button' | 'svg';
   name?: string;
   hoverStyles?: Record<string, string>;
+  /** Controlled motion presets (shared/motion.ts vocabulary) — data, not CSS. */
+  motion?: any;
   styles?: Record<string, string>;
   tabletStyles?: Record<string, string>;
   mobileStyles?: Record<string, string>;
@@ -5225,21 +5237,28 @@ function customButtonBaseStyles(variant?: string): Record<string, string> {
   }
 }
 
-// Defaults merged under user styles so per-node overrides always win.
+// Defaults merged under user styles so per-node overrides always win. A
+// hover PRESET from the motion vocabulary contributes the rest-state
+// transition here (unless the node sets its own), exactly as the builder's
+// resolvePrimitiveStyles does.
 function customNodeBaseStyles(node: PrimitiveNode): Record<string, string> {
+  const hoverName = node.motion && typeof node.motion === 'object' ? (node.motion as any).hover : undefined;
+  const hasHoverPreset = typeof hoverName === 'string' && !!MOTION_TABLES.hovers[hoverName];
+  const motionBase: Record<string, string> =
+    hasHoverPreset && !(node.styles || {}).transition ? { transition: MOTION_TABLES.hoverTransition } : {};
   switch (node.type) {
     case 'box':
-      return { display: 'flex', flexDirection: 'column', ...(node.styles || {}) };
+      return { display: 'flex', flexDirection: 'column', ...motionBase, ...(node.styles || {}) };
     case 'text':
-      return { margin: '0', ...(node.styles || {}) };
+      return { margin: '0', ...motionBase, ...(node.styles || {}) };
     case 'image':
-      return { display: 'block', maxWidth: '100%', ...(node.styles || {}) };
+      return { display: 'block', maxWidth: '100%', ...motionBase, ...(node.styles || {}) };
     case 'button':
-      return { ...customButtonBaseStyles(node.variant), ...(node.styles || {}) };
+      return { ...customButtonBaseStyles(node.variant), ...motionBase, ...(node.styles || {}) };
     case 'svg':
-      return { display: 'block', lineHeight: '0', ...(node.styles || {}) };
+      return { display: 'block', lineHeight: '0', ...motionBase, ...(node.styles || {}) };
     default:
-      return node.styles || {};
+      return { ...motionBase, ...(node.styles || {}) };
   }
 }
 
@@ -5271,7 +5290,9 @@ function customStyleBlock(selector: string, styles?: Record<string, string>): st
 }
 
 // Hover is emitted last so it wins over the breakpoint overrides, which is
-// how the builder resolves it too.
+// how the builder resolves it too. A hover preset from the motion
+// vocabulary sits UNDER the node's explicit hoverStyles — same merge order
+// as resolvePrimitiveStyles in the builder.
 function collectCustomCss(node: PrimitiveNode, base: string[], tablet: string[], mobile: string[], hover: string[]) {
   const cls = '.' + nodeClassName(node);
   const b = customStyleBlock(cls, customNodeBaseStyles(node));
@@ -5280,7 +5301,10 @@ function collectCustomCss(node: PrimitiveNode, base: string[], tablet: string[],
   if (t) tablet.push(t);
   const m = customStyleBlock(cls, node.mobileStyles);
   if (m) mobile.push(m);
-  const h = customStyleBlock(cls + ':hover', node.hoverStyles);
+  const hoverName = node.motion && typeof node.motion === 'object' ? (node.motion as any).hover : undefined;
+  const hoverPreset = typeof hoverName === 'string' ? MOTION_TABLES.hovers[hoverName] : undefined;
+  const hoverDecls = hoverPreset ? { ...hoverPreset, ...(node.hoverStyles || {}) } : node.hoverStyles;
+  const h = customStyleBlock(cls + ':hover', hoverDecls);
   if (h) hover.push(h);
   (node.children || []).forEach((child) => collectCustomCss(child, base, tablet, mobile, hover));
 }
@@ -5312,36 +5336,61 @@ function safeCustomHref(href?: string): string {
   return '#';
 }
 
-function CustomNode({ node }: { node: PrimitiveNode }) {
+// Entrance motion per node, from the same shared model as sections: a box
+// with `stagger` hands its entrance to its children (one after another);
+// a child with its OWN entrance opts out. Inline motion styles exist only
+// while the entrance plays — at 'done' they clear, so the per-node classes
+// and :hover rules take over again.
+function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParent?: any }) {
+  const ownMotion: any = node.motion && typeof node.motion === 'object' ? node.motion : null;
+  const hasOwnEntrance = !!(ownMotion && typeof ownMotion.effect === 'string' && ownMotion.effect !== 'none');
+  const staggerStepMs =
+    node.type === 'box' && ownMotion && typeof ownMotion.stagger === 'string'
+      ? MOTION_TABLES.staggers[ownMotion.stagger] || 0
+      : 0;
+  const isStaggerBox = staggerStepMs > 0;
+  const inheritedSpec = !hasOwnEntrance && staggerParent ? staggerChildSpec(staggerParent.spec, ownMotion) : null;
+  const entranceSpec = isStaggerBox ? null : hasOwnEntrance ? ownMotion : inheritedSpec;
+  const resolvedMotion = computeMotion(
+    MOTION_TABLES,
+    entranceSpec,
+    inheritedSpec && staggerParent ? staggerParent.index : undefined
+  );
+  const m = useMotionPhase(resolvedMotion, '');
+  const motionProps: any = m.active ? { ref: m.ref, 'data-motion': '', style: m.style } : {};
   const cls = nodeClassName(node);
   switch (node.type) {
     case 'box':
       return (
-        <div className={cls}>
-          {(node.children || []).map((child) => (
-            <CustomNode key={child.id} node={child} />
+        <div className={cls} {...motionProps}>
+          {(node.children || []).map((child, childIndex) => (
+            <CustomNode
+              key={child.id}
+              node={child}
+              staggerParent={isStaggerBox ? { spec: ownMotion, index: childIndex } : undefined}
+            />
           ))}
         </div>
       );
     case 'text': {
       const rawTag = node.tag || 'p';
       const Tag = (CUSTOM_TEXT_TAGS.indexOf(rawTag) >= 0 ? rawTag : 'p') as any;
-      return <Tag className={cls}>{node.text || ''}</Tag>;
+      return <Tag className={cls} {...motionProps}>{node.text || ''}</Tag>;
     }
     case 'image': {
       const src = node.src ? safeCustomHref(node.src) : '';
       if (!src || src === '#') return null;
-      return <img className={cls} src={src} alt={node.alt || ''} />;
+      return <img className={cls} {...motionProps} src={src} alt={node.alt || ''} />;
     }
     case 'button':
       return (
-        <a className={cls} href={safeCustomHref(node.href)}>
+        <a className={cls} {...motionProps} href={safeCustomHref(node.href)}>
           {node.label || ''}
         </a>
       );
     case 'svg':
       if (!node.svg) return null;
-      return <div className={cls} dangerouslySetInnerHTML={{ __html: fitCustomSvg(node.svg) }} />;
+      return <div className={cls} {...motionProps} dangerouslySetInnerHTML={{ __html: fitCustomSvg(node.svg) }} />;
     default:
       return null;
   }
@@ -7110,6 +7159,13 @@ a {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+  /* Entrance motion renders server-side in its hidden state (inline
+     opacity/transform). Before hydration flips it off for reduced-motion
+     visitors, this rule already shows the finished layout. */
+  [data-motion] {
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
 `;

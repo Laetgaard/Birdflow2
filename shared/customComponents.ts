@@ -17,6 +17,7 @@ import type { BuilderComponentData } from './componentRegistry';
 import { sanitizeSvg } from './svgSanitizer';
 import { isTokenRef } from './designTokens';
 import { sanitizeSvgColorOverrides } from './svgAssets';
+import { sanitizeMotionSpec, hoverPresetStyles, MOTION_TABLES, type MotionSpec } from './motion';
 
 // ============ Primitive nodes ============
 
@@ -78,6 +79,14 @@ export type PrimitiveNode = {
    * hover effect that works in the builder survives publishing.
    */
   hoverStyles?: PrimitiveStyles;
+
+  /**
+   * Motion as preset names from the controlled vocabulary in
+   * shared/motion.ts — entrance effect, trigger, timing, easing, distance,
+   * repetition, hover response, and (box nodes only) child staggering.
+   * Both renderers interpret the same names; the values never carry CSS.
+   */
+  motion?: MotionSpec;
 
   // text
   text?: string;
@@ -824,9 +833,17 @@ export function resolvePrimitiveStyles(
     Object.assign(resolved, node.mobileStyles ?? {});
   }
   // Hover wins over the breakpoint cascade, matching a `:hover` rule emitted
-  // after the media queries on the published site.
+  // after the media queries on the published site. A hover PRESET from the
+  // motion vocabulary sits under the node's explicit hoverStyles, exactly as
+  // the publisher merges them into the emitted `:hover` rule.
+  const hoverPreset = node.motion?.hover ? hoverPresetStyles(node.motion.hover) : undefined;
   if (isHovered) {
+    if (hoverPreset) Object.assign(resolved, hoverPreset);
     Object.assign(resolved, node.hoverStyles ?? {});
+  } else if (hoverPreset && !resolved.transition) {
+    // The preset's rest state carries the transition, so entering hover is
+    // smooth. Explicit transitions and raw hoverStyles keep today's snap.
+    resolved.transition = MOTION_TABLES.hoverTransition;
   }
   return resolved;
 }
@@ -933,6 +950,11 @@ export function sanitizePrimitiveTree(root: PrimitiveNode): PrimitiveNode {
     node.tabletStyles = sanitizeStyleRecord(node.tabletStyles);
     node.mobileStyles = sanitizeStyleRecord(node.mobileStyles);
     node.hoverStyles = sanitizeStyleRecord(node.hoverStyles);
+    // Motion survives only as vocabulary names; anything else is dropped
+    // here, at the same choke point that guards every other node field.
+    const motion = sanitizeMotionSpec(node.motion);
+    if (motion) node.motion = motion;
+    else delete node.motion;
 
     if (node.type === 'svg') {
       if (node.svg) node.svg = sanitizeSvg(node.svg);
