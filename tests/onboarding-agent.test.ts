@@ -190,10 +190,13 @@ describe("the client walkthrough", () => {
     expect(pageSource).not.toContain("cloneTemplateState");
   });
 
-  it("keeps the report and payment steps", () => {
-    expect(pageSource).toContain("button-continue-report");
-    expect(pageSource).toContain("button-start-payment");
-    expect(pageSource).toContain("onboarding-checkout");
+  it("ends in the preview-and-decision workspace, not a text report and a card form", () => {
+    // The old "report → payment" pair is gone: the customer now sees the
+    // real site and chooses between approving and asking for changes.
+    expect(pageSource).toContain("DecisionWorkspace");
+    expect(pageSource).toContain("PaymentChoiceDialog");
+    expect(pageSource).not.toContain("button-start-payment");
+    expect(pageSource).not.toContain("onboarding-checkout");
   });
 
   it("wears the app theme, not the old indigo/purple gradients", () => {

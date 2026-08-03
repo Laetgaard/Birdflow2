@@ -164,6 +164,10 @@ export default function BuilderPage() {
   const saveInFlightRef = useRef(false);
   const pendingSaveRef = useRef<BuilderStateData | null>(null);
   const lastSavedStateRef = useRef<string>('');
+  // builder_state.revision as this tab last saw it. Sent with every save so
+  // the server can refuse a write built on a stale copy — an AI build saves
+  // between every step, and a two-second-old autosave must not undo it.
+  const revisionRef = useRef<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const previewContainerRef = useRef<HTMLElement>(null);
@@ -196,11 +200,36 @@ export default function BuilderPage() {
       const response = await fetch(`/api/websites/${id}/builder`, {
         method: "PATCH",
         headers,
-        body: JSON.stringify({ state: stateToSave }),
+        body: JSON.stringify({
+          state: stateToSave,
+          ...(revisionRef.current !== null ? { expectedRevision: revisionRef.current } : {}),
+        }),
       });
+
+      if (response.status === 409) {
+        // Someone else — usually an AI build a step ahead of us — has moved
+        // the website on. Adopt their version rather than fighting it: the
+        // alternative is silently deleting work the customer can see.
+        const conflict = await response.json().catch(() => ({}));
+        if (conflict.state) {
+          revisionRef.current = conflict.revision ?? null;
+          lastSavedStateRef.current = JSON.stringify(conflict.state);
+          setBuilderState(conflict.state as BuilderStateData);
+          setIsDirty(false);
+          toast({
+            title: "Hentede den nyeste version",
+            description: "Hjemmesiden blev ændret et andet sted, så du arbejder videre på den nyeste version.",
+          });
+          return false;
+        }
+      }
 
       if (!response.ok) throw new Error("Failed to save");
 
+      const savedRow = await response.json().catch(() => null);
+      if (savedRow && typeof savedRow.revision === "number") {
+        revisionRef.current = savedRow.revision;
+      }
       lastSavedStateRef.current = stateJson;
       setIsDirty(false);
 
@@ -554,6 +583,9 @@ export default function BuilderPage() {
             setBuilderState(state);
             setHistory(createHistory(state));
             lastSavedStateRef.current = JSON.stringify(state);
+          }
+          if (typeof builderData.revision === "number") {
+            revisionRef.current = builderData.revision;
           }
         }
 
@@ -1636,7 +1668,14 @@ export default function BuilderPage() {
                   websiteId={id}
                   session={session}
                   builderState={builderState}
-                  onStateChange={(newState, description) => {
+                  onStateChange={(newState, description, revision) => {
+                    // The AI saved this itself, server-side, and told us the
+                    // revision it wrote. Adopt it so our next autosave does
+                    // not look stale and get refused.
+                    if (typeof revision === "number") {
+                      revisionRef.current = revision;
+                      lastSavedStateRef.current = JSON.stringify(newState);
+                    }
                     updateStateWithHistory(newState, description);
                   }}
                   history={history}

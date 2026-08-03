@@ -3,6 +3,7 @@ import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean, uni
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { CustomComponentEntry, BrandGuide } from "./customComponents";
+import type { SiteLanguage } from "./siteLanguage";
 
 export type { CustomComponentEntry, BrandGuide } from "./customComponents";
 
@@ -141,6 +142,25 @@ export type UserInvoice = typeof userInvoices.$inferSelect;
 // Website plans
 export type WebsitePlan = 'free' | 'starter' | 'professional' | 'enterprise';
 
+// A website row is either a customer's site or BirdFlow's own platform
+// calendar. The platform kind exists so BirdFlow can host its own bookings
+// in the shared booking engine without a fake customer account: the row is
+// owned by PLATFORM_CALENDAR_OWNER_ID, never by a real user, and is filtered
+// out of every user-facing website list, count and plan limit.
+export const WEBSITE_KINDS = ['customer', 'platform'] as const;
+export type WebsiteKind = (typeof WEBSITE_KINDS)[number];
+
+/**
+ * Sentinel owner for BirdFlow's own platform records. Deliberately not a
+ * uuid, so it can never collide with a Supabase auth user id.
+ */
+export const PLATFORM_CALENDAR_OWNER_ID = 'birdflow-platform';
+export const PLATFORM_CALENDAR_SLUG = 'birdflow-platform-calendar';
+export const PLATFORM_CALENDAR_NAME = 'BirdFlow';
+export const PLATFORM_CALENDAR_TIMEZONE = 'Europe/Copenhagen';
+export const PLATFORM_MEETING_SERVICE_NAME = 'Forbedringsmøde';
+export const PLATFORM_MEETING_DURATION_MINUTES = 30;
+
 // Websites table
 export const websites = pgTable("websites", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -149,10 +169,22 @@ export const websites = pgTable("websites", {
   slug: text("slug").notNull(),
   status: text("status").notNull().default("draft"),
   setupType: text("setup_type").notNull(),
+  // One of WEBSITE_KINDS. Left as plain text rather than $type<WebsiteKind>
+  // so Partial<InsertWebsite> updates elsewhere still typecheck; the writers
+  // of this column are platformCalendar.ts and the normal create path.
+  kind: text("kind").notNull().default("customer"),
   // The website's own trading currency, used by every money figure the
   // owner sees in /manage. Orders and products carry their own currency
   // for historical rows; this is the default and the display fallback.
   currency: text("currency").notNull().default("DKK"),
+  // One of SITE_LANGUAGES: the language this customer's website is written
+  // in, chosen once in onboarding. Drives the generated copy, the published
+  // site's document language and date formatting, later builder AI edits and
+  // the transactional emails this website sends. Plain text rather than
+  // $type<SiteLanguage> for the same reason as `kind` above - Partial<>
+  // update helpers elsewhere must keep typechecking. Danish is the default,
+  // so a row written before this column existed behaves exactly as before.
+  language: text("language").notNull().default("da"),
   deploymentUrl: text("deployment_url"),
   deploymentId: text("deployment_id"),
   lastPublishedAt: timestamp("last_published_at"),
@@ -226,6 +258,11 @@ export type OnboardingChatMessage = {
 // never round-tripped through the model.
 export type OnboardingAnswers = {
   path?: "ai" | "diy";
+  /**
+   * The language the customer picked right after the AI-vs-DIY fork. Mirrored
+   * onto websites.language the moment it is recorded; absent means Danish.
+   */
+  language?: SiteLanguage;
   businessName?: string;
   industry?: string;
   description?: string;
@@ -258,11 +295,94 @@ export const onboardingSessions = pgTable("onboarding_sessions", {
   answers: jsonb("answers").$type<OnboardingAnswers>().notNull().default(sql`'{}'::jsonb`),
   /** Mirror of the generation job status, written through on each phase. */
   genStatus: jsonb("gen_status").$type<Record<string, unknown> | null>(),
+
+  // ---- End-of-onboarding decision state (see server/onboardingDecision.ts) ----
+  // Four independent dimensions rather than one ambiguous "status", because a
+  // customer can be e.g. "generation complete + meeting booked + payment not
+  // started" or "approved + invoice open". Kept as plain text columns (never
+  // $type<Union>()) so Partial<> update helpers elsewhere still typecheck; the
+  // unions below are enforced by the accessor module, which is the only writer.
+  /** OnboardingGenerationState */
+  generationState: text("generation_state").notNull().default("not_started"),
+  /** OnboardingDecisionState */
+  decisionState: text("decision_state").notNull().default("awaiting_decision"),
+  /** OnboardingPaymentMethodChoice */
+  paymentMethodChoice: text("payment_method_choice").notNull().default("none"),
+  /** OnboardingPaymentState */
+  paymentState: text("payment_state").notNull().default("not_started"),
+  /** Bumped every time the generated site changes in a way the customer must re-approve. */
+  siteRevision: integer("site_revision").notNull().default(0),
+  /** The revision an admin last handed back for review, if any. */
+  reviewRevision: integer("review_revision"),
+  /** The revision the customer approved. Approval is always revision-scoped. */
+  approvedRevision: integer("approved_revision"),
+  /** bookings.id of the free improvement meeting (platform calendar). */
+  meetingBookingId: varchar("meeting_booking_id"),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  stripeCheckoutSessionId: varchar("stripe_checkout_session_id"),
+  stripeSubscriptionId: varchar("stripe_subscription_id"),
+  stripeInvoiceId: varchar("stripe_invoice_id"),
+  /** Hosted Stripe invoice URL, so an open invoice stays reachable. */
+  stripeInvoiceUrl: text("stripe_invoice_url"),
+  decidedAt: timestamp("decided_at"),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export type OnboardingSession = typeof onboardingSessions.$inferSelect;
+
+// ---- The four state dimensions of the end of onboarding ----
+
+export const ONBOARDING_GENERATION_STATES = [
+  "not_started",
+  "generating",
+  "complete",
+  "failed",
+] as const;
+export type OnboardingGenerationState = (typeof ONBOARDING_GENERATION_STATES)[number];
+
+export const ONBOARDING_DECISION_STATES = [
+  "awaiting_decision",
+  "customisation_requested",
+  "meeting_booked",
+  "in_customisation",
+  "ready_for_review",
+  "approved",
+] as const;
+export type OnboardingDecisionState = (typeof ONBOARDING_DECISION_STATES)[number];
+
+export const ONBOARDING_PAYMENT_METHOD_CHOICES = ["none", "card", "invoice"] as const;
+export type OnboardingPaymentMethodChoice = (typeof ONBOARDING_PAYMENT_METHOD_CHOICES)[number];
+
+export const ONBOARDING_PAYMENT_STATES = [
+  "not_started",
+  "checkout_pending",
+  "invoice_open",
+  "paid",
+  "payment_failed",
+  "past_due",
+  "cancelled",
+] as const;
+export type OnboardingPaymentState = (typeof ONBOARDING_PAYMENT_STATES)[number];
+
+/**
+ * Every Stripe event this application has already acted on.
+ *
+ * Stripe redelivers events (retries, multiple endpoints, replays) and the
+ * onboarding payment handlers are not naturally idempotent - "mark paid" is,
+ * but "email the customer" and "advance the decision record" are not. The
+ * primary key on the Stripe event id turns a redelivery into a no-op insert.
+ */
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  eventId: text("event_id").primaryKey(),
+  type: text("type").notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+});
+
+export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
 
 // Phased build state for AI Website Architect
 export const phasedBuildState = pgTable("phased_build_state", {
@@ -389,6 +509,14 @@ export const builderState = pgTable("builder_state", {
   id: serial("id").primaryKey(),
   websiteId: varchar("website_id").notNull().unique(),
   state: jsonb("state").notNull(),
+  /**
+   * Monotonic write counter. Every writer — canvas autosave, the assistant,
+   * the build orchestrator, onboarding generation — increments it, and the
+   * ones that can collide pass the revision they read as a compare-and-swap
+   * guard. Without it a two-minute build and a two-second autosave silently
+   * overwrite each other, and the customer loses whichever finished first.
+   */
+  revision: integer("revision").notNull().default(1),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -408,9 +536,62 @@ export type BuilderState = {
   id: number;
   websiteId: string;
   state: BuilderStateData;
+  revision: number;
   createdAt: Date;
   updatedAt: Date;
 };
+
+/**
+ * Plan mode: a versioned, editable, customer-approved checklist.
+ *
+ * `steps` is PlanStep[] and `notes` is string[] from shared/assistantPlan.ts.
+ * They are jsonb rather than columns because the customer edits them as a
+ * unit and the whole list is replaced on every save.
+ */
+export const assistantPlans = pgTable("assistant_plans", {
+  id: serial("id").primaryKey(),
+  websiteId: varchar("website_id").notNull(),
+  version: integer("version").notNull().default(1),
+  status: text("status").notNull().default("draft"),
+  title: text("title").notNull(),
+  intent: text("intent").notNull(),
+  rationale: text("rationale").notNull().default(""),
+  steps: jsonb("steps").notNull().default([]),
+  notes: jsonb("notes").notNull().default([]),
+  baseRevision: integer("base_revision"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  approvedAt: timestamp("approved_at"),
+});
+
+export type AssistantPlanRow = typeof assistantPlans.$inferSelect;
+
+/**
+ * Build mode: one row per execution of an approved plan.
+ *
+ * `snapshot` is the pre-build BuilderStateData — the whole point of taking
+ * it is that a customer who dislikes the result gets one undo for the entire
+ * build, not one undo per step.
+ */
+export const assistantBuilds = pgTable("assistant_builds", {
+  id: serial("id").primaryKey(),
+  websiteId: varchar("website_id").notNull(),
+  planId: integer("plan_id").notNull(),
+  planVersion: integer("plan_version").notNull(),
+  status: text("status").notNull().default("running"),
+  currentStep: integer("current_step").notNull().default(0),
+  stepResults: jsonb("step_results").notNull().default([]),
+  imagesUsed: integer("images_used").notNull().default(0),
+  snapshot: jsonb("snapshot"),
+  snapshotRevision: integer("snapshot_revision"),
+  summary: text("summary"),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+});
+
+export type AssistantBuildRow = typeof assistantBuilds.$inferSelect;
 
 // Orders table (for ecommerce)
 export const orders = pgTable("orders", {
@@ -473,10 +654,29 @@ export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
 export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
 export type OrderItem = typeof orderItems.$inferSelect;
 
+/**
+ * Which calendar a booking belongs to. `customer_site` is an appointment a
+ * visitor made through a customer's published website; `platform_onboarding`
+ * is one of BirdFlow's own 30-minute improvement meetings. A first-class
+ * column, not a naming convention, so neither side can leak into the other's
+ * lists, counts or automated emails.
+ */
+export const BOOKING_CONTEXTS = ['customer_site', 'platform_onboarding'] as const;
+export type BookingContext = (typeof BOOKING_CONTEXTS)[number];
+
 // Bookings table (for appointments/services)
 export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   websiteId: varchar("website_id").notNull(),
+  // Defaulted in the database as well: published sites insert booking rows
+  // straight into Supabase without going through this schema.
+  context: text("context").$type<BookingContext>().notNull().default("customer_site"),
+  // Only populated for platform_onboarding bookings - who the meeting is
+  // with, which of their websites it concerns and which onboarding session
+  // it came out of. Null for every customer-site appointment.
+  customerUserId: varchar("customer_user_id"),
+  customerWebsiteId: varchar("customer_website_id"),
+  onboardingSessionId: varchar("onboarding_session_id"),
   serviceId: varchar("service_id"),
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email").notNull(),
@@ -831,19 +1031,42 @@ export const insertBookingOpenSlotSchema = createInsertSchema(bookingOpenSlots).
 export type InsertBookingOpenSlot = z.infer<typeof insertBookingOpenSlotSchema>;
 export type BookingOpenSlot = typeof bookingOpenSlots.$inferSelect;
 
-// Custom domains table - simplified flow using Vercel for verification
+// A single DNS record the user must (or should) create at their DNS
+// provider to connect a custom domain. Always sourced from Vercel's API,
+// never invented locally.
+export type DnsInstruction = {
+  type: string; // A | CNAME | TXT
+  name: string; // record host, e.g. "@", "www", "_vercel"
+  value: string;
+  // routing = points the host at Vercel; ownership = TXT challenge required
+  // because the domain is claimed by another Vercel account; counterpart =
+  // record for the automatically attached www/apex twin (recommended).
+  purpose: "routing" | "ownership" | "counterpart";
+  required: boolean;
+};
+
+// Custom domains table - status must always reflect Vercel truth:
+//   pending   = waiting for the user's DNS changes (or ownership TXT)
+//   verifying = Vercel sees correct DNS; certificate/edge activation pending
+//   active    = domain actually serves the site (verified end to end)
+//   error     = Vercel rejected the domain
 export const customDomains = pgTable("custom_domains", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   websiteId: varchar("website_id").notNull(),
   domain: text("domain").notNull().unique(),
   status: text("status").notNull().default("pending"), // pending | verifying | active | error
   vercelProjectId: text("vercel_project_id"),
-  // Store the single DNS record users need to add (from Vercel response)
+  // Legacy single-record fields (kept for older rows/clients); the full,
+  // Vercel-sourced list lives in dnsRecords.
   dnsType: text("dns_type"), // CNAME or A
   dnsName: text("dns_name"), // the record name (e.g., "www" or "@")
   dnsValue: text("dns_value"), // the target (e.g., "cname.vercel-dns.com")
+  // All DNS records Vercel currently requires/recommends for this domain.
+  dnsRecords: jsonb("dns_records").$type<DnsInstruction[]>(),
   errorMessage: text("error_message"),
   verifiedAt: timestamp("verified_at"),
+  // When the server-side verification loop last checked this domain.
+  lastCheckedAt: timestamp("last_checked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1330,6 +1553,20 @@ export type AdminWebsiteWithOwner = {
   ownerName: string;
   orderCount: number;
   bookingCount: number;
+};
+
+/**
+ * One of BirdFlow's own onboarding meetings, resolved far enough for the admin
+ * Bookinger tab to show who it is with and jump to the right record.
+ */
+export type PlatformMeetingLink = {
+  bookingId: string;
+  customerUserId: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerWebsiteId: string | null;
+  customerWebsiteName: string | null;
+  onboardingSessionId: string | null;
 };
 
 // Admin platform-wide analytics types

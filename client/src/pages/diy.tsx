@@ -29,72 +29,423 @@ import {
   Mail,
 } from "lucide-react";
 import { getTotalCreators } from "@/lib/stats";
+import { useLocale, pick, type Lang } from "@/lib/locale";
+import { LangToggle } from "@/components/bf2/LangToggle";
 
-/* ─────────── data ─────────── */
-const personas = [
-  {
-    Icon: Lightbulb,
-    badge: "Nyopstartet",
-    title: "Du vil i gang",
-    desc: "Ingen teknisk erfaring? Ingen problem. Vælg en skabelon, tilpas tekst og billeder, og gå live samme dag. Alt det tekniske — domæne, SSL og hosting — er ordnet på forhånd.",
-    bullets: ["Færdige skabeloner klar til brug", "Ingen kode eller teknisk viden", "Live samme dag"],
-    accentVar: "var(--bf-accent)",
+/* ─────────── copy ───────────
+
+   /diy — Build-it-yourself (Byg selv) marketing page.
+
+   One structured copy object per language, section by section in the
+   order the sections appear. Icons, hrefs, ids, colours and accent
+   tokens stay language-neutral in the JSX; only the text lives here.
+*/
+
+type Persona = { badge: string; title: string; desc: string; bullets: string[] };
+type Highlight = { title: string; desc: string };
+type Step = { num: string; title: string; desc: string };
+type Faq = { q: string; a: string };
+type Outcome = { title: string; desc: string };
+
+type DIYCopy = {
+  // Header nav + actions
+  navLinks: Array<[string, string]>;
+  signIn: string;
+  startFree: string;
+  // Hero
+  stamp: string;
+  trialBadge: string;
+  heroEyebrow: string;
+  heroTitle: string;
+  heroTitleEm: string;
+  heroBody: string;
+  heroBodyPrice: string;
+  heroCta: string;
+  heroSeeHow: string;
+  creatorsSuffix: string;
+  trustNoCard: string;
+  trustCancel: string;
+  trustSupport: string;
+  heroDfyLink: string;
+  // Stats band
+  statTrialLabel: string;
+  statTrialSub: string;
+  statPriceLabel: string;
+  statPriceSub: string;
+  statFeeLabel: string;
+  statFeeSub: string;
+  // Personas
+  personasEyebrow: string;
+  personasTitle: string;
+  personasTitleEm: string;
+  personasBody: string;
+  personas: Persona[];
+  // Highlights
+  highlightsEyebrow: string;
+  highlightsTitle: string;
+  highlightsTitleEm: string;
+  highlightsBody: string;
+  highlights: Highlight[];
+  // How it works
+  howEyebrow: string;
+  howTitle: string;
+  howTitleEm: string;
+  howBody: string;
+  steps: Step[];
+  includedLabel: string;
+  includedPills: string[];
+  outcomes: Outcome[];
+  // Pricing teaser
+  pricingEyebrow: string;
+  pricingTitle: string;
+  pricingTitleEm: string;
+  pricingPeriod: string;
+  pricingFeatureLine: string;
+  pricingFeatures: string[];
+  pricingCta: string;
+  pricingSeeAll: string;
+  pricingFinePrint: string;
+  // FAQ
+  faqEyebrow: string;
+  faqTitle: string;
+  faqTitleEm: string;
+  faqs: Faq[];
+  // Final CTA
+  finalEyebrow: string;
+  finalTitle: string;
+  finalTitleEm: string;
+  finalBody: string;
+  finalCta: string;
+  finalFinePrint: string;
+  // Footer
+  footerTagline: string;
+  footerHowItWorks: string;
+  footerWhatYouGet: string;
+  footerPrice: string;
+  footerFaq: string;
+  footerPricing: string;
+  footerPrivacy: string;
+  footerTerms: string;
+  footerCopyright: string;
+  // Mockup
+  mockupComponents: string[];
+  mockupComponentsLabel: string;
+  mockupBooking: string;
+  mockupProperties: string;
+  mockupColour: string;
+  mockupCorners: string;
+  mockupShadow: string;
+  mockupPublish: string;
+  mockupChipAddNew: string;
+  mockupChipPriceList: string;
+  mockupLive: string;
+};
+
+const COPY: Record<Lang, DIYCopy> = {
+  da: {
+    // Header nav + actions
+    navLinks: [
+      ["/", "Hjem"],
+      ["#priser", "Pris"],
+    ],
+    signIn: "Log ind",
+    startFree: "Start gratis",
+    // Hero
+    stamp: "Est. 2026 · København",
+    trialBadge: "31 dages gratis prøveperiode",
+    heroEyebrow: "Byg selv · DIY-løsning",
+    heroTitle: "Din hjemmeside online,",
+    heroTitleEm: "nemt, hurtigt og til én fast pris.",
+    heroBody:
+      "Træk, klik og udgiv. Få din hjemmeside, webshop eller booking-side live på en eftermiddag — fra ",
+    heroBodyPrice: "69 kr./md.",
+    heroCta: "Start gratis i 31 dage",
+    heroSeeHow: "Se hvordan det virker",
+    creatorsSuffix: "danskere bygger med BirdFlow",
+    trustNoCard: "Ingen kreditkort først",
+    trustCancel: "Opsig når som helst",
+    trustSupport: "Dansk support",
+    heroDfyLink: "Foretrækker du Done-For-You?",
+    // Stats band
+    statTrialLabel: "dages gratis prøve",
+    statTrialSub: "ingen binding, ingen kreditkort",
+    statPriceLabel: "pr. måned",
+    statPriceSub: "alt inkluderet, én pris",
+    statFeeLabel: "skjulte gebyrer",
+    statFeeSub: "domæne, SSL, hosting inkluderet",
+    // Personas
+    personasEyebrow: "Lavet til dig",
+    personasTitle: "Tre veje,",
+    personasTitleEm: "samme platform.",
+    personasBody: "Vælg det der ligner dig — eller kombiner. Alt er bygget ind fra start.",
+    personas: [
+      {
+        badge: "Nyopstartet",
+        title: "Du vil i gang",
+        desc: "Ingen teknisk erfaring? Ingen problem. Vælg en skabelon, tilpas tekst og billeder, og gå live samme dag. Alt det tekniske — domæne, SSL og hosting — er ordnet på forhånd.",
+        bullets: ["Færdige skabeloner klar til brug", "Ingen kode eller teknisk viden", "Live samme dag"],
+      },
+      {
+        badge: "Den selvstændige",
+        title: "Du sælger et produkt",
+        desc: "Webshop, betaling, lager og fragt — klar fra start. Sæt produkter op med varianter, tilslut Stripe og modtag ordrer med det samme. Automatiske ordrebekræftelser sendes til dine kunder.",
+        bullets: ["Stripe Connect betaling", "Live fragt-priser (GLS, PostNord, UPS)", "Automatiske ordrebekræftelser"],
+      },
+      {
+        badge: "Behandleren",
+        title: "Du tilbyder behandlinger",
+        desc: "Online booking og automatiske bekræftelser kører, mens du arbejder. Klienter booker selv den tid de vil — du slipper for telefonkald og manuelle aftaler.",
+        bullets: ["Online booking inkluderet", "Auto-bekræftelser & påmindelser", "Din kalender på nettet"],
+      },
+    ],
+    // Highlights
+    highlightsEyebrow: "Alt inkluderet",
+    highlightsTitle: "Alt det du behøver,",
+    highlightsTitleEm: "i én pakke.",
+    highlightsBody: "Ingen plugins, ingen abonnementer ovenpå. Det hele er bygget ind.",
+    highlights: [
+      { title: "Klar-til-brug skabeloner", desc: "Vælg en skabelon der passer til din branche — hjemmeside, webshop eller booking. Tilpas farver, logo og tekst. Klar på ingen tid." },
+      { title: "Direkte redigering", desc: "Klik på en tekst og skriv. Træk i sektioner. Skift farver med ét klik. Du ser præcis hvad dine besøgende ser." },
+      { title: "Booking inkluderet", desc: "Online booking, kalender, bekræftelser og påmindelser. Klar fra dag ét — ingen ekstra plugins eller integrationer." },
+      { title: "Webshop med Stripe", desc: "Sælg produkter med varianter, lager, fragt og betaling. Stripe Connect, GLS/PostNord/UPS — alt med dansk moms." },
+      { title: "Eget .dk-domæne", desc: "Køb dit domæne direkte i platformen eller forbind et eksisterende. SSL, DNS og hosting sættes op automatisk." },
+      { title: "Analytics uden cookies", desc: "GDPR-venlig analytics med besøgstal, konverteringer og webshop-data — uden cookie-pop-ups eller bannerkrav." },
+      { title: "Automatiske mails", desc: "Ordrebekræftelser, booking-mails og påmindelser sendes automatisk med dit eget brand og logo." },
+      { title: "Dansk support", desc: "Sidder du fast? Vores danske support-team hjælper dig videre — via chat eller telefon. På dansk, på hverdage." },
+    ],
+    // How it works
+    howEyebrow: "Sådan virker det",
+    howTitle: "Tre skridt.",
+    howTitleEm: "Én eftermiddag.",
+    howBody: "Fra blank side til live hjemmeside — uden kode, uden besvær.",
+    steps: [
+      { num: "01", title: "Vælg en skabelon", desc: "Vælg en af vores færdige skabeloner — hjemmeside, webshop eller booking-side. Alle er professionelt designet og klar til at tilpasse." },
+      { num: "02", title: "Træk, klik og tilpas", desc: "Direkte redigering på siden — klik på en tekst og skriv. Træk i sektioner, byt farver, tilføj booking eller webshop med ét klik." },
+      { num: "03", title: "Udgiv på dit eget domæne", desc: "Køb dit .dk-domæne i samme flow eller forbind et eksisterende. SSL, hosting og analytics er allerede sat op." },
+    ],
+    includedLabel: "Inkluderet i prisen",
+    includedPills: ["Skabeloner", "Booking", "Webshop", "Stripe Connect", "Analytics", "Mails", ".dk-domæne"],
+    outcomes: [
+      { title: "Klar-til-brug skabelon", desc: "Vælg en skabelon der passer til dig — og tilpas den direkte. Intet blank lærred." },
+      { title: "Direkte redigering", desc: "Klik på en tekst, skriv. Træk i sektioner. Du ser præcis det dine besøgende ser." },
+      { title: "Live samme dag", desc: "Køb dit .dk-domæne i samme flow eller forbind et eksisterende — SSL og hosting følger med." },
+    ],
+    // Pricing teaser
+    pricingEyebrow: "31 dages gratis prøveperiode",
+    pricingTitle: "Én pris.",
+    pricingTitleEm: "Alt inkluderet.",
+    pricingPeriod: "kr/md.",
+    pricingFeatureLine: "Skabeloner · booking · webshop · analytics · e-mails · domæne-køb",
+    pricingFeatures: [
+      "Ubegrænsede sider",
+      "Skabelon-bibliotek",
+      "Stripe Connect",
+      "Online booking",
+      "Live fragt-priser",
+      "Eget .dk-domæne",
+    ],
+    pricingCta: "Start gratis i 31 dage",
+    pricingSeeAll: "Se alle detaljer",
+    pricingFinePrint: "Ingen binding · Opsig når som helst · Dansk support",
+    // FAQ
+    faqEyebrow: "Spørgsmål & svar",
+    faqTitle: "Har du",
+    faqTitleEm: "spørgsmål?",
+    faqs: [
+      { q: "Skal jeg kunne kode?", a: "Nej. Hele BirdFlow er bygget visuelt — du peger, klikker og skriver. Vores support hjælper dig, hvis du går i stå." },
+      { q: "Hvad koster det?", a: "69 kr./md. for alt: hjemmeside, booking, webshop, analytics og e-mails. 31 dages gratis prøveperiode — du kan opsige når som helst." },
+      { q: "Kan jeg bruge mit eget domæne?", a: "Ja. Køb et nyt .dk-domæne direkte i platformen, eller forbind et du allerede har. SSL og DNS sættes automatisk op." },
+      { q: "Hvad sker der efter de 31 dage?", a: "Hvis du vil fortsætte, opkræves de 69 kr./md. automatisk. Vil du ikke fortsætte, opsiger du bare i indstillingerne — ingen binding." },
+      { q: "Kan jeg skifte til Done-For-You senere?", a: "Selvfølgelig. Vil du have os til at overtage opsætningen, kontakter du os bare — vi tager udgangspunkt i det du allerede har bygget." },
+    ],
+    // Final CTA
+    finalEyebrow: "Klar?",
+    finalTitle: "Klar til at bygge",
+    finalTitleEm: "din side?",
+    finalBody: "31 dages gratis prøveperiode. Ingen kode, intet besvær.",
+    finalCta: "Start gratis nu",
+    finalFinePrint: "Ingen kreditkort først · Opsig når som helst",
+    // Footer
+    footerTagline:
+      "Website-bygger til dig der vil klare det selv — på dansk, med booking, webshop og .dk-domæne i én pakke.",
+    footerHowItWorks: "Sådan virker det",
+    footerWhatYouGet: "Hvad du får",
+    footerPrice: "Pris",
+    footerFaq: "FAQ",
+    footerPricing: "Priser",
+    footerPrivacy: "Privatliv",
+    footerTerms: "Vilkår",
+    footerCopyright: "© 2026 BirdFlow Studio. Alle rettigheder forbeholdes.",
+    // Mockup
+    mockupComponents: ["Hero", "Features", "Booking", "Webshop", "FAQ", "Footer"],
+    mockupComponentsLabel: "Komponenter",
+    mockupBooking: "Booking",
+    mockupProperties: "Egenskaber",
+    mockupColour: "Farve",
+    mockupCorners: "Hjørner",
+    mockupShadow: "Skygge",
+    mockupPublish: "Udgiv",
+    mockupChipAddNew: "Tilføj ny",
+    mockupChipPriceList: "prisliste-sektion",
+    mockupLive: "Live · ditfirma.dk",
   },
-  {
-    Icon: ShoppingBag,
-    badge: "Den selvstændige",
-    title: "Du sælger et produkt",
-    desc: "Webshop, betaling, lager og fragt — klar fra start. Sæt produkter op med varianter, tilslut Stripe og modtag ordrer med det samme. Automatiske ordrebekræftelser sendes til dine kunder.",
-    bullets: ["Stripe Connect betaling", "Live fragt-priser (GLS, PostNord, UPS)", "Automatiske ordrebekræftelser"],
-    accentVar: "var(--bf-terra)",
+  en: {
+    // Header nav + actions
+    navLinks: [
+      ["/", "Home"],
+      ["#priser", "Pricing"],
+    ],
+    signIn: "Log in",
+    startFree: "Start free",
+    // Hero
+    stamp: "Est. 2026 · Copenhagen",
+    trialBadge: "31-day free trial",
+    heroEyebrow: "Build it yourself · DIY solution",
+    heroTitle: "Your website online,",
+    heroTitleEm: "easy, fast and one fixed price.",
+    heroBody:
+      "Drag, click and publish. Get your website, shop or booking page live in an afternoon — from ",
+    heroBodyPrice: "kr 69/mo.",
+    heroCta: "Start free for 31 days",
+    heroSeeHow: "See how it works",
+    creatorsSuffix: "Danes are building with BirdFlow",
+    trustNoCard: "No card up front",
+    trustCancel: "Cancel any time",
+    trustSupport: "Danish support",
+    heroDfyLink: "Prefer Done-For-You?",
+    // Stats band
+    statTrialLabel: "days free trial",
+    statTrialSub: "no commitment, no card",
+    statPriceLabel: "per month",
+    statPriceSub: "everything included, one price",
+    statFeeLabel: "hidden fees",
+    statFeeSub: "domain, SSL, hosting included",
+    // Personas
+    personasEyebrow: "Made for you",
+    personasTitle: "Three routes,",
+    personasTitleEm: "one platform.",
+    personasBody: "Pick the one that looks like you — or combine them. It's all built in from the start.",
+    personas: [
+      {
+        badge: "Just starting out",
+        title: "You want to get going",
+        desc: "No technical experience? No problem. Pick a template, adjust the text and images, and go live the same day. Everything technical — domain, SSL and hosting — is sorted in advance.",
+        bullets: ["Ready-made templates to use", "No code or technical know-how", "Live the same day"],
+      },
+      {
+        badge: "The self-employed",
+        title: "You sell a product",
+        desc: "Shop, payment, stock and shipping — ready from the start. Set up products with variants, connect Stripe and take orders straight away. Automatic order confirmations go out to your customers.",
+        bullets: ["Stripe Connect payment", "Live shipping rates (GLS, PostNord, UPS)", "Automatic order confirmations"],
+      },
+      {
+        badge: "The practitioner",
+        title: "You offer treatments",
+        desc: "Online booking and automatic confirmations run while you work. Clients book the time they want themselves — no more phone calls and manual appointments.",
+        bullets: ["Online booking included", "Auto confirmations & reminders", "Your calendar online"],
+      },
+    ],
+    // Highlights
+    highlightsEyebrow: "All included",
+    highlightsTitle: "Everything you need,",
+    highlightsTitleEm: "in one package.",
+    highlightsBody: "No plugins, no add-on subscriptions. It's all built in.",
+    highlights: [
+      { title: "Ready-to-use templates", desc: "Pick a template that suits your line of work — website, shop or booking. Adjust colours, logo and text. Ready in no time." },
+      { title: "Edit on the page", desc: "Click a piece of text and type. Drag sections around. Change colours with one click. You see exactly what your visitors see." },
+      { title: "Booking included", desc: "Online booking, calendar, confirmations and reminders. Ready from day one — no extra plugins or integrations." },
+      { title: "Shop with Stripe", desc: "Sell products with variants, stock, shipping and payment. Stripe Connect, GLS/PostNord/UPS — all with Danish VAT." },
+      { title: "Your own .dk domain", desc: "Buy your domain right in the platform or connect an existing one. SSL, DNS and hosting are set up automatically." },
+      { title: "Analytics without cookies", desc: "GDPR-friendly analytics with visits, conversions and shop data — without cookie pop-ups or banner requirements." },
+      { title: "Automatic emails", desc: "Order confirmations, booking emails and reminders go out automatically with your own brand and logo." },
+      { title: "Danish support", desc: "Stuck? Our Danish support team helps you on your way — by chat or phone. In Danish, on weekdays." },
+    ],
+    // How it works
+    howEyebrow: "How it works",
+    howTitle: "Three steps.",
+    howTitleEm: "One afternoon.",
+    howBody: "From blank page to live website — no code, no hassle.",
+    steps: [
+      { num: "01", title: "Pick a template", desc: "Choose one of our ready-made templates — website, shop or booking page. All are professionally designed and ready to adjust." },
+      { num: "02", title: "Drag, click and adjust", desc: "Edit right on the page — click a piece of text and type. Drag sections around, swap colours, add booking or shop with one click." },
+      { num: "03", title: "Publish on your own domain", desc: "Buy your .dk domain in the same flow or connect an existing one. SSL, hosting and analytics are already set up." },
+    ],
+    includedLabel: "Included in the price",
+    includedPills: ["Templates", "Booking", "Shop", "Stripe Connect", "Analytics", "Emails", ".dk domain"],
+    outcomes: [
+      { title: "Ready-to-use template", desc: "Pick a template that suits you — and adjust it directly. No blank canvas." },
+      { title: "Edit on the page", desc: "Click a piece of text, type. Drag sections around. You see exactly what your visitors see." },
+      { title: "Live the same day", desc: "Buy your .dk domain in the same flow or connect an existing one — SSL and hosting come with it." },
+    ],
+    // Pricing teaser
+    pricingEyebrow: "31-day free trial",
+    pricingTitle: "One price.",
+    pricingTitleEm: "Everything included.",
+    pricingPeriod: "kr/mo.",
+    pricingFeatureLine: "Templates · booking · shop · analytics · emails · domain purchase",
+    pricingFeatures: [
+      "Unlimited pages",
+      "Template library",
+      "Stripe Connect",
+      "Online booking",
+      "Live shipping rates",
+      "Your own .dk domain",
+    ],
+    pricingCta: "Start free for 31 days",
+    pricingSeeAll: "See all the details",
+    pricingFinePrint: "No commitment · Cancel any time · Danish support",
+    // FAQ
+    faqEyebrow: "Questions & answers",
+    faqTitle: "Have a",
+    faqTitleEm: "question?",
+    faqs: [
+      { q: "Do I need to code?", a: "No. The whole of BirdFlow is built visually — you point, click and type. Our support helps you if you get stuck." },
+      { q: "What does it cost?", a: "kr 69/mo. for everything: website, booking, shop, analytics and emails. 31-day free trial — you can cancel any time." },
+      { q: "Can I use my own domain?", a: "Yes. Buy a new .dk domain right in the platform, or connect one you already have. SSL and DNS are set up automatically." },
+      { q: "What happens after the 31 days?", a: "If you want to continue, the kr 69/mo. is charged automatically. If you don't, you simply cancel in the settings — no commitment." },
+      { q: "Can I switch to Done-For-You later?", a: "Of course. If you'd like us to take over the setup, just get in touch — we start from what you've already built." },
+    ],
+    // Final CTA
+    finalEyebrow: "Ready?",
+    finalTitle: "Ready to build",
+    finalTitleEm: "your site?",
+    finalBody: "31-day free trial. No code, no hassle.",
+    finalCta: "Start free now",
+    finalFinePrint: "No card up front · Cancel any time",
+    // Footer
+    footerTagline:
+      "A website builder for those who want to do it themselves — in Danish, with booking, shop and .dk domain in one package.",
+    footerHowItWorks: "How it works",
+    footerWhatYouGet: "What you get",
+    footerPrice: "Pricing",
+    footerFaq: "FAQ",
+    footerPricing: "Pricing",
+    footerPrivacy: "Privacy",
+    footerTerms: "Terms",
+    footerCopyright: "© 2026 BirdFlow Studio. All rights reserved.",
+    // Mockup
+    mockupComponents: ["Hero", "Features", "Booking", "Shop", "FAQ", "Footer"],
+    mockupComponentsLabel: "Components",
+    mockupBooking: "Booking",
+    mockupProperties: "Properties",
+    mockupColour: "Colour",
+    mockupCorners: "Corners",
+    mockupShadow: "Shadow",
+    mockupPublish: "Publish",
+    mockupChipAddNew: "Add new",
+    mockupChipPriceList: "pricing section",
+    mockupLive: "Live · yourfirm.dk",
   },
-  {
-    Icon: Stethoscope,
-    badge: "Behandleren",
-    title: "Du tilbyder behandlinger",
-    desc: "Online booking og automatiske bekræftelser kører, mens du arbejder. Klienter booker selv den tid de vil — du slipper for telefonkald og manuelle aftaler.",
-    bullets: ["Online booking inkluderet", "Auto-bekræftelser & påmindelser", "Din kalender på nettet"],
-    accentVar: "var(--bf-ink)",
-  },
-];
+};
 
-const highlights = [
-  { Icon: Wand2, title: "Klar-til-brug skabeloner", desc: "Vælg en skabelon der passer til din branche — hjemmeside, webshop eller booking. Tilpas farver, logo og tekst. Klar på ingen tid." },
-  { Icon: Edit3, title: "Direkte redigering", desc: "Klik på en tekst og skriv. Træk i sektioner. Skift farver med ét klik. Du ser præcis hvad dine besøgende ser." },
-  { Icon: CalendarCheck, title: "Booking inkluderet", desc: "Online booking, kalender, bekræftelser og påmindelser. Klar fra dag ét — ingen ekstra plugins eller integrationer." },
-  { Icon: ShoppingCart, title: "Webshop med Stripe", desc: "Sælg produkter med varianter, lager, fragt og betaling. Stripe Connect, GLS/PostNord/UPS — alt med dansk moms." },
-  { Icon: Globe, title: "Eget .dk-domæne", desc: "Køb dit domæne direkte i platformen eller forbind et eksisterende. SSL, DNS og hosting sættes op automatisk." },
-  { Icon: BarChart3, title: "Analytics uden cookies", desc: "GDPR-venlig analytics med besøgstal, konverteringer og webshop-data — uden cookie-pop-ups eller bannerkrav." },
-  { Icon: Mail, title: "Automatiske mails", desc: "Ordrebekræftelser, booking-mails og påmindelser sendes automatisk med dit eget brand og logo." },
-  { Icon: Sparkles, title: "Dansk support", desc: "Sidder du fast? Vores danske support-team hjælper dig videre — via chat eller telefon. På dansk, på hverdage." },
-];
-
-const steps = [
-  { num: "01", title: "Vælg en skabelon", desc: "Vælg en af vores færdige skabeloner — hjemmeside, webshop eller booking-side. Alle er professionelt designet og klar til at tilpasse." },
-  { num: "02", title: "Træk, klik og tilpas", desc: "Direkte redigering på siden — klik på en tekst og skriv. Træk i sektioner, byt farver, tilføj booking eller webshop med ét klik." },
-  { num: "03", title: "Udgiv på dit eget domæne", desc: "Køb dit .dk-domæne i samme flow eller forbind et eksisterende. SSL, hosting og analytics er allerede sat op." },
-];
-
-const faqs = [
-  { q: "Skal jeg kunne kode?", a: "Nej. Hele BirdFlow er bygget visuelt — du peger, klikker og skriver. Vores support hjælper dig, hvis du går i stå." },
-  { q: "Hvad koster det?", a: "69 kr./md. for alt: hjemmeside, booking, webshop, analytics og e-mails. 31 dages gratis prøveperiode — du kan opsige når som helst." },
-  { q: "Kan jeg bruge mit eget domæne?", a: "Ja. Køb et nyt .dk-domæne direkte i platformen, eller forbind et du allerede har. SSL og DNS sættes automatisk op." },
-  { q: "Hvad sker der efter de 31 dage?", a: "Hvis du vil fortsætte, opkræves de 69 kr./md. automatisk. Vil du ikke fortsætte, opsiger du bare i indstillingerne — ingen binding." },
-  { q: "Kan jeg skifte til Done-For-You senere?", a: "Selvfølgelig. Vil du have os til at overtage opsætningen, kontakter du os bare — vi tager udgangspunkt i det du allerede har bygget." },
-];
-
-const includedPills = [
-  "Skabeloner",
-  "Booking",
-  "Webshop",
-  "Stripe Connect",
-  "Analytics",
-  "Mails",
-  ".dk-domæne",
-];
+/* Language-neutral icons / accents for the data arrays above, keyed by index. */
+const PERSONA_ICONS = [Lightbulb, ShoppingBag, Stethoscope];
+const PERSONA_ACCENTS = ["var(--bf-accent)", "var(--bf-terra)", "var(--bf-ink)"];
+const HIGHLIGHT_ICONS = [Wand2, Edit3, CalendarCheck, ShoppingCart, Globe, BarChart3, Mail, Sparkles];
+const OUTCOME_ICONS = [Wand2, MousePointerClick, Rocket];
 
 /* ─── animated DIY mockup (re-skinned to brand tokens) ─── */
-function DIYBuilderMockup() {
+function DIYBuilderMockup({ t }: { t: DIYCopy }) {
   const reduce = useReducedMotion();
   return (
     <div className="relative w-full max-w-[520px] mx-auto" aria-hidden="true">
@@ -143,11 +494,11 @@ function DIYBuilderMockup() {
               className="text-[8px] font-bold uppercase tracking-wider mb-2"
               style={{ color: "var(--bf-muted)" }}
             >
-              Komponenter
+              {t.mockupComponentsLabel}
             </div>
-            {["Hero", "Features", "Booking", "Webshop", "FAQ", "Footer"].map((c, i) => (
+            {t.mockupComponents.map((c, i) => (
               <motion.div
-                key={c}
+                key={i}
                 initial={reduce ? false : { opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.3 + i * 0.08 }}
@@ -196,7 +547,7 @@ function DIYBuilderMockup() {
                   className="absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-[8px] font-bold"
                   style={{ background: "var(--bf-accent)", color: "#FFFCF6" }}
                 >
-                  Booking
+                  {t.mockupBooking}
                 </div>
                 <div className="flex items-center gap-2 mb-1.5">
                   <div className="w-3 h-3 rounded" style={{ background: "var(--bf-accent)" }} />
@@ -265,10 +616,10 @@ function DIYBuilderMockup() {
               className="text-[8px] font-bold uppercase tracking-wider"
               style={{ color: "var(--bf-muted)" }}
             >
-              Egenskaber
+              {t.mockupProperties}
             </div>
             <div>
-              <div className="text-[8px] mb-1" style={{ color: "var(--bf-muted)" }}>Farve</div>
+              <div className="text-[8px] mb-1" style={{ color: "var(--bf-muted)" }}>{t.mockupColour}</div>
               <div className="flex gap-1">
                 {[
                   "var(--bf-accent)",
@@ -289,11 +640,11 @@ function DIYBuilderMockup() {
               </div>
             </div>
             <div>
-              <div className="text-[8px] mb-1" style={{ color: "var(--bf-muted)" }}>Hjørner</div>
+              <div className="text-[8px] mb-1" style={{ color: "var(--bf-muted)" }}>{t.mockupCorners}</div>
               <div className="h-5 rounded" style={{ background: "#FFFCF6", border: "1px solid var(--bf-line)" }} />
             </div>
             <div>
-              <div className="text-[8px] mb-1" style={{ color: "var(--bf-muted)" }}>Skygge</div>
+              <div className="text-[8px] mb-1" style={{ color: "var(--bf-muted)" }}>{t.mockupShadow}</div>
               <div className="h-5 rounded" style={{ background: "#FFFCF6", border: "1px solid var(--bf-line)" }} />
             </div>
             <motion.div
@@ -303,7 +654,7 @@ function DIYBuilderMockup() {
               className="mt-3 px-2 py-1.5 rounded-md text-[9px] font-semibold text-center"
               style={{ background: "var(--bf-ink)", color: "#FFFCF6" }}
             >
-              Udgiv
+              {t.mockupPublish}
             </motion.div>
           </div>
         </div>
@@ -328,9 +679,9 @@ function DIYBuilderMockup() {
           <Sparkles className="w-3.5 h-3.5" style={{ color: "var(--bf-accent)" }} />
         </div>
         <div className="text-[10px] font-semibold leading-tight" style={{ color: "var(--bf-ink)" }}>
-          Tilføj ny
+          {t.mockupChipAddNew}
           <br />
-          <span style={{ color: "var(--bf-accent)" }}>prisliste-sektion</span>
+          <span style={{ color: "var(--bf-accent)" }}>{t.mockupChipPriceList}</span>
         </div>
       </motion.div>
 
@@ -351,7 +702,7 @@ function DIYBuilderMockup() {
           style={{ background: "#16a34a" }}
         />
         <div className="text-[10px] font-semibold" style={{ color: "var(--bf-ink)" }}>
-          Live · ditfirma.dk
+          {t.mockupLive}
         </div>
       </motion.div>
     </div>
@@ -365,6 +716,8 @@ export default function DIYPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [creators, setCreators] = useState<number | null>(null);
   const reduceMotion = useReducedMotion();
+  const { lang } = useLocale();
+  const t = pick(COPY, lang);
 
   useEffect(() => {
     let mounted = true;
@@ -376,10 +729,7 @@ export default function DIYPage() {
     };
   }, []);
 
-  const navLinks: Array<[string, string]> = [
-    ["/", "Hjem"],
-    ["#priser", "Pris"],
-  ];
+  const navLinks = t.navLinks;
 
   return (
     <div
@@ -437,7 +787,8 @@ export default function DIYPage() {
             )}
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
+            <LangToggle tone="onLight" />
             <Button
               asChild
               variant="ghost"
@@ -445,7 +796,7 @@ export default function DIYPage() {
               className="hidden sm:inline-flex hover:bg-[color:var(--bf-cream)]"
               data-testid="button-signin"
             >
-              <Link href="/auth?mode=signin">Log ind</Link>
+              <Link href="/auth?mode=signin">{t.signIn}</Link>
             </Button>
             <Button
               asChild
@@ -454,7 +805,7 @@ export default function DIYPage() {
               style={{ background: "var(--bf-accent)", color: "#FFFCF6" }}
               data-testid="button-cta-header"
             >
-              <Link href="/auth?mode=signup&plan=basic">Start gratis</Link>
+              <Link href="/auth?mode=signup&plan=basic">{t.startFree}</Link>
             </Button>
             <button
               className="md:hidden p-2 -mr-2 rounded-lg hover:bg-[color:var(--bf-cream)] transition-colors"
@@ -504,7 +855,7 @@ export default function DIYPage() {
               >
                 <Button asChild variant="outline" className="w-full">
                   <Link href="/auth?mode=signin" onClick={() => setMobileMenuOpen(false)}>
-                    Log ind
+                    {t.signIn}
                   </Link>
                 </Button>
                 <Button
@@ -516,7 +867,7 @@ export default function DIYPage() {
                     href="/auth?mode=signup&plan=basic"
                     onClick={() => setMobileMenuOpen(false)}
                   >
-                    Start gratis <ArrowRight className="ml-2 w-4 h-4" />
+                    {t.startFree} <ArrowRight className="ml-2 w-4 h-4" />
                   </Link>
                 </Button>
               </div>
@@ -533,14 +884,14 @@ export default function DIYPage() {
               {/* Top stamp row */}
               <div className="flex items-center justify-between mb-12 md:mb-16">
                 <div className="bf-stamp" data-testid="text-stamp">
-                  Est. 2026 · København
+                  {t.stamp}
                 </div>
                 <div className="hidden md:flex items-center gap-3 bf-stamp">
                   <span
                     className="w-1.5 h-1.5 rounded-full"
                     style={{ background: "var(--bf-accent)" }}
                   />
-                  31 dages gratis prøveperiode
+                  {t.trialBadge}
                 </div>
               </div>
 
@@ -555,7 +906,7 @@ export default function DIYPage() {
                   <div className="bf-glass p-8 md:p-12">
                     <div className="bf-eyebrow mb-8" data-testid="text-eyebrow-hero">
                       <span>
-                        <span className="bf-eyebrow-num">01</span>Byg selv · DIY-løsning
+                        <span className="bf-eyebrow-num">01</span>{t.heroEyebrow}
                       </span>
                     </div>
 
@@ -563,13 +914,13 @@ export default function DIYPage() {
                       className="text-[2.4rem] sm:text-[3rem] md:text-[3.5rem] lg:text-[3.75rem] leading-[1.04] tracking-[-0.025em] mb-6"
                       style={{ color: "var(--bf-ink)" }}
                     >
-                      <span className="font-bold">Din hjemmeside online,</span>
+                      <span className="font-bold">{t.heroTitle}</span>
                       <br />
                       <span
                         className="font-editorial italic font-medium"
                         style={{ color: "var(--bf-ink-soft)" }}
                       >
-                        nemt, hurtigt og til én fast pris.
+                        {t.heroTitleEm}
                       </span>
                     </h1>
 
@@ -577,8 +928,7 @@ export default function DIYPage() {
                       className="font-editorial text-lg md:text-xl leading-relaxed max-w-xl mb-8"
                       style={{ color: "var(--bf-ink-soft)" }}
                     >
-                      Træk, klik og udgiv. Få din hjemmeside, webshop eller booking-side live på
-                      en eftermiddag — fra <span className="font-semibold" style={{ color: "var(--bf-ink)" }}>69 kr./md.</span>
+                      {t.heroBody}<span className="font-semibold" style={{ color: "var(--bf-ink)" }}>{t.heroBodyPrice}</span>
                     </p>
 
                     <div className="flex flex-wrap items-center gap-4 mb-8">
@@ -594,7 +944,7 @@ export default function DIYPage() {
                         data-testid="button-diy-start-trial"
                       >
                         <Link href="/auth?mode=signup&plan=basic">
-                          Start gratis i 31 dage
+                          {t.heroCta}
                           <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                         </Link>
                       </Button>
@@ -604,7 +954,7 @@ export default function DIYPage() {
                         style={{ color: "var(--bf-ink)" }}
                         data-testid="link-process"
                       >
-                        Se hvordan det virker
+                        {t.heroSeeHow}
                         <ArrowUpRight className="w-3.5 h-3.5" />
                       </a>
                     </div>
@@ -625,22 +975,22 @@ export default function DIYPage() {
                             style={{ background: "#16a34a" }}
                           />
                           <span style={{ color: "var(--bf-ink)" }}>
-                            {creators.toLocaleString("da-DK")}
+                            {creators.toLocaleString(lang === "en" ? "en-GB" : "da-DK")}
                           </span>{" "}
-                          danskere bygger med BirdFlow
+                          {t.creatorsSuffix}
                         </span>
                       )}
                       <span className="inline-flex items-center gap-1.5">
                         <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} />
-                        Ingen kreditkort først
+                        {t.trustNoCard}
                       </span>
                       <span className="inline-flex items-center gap-1.5">
                         <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} />
-                        Opsig når som helst
+                        {t.trustCancel}
                       </span>
                       <span className="inline-flex items-center gap-1.5">
                         <Check className="w-3.5 h-3.5" style={{ color: "var(--bf-ink)" }} />
-                        Dansk support
+                        {t.trustSupport}
                       </span>
                     </div>
 
@@ -651,7 +1001,7 @@ export default function DIYPage() {
                         style={{ color: "var(--bf-muted)" }}
                         data-testid="link-dfy-alt"
                       >
-                        Foretrækker du Done-For-You?
+                        {t.heroDfyLink}
                         <ArrowRight className="w-3.5 h-3.5" />
                       </Link>
                     </div>
@@ -665,7 +1015,7 @@ export default function DIYPage() {
                   transition={{ duration: 0.7, delay: 0.15 }}
                   className="lg:col-span-5 flex justify-center relative"
                 >
-                  <DIYBuilderMockup />
+                  <DIYBuilderMockup t={t} />
                 </motion.div>
               </div>
             </div>
@@ -685,9 +1035,9 @@ export default function DIYPage() {
                   </div>
                   <div className="text-sm" style={{ color: "var(--bf-muted)" }}>
                     <div className="font-semibold" style={{ color: "var(--bf-ink)" }}>
-                      dages gratis prøve
+                      {t.statTrialLabel}
                     </div>
-                    <div className="text-xs">ingen binding, ingen kreditkort</div>
+                    <div className="text-xs">{t.statTrialSub}</div>
                   </div>
                 </div>
                 <div
@@ -702,9 +1052,9 @@ export default function DIYPage() {
                   </div>
                   <div className="text-sm" style={{ color: "var(--bf-muted)" }}>
                     <div className="font-semibold" style={{ color: "var(--bf-ink)" }}>
-                      pr. måned
+                      {t.statPriceLabel}
                     </div>
-                    <div className="text-xs">alt inkluderet, én pris</div>
+                    <div className="text-xs">{t.statPriceSub}</div>
                   </div>
                 </div>
                 <div
@@ -719,9 +1069,9 @@ export default function DIYPage() {
                   </div>
                   <div className="text-sm" style={{ color: "var(--bf-muted)" }}>
                     <div className="font-semibold" style={{ color: "var(--bf-ink)" }}>
-                      skjulte gebyrer
+                      {t.statFeeLabel}
                     </div>
-                    <div className="text-xs">domæne, SSL, hosting inkluderet</div>
+                    <div className="text-xs">{t.statFeeSub}</div>
                   </div>
                 </div>
               </div>
@@ -735,35 +1085,36 @@ export default function DIYPage() {
             <div className="max-w-2xl mb-14">
               <div className="bf-eyebrow mb-5">
                 <span>
-                  <span className="bf-eyebrow-num">02</span>Lavet til dig
+                  <span className="bf-eyebrow-num">02</span>{t.personasEyebrow}
                 </span>
               </div>
               <h2
                 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1] mb-5"
                 style={{ color: "var(--bf-ink)" }}
               >
-                <span className="font-bold">Tre veje,</span>{" "}
+                <span className="font-bold">{t.personasTitle}</span>{" "}
                 <span
                   className="font-editorial italic font-medium"
                   style={{ color: "var(--bf-ink-soft)" }}
                 >
-                  samme platform.
+                  {t.personasTitleEm}
                 </span>
               </h2>
               <p
                 className="font-editorial text-lg leading-relaxed"
                 style={{ color: "var(--bf-ink-soft)" }}
               >
-                Vælg det der ligner dig — eller kombiner. Alt er bygget ind fra start.
+                {t.personasBody}
               </p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-5 md:gap-6">
-              {personas.map((p, i) => {
-                const { Icon } = p;
+              {t.personas.map((p, i) => {
+                const Icon = PERSONA_ICONS[i];
+                const accentVar = PERSONA_ACCENTS[i];
                 return (
                   <div
-                    key={p.title}
+                    key={i}
                     className="bf-card p-7 md:p-8 h-full flex flex-col"
                     data-testid={`card-persona-${i}`}
                   >
@@ -774,11 +1125,11 @@ export default function DIYPage() {
                         border: "1px solid var(--bf-line)",
                       }}
                     >
-                      <Icon className="w-5 h-5" style={{ color: p.accentVar }} />
+                      <Icon className="w-5 h-5" style={{ color: accentVar }} />
                     </div>
                     <div
                       className="text-[11px] uppercase tracking-[0.15em] font-bold mb-2"
-                      style={{ color: p.accentVar }}
+                      style={{ color: accentVar }}
                     >
                       {p.badge}
                     </div>
@@ -796,15 +1147,15 @@ export default function DIYPage() {
                     </p>
                     <div className="bf-rule mb-4" />
                     <ul className="space-y-2">
-                      {p.bullets.map((b) => (
+                      {p.bullets.map((b, bi) => (
                         <li
-                          key={b}
+                          key={bi}
                           className="flex items-center gap-2 text-sm"
                           style={{ color: "var(--bf-ink-soft)" }}
                         >
                           <Check
                             className="w-4 h-4 shrink-0"
-                            style={{ color: p.accentVar }}
+                            style={{ color: accentVar }}
                           />
                           {b}
                         </li>
@@ -823,35 +1174,35 @@ export default function DIYPage() {
             <div className="max-w-2xl mb-14">
               <div className="bf-eyebrow mb-5">
                 <span>
-                  <span className="bf-eyebrow-num">03</span>Alt inkluderet
+                  <span className="bf-eyebrow-num">03</span>{t.highlightsEyebrow}
                 </span>
               </div>
               <h2
                 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1] mb-5"
                 style={{ color: "var(--bf-ink)" }}
               >
-                <span className="font-bold">Alt det du behøver,</span>{" "}
+                <span className="font-bold">{t.highlightsTitle}</span>{" "}
                 <span
                   className="font-editorial italic font-medium"
                   style={{ color: "var(--bf-ink-soft)" }}
                 >
-                  i én pakke.
+                  {t.highlightsTitleEm}
                 </span>
               </h2>
               <p
                 className="font-editorial text-lg leading-relaxed"
                 style={{ color: "var(--bf-ink-soft)" }}
               >
-                Ingen plugins, ingen abonnementer ovenpå. Det hele er bygget ind.
+                {t.highlightsBody}
               </p>
             </div>
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
-              {highlights.map((h, i) => {
-                const { Icon } = h;
+              {t.highlights.map((h, i) => {
+                const Icon = HIGHLIGHT_ICONS[i];
                 return (
                   <div
-                    key={h.title}
+                    key={i}
                     className="bf-card p-6 h-full"
                     data-testid={`card-highlight-${i}`}
                   >
@@ -889,26 +1240,26 @@ export default function DIYPage() {
             <div className="max-w-2xl mb-16">
               <div className="bf-eyebrow mb-5">
                 <span>
-                  <span className="bf-eyebrow-num">04</span>Sådan virker det
+                  <span className="bf-eyebrow-num">04</span>{t.howEyebrow}
                 </span>
               </div>
               <h2
                 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1] mb-5"
                 style={{ color: "var(--bf-ink)" }}
               >
-                <span className="font-bold">Tre skridt.</span>{" "}
+                <span className="font-bold">{t.howTitle}</span>{" "}
                 <span
                   className="font-editorial italic font-medium"
                   style={{ color: "var(--bf-ink-soft)" }}
                 >
-                  Én eftermiddag.
+                  {t.howTitleEm}
                 </span>
               </h2>
               <p
                 className="font-editorial text-lg leading-relaxed"
                 style={{ color: "var(--bf-ink-soft)" }}
               >
-                Fra blank side til live hjemmeside — uden kode, uden besvær.
+                {t.howBody}
               </p>
             </div>
 
@@ -917,7 +1268,7 @@ export default function DIYPage() {
               <div className="lg:col-span-7 relative">
                 <div className="bf-rail" aria-hidden="true" />
                 <div className="space-y-10">
-                  {steps.map((step, i) => (
+                  {t.steps.map((step, i) => (
                     <div key={i} className="flex gap-6 items-start">
                       <div
                         className="relative z-10 flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center font-editorial italic text-base"
@@ -955,10 +1306,10 @@ export default function DIYPage() {
                     className="bf-eyebrow mb-4"
                     style={{ color: "var(--bf-muted)" }}
                   >
-                    <span>Inkluderet i prisen</span>
+                    <span>{t.includedLabel}</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {includedPills.map((p) => (
+                    {t.includedPills.map((p) => (
                       <span
                         key={p}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
@@ -982,11 +1333,9 @@ export default function DIYPage() {
 
               {/* Right: outcome callouts */}
               <div className="lg:col-span-5 space-y-5">
-                {[
-                  { Icon: Wand2, title: "Klar-til-brug skabelon", desc: "Vælg en skabelon der passer til dig — og tilpas den direkte. Intet blank lærred." },
-                  { Icon: MousePointerClick, title: "Direkte redigering", desc: "Klik på en tekst, skriv. Træk i sektioner. Du ser præcis det dine besøgende ser." },
-                  { Icon: Rocket, title: "Live samme dag", desc: "Køb dit .dk-domæne i samme flow eller forbind et eksisterende — SSL og hosting følger med." },
-                ].map(({ Icon, title, desc }, i) => (
+                {t.outcomes.map(({ title, desc }, i) => {
+                  const Icon = OUTCOME_ICONS[i];
+                  return (
                   <div key={i} className="bf-card p-6 flex gap-4 items-start" data-testid={`card-outcome-${i}`}>
                     <div
                       className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -1012,7 +1361,8 @@ export default function DIYPage() {
                       </p>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1041,7 +1391,7 @@ export default function DIYPage() {
               <div className="relative">
                 <div className="bf-eyebrow mb-6 justify-center" style={{ display: "inline-flex" }}>
                   <span>
-                    <span className="bf-eyebrow-num">05</span>31 dages gratis prøveperiode
+                    <span className="bf-eyebrow-num">05</span>{t.pricingEyebrow}
                   </span>
                 </div>
 
@@ -1049,12 +1399,12 @@ export default function DIYPage() {
                   className="text-3xl md:text-4xl tracking-[-0.02em] mb-4"
                   style={{ color: "var(--bf-ink)" }}
                 >
-                  <span className="font-bold">Én pris.</span>{" "}
+                  <span className="font-bold">{t.pricingTitle}</span>{" "}
                   <span
                     className="font-editorial italic font-medium"
                     style={{ color: "var(--bf-ink-soft)" }}
                   >
-                    Alt inkluderet.
+                    {t.pricingTitleEm}
                   </span>
                 </h2>
 
@@ -1070,25 +1420,18 @@ export default function DIYPage() {
                     className="text-2xl font-semibold"
                     style={{ color: "var(--bf-muted)" }}
                   >
-                    kr/md.
+                    {t.pricingPeriod}
                   </span>
                 </div>
                 <p
                   className="font-editorial mb-8"
                   style={{ color: "var(--bf-ink-soft)" }}
                 >
-                  Skabeloner · booking · webshop · analytics · e-mails · domæne-køb
+                  {t.pricingFeatureLine}
                 </p>
 
                 <div className="grid sm:grid-cols-2 gap-2.5 max-w-md mx-auto mb-9 text-left">
-                  {[
-                    "Ubegrænsede sider",
-                    "Skabelon-bibliotek",
-                    "Stripe Connect",
-                    "Online booking",
-                    "Live fragt-priser",
-                    "Eget .dk-domæne",
-                  ].map((feat) => (
+                  {t.pricingFeatures.map((feat) => (
                     <div
                       key={feat}
                       className="flex items-center gap-2 text-sm"
@@ -1116,7 +1459,7 @@ export default function DIYPage() {
                     data-testid="button-diy-pricing-cta"
                   >
                     <Link href="/auth?mode=signup&plan=basic">
-                      Start gratis i 31 dage
+                      {t.pricingCta}
                       <ArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                     </Link>
                   </Button>
@@ -1131,14 +1474,14 @@ export default function DIYPage() {
                       background: "transparent",
                     }}
                   >
-                    <Link href="/pricing">Se alle detaljer</Link>
+                    <Link href="/pricing">{t.pricingSeeAll}</Link>
                   </Button>
                 </div>
                 <p
                   className="text-xs mt-5"
                   style={{ color: "var(--bf-muted)" }}
                 >
-                  Ingen binding · Opsig når som helst · Dansk support
+                  {t.pricingFinePrint}
                 </p>
               </div>
             </div>
@@ -1154,25 +1497,25 @@ export default function DIYPage() {
                 style={{ display: "inline-flex" }}
               >
                 <span>
-                  <span className="bf-eyebrow-num">06</span>Spørgsmål & svar
+                  <span className="bf-eyebrow-num">06</span>{t.faqEyebrow}
                 </span>
               </div>
               <h2
                 className="text-3xl sm:text-4xl md:text-5xl tracking-[-0.02em] leading-[1.1]"
                 style={{ color: "var(--bf-ink)" }}
               >
-                <span className="font-bold">Har du</span>{" "}
+                <span className="font-bold">{t.faqTitle}</span>{" "}
                 <span
                   className="font-editorial italic font-medium"
                   style={{ color: "var(--bf-ink-soft)" }}
                 >
-                  spørgsmål?
+                  {t.faqTitleEm}
                 </span>
               </h2>
             </div>
 
             <Accordion type="single" collapsible className="space-y-3">
-              {faqs.map((faq, i) => (
+              {t.faqs.map((faq, i) => (
                 <AccordionItem
                   key={i}
                   value={`faq-${i}`}
@@ -1226,26 +1569,26 @@ export default function DIYPage() {
           <div className="relative z-10 w-full max-w-4xl mx-auto px-6 lg:px-12 py-24 md:py-32 text-center">
             <div className="bf-eyebrow mb-6 justify-center" style={{ display: "inline-flex" }}>
               <span>
-                <span className="bf-eyebrow-num">07</span>Klar?
+                <span className="bf-eyebrow-num">07</span>{t.finalEyebrow}
               </span>
             </div>
             <h2
               className="text-3xl md:text-4xl lg:text-5xl tracking-[-0.02em] leading-[1.1] mb-5"
               style={{ color: "var(--bf-ink)" }}
             >
-              <span className="font-bold">Klar til at bygge</span>{" "}
+              <span className="font-bold">{t.finalTitle}</span>{" "}
               <span
                 className="font-editorial italic font-medium"
                 style={{ color: "var(--bf-ink-soft)" }}
               >
-                din side?
+                {t.finalTitleEm}
               </span>
             </h2>
             <p
               className="font-editorial text-lg max-w-xl mx-auto mb-8"
               style={{ color: "var(--bf-ink-soft)" }}
             >
-              31 dages gratis prøveperiode. Ingen kode, intet besvær.
+              {t.finalBody}
             </p>
             <Button
               asChild
@@ -1259,7 +1602,7 @@ export default function DIYPage() {
               data-testid="button-diy-final-cta"
             >
               <Link href="/auth?mode=signup&plan=basic">
-                Start gratis nu
+                {t.finalCta}
                 <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
             </Button>
@@ -1267,7 +1610,7 @@ export default function DIYPage() {
               className="text-xs mt-5"
               style={{ color: "var(--bf-muted)" }}
             >
-              Ingen kreditkort først · Opsig når som helst
+              {t.finalFinePrint}
             </p>
           </div>
         </section>
@@ -1302,9 +1645,9 @@ export default function DIYPage() {
                 className="font-editorial text-base max-w-md leading-relaxed"
                 style={{ color: "var(--bf-ink-soft)" }}
               >
-                Website-bygger til dig der vil klare det selv — på dansk, med booking, webshop og .dk-domæne i én pakke.
+                {t.footerTagline}
               </p>
-              <div className="bf-stamp mt-3">Est. 2026 · København</div>
+              <div className="bf-stamp mt-3">{t.stamp}</div>
             </div>
             <div
               className="flex md:justify-end items-start gap-8 text-sm"
@@ -1315,25 +1658,25 @@ export default function DIYPage() {
                   href="#hvordan"
                   className="hover:text-[color:var(--bf-ink)] transition-colors"
                 >
-                  Sådan virker det
+                  {t.footerHowItWorks}
                 </a>
                 <a
                   href="#fordele"
                   className="hover:text-[color:var(--bf-ink)] transition-colors"
                 >
-                  Hvad du får
+                  {t.footerWhatYouGet}
                 </a>
                 <a
                   href="#priser"
                   className="hover:text-[color:var(--bf-ink)] transition-colors"
                 >
-                  Pris
+                  {t.footerPrice}
                 </a>
                 <a
                   href="#faq"
                   className="hover:text-[color:var(--bf-ink)] transition-colors"
                 >
-                  FAQ
+                  {t.footerFaq}
                 </a>
               </div>
               <div className="flex flex-col gap-2">
@@ -1347,26 +1690,26 @@ export default function DIYPage() {
                   href="/pricing"
                   className="hover:text-[color:var(--bf-ink)] transition-colors"
                 >
-                  Priser
+                  {t.footerPricing}
                 </Link>
                 <Link
                   href="/privacy"
                   className="hover:text-[color:var(--bf-ink)] transition-colors"
                 >
-                  Privatliv
+                  {t.footerPrivacy}
                 </Link>
                 <Link
                   href="/terms"
                   className="hover:text-[color:var(--bf-ink)] transition-colors"
                 >
-                  Vilkår
+                  {t.footerTerms}
                 </Link>
               </div>
             </div>
           </div>
           <div className="bf-rule mb-6" />
           <p className="text-xs" style={{ color: "var(--bf-muted)" }}>
-            &copy; 2026 BirdFlow Studio. Alle rettigheder forbeholdes.
+            {t.footerCopyright}
           </p>
         </div>
       </footer>

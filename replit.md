@@ -97,7 +97,7 @@ A professional 2-mode website building system that creates Webflow/Framer qualit
 Webflow-style inline editing for direct text manipulation using `EditableText` components, theme presets, and state management for real-time updates.
 
 ### Publishing System
-Generates a standalone Next.js project from the `builder_state` and deploys it to Vercel, handling data flow for orders, bookings, and forms to Supabase.
+Generates a standalone Next.js project from the `builder_state` and deploys it to Vercel, handling data flow for orders, bookings, and forms to Supabase. The platform URL baked into published sites (analytics tracker target + email callbacks) is resolved strictly by `server/publisher/platformUrl.ts`: the `BIRDFLOW_API_URL` env var (set to the production URL in the development environment) or, inside production deployments only, `REPLIT_DOMAINS`; publishing fails loudly when neither is available instead of baking a stale dev URL.
 
 ### Website Templates System
 Provides a registry of 6 customizable website templates with complete `builderState` for quick setup through a multi-step wizard.
@@ -110,6 +110,9 @@ Dual-mode shipping management supporting manual fixed pricing and live carrier r
 
 ### Calendar Availability System
 Comprehensive booking availability management for services including weekly schedules, blocked dates (with yearly recurring option), and active service periods. The system includes UI for managing availability and an interactive calendar for booking on published sites. Extends to team members (per-member services, weekly availability windows, calendar color) with an optional person picker on public booking forms, owner-placed open slots that are publicly bookable via atomic claim (double-claim safe), a manage-side month/week calendar with drag & drop rescheduling and double-booking protection (interval-based conflict checks plus optimistic post-insert race verification on all creation paths), and automated booking emails: confirmation with .ics calendar attachment, configurable pre-appointment reminder and post-appointment follow-up driven by a 60s polling scheduler with claim-before-send at-most-once semantics.
+
+### BirdFlow's Own Booking Calendar (Platform Calendar)
+BirdFlow hosts its own free 30-minute "Forbedringsmøde" on the same booking engine as customer sites, without a second implementation. The calendar is a `websites` row with `kind = 'platform'` owned by a sentinel id (never a real user or a fake account), seeded idempotently at boot together with its service, default weekly hours and Danish email templates. Every booking carries an explicit `context` (`customer_site` | `platform_onboarding`) with a database-level default, so internal meetings and customer-site appointments never leak into each other's lists, counts, dashboards or emails. An internal meeting records the customer's user, website and onboarding session. Signed-in customers fetch free slots and claim one through dedicated authenticated endpoints that reuse the existing slot generation and atomic claim; administrators manage the calendar from a Bookinger tab in `/admin` that reuses the manage dashboard's calendar, list and dialogs. Every platform-calendar endpoint verifies the admin role server-side, and the platform row is filtered out of user website lists, counts and plan limits.
 
 ### Custom Domain Support
 Simplified custom domain connection via Vercel integration, allowing users to add CNAME or A records with status tracking.

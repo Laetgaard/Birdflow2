@@ -1,16 +1,19 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
-import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { getPlatformCalendar } from "./platformCalendar";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
 import { isAllowedMediaStoragePath } from "./mediaPaths";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
+import { resolveBirdflowApiUrl } from "./publisher/platformUrl";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
+import { syncStripeConnectStatus, resolveAppOrigin } from "./stripeConnect";
 import { 
   createSubscriptionCheckoutSession, 
   createBillingPortalSession, 
@@ -34,7 +37,17 @@ import {
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { addCustomDomain, removeCustomDomain, verifyDomainConfig, getDomainConfig, checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
+import { checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
+import {
+  getVercelConfig,
+  projectNameForWebsite,
+  attachDomainPair,
+  detachDomainPair,
+  twinHostOf,
+  resolveTwinHost,
+  refreshDomainState,
+  restoreDeploymentUrlAfterDelete,
+} from "./domainConnection";
 import { applyMutations, assertSaneJsonDepth } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
@@ -42,8 +55,14 @@ import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
 import { emailService } from "./email/service";
+import { handleOnboardingStripeEvent, shouldProcessStripeEvent } from "./onboardingWebhooks";
+import { registerOnboardingDecisionRoutes } from "./onboardingDecisionRoutes";
+import { updateDecisionByUser, bumpSiteRevision, markGenerationComplete } from "./onboardingDecision";
+import { consumeAgentRun } from "./aiRateLimit";
+import { registerAssistantPlanRoutes } from "./assistantPlanRoutes";
 
 // Helper to migrate legacy element-based state to component-based state
+import { SITE_LANGUAGES, normalizeSiteLanguage } from "@shared/siteLanguage";
 function migrateBuilderState(state: any): BuilderStateData {
   // If already in component format, return as-is
   if (state.pages?.[0]?.components !== undefined) {
@@ -221,7 +240,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Middleware to verify Supabase session and ensure profile exists
-async function requireAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     
@@ -414,6 +433,15 @@ export async function registerRoutes(
       const timestamp = Date.now().toString(36);
       const uniqueSlug = `${baseSlug}-${timestamp}`;
 
+      // The language step comes right after the AI/DIY fork, which is before
+      // the draft website exists — so the choice is already sitting in the
+      // session answers and has to be carried onto the new row here. Absent
+      // means Danish, exactly as the column default.
+      const onboardingSession = await storage.getOnboardingSession(user.id);
+      const chosenLanguage = normalizeSiteLanguage(
+        (onboardingSession?.answers as any)?.language
+      );
+
       // Load template data before transaction (AI mode starts blank; the
       // generation pipeline fills it in afterwards)
       const { getTemplateById, cloneTemplateState } = await import("@shared/websiteTemplates");
@@ -429,6 +457,7 @@ export async function registerRoutes(
           slug: uniqueSlug,
           setupType: isAiMode ? "ai" : (websiteType || "template"),
           status: "draft",
+          language: chosenLanguage,
         }).returning();
 
         // 2. Create builder state
@@ -470,6 +499,12 @@ export async function registerRoutes(
       // agent have a website to attach to from the next turn on.
       try {
         await storage.upsertOnboardingSession(user.id, { websiteId: result.id, answers: { path: "ai" } });
+        // A template site is finished the moment it is cloned, so the
+        // "build yourself" path goes straight to the preview-and-decision
+        // screen. The AI path is marked complete by the generator instead.
+        if (!isAiMode) {
+          await markGenerationComplete(result.id);
+        }
       } catch (sessionErr) {
         console.error("Onboarding session link failed (non-fatal):", sessionErr);
       }
@@ -567,6 +602,7 @@ export async function registerRoutes(
   const recordBodySchema = z
     .object({
       path: z.enum(["ai", "diy"]).optional(),
+      language: z.enum(SITE_LANGUAGES).optional(),
       websiteId: z.string().max(64).optional(),
       palette: z
         .object({
@@ -630,6 +666,17 @@ export async function registerRoutes(
 
       if (body.path) patch.path = body.path;
       if (body.desiredDomain) patch.desiredDomain = body.desiredDomain;
+
+      // The language choice is mirrored straight onto the website row, not
+      // just kept in the session answers: everything downstream that needs it
+      // (generation, publishing, the builder agent, transactional email) has
+      // a websiteId but no onboarding session to read from.
+      if (body.language) {
+        patch.language = body.language;
+        if (websiteId) {
+          await storage.updateWebsite(websiteId, userId, { language: body.language });
+        }
+      }
       if (body.palette) patch.palette = body.palette;
       if (body.fontPair) patch.fontPair = body.fontPair;
 
@@ -700,12 +747,19 @@ export async function registerRoutes(
         res.write(`data: ${JSON.stringify(payload)}\n\n`);
       };
 
+      // Once a draft website exists its row is the source of truth for the
+      // language - the session answers can be stale, or missing entirely on a
+      // resumed or reused draft.
+      const agentSiteId = session?.websiteId ?? null;
+      const agentSite = agentSiteId ? await storage.getWebsite(agentSiteId) : undefined;
+
       const { runOnboardingAgent } = await import("./onboardingAgent");
       const outcome = await runOnboardingAgent({
         userId,
-        websiteId: session?.websiteId ?? null,
+        websiteId: agentSiteId,
         transcript,
         answers: session?.answers ?? {},
+        language: agentSite ? normalizeSiteLanguage(agentSite.language) : undefined,
         onEvent: send,
       });
 
@@ -1276,7 +1330,7 @@ export async function registerRoutes(
   app.patch("/api/websites/:id/builder", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
       const access = getWebsiteAccess(req);
-      const { state } = req.body;
+      const { state, expectedRevision } = req.body;
 
       if (!state) {
         return res.status(400).json({ message: "State is required" });
@@ -1292,8 +1346,30 @@ export async function registerRoutes(
       if (!previous) {
         builderState = await storage.createBuilderState(req.params.id, state);
       } else {
-        builderState = await storage.updateBuilderState(req.params.id, state);
+        // Compare-and-swap when the client tells us what it was editing.
+        // A running build saves between every step; without this an autosave
+        // holding a two-second-old copy of the canvas would quietly undo the
+        // step that just landed. Clients that send no revision keep the old
+        // last-write-wins behaviour.
+        const expected =
+          typeof expectedRevision === "number" && Number.isFinite(expectedRevision)
+            ? expectedRevision
+            : undefined;
+        builderState = await storage.updateBuilderState(req.params.id, state, expected);
+        if (!builderState) {
+          return res.status(409).json({
+            message:
+              "Websitet er ændret et andet sted — måske af en AI-bygning. Genindlæs siden, " +
+              "så du arbejder videre på den nyeste version.",
+            revision: previous.revision,
+            state: previous.state,
+          });
+        }
       }
+
+      // An explicit save changes the site under any pending onboarding
+      // decision: bump the revision so an unpaid approval has to be renewed.
+      await bumpSiteRevision(req.params.id).catch(() => {});
 
       // Mutation succeeded - record it if this was an admin editing a
       // client's website (no-op for owners).
@@ -1427,6 +1503,37 @@ export async function registerRoutes(
           code: "SLOT_UNAVAILABLE",
           conflictBookingId: raceConflict.id,
         });
+      }
+
+      // An owner booking on top of a matching open slot claims the slot so it
+      // stops being offered as bookable. Compatibility mirrors how slots are
+      // offered publicly: a slot bound to a specific service/person only
+      // matches bookings for that service/person (unbound = matches any).
+      try {
+        const timeKey = time.slice(0, 5);
+        const daySlots = await storage.getOpenSlots(req.params.id, date, date);
+        const matching = daySlots
+          .filter(s => s.status === 'open' && (s.time || '').slice(0, 5) === timeKey)
+          // Unrestricted slot (no serviceId/teamMemberId) matches any booking.
+          // Restricted slot only matches when the booking explicitly carries the same ID.
+          .filter(s => !s.serviceId || s.serviceId === serviceId)
+          .filter(s => !s.teamMemberId || s.teamMemberId === teamMemberId)
+          .sort((a, b) => {
+            // Prefer the most specific slot when several match the same time
+            const score = (s: typeof daySlots[number]) =>
+              (s.serviceId && s.serviceId === serviceId ? 2 : 0) +
+              (s.teamMemberId && s.teamMemberId === teamMemberId ? 1 : 0);
+            return score(b) - score(a);
+          });
+        for (const slot of matching) {
+          const claimed = await storage.claimOpenSlot(slot.id, req.params.id);
+          if (claimed) {
+            await storage.linkOpenSlotBooking(slot.id, booking.id);
+            break;
+          }
+        }
+      } catch (slotErr) {
+        console.error('[Booking] Kunne ikke reservere matchende ledigt tidspunkt:', slotErr);
       }
 
       if (booking.customerEmail && sendConfirmationEmail !== false) {
@@ -1855,6 +1962,9 @@ export async function registerRoutes(
               booking.service
             );
             console.log(`Booking cancelled email sent to ${booking.customerEmail}`);
+          } else if (body.status === 'completed' && !rescheduled) {
+            // Marking a past appointment as held is bookkeeping, not a change
+            // the customer needs an email about.
           } else if ((body.status && originalBooking.status !== body.status) || rescheduled) {
             await emailService.sendBookingUpdated(
               booking,
@@ -2738,22 +2848,17 @@ export async function registerRoutes(
         stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Connect your Stripe account in Payment Settings to enable payments.';
       }
 
-      // Determine the BirdFlow API URL from environment or request
-      // Priority: BIRDFLOW_API_URL env var > REPLIT_DOMAINS > request host
-      let birdflowApiUrl = process.env.BIRDFLOW_API_URL;
+      // The platform URL baked into the published site (analytics tracker +
+      // email callbacks). Strict resolution - a stale or dev-only URL here
+      // silently kills the site's analytics pipeline until the next
+      // republish (see resolveBirdflowApiUrl). Never fall back to the dev
+      // workspace domain or the request host.
+      const birdflowApiUrl = resolveBirdflowApiUrl();
       if (!birdflowApiUrl) {
-        const replitDomains = process.env.REPLIT_DOMAINS;
-        if (replitDomains) {
-          // REPLIT_DOMAINS is comma-separated, use the first one
-          const primaryDomain = replitDomains.split(',')[0].trim();
-          birdflowApiUrl = `https://${primaryDomain}`;
-        }
-      }
-      if (!birdflowApiUrl) {
-        // Fallback to request host (for local development)
-        const proto = req.headers['x-forwarded-proto'] || 'https';
-        const host = req.headers['host'] || 'localhost:5000';
-        birdflowApiUrl = `${proto}://${host}`;
+        return res.status(500).json({
+          message:
+            "BirdFlow platform URL is not configured. Set the BIRDFLOW_API_URL environment variable (e.g. https://bird-flow.com) so published sites can deliver analytics and emails.",
+        });
       }
       console.log('[Publish] Using BirdFlow API URL:', birdflowApiUrl);
 
@@ -2784,6 +2889,7 @@ export async function registerRoutes(
         vercelTeamId: process.env.VERCEL_TEAM_ID,
         customDomain: activeCustomDomain,
         birdflowApiUrl,
+        language: normalizeSiteLanguage(website.language),
       });
 
       if (result.success) {
@@ -3854,7 +3960,11 @@ export async function registerRoutes(
     }
   });
 
-  // Add a custom domain - immediately adds to Vercel and returns DNS config
+  // Add a custom domain — attaches it (plus its www/apex twin) to the Vercel
+  // project and stores the truthful state with the DNS records Vercel
+  // actually requires. Status starts at whatever is really true: a domain
+  // whose DNS already points correctly can be active right away, everything
+  // else starts pending.
   app.post("/api/websites/:id/domains", requireAuth, async (req, res) => {
     try {
       const { domain } = req.body;
@@ -3867,6 +3977,7 @@ export async function registerRoutes(
       if (!domainRegex.test(domain)) {
         return res.status(400).json({ message: "Invalid domain format" });
       }
+      const normalized = domain.toLowerCase();
 
       const website = await storage.getWebsite(req.params.id);
       if (!website) {
@@ -3876,14 +3987,8 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const existing = await storage.getCustomDomainByDomain(domain);
-      if (existing) {
-        return res.status(400).json({ message: "Domain is already in use" });
-      }
-
-      // Check if Vercel is configured
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
+      const vercelConfig = getVercelConfig();
+      if (!vercelConfig) {
         return res.status(400).json({ message: "Custom domains require Vercel integration. Please contact support." });
       }
 
@@ -3894,67 +3999,50 @@ export async function registerRoutes(
 
       // Use the canonical project name format: site-{websiteId}
       // Must match the format used in publisher/index.ts when creating the project
-      const projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-      
-      const vercelConfig = { 
-        token: vercelToken, 
-        teamId: process.env.VERCEL_TEAM_ID 
-      };
+      const projectName = projectNameForWebsite(req.params.id);
 
-      // Add domain to Vercel immediately
-      const vercelResult = await addCustomDomain(projectName, domain.toLowerCase(), vercelConfig);
-      
-      if (!vercelResult.success) {
-        return res.status(400).json({ message: vercelResult.error || "Failed to add domain to hosting service" });
-      }
-
-      // Determine DNS record type based on domain structure
-      // Apex domains (example.com) need A record, subdomains (www.example.com) need CNAME
-      const domainParts = domain.toLowerCase().split('.');
-      const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
-      
-      let dnsType: string;
-      let dnsName: string;
-      let dnsValue: string;
-
-      // Check if Vercel returned specific verification requirements
-      const vercelDomainConfig = vercelResult.domainConfig;
-      if (vercelDomainConfig?.verification && vercelDomainConfig.verification.length > 0) {
-        const verifyRecord = vercelDomainConfig.verification[0];
-        dnsType = verifyRecord.type || (isSubdomain ? 'CNAME' : 'A');
-        dnsValue = verifyRecord.value || (isSubdomain ? 'cname.vercel-dns.com' : '76.76.21.21');
-        dnsName = isSubdomain ? domainParts[0] : '@';
-      } else {
-        // Default DNS configuration
-        if (isSubdomain) {
-          dnsType = 'CNAME';
-          dnsName = domainParts[0]; // e.g., "www" or "shop"
-          dnsValue = 'cname.vercel-dns.com';
-        } else {
-          dnsType = 'A';
-          dnsName = '@';
-          dnsValue = '76.76.21.21'; // Vercel's IP for apex domains
+      const existing = await storage.getCustomDomainByDomain(normalized);
+      if (existing) {
+        // A purchased-but-not-connected domain on this same website gets
+        // connected here instead of being rejected.
+        if (existing.websiteId === req.params.id && !existing.vercelProjectId) {
+          const attach = await attachDomainPair(projectName, normalized, vercelConfig);
+          if (!attach.success) {
+            return res.status(400).json({ message: attach.error || "Failed to add domain to hosting service" });
+          }
+          const connected = await storage.updateCustomDomain(existing.id, req.params.id, { vercelProjectId: projectName });
+          const { row } = await refreshDomainState(connected ?? { ...existing, vercelProjectId: projectName }, vercelConfig);
+          return res.status(200).json(row);
         }
+        return res.status(400).json({ message: "Domain is already in use" });
       }
 
-      // Create the domain record
-      const customDomain = await storage.createCustomDomain({
+      // Attach the domain (and its www/apex counterpart) to Vercel
+      const attach = await attachDomainPair(projectName, normalized, vercelConfig);
+      if (!attach.success) {
+        return res.status(400).json({ message: attach.error || "Failed to add domain to hosting service" });
+      }
+
+      // Create the row, then run a real verification pass to fill in status
+      // and the exact DNS records Vercel requires right now.
+      const created = await storage.createCustomDomain({
         websiteId: req.params.id,
-        domain: domain.toLowerCase(),
+        domain: normalized,
         status: 'pending',
         vercelProjectId: projectName,
-        dnsType,
-        dnsName,
-        dnsValue,
       });
+      const { row } = await refreshDomainState(created, vercelConfig);
 
-      res.status(201).json(customDomain);
+      res.status(201).json(row);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  // Check domain verification status - polls Vercel for DNS verification
+  // Check domain verification status — runs a full truthful check against
+  // Vercel (ownership + DNS config + a real HTTPS probe) and persists the
+  // outcome. Also re-checks already-"active" domains so a stale active state
+  // corrects itself instead of being echoed back.
   app.post("/api/websites/:id/domains/:domainId/verify", requireAuth, async (req, res) => {
     try {
       const website = await storage.getWebsite(req.params.id);
@@ -3971,79 +4059,33 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Domain not found" });
       }
 
-      if (domain.status === 'active') {
-        return res.json({ verified: true, status: 'active' });
-      }
-
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (!vercelToken) {
+      const vercelConfig = getVercelConfig();
+      if (!vercelConfig) {
         return res.status(400).json({ message: "Vercel is not configured" });
       }
 
-      const projectName = domain.vercelProjectId || `site-${req.params.id}`;
-      const vercelConfig = { 
-        token: vercelToken, 
-        teamId: process.env.VERCEL_TEAM_ID 
-      };
+      const { row, check } = await refreshDomainState(domain, vercelConfig);
 
-      // Check domain status on Vercel
-      const domainConfigResult = await getDomainConfig(projectName, domain.domain, vercelConfig);
-      
-      if (!domainConfigResult) {
-        // Domain might not be added to Vercel yet, try adding it
-        const addResult = await addCustomDomain(projectName, domain.domain, vercelConfig);
-        if (!addResult.success) {
-          await storage.updateCustomDomain(domain.id, req.params.id, { 
-            status: 'error',
-            errorMessage: addResult.error
-          });
-          return res.json({ 
-            verified: false, 
-            status: 'error',
-            error: addResult.error
-          });
-        }
+      const verified = row.status === 'active';
+      let message: string;
+      if (verified) {
+        message = 'Dit domæne er live!';
+      } else if (row.status === 'verifying') {
+        message = 'DNS er på plads — certifikatet aktiveres hos Vercel. Det tager normalt få minutter.';
+      } else if (row.status === 'error') {
+        message = row.errorMessage || 'Domænet kunne ikke forbindes.';
+      } else if (!check.ownershipVerified && (row.dnsRecords || []).some(r => r.purpose === 'ownership')) {
+        message = 'Domænet skal først bekræftes med TXT-posten nedenfor (det er registreret hos en anden Vercel-konto).';
+      } else {
+        message = 'DNS-ændringerne er ikke slået igennem endnu. Det kan tage op til 48 timer.';
       }
 
-      // Trigger verification check on Vercel
-      const verifyResult = await verifyDomainConfig(projectName, domain.domain, vercelConfig);
-      
-      if (verifyResult.configured) {
-        await storage.updateCustomDomain(domain.id, req.params.id, {
-          status: 'active',
-          errorMessage: null
-        } as any);
-
-        // Update the website's deployment_url to the custom domain so hostname detection works
-        try {
-          const customDomainUrl = `https://${domain.domain}`;
-          await storage.updateWebsite(req.params.id, (req as any).user.id, {
-            deploymentUrl: customDomainUrl,
-          } as any);
-          console.log(`[Domains] Updated deployment_url to ${customDomainUrl} for website ${req.params.id}`);
-        } catch (updateErr) {
-          console.error(`[Domains] Failed to update deployment_url:`, updateErr);
-        }
-
-        return res.json({
-          verified: true,
-          status: 'active',
-          message: 'Domain is now active!'
-        });
-      }
-
-      // Still waiting for DNS propagation
-      await storage.updateCustomDomain(domain.id, req.params.id, { 
-        status: 'verifying'
-      });
-
-      res.json({ 
-        verified: false, 
-        status: 'verifying',
-        message: 'DNS changes are still propagating. This can take up to 48 hours.',
-        dnsType: domain.dnsType,
-        dnsName: domain.dnsName,
-        dnsValue: domain.dnsValue
+      res.json({
+        verified,
+        status: row.status,
+        message,
+        domain: row,
+        error: row.status === 'error' ? row.errorMessage : undefined,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -4067,17 +4109,33 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Domain not found" });
       }
 
-      // Remove from Vercel if configured
-      const vercelToken = process.env.VERCEL_TOKEN;
-      if (vercelToken && domain.vercelProjectId) {
-        const vercelConfig = { 
-          token: vercelToken, 
-          teamId: process.env.VERCEL_TEAM_ID 
-        };
-        await removeCustomDomain(domain.vercelProjectId, domain.domain, vercelConfig);
+      // Decide twin protection BEFORE mutating anything: the auto-attached
+      // www/apex twin is only detached from Vercel when no other stored row
+      // owns that hostname. Twin identity comes from Vercel's apexName when
+      // reachable (exact), else a conservative heuristic.
+      const vercelConfig = getVercelConfig();
+      const twinHost = vercelConfig && domain.vercelProjectId
+        ? await resolveTwinHost(domain.vercelProjectId, domain.domain, vercelConfig)
+        : twinHostOf(domain.domain);
+      let twinRowExists = false;
+      if (twinHost) {
+        try {
+          twinRowExists = !!(await storage.getCustomDomainByDomain(twinHost));
+        } catch {
+          twinRowExists = true; // fail safe: never remove the twin on lookup failure
+        }
       }
 
+      // Detach from Vercel first (best-effort), then delete the row.
+      if (vercelConfig && domain.vercelProjectId) {
+        await detachDomainPair(domain.vercelProjectId, domain.domain, vercelConfig, { twinHost, twinRowExists });
+      }
       await storage.deleteCustomDomain(req.params.domainId, req.params.id);
+
+      // If the website's deployment URL pointed at this domain, point it
+      // back at the stable *.vercel.app alias so the site stays reachable.
+      await restoreDeploymentUrlAfterDelete(req.params.id, domain.domain, domain.vercelProjectId, vercelConfig);
+
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -4230,42 +4288,43 @@ export async function registerRoutes(
         });
       }
 
-      // Determine DNS configuration (used for both connected and unconnected)
-      const domainParts = domainStr.split('.');
-      const isSubdomain = domainParts.length > 2 || domainParts[0] === 'www';
-      const dnsType = isSubdomain ? 'CNAME' : 'A';
-      const dnsName = isSubdomain ? domainParts[0] : '@';
-      const dnsValue = isSubdomain ? 'cname.vercel-dns.com' : '76.76.21.21';
-
-      // Step 2: If connectToWebsite is true, also add it to the website's Vercel project
+      // Step 2: If connectToWebsite is true, attach it to the website's
+      // Vercel project through the same flow as manually added domains
+      // (apex + www twin, truthful status, real DNS records).
       const shouldConnect = connectToWebsite && website.deploymentUrl;
       let connectSuccess = false;
       let projectName: string | undefined;
 
       if (shouldConnect) {
-        projectName = `site-${req.params.id}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-
+        projectName = projectNameForWebsite(req.params.id);
         try {
-          const addResult = await addCustomDomain(projectName, domainStr, vercelConfig);
-          connectSuccess = addResult.success;
-          if (!addResult.success) {
-            console.error('Failed to auto-connect domain to project:', addResult.error);
+          const attach = await attachDomainPair(projectName, domainStr, vercelConfig);
+          connectSuccess = attach.success;
+          if (!attach.success) {
+            console.error('Failed to auto-connect domain to project:', attach.error);
           }
         } catch (addErr: any) {
           console.error('Failed to auto-connect domain to project:', addErr);
         }
       }
 
-      // Step 3: Always create a domain record in our database
-      const customDomain = await storage.createCustomDomain({
+      // Step 3: Always create a domain record, then (when connected) run a
+      // real verification pass — the same state machine as manual adds. The
+      // server-side loop keeps re-checking until it is actually live.
+      let customDomain = await storage.createCustomDomain({
         websiteId: req.params.id,
         domain: domainStr,
-        status: connectSuccess ? 'verifying' : 'pending',
-        vercelProjectId: projectName || null,
-        dnsType,
-        dnsName,
-        dnsValue,
+        status: 'pending',
+        vercelProjectId: connectSuccess ? projectName : null,
       });
+      if (connectSuccess) {
+        try {
+          const { row } = await refreshDomainState(customDomain, vercelConfig);
+          customDomain = row;
+        } catch (refreshErr) {
+          console.error('Initial verification of purchased domain failed:', refreshErr);
+        }
+      }
 
       res.status(201).json({
         success: true,
@@ -4273,11 +4332,13 @@ export async function registerRoutes(
         alreadyOwned: purchaseResult.alreadyOwned || false,
         connected: connectSuccess,
         domain: customDomain,
-        message: connectSuccess
-          ? "Domain purchased and connected! DNS will be configured automatically."
-          : purchaseResult.alreadyOwned
-            ? "Domain is already in your Vercel account and has been added to your website."
-            : "Domain purchased successfully! You can connect it to your website from the Custom Domains section.",
+        message: customDomain.status === 'active'
+          ? "Domænet er købt og live!"
+          : connectSuccess
+            ? "Domænet er købt og forbundet til din hjemmeside. Vi bekræfter DNS-opsætningen automatisk — status opdateres under 'Egne domæner'."
+            : purchaseResult.alreadyOwned
+              ? "Domænet ligger allerede på din Vercel-konto. Forbind det under 'Egne domæner'."
+              : "Domænet er købt! Forbind det til din hjemmeside under 'Egne domæner'.",
       });
     } catch (error: any) {
       console.error('Domain purchase error:', error);
@@ -4595,7 +4656,11 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      const settings = await storage.getPaymentSettings(req.params.id);
+      // Re-check non-connected accounts against Stripe so a finished
+      // onboarding is detected even when the return redirect was lost
+      // (tab closed, link expired, opened on another device...).
+      const sync = await syncStripeConnectStatus(req.params.id);
+      const settings = sync.settings;
       if (!settings) {
         return res.json({ 
           websiteId: req.params.id,
@@ -4614,6 +4679,12 @@ export async function registerRoutes(
         stripePublishableKey: settings.stripePublishableKey ? `${settings.stripePublishableKey.substring(0, 12)}...` : null,
         stripeSecretKey: settings.stripeSecretKey ? '••••••••••••••••••••' : null,
         stripeWebhookSecret: settings.stripeWebhookSecret ? '••••••••••••••••••••' : null,
+        // Live Stripe detail (never persisted) so the UI can explain a pending state
+        stripeDetailsSubmitted: sync.live?.detailsSubmitted ?? null,
+        stripeChargesEnabled: sync.live?.chargesEnabled ?? null,
+        stripeRequirementsDue: sync.live?.requirementsDue ?? null,
+        stripeStatusCheckFailed: sync.checkFailed ?? false,
+        stripeAccountMissing: sync.accountMissing ?? false,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -4904,8 +4975,12 @@ export async function registerRoutes(
       // Generate signed state token for secure return
       const stateToken = await createOAuthStateToken(websiteId, userId);
 
-      // Generate account link for onboarding
-      const baseUrl = process.env.BASE_URL || `https://${req.headers.host}`;
+      // Generate account link for onboarding.
+      // Origin comes from the request host validated against this app's own
+      // domains (falling back to the canonical deployment domain) - never a
+      // hand-configured BASE_URL (goes stale) and never a raw Host header
+      // (spoofable).
+      const baseUrl = resolveAppOrigin(req.headers.host);
       const accountLink = await stripe.accountLinks.create({
         account: stripeAccountId,
         refresh_url: `${baseUrl}/api/stripe/connect/refresh/${websiteId}?state=${encodeURIComponent(stateToken)}`,
@@ -4962,42 +5037,25 @@ export async function registerRoutes(
 
       const settings = await storage.getPaymentSettings(websiteId);
       if (!settings?.stripeAccountId) {
-        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Stripe konto ikke fundet')}`);
+        return res.redirect(`/manage/${websiteId}?section=settings&stripe_error=${encodeURIComponent('Stripe konto ikke fundet')}`);
       }
 
-      // Check account status
-      const platformStripeSecretKey = await getStripeSecretKey();
-      if (!platformStripeSecretKey) {
-        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Stripe er ikke konfigureret')}`);
+      // Sync stored status from Stripe (shared with the payment-settings
+      // endpoint, so the status also converges without this redirect).
+      const sync = await syncStripeConnectStatus(websiteId);
+
+      if (sync.accountMissing) {
+        return res.redirect(`/manage/${websiteId}?section=settings&stripe_error=${encodeURIComponent('Din Stripe-konto kunne ikke findes. Prøv at forbinde igen.')}`);
       }
-      
-      const Stripe = (await import('stripe')).default;
-      const stripe = new Stripe(platformStripeSecretKey);
-
-      const account = await stripe.accounts.retrieve(settings.stripeAccountId);
-
-      // Verify account metadata matches
-      if (account.metadata?.websiteId !== websiteId) {
-        console.error(`Account metadata websiteId mismatch`);
-        return res.redirect(`/manage/${websiteId}?stripe_error=${encodeURIComponent('Konto verifikation fejlede')}`);
+      if (sync.checkFailed) {
+        return res.redirect(`/manage/${websiteId}?section=settings&stripe_error=${encodeURIComponent('Status hos Stripe kunne ikke bekræftes. Prøv igen om et øjeblik.')}`);
       }
-
-      // Check if onboarding is complete
-      if (account.details_submitted && account.charges_enabled) {
-        await storage.updatePaymentSettings(websiteId, {
-          stripeConnectStatus: 'connected',
-          isConnected: true,
-        });
+      if (sync.settings?.stripeConnectStatus === 'connected') {
         console.log(`Stripe Connect completed for website ${websiteId}: ${settings.stripeAccountId}`);
-        res.redirect(`/manage/${websiteId}?stripe_connected=true`);
-      } else {
-        // Onboarding not complete yet
-        await storage.updatePaymentSettings(websiteId, {
-          stripeConnectStatus: 'pending',
-          isConnected: false,
-        });
-        res.redirect(`/manage/${websiteId}?stripe_pending=true`);
+        return res.redirect(`/manage/${websiteId}?section=settings&stripe_connected=true`);
       }
+      // Onboarding not complete yet - land on settings with a visible pending state
+      return res.redirect(`/manage/${websiteId}?section=settings&stripe_pending=true`);
     } catch (error: any) {
       console.error('Stripe Connect return error:', error);
       res.redirect(`/dashboard?stripe_error=${encodeURIComponent(error.message)}`);
@@ -5012,10 +5070,10 @@ export async function registerRoutes(
     // Verify state token (but don't consume - user will restart)
     // For refresh, we just validate format and redirect
     if (!stateToken) {
-      return res.redirect(`/manage/${websiteId}?stripe_refresh=true&error=session_expired`);
+      return res.redirect(`/manage/${websiteId}?section=settings&stripe_refresh=true&error=session_expired`);
     }
     
-    res.redirect(`/manage/${websiteId}?stripe_refresh=true`);
+    res.redirect(`/manage/${websiteId}?section=settings&stripe_refresh=true`);
   });
 
   // Stripe Connect - Disconnect account
@@ -5062,18 +5120,14 @@ export async function registerRoutes(
    * /ai/apply, which runs the same tail.
    */
   app.post("/api/websites/:id/ai/agent", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
-    // Per-user budget: one message can be a dozen model calls.
+    // Per-user budget: one message can be a dozen model calls. Shared with
+    // Plan mode and Build mode (server/aiRateLimit.ts) so the three surfaces
+    // draw on one budget rather than three.
     const userId = (req as any).user?.id ?? req.params.id;
-    const now = Date.now();
-    const recentRuns = (agentRunHits.get(userId) ?? []).filter((t) => now - t < 10 * 60 * 1000);
-    if (recentRuns.length >= 10) {
-      agentRunHits.set(userId, recentRuns);
-      return res.status(429).json({
-        message: "For mange AI-forespørgsler på kort tid. Vent et par minutter og prøv igen.",
-      });
+    const budget = consumeAgentRun(userId);
+    if (!budget.ok) {
+      return res.status(429).json({ message: budget.message });
     }
-    recentRuns.push(now);
-    agentRunHits.set(userId, recentRuns);
 
     const bodySchema = z.object({
       prompt: z.string().trim().min(1).max(4000),
@@ -5089,6 +5143,9 @@ export async function registerRoutes(
       return res.status(404).json({ message: "Builder state not found" });
     }
     const currentState = builderData.state as BuilderStateData;
+    // The website's own language: every word the agent writes onto the site
+    // follows the customer's onboarding choice, run after run.
+    const agentWebsite = await storage.getWebsite(req.params.id);
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -5105,6 +5162,7 @@ export async function registerRoutes(
         prompt: parsed.data.prompt,
         state: currentState,
         approvedLargeChanges: parsed.data.approvedLargeChanges === true,
+        language: normalizeSiteLanguage(agentWebsite?.language),
         onEvent: send,
       });
 
@@ -5137,6 +5195,9 @@ export async function registerRoutes(
       newState = check.state;
       sanitizeBuilderStateCustomContent(newState);
       await storage.updateBuilderState(req.params.id, newState);
+      // The site the customer is deciding about just changed - new revision,
+      // and any approval that has not been paid for is void.
+      await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
         outcome.mutations,
@@ -5197,6 +5258,7 @@ export async function registerRoutes(
       sanitizeBuilderStateCustomContent(newState);
 
       await storage.updateBuilderState(req.params.id, newState);
+      await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
         resolved.mutations,
@@ -5218,9 +5280,6 @@ export async function registerRoutes(
 
   // AI Builder - Design interview (guided brand-guide wizard)
   const designInterviewHits = new Map<string, number[]>();
-  // The agent makes several model calls per message, so it gets its own
-  // tighter budget than the single-shot endpoints.
-  const agentRunHits = new Map<string, number[]>();
   const diHex = z.string().regex(/^#[0-9a-fA-F]{3,8}$/);
   const diPaletteSchema = z.object({
     id: z.string().max(64),
@@ -5284,13 +5343,18 @@ export async function registerRoutes(
 
       const { proposePalettes, proposeFontPairs, finalizeBrandGuide, CURATED_GOOGLE_FONTS } = await import("./designInterview");
 
+      // Palette names, font-pair rationales and the brand guide's tone notes
+      // are written in the website's own language.
+      const interviewWebsite = await storage.getWebsite(req.params.id);
+      const interviewLanguage = normalizeSiteLanguage(interviewWebsite?.language);
+
       if (body.step === "palettes") {
-        const palettes = await proposePalettes(body.feeling, currentState);
+        const palettes = await proposePalettes(body.feeling, currentState, interviewLanguage);
         return res.json({ success: true, palettes });
       }
 
       if (body.step === "typography") {
-        const fontPairs = await proposeFontPairs(body.feeling, body.palette, currentState);
+        const fontPairs = await proposeFontPairs(body.feeling, body.palette, currentState, interviewLanguage);
         return res.json({ success: true, fontPairs });
       }
 
@@ -5316,6 +5380,7 @@ export async function registerRoutes(
           fontPair: body.fontPair,
           imageUrls: safeImageUrls,
           notes: body.notes,
+          language: interviewLanguage,
         },
         currentState
       );
@@ -5420,7 +5485,13 @@ export async function registerRoutes(
       const logoUrl = body.logoUrl && owned.has(body.logoUrl) ? body.logoUrl : undefined;
       const logoMediaId = logoUrl && body.logoMediaId && ownedIds.has(body.logoMediaId) ? body.logoMediaId : undefined;
 
+      // The durable language lives on the website row, not on the request or
+      // the onboarding session: a restart mid-build must rebuild the site in
+      // the same language the customer chose.
+      const genWebsite = await storage.getWebsite(req.params.id);
+
       const status = startOnboardingGeneration(req.params.id, {
+        language: normalizeSiteLanguage(genWebsite?.language),
         business: body.business,
         wishes: body.wishes,
         feeling: body.feeling,
@@ -5491,6 +5562,7 @@ export async function registerRoutes(
 
       // Save the new builder state
       await storage.updateBuilderState(req.params.id, newState);
+      await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
         [],
@@ -6069,6 +6141,421 @@ export async function registerRoutes(
     }
     next();
   };
+
+  // ============ END OF ONBOARDING: PREVIEW, APPROVE, PAY ============
+  //
+  // Preview, brand guide, brand-guide PDF, pricing, approval, card checkout,
+  // invoice billing and the admin review handover. Kept in its own module
+  // (server/onboardingDecisionRoutes.ts) rather than inlined here.
+  registerOnboardingDecisionRoutes(app, { requireAuth, requireAdmin });
+
+  // ============ BUILDER ASSISTANT: PLAN MODE AND BUILD MODE ============
+  //
+  // Plan mode reads the site and proposes a numbered checklist the customer
+  // edits and approves; Build mode executes the approved plan step by step.
+  // In its own module (server/assistantPlanRoutes.ts).
+  registerAssistantPlanRoutes(app, { requireAuth });
+
+  // ============ BIRDFLOW PLATFORM CALENDAR ============
+  //
+  // BirdFlow's own bookable calendar for the free 30-minute improvement
+  // meeting. It reuses the whole booking engine (availability rules, slot
+  // generation, open slots, atomic claim, conflict checks, confirmation
+  // emails) against a websites row with kind = 'platform' - see
+  // server/platformCalendar.ts.
+  //
+  // Two audiences, two levels of access:
+  //   * signed-in customers may LIST free slots and CLAIM one (below);
+  //   * everything that reads or changes the calendar itself goes through
+  //     requireAdmin here, or through requireWebsitePermission on the normal
+  //     /api/websites/:id/... manage routes, which only ever resolves a
+  //     platform website for a verified administrator.
+
+  /** Copenhagen wall-clock "now", as the calendar's own timezone sees it. */
+  function copenhagenNow(): { date: string; minutes: number } {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: PLATFORM_CALENDAR_TIMEZONE,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(now);
+    const get = (type: string) => parts.find(p => p.type === type)?.value ?? '00';
+    // ICU can report hour "24" at local midnight for some locales/versions.
+    const hour = get('hour') === '24' ? 0 : Number(get('hour'));
+    return {
+      date: `${get('year')}-${get('month')}-${get('day')}`,
+      minutes: hour * 60 + Number(get('minute')),
+    };
+  }
+
+  function addDays(dateStr: string, days: number): string {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // How far ahead customers may book, and how much notice BirdFlow needs.
+  const PLATFORM_SLOTS_HORIZON_DAYS = 28;
+  const PLATFORM_BOOKING_LEAD_MINUTES = 60;
+
+  /** The signed-in user's own upcoming meeting, if they already have one. */
+  async function findUpcomingPlatformMeeting(platformWebsiteId: string, userId: string) {
+    const rows = await db
+      .select()
+      .from(bookingsTable)
+      .where(
+        andOp(
+          eqOp(bookingsTable.websiteId, platformWebsiteId),
+          eqOp(bookingsTable.context, 'platform_onboarding'),
+          eqOp(bookingsTable.customerUserId, userId),
+          neOp(bookingsTable.status, 'cancelled'),
+          gteOp(bookingsTable.date, new Date(Date.now() - 24 * 3600 * 1000))
+        )
+      )
+      .orderBy(bookingsTable.date)
+      .limit(1);
+    return rows[0];
+  }
+
+  // What the meeting is, and whether this customer already has one booked.
+  app.get("/api/platform-calendar", requireAuth, async (req, res) => {
+    try {
+      const user = getAuthedUser(req);
+      const { website, service } = await getPlatformCalendar();
+      const existing = await findUpcomingPlatformMeeting(website.id, user.id);
+
+      res.json({
+        service: {
+          id: service.id,
+          name: service.name,
+          description: service.description,
+          durationMinutes: service.durationMinutes,
+        },
+        timezone: PLATFORM_CALENDAR_TIMEZONE,
+        myMeeting: existing ?? null,
+      });
+    } catch (error: any) {
+      console.error("[PlatformCalendar] meeting lookup failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Free 30-minute slots for the coming weeks, in Europe/Copenhagen.
+  app.get("/api/platform-calendar/slots", requireAuth, async (req, res) => {
+    try {
+      const { website, service } = await getPlatformCalendar();
+
+      const requestedDays = parseInt(String(req.query.days ?? ''), 10);
+      const days = Number.isFinite(requestedDays)
+        ? Math.min(Math.max(requestedDays, 1), PLATFORM_SLOTS_HORIZON_DAYS)
+        : PLATFORM_SLOTS_HORIZON_DAYS;
+
+      const { date: today, minutes: nowMinutes } = copenhagenNow();
+      const earliestToday = nowMinutes + PLATFORM_BOOKING_LEAD_MINUTES;
+
+      const dates = Array.from({ length: days }, (_, i) => addDays(today, i));
+
+      const days_ = await Promise.all(
+        dates.map(async (date) => {
+          const [blocked, inRange] = await Promise.all([
+            storage.isDateBlocked(service.id, date),
+            storage.isDateInActiveRange(service.id, date),
+          ]);
+          if (blocked || !inRange) return { date, slots: [] };
+
+          const slots = await storage.getAvailableSlotsForDate(service.id, website.id, date);
+          return {
+            date,
+            slots: slots
+              .filter(slot => slot.available)
+              .filter(slot => {
+                if (date !== today) return true;
+                const [h, m] = slot.time.split(':').map(Number);
+                return h * 60 + m >= earliestToday;
+              })
+              .map(slot => ({ time: slot.time, openSlotId: slot.openSlotId })),
+          };
+        })
+      );
+
+      res.json({
+        timezone: PLATFORM_CALENDAR_TIMEZONE,
+        durationMinutes: service.durationMinutes,
+        days: days_.filter(day => day.slots.length > 0),
+      });
+    } catch (error: any) {
+      console.error("[PlatformCalendar] slot lookup failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Claim a slot. Same conflict checking and atomic open-slot claim the
+  // public booking route uses, so two customers clicking at the same moment
+  // cannot both take the same time.
+  app.post("/api/platform-calendar/bookings", requireAuth, async (req, res) => {
+    try {
+      const user = getAuthedUser(req);
+      const { website, service } = await getPlatformCalendar();
+      const { date, time, openSlotId, websiteId, notes, customerPhone } = req.body || {};
+
+      if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "Ugyldig dato. Brug formatet ÅÅÅÅ-MM-DD" });
+      }
+      if (typeof time !== 'string' || !/^\d{2}:\d{2}$/.test(time)) {
+        return res.status(400).json({ message: "Ugyldigt tidspunkt. Brug formatet TT:MM" });
+      }
+
+      // Not in the past, and not inside the notice window.
+      const nowCph = copenhagenNow();
+      const [hh, mm] = time.split(':').map(Number);
+      if (date < nowCph.date || (date === nowCph.date && hh * 60 + mm < nowCph.minutes + PLATFORM_BOOKING_LEAD_MINUTES)) {
+        return res.status(400).json({ message: "Vælg venligst et tidspunkt længere ude i fremtiden" });
+      }
+
+      const existing = await findUpcomingPlatformMeeting(website.id, user.id);
+      if (existing) {
+        return res.status(409).json({
+          message: "Du har allerede et møde booket. Flyt eller aflys det først.",
+          code: "MEETING_ALREADY_BOOKED",
+          booking: existing,
+        });
+      }
+
+      const profile = await storage.getProfile(user.id);
+      const customerEmail = profile?.email || user.email;
+      if (!customerEmail) {
+        return res.status(400).json({ message: "Din konto mangler en e-mailadresse" });
+      }
+      const customerName = profile?.fullName?.trim() || customerEmail.split('@')[0];
+
+      // The meeting is about one of the customer's own websites - verify the
+      // claim rather than trusting the body.
+      let customerWebsiteId: string | null = null;
+      let customerWebsiteName: string | null = null;
+      if (typeof websiteId === 'string' && websiteId) {
+        const customerWebsite = await storage.getWebsite(websiteId);
+        if (!customerWebsite || customerWebsite.ownerId !== user.id) {
+          return res.status(403).json({ message: "Ukendt hjemmeside" });
+        }
+        customerWebsiteId = customerWebsite.id;
+        customerWebsiteName = customerWebsite.name;
+      }
+
+      const onboardingSession = await storage.getOnboardingSession(user.id);
+
+      let booking;
+      if (typeof openSlotId === 'string' && openSlotId) {
+        // Owner-placed slot: claim atomically first, then build from it.
+        const claimed = await storage.claimOpenSlot(openSlotId, website.id);
+        if (!claimed) {
+          return res.status(409).json({
+            message: "Tidspunktet er desværre lige blevet taget. Vælg venligst et andet.",
+            code: "SLOT_UNAVAILABLE",
+          });
+        }
+        try {
+          booking = await storage.createBooking({
+            websiteId: website.id,
+            context: 'platform_onboarding',
+            customerUserId: user.id,
+            customerWebsiteId,
+            onboardingSessionId: onboardingSession?.id ? String(onboardingSession.id) : null,
+            customerName,
+            customerEmail,
+            customerPhone: typeof customerPhone === 'string' ? customerPhone : (profile?.phoneNumber || null),
+            service: service.name,
+            serviceId: service.id,
+            date: new Date(claimed.date + 'T00:00:00'),
+            time: claimed.time,
+            durationMinutes: claimed.durationMinutes || service.durationMinutes,
+            status: 'confirmed',
+            notes: typeof notes === 'string' && notes ? notes : null,
+          });
+          await storage.linkOpenSlotBooking(claimed.id, booking.id);
+        } catch (createErr) {
+          await storage.releaseOpenSlot(claimed.id).catch(() => {});
+          throw createErr;
+        }
+      } else {
+        const isAvailable = await storage.checkSlotAvailable(service.id, website.id, date, time);
+        if (!isAvailable) {
+          return res.status(409).json({
+            message: "Tidspunktet er desværre ikke længere ledigt. Vælg venligst et andet.",
+            code: "SLOT_UNAVAILABLE",
+          });
+        }
+        const overlap = await storage.findServiceConflict(
+          website.id, service.id, date, time, service.durationMinutes
+        );
+        if (overlap) {
+          return res.status(409).json({
+            message: "Tidspunktet er desværre ikke længere ledigt. Vælg venligst et andet.",
+            code: "SLOT_UNAVAILABLE",
+          });
+        }
+
+        booking = await storage.createBooking({
+          websiteId: website.id,
+          context: 'platform_onboarding',
+          customerUserId: user.id,
+          customerWebsiteId,
+          onboardingSessionId: onboardingSession?.id ? String(onboardingSession.id) : null,
+          customerName,
+          customerEmail,
+          customerPhone: typeof customerPhone === 'string' ? customerPhone : (profile?.phoneNumber || null),
+          service: service.name,
+          serviceId: service.id,
+          date: new Date(date + 'T00:00:00'),
+          time,
+          durationMinutes: service.durationMinutes,
+          status: 'confirmed',
+          notes: typeof notes === 'string' && notes ? notes : null,
+        });
+
+        // Two requests can both clear the pre-checks; the later insert loses.
+        const race = await storage.findPlacementConflict(website.id, booking.id);
+        if (race) {
+          await storage.deleteBooking(booking.id, website.id);
+          return res.status(409).json({
+            message: "Tidspunktet er desværre lige blevet taget. Vælg venligst et andet.",
+            code: "SLOT_UNAVAILABLE",
+          });
+        }
+      }
+
+      // An improvement meeting booked from the onboarding decision screen
+      // moves that flow to "meeting booked". Payment is deliberately left
+      // untouched: this path creates no Stripe object at all.
+      if (customerWebsiteId && onboardingSession?.websiteId === customerWebsiteId) {
+        try {
+          await updateDecisionByUser(user.id, {
+            decisionState: "meeting_booked",
+            meetingBookingId: booking.id,
+            decidedAt: new Date(),
+          });
+        } catch (stateErr) {
+          console.error(`[PlatformCalendar] onboarding state update failed for ${booking.id}:`, stateErr);
+        }
+      }
+
+      // Confirmation with calendar invite to the customer, notification to
+      // BirdFlow. Neither may turn a booked meeting into an error.
+      try {
+        await emailService.sendBookingConfirmation(booking, customerEmail, service.name);
+      } catch (emailErr) {
+        console.error(`[PlatformCalendar] confirmation email failed for booking ${booking.id}:`, emailErr);
+      }
+      try {
+        const adminEmails = await storage.getAdminNotificationEmails();
+        const adminUrl = `${resolveAppOrigin(req.headers.host)}/admin`;
+        for (const adminEmail of adminEmails) {
+          await emailService.sendPlatformMeetingNotification(booking, adminEmail, service.name, {
+            customerWebsiteName,
+            adminUrl,
+          });
+        }
+      } catch (notifyErr) {
+        console.error(`[PlatformCalendar] admin notification failed for booking ${booking.id}:`, notifyErr);
+      }
+
+      res.status(201).json({
+        booking,
+        timezone: PLATFORM_CALENDAR_TIMEZONE,
+        service: { id: service.id, name: service.name, durationMinutes: service.durationMinutes },
+      });
+    } catch (error: any) {
+      console.error("[PlatformCalendar] booking failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // --- Admin side of the calendar (the "Bookinger" tab) ---
+
+  // Everything the tab needs to render: which website row is the calendar,
+  // the meeting service, the weekly hours and who each meeting is with.
+  app.get("/api/admin/platform-calendar", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { website, service } = await getPlatformCalendar();
+      const [availability, meetings] = await Promise.all([
+        storage.getServiceAvailability(service.id),
+        storage.getPlatformMeetingLinks(website.id),
+      ]);
+      res.json({ website, service, availability, meetings, timezone: PLATFORM_CALENDAR_TIMEZONE });
+    } catch (error: any) {
+      console.error("[PlatformCalendar] admin load failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // BirdFlow's available meeting times, through the existing availability
+  // functions - admin only, never reachable from a customer's manage view.
+  app.post("/api/admin/platform-calendar/availability", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { website, service } = await getPlatformCalendar();
+      const { dayOfWeek, specificDate, startTime, endTime, slotDurationMinutes, isActive } = req.body || {};
+
+      if (typeof startTime !== 'string' || typeof endTime !== 'string') {
+        return res.status(400).json({ message: "Start- og sluttidspunkt er påkrævet" });
+      }
+      if (dayOfWeek === undefined && !specificDate) {
+        return res.status(400).json({ message: "Ugedag eller dato er påkrævet" });
+      }
+
+      const availability = await storage.createServiceAvailability({
+        serviceId: service.id,
+        websiteId: website.id,
+        dayOfWeek: dayOfWeek !== undefined ? dayOfWeek : null,
+        specificDate: specificDate || null,
+        startTime,
+        endTime,
+        slotDurationMinutes: slotDurationMinutes || service.durationMinutes,
+        isActive: isActive !== undefined ? isActive : true,
+      });
+      res.status(201).json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.put("/api/admin/platform-calendar/availability/:availabilityId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { service } = await getPlatformCalendar();
+      const rules = await storage.getServiceAvailability(service.id);
+      if (!rules.some(rule => rule.id === req.params.availabilityId)) {
+        return res.status(404).json({ message: "Reglen findes ikke" });
+      }
+
+      const { dayOfWeek, specificDate, startTime, endTime, slotDurationMinutes, isActive } = req.body || {};
+      const availability = await storage.updateServiceAvailability(req.params.availabilityId, {
+        dayOfWeek: dayOfWeek !== undefined ? dayOfWeek : undefined,
+        specificDate: specificDate !== undefined ? specificDate : undefined,
+        startTime,
+        endTime,
+        slotDurationMinutes: slotDurationMinutes !== undefined ? slotDurationMinutes : undefined,
+        isActive: isActive !== undefined ? isActive : undefined,
+      });
+      if (!availability) {
+        return res.status(404).json({ message: "Reglen findes ikke" });
+      }
+      res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/platform-calendar/availability/:availabilityId", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { service } = await getPlatformCalendar();
+      const rules = await storage.getServiceAvailability(service.id);
+      if (!rules.some(rule => rule.id === req.params.availabilityId)) {
+        return res.status(404).json({ message: "Reglen findes ikke" });
+      }
+      await storage.deleteServiceAvailability(req.params.availabilityId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
 
   // Admin Dashboard Routes
   app.get("/api/admin/overview", requireAuth, requireAdmin, async (req, res) => {
@@ -6837,7 +7324,18 @@ export async function registerRoutes(
       const subscription = event.data.object;
       const isUserSubscription = subscription?.metadata?.type === 'user_subscription' || 
                                  subscription?.metadata?.type === 'onboarding';
-      
+
+      // End-of-onboarding payment state, deduplicated by event id.
+      await handleOnboardingStripeEvent(event);
+
+      // Everything below is the pre-existing subscription bookkeeping; it
+      // also only makes sense once per delivered event.
+      const firstDelivery = await shouldProcessStripeEvent(event);
+      if (!firstDelivery) {
+        console.log(`[Webhook] Duplicate delivery of ${event.id} ignored`);
+        return res.json({ received: true, duplicate: true });
+      }
+
       switch (event.type) {
         case 'checkout.session.completed':
           await handleCheckoutSessionCompleted(event.data.object);

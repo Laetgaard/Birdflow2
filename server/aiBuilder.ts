@@ -1,3 +1,9 @@
+import {
+  DEFAULT_SITE_LANGUAGE,
+  LANGUAGE_NAME_EN,
+  copyLanguageInstruction,
+  type SiteLanguage,
+} from "@shared/siteLanguage";
 import { 
   BuilderMutationSchema, 
   AIResponseSchema, 
@@ -656,10 +662,17 @@ The platform generates the image (brand colors and imagery style are added autom
 - Describe subject, composition, mood and lighting — NEVER ask for text, words or logos inside the image
 `;
 
-function getSystemPrompt(mode: 'safe' | 'creative'): string {
-  return mode === 'creative' 
-    ? BASE_SYSTEM_PROMPT + AI_EXTENSIONS_PROMPT + CREATIVE_MODE_STYLES 
+function getSystemPrompt(mode: 'safe' | 'creative', lang: SiteLanguage): string {
+  const base = mode === 'creative'
+    ? BASE_SYSTEM_PROMPT + AI_EXTENSIONS_PROMPT + CREATIVE_MODE_STYLES
     : BASE_SYSTEM_PROMPT + AI_EXTENSIONS_PROMPT + SAFE_MODE_STYLES;
+  // The customer's language choice wins over every Danish-by-default rule
+  // above, so it is appended last.
+  return `${base}
+
+## OUTPUT LANGUAGE (overrides every language rule above)
+${copyLanguageInstruction(lang)}
+Write natural, idiomatic ${LANGUAGE_NAME_EN[lang]} — never translated-sounding text. Names, testimonials and examples must fit that language.`;
 }
 
 /**
@@ -1063,10 +1076,11 @@ export type CreativeMode = 'safe' | 'creative';
 export async function processAIBuildRequest(
   prompt: string,
   currentState: BuilderStateData,
-  mode: CreativeMode = 'creative'
+  mode: CreativeMode = 'creative',
+  language: SiteLanguage = DEFAULT_SITE_LANGUAGE
 ): Promise<AIResponse> {
   const stateContext = getCurrentStateContext(currentState);
-  const systemPrompt = getSystemPrompt(mode);
+  const systemPrompt = getSystemPrompt(mode, language);
   
   const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
@@ -1378,10 +1392,11 @@ function simulateMutation(state: BuilderStateData, mutation: any): BuilderStateD
 export async function processAIThinkingRequest(
   prompt: string,
   currentState: BuilderStateData,
-  mode: CreativeMode = 'creative'
+  mode: CreativeMode = 'creative',
+  language: SiteLanguage = DEFAULT_SITE_LANGUAGE
 ): Promise<AIThinkingResponse> {
   const stateContext = getCurrentStateContext(currentState);
-  const systemPrompt = getSystemPrompt(mode);
+  const systemPrompt = getSystemPrompt(mode, language);
   
   const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",

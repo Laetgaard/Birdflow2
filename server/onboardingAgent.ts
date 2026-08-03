@@ -15,6 +15,13 @@ import {
   type OnboardingGenInput,
 } from "./onboardingGenerator";
 import type { AgentEvent } from "./aiAgent";
+import {
+  copyLanguageInstruction,
+  DEFAULT_SITE_LANGUAGE,
+  LANGUAGE_NAME_EN,
+  normalizeSiteLanguage,
+  type SiteLanguage,
+} from "@shared/siteLanguage";
 
 /* ─────────────────────────────────────────────────────────────
    The onboarding walkthrough agent.
@@ -72,11 +79,185 @@ export type OnboardingAgentContext = {
   /** Builder state of the draft website (brand-guide-aware proposals). */
   state: BuilderStateData | null;
   buildStarted: boolean;
+  /**
+   * The language the customer picked right after the fork. Everything the
+   * guide says - its questions, its tool summaries, the plan it writes - is
+   * in this language. Danish when the customer never answered, which is what
+   * this walkthrough always did.
+   */
+  lang: SiteLanguage;
 };
+
+/* ─────────── what the guide says ───────────
+   The progress lines and tool summaries the customer reads while the guide
+   works. Split by language for the same reason the prompt is: a customer who
+   asked for an English site should not watch Danish status text scroll past. */
+
+type AgentStrings = {
+  thinking: string;
+  working: string;
+  savedAnswers: string;
+  nothingToSave: string;
+  proposedPalettes: (n: number) => string;
+  paletteFailed: (why: string) => string;
+  proposedFonts: (n: number) => string;
+  fontsFailed: (why: string) => string;
+  needPaletteFirst: string;
+  askedLogo: string;
+  askedImages: string;
+  askedInspiration: string;
+  noInspiration: string;
+  imagesUnreadable: string;
+  analyzedInspiration: string;
+  analysisUnreadable: string;
+  analysisFailed: (why: string) => string;
+  websiteNotCreated: string;
+  missingBusinessName: string;
+  generatedLogo: string;
+  logoFailed: (why: string) => string;
+  needBasicsForPlan: string;
+  planFailed: (why: string) => string;
+  planCouldNotBeMade: string;
+  madePlan: (pages: number) => string;
+  stillMissing: (list: string) => string;
+  missingWebsite: string;
+  missingName: string;
+  missingDescription: string;
+  missingFeeling: string;
+  missingPalette: string;
+  missingFonts: string;
+  alreadyBuilding: string;
+  startedBuild: string;
+  unknownTool: (name: string) => string;
+  toolError: (why: string) => string;
+  serviceSilent: (why: string) => string;
+  emptyResponse: string;
+  keepGoing: string;
+};
+
+const AGENT_STRINGS: Record<SiteLanguage, AgentStrings> = {
+  da: {
+    thinking: "Tænker",
+    working: "Arbejder",
+    savedAnswers: "Gemte dine svar",
+    nothingToSave: "Ingen felter at gemme.",
+    proposedPalettes: (n) => `Foreslog ${n} farvepaletter`,
+    paletteFailed: (why) => `Palet-forslag fejlede: ${why}`,
+    proposedFonts: (n) => `Foreslog ${n} skrifttype-par`,
+    fontsFailed: (why) => `Skrifttype-forslag fejlede: ${why}`,
+    needPaletteFirst: "Brugeren har ikke valgt en palet endnu — foreslå paletter først.",
+    askedLogo: "Bad om logo",
+    askedImages: "Bad om egne billeder",
+    askedInspiration: "Bad om inspirationsbilleder",
+    noInspiration: "Der er ingen inspirationsbilleder at analysere.",
+    imagesUnreadable: "Billederne kunne ikke læses.",
+    analyzedInspiration: "Analyserede inspirationsbillederne",
+    analysisUnreadable: "Kunne ikke aflæse stilen.",
+    analysisFailed: (why) => `Billedanalysen fejlede: ${why}`,
+    websiteNotCreated: "Websitet er ikke oprettet endnu — få virksomhedsnavnet først.",
+    missingBusinessName: "Jeg mangler virksomhedens navn, før jeg kan lave et logo.",
+    generatedLogo: "Genererede et logo",
+    logoFailed: (why) => `Logo-generering fejlede: ${why}`,
+    needBasicsForPlan: "Saml virksomhed, beskrivelse og følelse, før du laver udkastet.",
+    planFailed: (why) => `Designudkastet fejlede: ${why}`,
+    planCouldNotBeMade: "Kunne ikke lave designudkastet",
+    madePlan: (pages) => `Lavede designudkast: ${pages} sider`,
+    stillMissing: (list) => `Mangler stadig: ${list}. Saml det færdigt først.`,
+    missingWebsite: "website (vælg 'AI bygger den' først)",
+    missingName: "virksomhedsnavn",
+    missingDescription: "beskrivelse",
+    missingFeeling: "følelse",
+    missingPalette: "farvepalet",
+    missingFonts: "skrifttyper",
+    alreadyBuilding: "Bygningen er allerede i gang",
+    startedBuild: "Startede opbygningen af hjemmesiden",
+    unknownTool: (name) => `Ukendt værktøj "${name}"`,
+    toolError: (why) => `Værktøjsfejl: ${why}`,
+    serviceSilent: (why) => `AI-tjenesten svarede ikke: ${why}`,
+    emptyResponse: "Tomt svar fra AI-tjenesten.",
+    keepGoing: "Lad os fortsætte — hvad vil du gerne fortælle mig?",
+  },
+  en: {
+    thinking: "Thinking",
+    working: "Working",
+    savedAnswers: "Saved your answers",
+    nothingToSave: "No fields to save.",
+    proposedPalettes: (n) => `Proposed ${n} colour palettes`,
+    paletteFailed: (why) => `Palette proposal failed: ${why}`,
+    proposedFonts: (n) => `Proposed ${n} font pairs`,
+    fontsFailed: (why) => `Font proposal failed: ${why}`,
+    needPaletteFirst: "The user has not chosen a palette yet — propose palettes first.",
+    askedLogo: "Asked for a logo",
+    askedImages: "Asked for their own photos",
+    askedInspiration: "Asked for inspiration images",
+    noInspiration: "There are no inspiration images to analyse.",
+    imagesUnreadable: "The images could not be read.",
+    analyzedInspiration: "Analysed the inspiration images",
+    analysisUnreadable: "Could not read the style.",
+    analysisFailed: (why) => `Image analysis failed: ${why}`,
+    websiteNotCreated: "The website does not exist yet — get the business name first.",
+    missingBusinessName: "I need the business name before I can make a logo.",
+    generatedLogo: "Generated a logo",
+    logoFailed: (why) => `Logo generation failed: ${why}`,
+    needBasicsForPlan: "Collect the business, the description and the feeling before drafting the plan.",
+    planFailed: (why) => `The design draft failed: ${why}`,
+    planCouldNotBeMade: "Could not create the design draft",
+    madePlan: (pages) => `Made a design draft: ${pages} pages`,
+    stillMissing: (list) => `Still missing: ${list}. Collect it first.`,
+    missingWebsite: "website (choose 'Let the AI build it' first)",
+    missingName: "business name",
+    missingDescription: "description",
+    missingFeeling: "feeling",
+    missingPalette: "colour palette",
+    missingFonts: "fonts",
+    alreadyBuilding: "The build is already running",
+    startedBuild: "Started building the website",
+    unknownTool: (name) => `Unknown tool "${name}"`,
+    toolError: (why) => `Tool error: ${why}`,
+    serviceSilent: (why) => `The AI service did not answer: ${why}`,
+    emptyResponse: "Empty response from the AI service.",
+    keepGoing: "Let's carry on — what would you like to tell me?",
+  },
+};
+
+// Defensive on purpose: a context assembled before the language is known
+// (or by a caller that predates it) speaks Danish, the default everywhere.
+const say = (ctx: OnboardingAgentContext): AgentStrings =>
+  AGENT_STRINGS[ctx.lang] ?? AGENT_STRINGS[DEFAULT_SITE_LANGUAGE];
 
 /* ─────────── prompt ─────────── */
 
-function buildSystemPrompt(): string {
+/**
+ * The guide speaks the customer's language. Two hand-written prompts rather
+ * than one prompt with a "reply in X" line bolted on: an instruction to
+ * answer in English inside an otherwise-Danish prompt leaks Danish phrasing
+ * into the questions, and the walkthrough is the first thing the customer
+ * ever reads.
+ */
+function buildSystemPrompt(lang: SiteLanguage): string {
+  if (lang === "en") {
+    return `You are Birdflow's onboarding guide: a friendly website expert who, through ONE conversation, collects everything needed to build the customer's first website. You write short and warm, ONE question at a time — never a form interrogation.
+
+## The flow (skip nothing, but follow the user's pace)
+1. The business: name, industry, and what they do (a couple of sentences).
+2. Goals: what should the site be able to do? (booking, webshop, portfolio, blog, contact form, newsletter) plus free-form wishes.
+3. Material (optional): logo, own photos, inspiration images — use request_upload, and never push. If the user has no logo, offer ONCE to make one with generate_logo.
+4. Feeling: how should the site feel? (e.g. "calm and Nordic").
+5. Colours: call propose_palettes with the feeling. The user clicks a card — their choice arrives as their next message.
+6. Typography: call propose_font_pairs with the feeling and the chosen palette.
+7. Design draft: call preview_design so the user sees the concrete plan (pages, sections, design system) BEFORE the long build. Ask whether anything should be adjusted.
+8. When the user approves the draft: call build_site.
+
+## Rules
+- Save EVERYTHING the user tells you with save_answers, in the same turn they tell you.
+- Palettes, fonts and uploads are saved automatically when the user clicks — do NOT repeat hex codes or URLs in save_answers.
+- Once you have proposed palettes, fonts or a design draft, END your turn (call finish) — the user's answer arrives as the next message.
+- If the user wants the draft adjusted, call preview_design again with their wishes in adjustments.
+- After build_site: say you are building now, and call finish. NEVER keep building yourself.
+- Everything is in English. Be concrete, never filler.
+- If the user has already answered something (see "Status"), do not ask again — carry on from where you left off.`;
+  }
+
   return `Du er Birdflows onboarding-guide: en venlig dansk hjemmeside-ekspert, der gennem én samtale samler alt, hvad der skal til for at bygge kundens første hjemmeside. Du SKRIVER kort og varmt, ét spørgsmål ad gangen — aldrig et formular-forhør.
 
 ## Forløbet (spring intet over, men følg brugerens tempo)
@@ -101,6 +282,22 @@ function buildSystemPrompt(): string {
 
 function buildStatusContext(ctx: OnboardingAgentContext): string {
   const a = ctx.answers;
+  if (ctx.lang === "en") {
+    const lines = [
+      `Business: ${a.businessName ?? "?"} (${a.industry ?? "?"})`,
+      `Description: ${a.description ?? "?"}`,
+      `Goals: ${a.goals?.join(", ") || "?"}${a.notes ? ` — notes: ${a.notes}` : ""}`,
+      `Feeling: ${a.feeling ?? "?"}`,
+      `Palette: ${a.palette ? `"${a.palette.name}" chosen` : "not chosen"}`,
+      `Fonts: ${a.fontPair ? `"${a.fontPair.name}" chosen` : "not chosen"}`,
+      `Logo: ${a.logoUrl ? (a.logoGenerated ? "AI-generated" : "uploaded") : "none"}`,
+      `Own photos: ${a.ownImageUrls?.length ?? 0}, inspiration images: ${a.inspirationUrls?.length ?? 0}`,
+      `Design draft: ${a.plan ? "an approval-ready plan exists" : "not made yet"}`,
+      `Website created: ${ctx.websiteId ? "yes" : "no"}`,
+    ];
+    return `Status of the collected answers:\n${lines.join("\n")}`;
+  }
+
   const lines = [
     `Virksomhed: ${a.businessName ?? "?"} (${a.industry ?? "?"})`,
     `Beskrivelse: ${a.description ?? "?"}`,
@@ -143,11 +340,11 @@ export function buildOnboardingTools(): OnboardingTool[] {
         if (args[key] !== undefined) (patch as any)[key] = args[key];
       }
       if (Object.keys(patch).length === 0) {
-        return { ok: false, error: "Ingen felter at gemme." };
+        return { ok: false, error: say(ctx).nothingToSave };
       }
       ctx.answers = { ...ctx.answers, ...patch };
       await storage.upsertOnboardingSession(ctx.userId, { answers: patch });
-      return { ok: true, summary: "Gemte dine svar", data: { saved: Object.keys(patch) } };
+      return { ok: true, summary: say(ctx).savedAnswers, data: { saved: Object.keys(patch) } };
     },
   });
 
@@ -159,15 +356,15 @@ export function buildOnboardingTools(): OnboardingTool[] {
     parameters: z.object({ feeling: z.string().min(2).max(300) }),
     run: async ({ feeling }, ctx) => {
       try {
-        const palettes = await proposePalettes(feeling, ctx.state ?? emptyState());
+        const palettes = await proposePalettes(feeling, ctx.state ?? emptyState(), ctx.lang);
         return {
           ok: true,
-          summary: `Foreslog ${palettes.length} farvepaletter`,
+          summary: say(ctx).proposedPalettes(palettes.length),
           data: palettes.map((p: PaletteProposal) => ({ id: p.id, name: p.name })),
           display: { kind: "palettes", value: palettes },
         };
       } catch (err: any) {
-        return { ok: false, error: `Palet-forslag fejlede: ${err?.message ?? err}` };
+        return { ok: false, error: say(ctx).paletteFailed(err?.message ?? err) };
       }
     },
   });
@@ -181,22 +378,23 @@ export function buildOnboardingTools(): OnboardingTool[] {
     run: async ({ feeling }, ctx) => {
       const palette = ctx.answers.palette;
       if (!palette) {
-        return { ok: false, error: "Brugeren har ikke valgt en palet endnu — foreslå paletter først." };
+        return { ok: false, error: say(ctx).needPaletteFirst };
       }
       try {
         const fontPairs = await proposeFontPairs(
           feeling,
           palette as PaletteProposal,
-          ctx.state ?? emptyState()
+          ctx.state ?? emptyState(),
+          ctx.lang
         );
         return {
           ok: true,
-          summary: `Foreslog ${fontPairs.length} skrifttype-par`,
+          summary: say(ctx).proposedFonts(fontPairs.length),
           data: fontPairs.map((f: FontPairProposal) => ({ id: f.id, name: f.name })),
           display: { kind: "fontPairs", value: fontPairs },
         };
       } catch (err: any) {
-        return { ok: false, error: `Skrifttype-forslag fejlede: ${err?.message ?? err}` };
+        return { ok: false, error: say(ctx).fontsFailed(err?.message ?? err) };
       }
     },
   });
@@ -207,14 +405,14 @@ export function buildOnboardingTools(): OnboardingTool[] {
       "Show an inline upload zone so the user can add their logo, own images or inspiration screenshots. " +
       "Uploads are optional — offer once, never push.",
     parameters: z.object({ kind: z.enum(["logo", "images", "inspiration"]) }),
-    run: ({ kind }) => ({
+    run: ({ kind }, ctx) => ({
       ok: true,
       summary:
         kind === "logo"
-          ? "Bad om logo"
+          ? say(ctx).askedLogo
           : kind === "images"
-            ? "Bad om egne billeder"
-            : "Bad om inspirationsbilleder",
+            ? say(ctx).askedImages
+            : say(ctx).askedInspiration,
       data: { requested: kind },
       display: { kind: "uploadRequest", value: { kind } },
     }),
@@ -229,7 +427,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
     run: async (_args, ctx) => {
       const urls = [...(ctx.answers.inspirationUrls ?? [])].slice(0, 3);
       if (urls.length === 0) {
-        return { ok: false, error: "Der er ingen inspirationsbilleder at analysere." };
+        return { ok: false, error: say(ctx).noInspiration };
       }
       try {
         const images: Array<{ type: "image_url"; image_url: { url: string; detail: "low" } }> = [];
@@ -238,7 +436,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
           if (dataUrl) images.push({ type: "image_url", image_url: { url: dataUrl, detail: "low" } });
         }
         if (images.length === 0) {
-          return { ok: false, error: "Billederne kunne ikke læses." };
+          return { ok: false, error: say(ctx).imagesUnreadable };
         }
         const completion = await getOpenAI().chat.completions.create({
           model: MODEL,
@@ -246,20 +444,30 @@ export function buildOnboardingTools(): OnboardingTool[] {
             {
               role: "system",
               content:
-                "You are a Danish design analyst. In 2-3 Danish sentences, describe the shared design " +
-                "direction of these inspiration images: colours, mood, typography feel. Plain text only.",
+                `You are a design analyst. In 2-3 sentences written in ${LANGUAGE_NAME_EN[ctx.lang]}, describe ` +
+                "the shared design direction of these inspiration images: colours, mood, typography feel. " +
+                "Plain text only.",
             },
             {
               role: "user",
-              content: [...images, { type: "text", text: "Hvad siger disse billeder om stilen?" }],
+              content: [
+                ...images,
+                {
+                  type: "text",
+                  text:
+                    ctx.lang === "en"
+                      ? "What do these images say about the style?"
+                      : "Hvad siger disse billeder om stilen?",
+                },
+              ],
             },
           ],
           max_completion_tokens: 400,
         });
-        const analysis = completion.choices[0]?.message?.content?.trim() || "Kunne ikke aflæse stilen.";
-        return { ok: true, summary: "Analyserede inspirationsbillederne", data: { analysis } };
+        const analysis = completion.choices[0]?.message?.content?.trim() || say(ctx).analysisUnreadable;
+        return { ok: true, summary: say(ctx).analyzedInspiration, data: { analysis } };
       } catch (err: any) {
-        return { ok: false, error: `Billedanalysen fejlede: ${err?.message ?? err}` };
+        return { ok: false, error: say(ctx).analysisFailed(err?.message ?? err) };
       }
     },
   });
@@ -274,10 +482,10 @@ export function buildOnboardingTools(): OnboardingTool[] {
     }),
     run: async ({ notes }, ctx) => {
       if (!ctx.websiteId) {
-        return { ok: false, error: "Websitet er ikke oprettet endnu — få virksomhedsnavnet først." };
+        return { ok: false, error: say(ctx).websiteNotCreated };
       }
       if (!ctx.answers.businessName) {
-        return { ok: false, error: "Jeg mangler virksomhedens navn, før jeg kan lave et logo." };
+        return { ok: false, error: say(ctx).missingBusinessName };
       }
       try {
         const { url, mediaId } = await generateLogo(ctx.websiteId, ctx.answers.businessName, {
@@ -292,12 +500,12 @@ export function buildOnboardingTools(): OnboardingTool[] {
         await storage.upsertOnboardingSession(ctx.userId, { answers: patch });
         return {
           ok: true,
-          summary: "Genererede et logo",
+          summary: say(ctx).generatedLogo,
           data: { url },
           display: { kind: "logoGenerated", value: { url, businessName: ctx.answers.businessName } },
         };
       } catch (err: any) {
-        return { ok: false, error: `Logo-generering fejlede: ${err?.message ?? err}` };
+        return { ok: false, error: say(ctx).logoFailed(err?.message ?? err) };
       }
     },
   });
@@ -314,23 +522,36 @@ export function buildOnboardingTools(): OnboardingTool[] {
     run: async ({ adjustments }, ctx) => {
       const a = ctx.answers;
       if (!a.businessName || !a.description || !a.feeling) {
-        return { ok: false, error: "Saml virksomhed, beskrivelse og følelse, før du laver udkastet." };
+        return { ok: false, error: say(ctx).needBasicsForPlan };
       }
       try {
-        const goals = a.goals?.join(", ") || "en professionel hjemmeside";
-        const prompt = [
-          `Lav en komplet dansk hjemmeside-plan for "${a.businessName}" (${a.industry || "virksomhed"}).`,
-          `Om virksomheden: ${a.description}`,
-          `Skal kunne: ${goals}.`,
-          a.notes ? `Øvrige ønsker: ${a.notes}` : "",
-          `Følelsen: ${a.feeling}.`,
-          adjustments ? `VIGTIGE JUSTERINGER fra brugeren til forrige udkast: ${adjustments}` : "",
-        ]
+        const goals = a.goals?.join(", ") || (ctx.lang === "en" ? "a professional website" : "en professionel hjemmeside");
+        const prompt = (
+          ctx.lang === "en"
+            ? [
+                `Create a complete website plan for "${a.businessName}" (${a.industry || "business"}).`,
+                `About the business: ${a.description}`,
+                `It must support: ${goals}.`,
+                a.notes ? `Other wishes: ${a.notes}` : "",
+                `The feeling: ${a.feeling}.`,
+                adjustments ? `IMPORTANT ADJUSTMENTS from the user to the previous draft: ${adjustments}` : "",
+                copyLanguageInstruction("en"),
+              ]
+            : [
+                `Lav en komplet dansk hjemmeside-plan for "${a.businessName}" (${a.industry || "virksomhed"}).`,
+                `Om virksomheden: ${a.description}`,
+                `Skal kunne: ${goals}.`,
+                a.notes ? `Øvrige ønsker: ${a.notes}` : "",
+                `Følelsen: ${a.feeling}.`,
+                adjustments ? `VIGTIGE JUSTERINGER fra brugeren til forrige udkast: ${adjustments}` : "",
+                copyLanguageInstruction("da"),
+              ]
+        )
           .filter(Boolean)
           .join("\n");
         const result = await analyzeAndPlanWebsite(prompt);
         if (!result.success || !result.plan) {
-          return { ok: false, error: result.error ?? "Kunne ikke lave designudkastet" };
+          return { ok: false, error: result.error ?? say(ctx).planCouldNotBeMade };
         }
         const plan = result.plan;
         plan.siteName = a.businessName;
@@ -339,7 +560,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
         await storage.upsertOnboardingSession(ctx.userId, { answers: patch });
         return {
           ok: true,
-          summary: `Lavede designudkast: ${plan.pages.length} sider`,
+          summary: say(ctx).madePlan(plan.pages.length),
           data: {
             pages: plan.pages.map((p) => ({ name: p.name, path: p.path, sections: p.sections.length })),
             tone: plan.designSystem.tone,
@@ -347,7 +568,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
           display: { kind: "sitePlan", value: { plan } },
         };
       } catch (err: any) {
-        return { ok: false, error: `Designudkastet fejlede: ${err?.message ?? err}` };
+        return { ok: false, error: say(ctx).planFailed(err?.message ?? err) };
       }
     },
   });
@@ -361,17 +582,18 @@ export function buildOnboardingTools(): OnboardingTool[] {
     run: async (_args, ctx) => {
       const a = ctx.answers;
       const missing: string[] = [];
-      if (!ctx.websiteId) missing.push("website (vælg 'AI bygger den' først)");
-      if (!a.businessName) missing.push("virksomhedsnavn");
-      if (!a.description) missing.push("beskrivelse");
-      if (!a.feeling) missing.push("følelse");
-      if (!a.palette) missing.push("farvepalet");
-      if (!a.fontPair) missing.push("skrifttyper");
+      const s = say(ctx);
+      if (!ctx.websiteId) missing.push(s.missingWebsite);
+      if (!a.businessName) missing.push(s.missingName);
+      if (!a.description) missing.push(s.missingDescription);
+      if (!a.feeling) missing.push(s.missingFeeling);
+      if (!a.palette) missing.push(s.missingPalette);
+      if (!a.fontPair) missing.push(s.missingFonts);
       if (missing.length > 0) {
-        return { ok: false, error: `Mangler stadig: ${missing.join(", ")}. Saml det færdigt først.` };
+        return { ok: false, error: s.stillMissing(missing.join(", ")) };
       }
       if (isOnboardingGenRunning(ctx.websiteId!)) {
-        return { ok: true, summary: "Bygningen er allerede i gang", data: { alreadyRunning: true } };
+        return { ok: true, summary: s.alreadyBuilding, data: { alreadyRunning: true } };
       }
 
       const input: OnboardingGenInput = {
@@ -390,12 +612,15 @@ export function buildOnboardingTools(): OnboardingTool[] {
         ownImageUrls: a.ownImageUrls ?? [],
         // What the user approved in the preview is what gets built.
         plan: a.plan as WebsitePlan | undefined,
+        // Everything the pipeline writes follows the language the customer
+        // chose right after the fork.
+        language: ctx.lang,
       };
       startOnboardingGeneration(ctx.websiteId!, input);
       ctx.buildStarted = true;
       return {
         ok: true,
-        summary: "Startede opbygningen af hjemmesiden",
+        summary: s.startedBuild,
         data: { started: true },
         display: { kind: "buildStarted", value: { websiteId: ctx.websiteId } },
       };
@@ -404,7 +629,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
 
   tools.push({
     name: "finish",
-    description: "End your turn with a short Danish message to the user.",
+    description: "End your turn with a short message to the user, in the website's language.",
     parameters: z.object({ summary: z.string().max(600) }),
     run: ({ summary }) => ({ ok: true, summary, data: { done: true } }),
   });
@@ -423,6 +648,12 @@ export async function runOnboardingAgent(args: {
   websiteId: string | null;
   transcript: OnboardingChatMessage[];
   answers: OnboardingAnswers;
+  /**
+   * The website's language when the caller already has it. Otherwise it comes
+   * off the recorded answers, which is where the onboarding language step
+   * writes it before the draft website exists.
+   */
+  language?: SiteLanguage;
   onEvent?: (event: AgentEvent) => void;
 }): Promise<OnboardingAgentOutcome> {
   const emit = args.onEvent ?? (() => {});
@@ -453,7 +684,9 @@ export async function runOnboardingAgent(args: {
     answers: { ...args.answers },
     state,
     buildStarted: false,
+    lang: normalizeSiteLanguage(args.language ?? args.answers.language),
   };
+  const s = AGENT_STRINGS[ctx.lang];
 
   const history = args.transcript.slice(-TRANSCRIPT_WINDOW).map((m) => ({
     role: m.role,
@@ -461,7 +694,7 @@ export async function runOnboardingAgent(args: {
   }));
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: buildSystemPrompt() },
+    { role: "system", content: buildSystemPrompt(ctx.lang) },
     { role: "system", content: buildStatusContext(ctx) },
     ...(history as OpenAI.Chat.ChatCompletionMessageParam[]),
   ];
@@ -473,7 +706,7 @@ export async function runOnboardingAgent(args: {
 
   while (steps < ONBOARDING_MAX_STEPS) {
     steps += 1;
-    emit({ type: "step", step: steps, label: steps === 1 ? "Tænker" : "Arbejder" });
+    emit({ type: "step", step: steps, label: steps === 1 ? s.thinking : s.working });
 
     let completion: OpenAI.Chat.ChatCompletion;
     try {
@@ -485,7 +718,7 @@ export async function runOnboardingAgent(args: {
         max_completion_tokens: MAX_COMPLETION_TOKENS,
       });
     } catch (err: any) {
-      const message = `AI-tjenesten svarede ikke: ${err?.message ?? err}`;
+      const message = s.serviceSilent(err?.message ?? err);
       emit({ type: "error", message });
       return {
         status: "failed",
@@ -500,7 +733,7 @@ export async function runOnboardingAgent(args: {
     totalCompletionTokens += completion.usage?.completion_tokens ?? 0;
     const message = completion.choices[0]?.message;
     if (!message) {
-      const msg = "Tomt svar fra AI-tjenesten.";
+      const msg = s.emptyResponse;
       emit({ type: "error", message: msg });
       return {
         status: "failed",
@@ -531,13 +764,13 @@ export async function runOnboardingAgent(args: {
 
       let result: ToolResult;
       if (!tool) {
-        result = { ok: false, error: `Ukendt værktøj "${call.function.name}"` };
+        result = { ok: false, error: s.unknownTool(call.function.name) };
       } else {
         try {
           const parsedArgs = call.function.arguments ? JSON.parse(call.function.arguments) : {};
           result = await tool.run(parsedArgs, ctx);
         } catch (err: any) {
-          result = { ok: false, error: `Værktøjsfejl: ${err?.message ?? err}` };
+          result = { ok: false, error: s.toolError(err?.message ?? err) };
         }
       }
 
@@ -570,7 +803,7 @@ export async function runOnboardingAgent(args: {
     }
   }
 
-  if (!reply) reply = "Lad os fortsætte — hvad vil du gerne fortælle mig?";
+  if (!reply) reply = s.keepGoing;
   emit({ type: "done", summary: reply });
 
   return {

@@ -10,8 +10,26 @@ import {
   Globe, Loader2, Settings, Clock, CheckCircle, XCircle, AlertCircle,
   Plus, Trash2, ExternalLink, Copy, RefreshCw, Link2,
 } from "lucide-react";
-import type { CustomDomain } from "./types";
+import type { CustomDomain, DnsRecord } from "./types";
 import { authHeaders, jsonAuthHeaders } from "./shared";
+
+// DNS records to display for a domain. Newer rows carry the full list from
+// Vercel (dnsRecords); older rows only have the single legacy record.
+function recordsFor(domain: CustomDomain): DnsRecord[] {
+  if (domain.dnsRecords && domain.dnsRecords.length > 0) return domain.dnsRecords;
+  if (domain.dnsType && domain.dnsValue) {
+    return [{
+      type: domain.dnsType,
+      name: domain.dnsName || '@',
+      value: domain.dnsValue,
+      purpose: 'routing',
+      required: true,
+    }];
+  }
+  return [];
+}
+
+const hasPendingWork = (d: CustomDomain) => d.status === 'pending' || d.status === 'verifying';
 
 export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId: string; accessToken: string; isPublished: boolean }) {
   const { toast } = useToast();
@@ -30,8 +48,6 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
       if (res.ok) {
         const data = await res.json();
         setDomains(data);
-        const hasPendingDomains = data.some((d: CustomDomain) => d.status === 'pending' || d.status === 'verifying');
-        setAutoPolling(hasPendingDomains);
       }
     } catch (error) {
       console.error('Failed to fetch domains:', error);
@@ -51,10 +67,16 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
     return () => window.removeEventListener('domain-purchased', handler);
   }, [fetchDomains]);
 
+  // Keep auto-polling in sync with reality: poll while ANY domain is still
+  // pending/verifying (one domain going live must not stop the others).
+  useEffect(() => {
+    setAutoPolling(domains.some(hasPendingWork));
+  }, [domains]);
+
   useEffect(() => {
     if (!autoPolling) return;
     const interval = setInterval(async () => {
-      const pendingDomains = domains.filter(d => d.status === 'pending' || d.status === 'verifying');
+      const pendingDomains = domains.filter(hasPendingWork);
       for (const domain of pendingDomains) {
         try {
           const res = await fetch(`/api/websites/${websiteId}/domains/${domain.id}/verify`, {
@@ -62,11 +84,12 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
             headers: authHeaders(accessToken),
           });
           const data = await res.json();
+          if (data.domain) {
+            setDomains(prev => prev.map(d => (d.id === domain.id ? { ...d, ...data.domain } : d)));
+          } else if (data.status) {
+            setDomains(prev => prev.map(d => (d.id === domain.id ? { ...d, status: data.status } : d)));
+          }
           if (data.verified) {
-            setDomains(prev => prev.map(d =>
-              d.id === domain.id ? { ...d, status: 'active' as const } : d
-            ));
-            setAutoPolling(false);
             toast({
               title: "Domæne forbundet!",
               description: `Dit domæne ${domain.domain} er nu live!`,
@@ -97,11 +120,16 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
         throw new Error(data.message || 'Kunne ikke tilføje domænet');
       }
 
-      setDomains(prev => [...prev, data]);
+      // Upsert: connecting a purchased domain updates its existing row
+      setDomains(prev => (prev.some(d => d.id === data.id)
+        ? prev.map(d => (d.id === data.id ? data : d))
+        : [...prev, data]));
       setNewDomain('');
       toast({
-        title: "Domæne tilføjet",
-        description: "Tilføj DNS-posten nedenfor for at forbinde dit domæne.",
+        title: data.status === 'active' ? "Domænet er live!" : "Domæne tilføjet",
+        description: data.status === 'active'
+          ? `Din side svarer nu på https://${data.domain}`
+          : "Tilføj DNS-posterne nedenfor hos din domæneudbyder for at forbinde dit domæne.",
       });
     } catch (error: any) {
       toast({
@@ -124,20 +152,19 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
 
       const data = await res.json();
 
+      setDomains(prev => prev.map(d => {
+        if (d.id !== domainId) return d;
+        return data.domain ? { ...d, ...data.domain } : { ...d, status: data.status as CustomDomain['status'] };
+      }));
+
       if (data.verified) {
-        setDomains(prev => prev.map(d =>
-          d.id === domainId ? { ...d, status: data.status as CustomDomain['status'] } : d
-        ));
         toast({
           title: "Domæne forbundet",
           description: data.message || "Dit domæne er nu live!",
         });
       } else {
-        setDomains(prev => prev.map(d =>
-          d.id === domainId ? { ...d, status: data.status as CustomDomain['status'] } : d
-        ));
         toast({
-          title: "Venter stadig",
+          title: data.status === 'verifying' ? "Næsten klar" : "Venter stadig",
           description: data.message || "DNS-ændringerne er stadig undervejs. Prøv igen om et par minutter.",
         });
       }
@@ -196,7 +223,7 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
         return (
           <Badge className="bg-blue-100 text-blue-800 border-blue-200">
             <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-            Tjekker DNS
+            DNS fundet — aktiverer
           </Badge>
         );
       case 'pending':
@@ -231,9 +258,9 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
   const StepIndicator = ({ domain }: { domain: CustomDomain }) => {
     const currentStep = getStepNumber(domain.status);
     const steps = [
-      { num: 1, label: 'Tilføj DNS-post' },
-      { num: 2, label: 'Verificerer' },
-      { num: 3, label: 'Forbundet' },
+      { num: 1, label: 'Tilføj DNS-poster' },
+      { num: 2, label: 'Aktiverer' },
+      { num: 3, label: 'Live' },
     ];
 
     return (
@@ -418,17 +445,28 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
                     </div>
                   )}
 
-                  {(domain.status === 'pending' || domain.status === 'verifying') && domain.dnsType && (
+                  {(domain.status === 'pending' || domain.status === 'verifying') && recordsFor(domain).length > 0 && (
                     <div className="bg-white border border-blue-200 rounded-lg p-4">
                       <div className="flex items-start gap-3 mb-4">
                         <div className="bg-blue-100 p-1.5 rounded-full">
                           <Settings className="w-4 h-4 text-blue-600" />
                         </div>
                         <div>
-                          <h4 className="font-medium text-blue-900">Tilføj denne DNS-post hos din domæneudbyder</h4>
-                          <p className="text-sm text-blue-700 mt-0.5">
-                            Gå til din domæneudbyder (GoDaddy, Namecheap, Cloudflare, One.com osv.) og tilføj følgende post:
-                          </p>
+                          {domain.status === 'verifying' ? (
+                            <>
+                              <h4 className="font-medium text-blue-900">DNS er på plads — dit certifikat aktiveres</h4>
+                              <p className="text-sm text-blue-700 mt-0.5">
+                                Vercel har registreret dine DNS-poster og udsteder nu et sikkerhedscertifikat. Det tager normalt få minutter. Posterne herunder er blot til reference:
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <h4 className="font-medium text-blue-900">Tilføj disse DNS-poster hos din domæneudbyder</h4>
+                              <p className="text-sm text-blue-700 mt-0.5">
+                                Gå til din domæneudbyder (GoDaddy, Namecheap, Cloudflare, One.com osv.) og tilføj følgende poster:
+                              </p>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -442,52 +480,70 @@ export function DomainsCard({ websiteId, accessToken, isPublished }: { websiteId
                             </tr>
                           </thead>
                           <tbody>
-                            <tr>
-                              <td className="px-4 py-3">
-                                <span className="font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-semibold">
-                                  {domain.dnsType}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <code className="font-mono bg-slate-200 px-2 py-1 rounded text-xs">
-                                    {domain.dnsName}
-                                  </code>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0 hover:bg-blue-100"
-                                    onClick={() => copyToClipboard(domain.dnsName || '')}
-                                  >
-                                    <Copy className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <code className="font-mono bg-slate-200 px-2 py-1 rounded text-xs break-all">
-                                    {domain.dnsValue}
-                                  </code>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0 hover:bg-blue-100 flex-shrink-0"
-                                    onClick={() => copyToClipboard(domain.dnsValue || '')}
-                                  >
-                                    <Copy className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
+                            {recordsFor(domain).map((record, idx) => (
+                              <tr key={`${record.type}-${record.name}-${idx}`} className={idx > 0 ? 'border-t' : ''}>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="flex flex-col items-start gap-1">
+                                    <span className="font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-semibold">
+                                      {record.type}
+                                    </span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${record.required ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600'}`}>
+                                      {record.required ? 'Påkrævet' : 'Anbefalet'}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="flex items-center gap-2">
+                                    <code className="font-mono bg-slate-200 px-2 py-1 rounded text-xs">
+                                      {record.name}
+                                    </code>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0 hover:bg-blue-100"
+                                      onClick={() => copyToClipboard(record.name)}
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                  <div className="flex items-center gap-2">
+                                    <code className="font-mono bg-slate-200 px-2 py-1 rounded text-xs break-all">
+                                      {record.value}
+                                    </code>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0 hover:bg-blue-100 flex-shrink-0"
+                                      onClick={() => copyToClipboard(record.value)}
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
                           </tbody>
                         </table>
                       </div>
+
+                      {recordsFor(domain).some(r => r.purpose === 'ownership') && (
+                        <div className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 p-3 rounded-lg">
+                          <span className="font-medium">Ejerskab skal bekræftes:</span> TXT-posten beviser, at du ejer domænet (det er i brug på en anden Vercel-konto). Tilføj den først — uden den kan domænet ikke forbindes.
+                        </div>
+                      )}
+                      {recordsFor(domain).some(r => r.purpose === 'counterpart') && (
+                        <div className="mt-3 text-xs text-slate-600 bg-slate-50 p-3 rounded-lg">
+                          <span className="font-medium">Tip:</span> Posten markeret "Anbefalet" sørger for, at både {domain.domain.replace(/^www\./, '')} og www.{domain.domain.replace(/^www\./, '')} virker og peger på din side.
+                        </div>
+                      )}
 
                       <div className="mt-4 flex items-start gap-2 text-xs text-slate-600 bg-slate-50 p-3 rounded-lg">
                         <Clock className="w-4 h-4 mt-0.5 flex-shrink-0" />
                         <div>
                           <span className="font-medium">DNS-opdateringer tager tid.</span> Det virker som regel inden for 5-10 minutter, men kan i sjældne tilfælde tage op til 48 timer.
-                          Vi tjekker automatisk hvert 30. sekund.
+                          Vi tjekker automatisk — også selvom du lukker denne side.
                         </div>
                       </div>
                     </div>

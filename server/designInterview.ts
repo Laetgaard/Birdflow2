@@ -18,6 +18,13 @@ import { readObjectImageAsDataUrl } from "./aiImages";
 import { contrastRatio } from "./selfCheck";
 
 import { getOpenAI } from "./openaiClient";
+import {
+  DEFAULT_SITE_LANGUAGE,
+  LANGUAGE_NAME_EN,
+  normalizeSiteLanguage,
+  pickLang,
+  type SiteLanguage,
+} from "@shared/siteLanguage";
 
 /** Curated Google-font list — every proposal must stay inside it. */
 export const CURATED_GOOGLE_FONTS = [
@@ -76,10 +83,14 @@ const FinalizeResponseSchema = z.object({
   summary: z.string().optional(),
 });
 
-function siteContext(state: BuilderStateData): string {
+function siteContext(state: BuilderStateData, lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
   const pages = state.pages.map((p) => p.name).join(", ");
   const componentCount = state.pages.reduce((acc, p) => acc + p.components.length, 0);
-  return `Sider: ${pages || "ingen endnu"}. Komponenter i alt: ${componentCount}. Nuværende primærfarve: ${state.globalStyles?.primaryColor ?? "ukendt"}.`;
+  const primary = state.globalStyles?.primaryColor;
+  if (lang === "en") {
+    return `Pages: ${pages || "none yet"}. Components in total: ${componentCount}. Current primary colour: ${primary ?? "unknown"}.`;
+  }
+  return `Sider: ${pages || "ingen endnu"}. Komponenter i alt: ${componentCount}. Nuværende primærfarve: ${primary ?? "ukendt"}.`;
 }
 
 function parseJsonContent(content: string | null | undefined): unknown {
@@ -100,17 +111,20 @@ function enforceReadableText(colors: PaletteProposal["colors"]): PaletteProposal
 
 export async function proposePalettes(
   feeling: string,
-  state: BuilderStateData
+  state: BuilderStateData,
+  language: SiteLanguage = DEFAULT_SITE_LANGUAGE
 ): Promise<PaletteProposal[]> {
+  const lang = normalizeSiteLanguage(language);
+  const langName = LANGUAGE_NAME_EN[lang];
   const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       {
         role: "system",
-        content: `You are an experienced Danish brand designer. The user describes the feeling their website should give visitors, and you propose exactly 4 distinct color palettes.
+        content: `You are an experienced brand designer. The user describes the feeling their website should give visitors, and you propose exactly 4 distinct color palettes.
 
 Rules:
-- All names and descriptions in Danish. Names short and evocative (e.g. "Nordisk ro", "Midnatsblå").
+- All names and descriptions in ${langName}. Names short and evocative (in Danish e.g. "Nordisk ro", "Midnatsblå"; in English e.g. "Nordic calm", "Midnight blue").
 - Each description: one sentence about the mood and which businesses it suits.
 - All colors are hex. "text" vs "background" MUST pass WCAG AA (4.5:1). "surface" is a subtle step from "background" (cards). "accent" must pop against "background".
 - The 4 palettes must be genuinely different (e.g. light/dark/warm/cool), all matching the requested feeling.
@@ -119,7 +133,13 @@ Respond with JSON: { "palettes": [ { "name", "description", "colors": { "primary
       },
       {
         role: "user",
-        content: `Ønsket stemning: "${feeling}"\n\n${siteContext(state)}`,
+        content: pickLang(
+          {
+            da: `Ønsket stemning: "${feeling}"\n\n${siteContext(state, lang)}`,
+            en: `Requested feeling: "${feeling}"\n\n${siteContext(state, lang)}`,
+          },
+          lang
+        ),
       },
     ],
     response_format: { type: "json_object" },
@@ -138,18 +158,21 @@ Respond with JSON: { "palettes": [ { "name", "description", "colors": { "primary
 export async function proposeFontPairs(
   feeling: string,
   palette: PaletteProposal,
-  state: BuilderStateData
+  state: BuilderStateData,
+  language: SiteLanguage = DEFAULT_SITE_LANGUAGE
 ): Promise<FontPairProposal[]> {
+  const lang = normalizeSiteLanguage(language);
+  const langName = LANGUAGE_NAME_EN[lang];
   const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       {
         role: "system",
-        content: `You are an experienced Danish brand designer picking typography. Propose exactly 3 heading/body Google-font pairs that match the requested feeling and chosen palette.
+        content: `You are an experienced brand designer picking typography. Propose exactly 3 heading/body Google-font pairs that match the requested feeling and chosen palette.
 
 Rules:
 - ONLY use fonts from this list (exact names): ${CURATED_GOOGLE_FONTS.join(", ")}.
-- Danish names and one-sentence descriptions ("Klassisk og troværdig — serif-overskrifter med rolig brødtekst").
+- Names and one-sentence descriptions in ${langName} (in Danish e.g. "Klassisk og troværdig — serif-overskrifter med rolig brødtekst").
 - Vary the pairs: e.g. one all-sans modern pair, one serif-heading editorial pair, one distinctive/characterful pair.
 - "scale" is one of: modern, editorial, classic, bold.
 
@@ -157,7 +180,13 @@ Respond with JSON: { "fontPairs": [ { "name", "heading", "body", "scale", "descr
       },
       {
         role: "user",
-        content: `Stemning: "${feeling}". Valgt palette: ${palette.name} (primær ${palette.colors.primary}, baggrund ${palette.colors.background}).\n\n${siteContext(state)}`,
+        content: pickLang(
+          {
+            da: `Stemning: "${feeling}". Valgt palette: ${palette.name} (primær ${palette.colors.primary}, baggrund ${palette.colors.background}).\n\n${siteContext(state, lang)}`,
+            en: `Feeling: "${feeling}". Chosen palette: ${palette.name} (primary ${palette.colors.primary}, background ${palette.colors.background}).\n\n${siteContext(state, lang)}`,
+          },
+          lang
+        ),
       },
     ],
     response_format: { type: "json_object" },
@@ -182,19 +211,34 @@ export type FinalizeInput = {
   /** "/objects/…" paths of uploaded inspiration screenshots / own images. */
   imageUrls?: string[];
   notes?: string;
+  /** The website's language — the tone of voice and notes are written in it. */
+  language?: SiteLanguage;
 };
 
 export async function finalizeBrandGuide(
   input: FinalizeInput,
   state: BuilderStateData
 ): Promise<{ guide: BrandGuide; analyzedImages: number; summary?: string }> {
+  const lang = normalizeSiteLanguage(input.language);
+  const langName = LANGUAGE_NAME_EN[lang];
   const imageParts: Array<{ type: "image_url"; image_url: { url: string; detail: "low" | "high" } }> = [];
   for (const url of (input.imageUrls ?? []).slice(0, 5)) {
     const dataUrl = await readObjectImageAsDataUrl(url);
     if (dataUrl) imageParts.push({ type: "image_url", image_url: { url: dataUrl, detail: "low" } });
   }
 
-  const brief = `Design-interview — færdiggør brand guiden.
+  const brief =
+    lang === "en"
+      ? `Design interview — finish the brand guide.
+
+Feeling: "${input.feeling}"
+Chosen palette: ${input.palette.name} — ${JSON.stringify(input.palette.colors)}
+Chosen typography: ${input.fontPair.heading} (headings) + ${input.fontPair.body} (body), scale: ${input.fontPair.scale}
+${input.notes ? `The user's notes: ${input.notes}` : ""}
+${imageParts.length > 0 ? `${imageParts.length} inspiration image(s) are attached — analyse their style, mood, imagery style, corner rounding, shadows and airiness.` : "No inspiration images attached."}
+
+${siteContext(state, lang)}`
+      : `Design-interview — færdiggør brand guiden.
 
 Stemning: "${input.feeling}"
 Valgt palette: ${input.palette.name} — ${JSON.stringify(input.palette.colors)}
@@ -202,22 +246,24 @@ Valgt typografi: ${input.fontPair.heading} (overskrifter) + ${input.fontPair.bod
 ${input.notes ? `Brugerens noter: ${input.notes}` : ""}
 ${imageParts.length > 0 ? `Der er vedhæftet ${imageParts.length} inspirationsbillede(r) — analysér stil, stemning, billedstil, afrundinger, skygger og luftighed i dem.` : "Ingen inspirationsbilleder vedhæftet."}
 
-${siteContext(state)}`;
+${siteContext(state, lang)}`;
 
   const response = await getOpenAI().chat.completions.create({
     model: "gpt-5.1",
     messages: [
       {
         role: "system",
-        content: `You are an experienced Danish brand strategist. Based on the chosen palette, typography, the requested feeling, the user's notes and any inspiration images, define the remaining brand-guide attributes.
+        content: `You are an experienced brand strategist. Based on the chosen palette, typography, the requested feeling, the user's notes and any inspiration images, define the remaining brand-guide attributes.
+
+The website's language is ${langName}. Every free-text field below MUST be written in ${langName}.
 
 Rules:
-- "toneOfVoice": 1-2 Danish sentences describing how ALL website copy should sound (e.g. "Varm og ligefrem — korte sætninger, du-form, ingen buzzwords").
-- "keywords": 3-6 Danish words that capture the brand.
+- "toneOfVoice": 1-2 sentences in ${langName} describing how ALL website copy should sound (in Danish e.g. "Varm og ligefrem — korte sætninger, du-form, ingen buzzwords").
+- "keywords": 3-6 words in ${langName} that capture the brand.
 - "imageryStyle": photo | illustration | 3d | minimal | bold — inferred from the inspiration images when present.
-- "imageryNotes": short Danish art-direction note for future images.
+- "imageryNotes": short art-direction note in ${langName} for future images.
 - "spacing" (tight|normal|airy), "radius" (none|soft|rounded), "shadow" (none|subtle|elevated), "motion" (none|subtle|expressive), "motionSpeed" (slow|normal|fast) — match the feeling and inspiration.
-- "summary": 1-2 Danish sentences summarizing the brand direction, addressed to the user.
+- "summary": 1-2 sentences in ${langName} summarizing the brand direction, addressed to the user.
 
 Respond with JSON containing exactly those fields.`,
       },
@@ -238,7 +284,13 @@ Respond with JSON containing exactly those fields.`,
   const details = parsed.success
     ? parsed.data
     : {
-        toneOfVoice: `Professionel og imødekommende — med fokus på "${input.feeling}".`,
+        toneOfVoice: pickLang(
+          {
+            da: `Professionel og imødekommende — med fokus på "${input.feeling}".`,
+            en: `Professional and welcoming — focused on "${input.feeling}".`,
+          },
+          lang
+        ),
         keywords: [input.feeling],
         imageryStyle: "photo" as const,
         imageryNotes: "",

@@ -79,6 +79,10 @@ async function processReminders(): Promise<void> {
     .where(
       and(
         isNull(bookings.reminderSentAt),
+        // Deliberately context-agnostic: a reminder before a booked meeting is
+        // just as useful for BirdFlow's own onboarding meetings, and they carry
+        // their own templates and lead time via the platform calendar's
+        // email settings. Follow-ups below are customer-site only.
         eq(bookings.sendReminder, true),
         inArray(bookings.status, ['pending', 'confirmed']),
         isNotNull(bookings.customerEmail),
@@ -153,6 +157,9 @@ async function processFollowups(): Promise<void> {
     .where(
       and(
         isNull(bookings.followupSentAt),
+        // Customer appointments only. A "thank you for your visit, book again"
+        // mail makes no sense after one of BirdFlow's own onboarding meetings.
+        eq(bookings.context, 'customer_site'),
         eq(emailSettings.bookingFollowupEnabled, true),
         inArray(bookings.status, ['pending', 'confirmed']),
         isNotNull(bookings.customerEmail),

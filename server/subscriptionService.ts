@@ -808,7 +808,9 @@ export async function checkWebsiteLimit(userId: string): Promise<PlanLimitCheckR
     };
   }
   
-  const websites = await storage.getWebsitesByUserId(userId);
+  // Customer sites only - BirdFlow's own platform calendar is a websites row
+  // but is never counted against anyone's plan.
+  const websites = await storage.getWebsitesByOwner(userId);
   const currentCount = websites.length;
   
   if (currentCount >= maxWebsites) {

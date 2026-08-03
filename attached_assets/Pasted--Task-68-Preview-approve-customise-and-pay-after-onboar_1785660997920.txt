@@ -1,0 +1,1193 @@
+# Task #68 — Preview, approve, customise and pay after onboarding
+
+## Primary objective
+
+Rebuild the end of BirdFlow onboarding so customers can:
+
+1. See the actual generated multi-page website.
+2. Inspect and download their complete brand guide.
+3. Approve the result and choose between:
+
+   * Immediate Stripe card payment.
+   * A Stripe invoice due on the first day of the following calendar month.
+4. Request a free 30-minute website improvement meeting instead of paying.
+5. Return later to the exact same state without restarting onboarding.
+
+The existing onboarding interview and core website generation pipeline must continue working.
+
+The existing website booking system and API are already functional. Reuse its architecture and APIs for BirdFlow’s internal onboarding meetings. Do not build a second unrelated booking engine.
+
+---
+
+# Mandatory first step: inspect the current implementation
+
+Before changing code, inspect:
+
+* The onboarding state and database schema.
+* How generated websites and pages are stored.
+* How the builder canvas renders pages.
+* How global website styles are applied.
+* How `ComponentRenderer` handles custom and built-in components.
+* How the existing Brand tab reads and writes brand-guide data.
+* The existing booking API, database tables, conflict handling and availability system.
+* Existing Stripe customer, Checkout, subscription and webhook logic.
+* Existing admin authentication and role checks.
+* Existing email service and production-only email guards.
+* Existing origin/base-URL utilities.
+
+Do not duplicate existing utilities, renderers, booking logic, Stripe customers, brand-guide formats or origin-resolution functions.
+
+Produce a brief implementation map internally, then implement the task in the phases below.
+
+---
+
+# Product decisions
+
+## Approval paths
+
+The final decision screen has two primary actions:
+
+### 1. Godkend og betal
+
+After clicking this, show two payment choices:
+
+#### Betal med kort nu
+
+Open Stripe Checkout.
+
+The initial Stripe transaction must include:
+
+* The one-time website setup fee.
+* The recurring BirdFlow subscription.
+
+#### Modtag faktura
+
+Create and send a Stripe invoice containing:
+
+* The one-time website setup fee.
+* The first subscription charge.
+
+The first invoice must be due on the first day of the next calendar month.
+
+The invoice option must clearly show:
+
+> Vi sender fakturaen til din e-mail. Betalingsfristen er den 1. i næste måned.
+
+Do not mark the customer as paid merely because an invoice or subscription was created.
+
+### 2. Jeg vil have den tilpasset
+
+Let the customer select a free 30-minute meeting from BirdFlow’s own available times.
+
+Show this copy prominently:
+
+> Book et gratis møde på 30 minutter, hvor vi gennemgår, hvordan hjemmesiden skal forbedres. Du betaler først, når du har godkendt det færdige resultat.
+
+No Stripe Checkout, subscription or invoice may be created when this path is selected.
+
+---
+
+# Architectural requirement: use separate state dimensions
+
+Do not represent the complete flow with one ambiguous onboarding status.
+
+Use separate fields or equivalent existing fields for:
+
+```ts
+type GenerationStatus =
+  | "not_started"
+  | "generating"
+  | "complete"
+  | "failed";
+
+type DecisionStatus =
+  | "awaiting_decision"
+  | "customisation_requested"
+  | "meeting_booked"
+  | "in_customisation"
+  | "ready_for_review"
+  | "approved";
+
+type PaymentMethodChoice =
+  | "card"
+  | "invoice"
+  | null;
+
+type PaymentStatus =
+  | "not_started"
+  | "checkout_pending"
+  | "invoice_open"
+  | "paid"
+  | "payment_failed"
+  | "past_due"
+  | "cancelled";
+```
+
+Also persist, where appropriate:
+
+```ts
+siteRevision: number;
+reviewRevision: number | null;
+approvedRevision: number | null;
+
+meetingBookingId: string | null;
+
+stripeCustomerId: string | null;
+stripeCheckoutSessionId: string | null;
+stripeSubscriptionId: string | null;
+stripeInvoiceId: string | null;
+
+decisionUpdatedAt: Date;
+approvedAt: Date | null;
+paidAt: Date | null;
+```
+
+Use the existing onboarding session or website record when that is architecturally clean. Otherwise create a one-to-one onboarding decision record.
+
+Do not introduce duplicate sources of truth.
+
+The customer must approve a specific website revision. If the website changes after approval but before payment, invalidate the old approval and require approval of the new revision.
+
+---
+
+# Phase 1 — BirdFlow internal meeting calendar
+
+## Reuse the existing booking system
+
+The platform already has a completed booking system and API.
+
+Use the existing:
+
+* Availability calculations.
+* Slot-generation logic.
+* Conflict protection.
+* Booking creation.
+* Time-zone handling.
+* Cancellation or rescheduling logic where available.
+* Database patterns.
+
+Do not create parallel booking tables unless the existing schema genuinely cannot represent internal BirdFlow bookings.
+
+## Separate internal meetings from customer website bookings
+
+BirdFlow onboarding meetings must not be mixed with appointments booked through customers’ published websites.
+
+Add an explicit booking context or equivalent:
+
+```ts
+bookingContext: "customer_service" | "birdflow_onboarding";
+```
+
+An onboarding meeting should reference:
+
+```ts
+customerUserId;
+websiteId;
+onboardingSessionId;
+serviceType: "website_improvement";
+durationMinutes: 30;
+```
+
+Do not hardcode a fake website ID or fake customer account to represent BirdFlow itself.
+
+If the existing booking architecture requires an owner, introduce a clean platform-calendar owner abstraction.
+
+## Admin dashboard
+
+Add a new admin dashboard tab:
+
+> Bookinger
+
+It must let an authorised BirdFlow admin:
+
+* View onboarding improvement meetings.
+* View customer name, email, website and meeting time.
+* Open the associated website/onboarding record.
+* Mark a meeting as completed where relevant.
+* Manage BirdFlow’s available meeting times using the existing availability system.
+* Reschedule or cancel through existing booking functions where supported.
+* Filter onboarding meetings separately from other booking categories.
+
+All admin permissions must be checked server-side.
+
+Hiding the UI is not sufficient access control.
+
+## Customer booking experience
+
+On the onboarding decision screen:
+
+1. Load BirdFlow’s available 30-minute slots.
+2. Display times in Europe/Copenhagen.
+3. Let the customer select and confirm a slot.
+4. Protect against two users booking the same slot.
+5. Persist the booking ID on the onboarding decision.
+6. Change the decision status to `meeting_booked`.
+7. Show a permanent confirmation state.
+
+Confirmation example:
+
+> Dit møde er booket
+> Tirsdag den 11. august kl. 13.30
+>
+> Vi gennemgår din hjemmeside sammen og finpudser resultatet. Du betaler først, når du har godkendt den færdige version.
+
+Include the existing support/contact method for moving the meeting.
+
+---
+
+# Phase 2 — Owner-protected live website preview
+
+## Reuse the builder renderer
+
+Create a reusable read-only website preview built from the same:
+
+* Stored pages.
+* Builder state.
+* Global styles.
+* Component registry.
+* Custom components.
+* `ComponentRenderer`.
+* Typography configuration.
+* Responsive rules.
+
+Do not implement a simplified second website renderer.
+
+Suggested reusable component:
+
+```tsx
+<ReadOnlyWebsitePreview
+  websiteId={website.id}
+  initialPageId={website.homePageId}
+  viewport="desktop"
+/>
+```
+
+## Isolated preview route
+
+Prefer an isolated same-origin preview route rendered inside an iframe or the existing builder preview isolation system.
+
+Example route:
+
+```txt
+/onboarding/:onboardingId/preview
+```
+
+The server must verify:
+
+```txt
+authenticated user owns onboarding session
+AND
+authenticated user owns associated website
+```
+
+Do not rely only on the onboarding page hiding another customer’s website ID.
+
+## Preview behaviour
+
+The preview must:
+
+* Be scrollable.
+* Render the real generated pages.
+* Support navigation between generated pages without navigating away from onboarding.
+* Support desktop and mobile widths.
+* Contain no editor panels.
+* Contain no selection borders.
+* Contain no drag handles.
+* Contain no editing controls.
+* Contain no builder keyboard shortcuts.
+* Prevent forms, payments and destructive actions from executing inside the preview.
+* Clearly indicate that it is a preview.
+
+Desktop and mobile controls:
+
+```txt
+Computer
+Mobil
+```
+
+Suggested widths:
+
+```ts
+desktop: "100%";
+mobile: "390px";
+```
+
+The mobile preview should be centred inside the available canvas rather than scaling the complete desktop site down.
+
+---
+
+# Phase 3 — Canonical enriched brand guide
+
+## One canonical data model
+
+The onboarding result page and:
+
+```txt
+client/src/components/builder/BrandGuidePanel.tsx
+```
+
+must read the same stored brand-guide object.
+
+Do not create a separate onboarding-only brand guide format.
+
+Explicit customer choices always override AI-generated suggestions.
+
+## Required guide sections
+
+### Logo
+
+Store and show:
+
+* Primary logo.
+* Alternative logo where available.
+* Logo placement guidance.
+* Safe-space recommendation.
+* Light/dark background guidance.
+
+Do not fabricate alternative logos unless the current generation process actually produced them.
+
+### Colours
+
+Each colour requires:
+
+```ts
+{
+  name: string;
+  role: string;
+  hex: string;
+  rgb?: string;
+  usageGuidance: string;
+}
+```
+
+Examples of roles:
+
+* Primær brandfarve
+* Sekundær brandfarve
+* Baggrund
+* Overflade
+* Brødtekst
+* Overskrift
+* Accent
+* Kantlinje
+
+Show colour names, visual swatches and codes.
+
+### Typography
+
+Store and demonstrate:
+
+* Heading font.
+* Body font.
+* Fallback fonts.
+* Heading scale.
+* Body size.
+* Line height.
+* Font weights.
+* Example heading.
+* Example paragraph.
+* Button or label example.
+
+The preview must use real representative sizes instead of showing only font names.
+
+### Imagery direction
+
+Include:
+
+* Image style.
+* Subjects.
+* Lighting.
+* Colour treatment.
+* Composition.
+* What to avoid.
+* A small set of example images.
+
+Create this through a post-generation brand-guide enrichment step using:
+
+1. The customer’s onboarding descriptions.
+2. Existing imagery selected or generated for their website.
+3. Existing image-generation services only where they are already available.
+
+This enrichment step must not change the conversational interview or regenerate the customer’s website.
+
+If suitable website images already exist, prefer using those as brand examples rather than generating duplicate assets.
+
+### Tone of voice
+
+Include:
+
+* Personality traits.
+* Writing principles.
+* Words or phrasing to use.
+* Words or phrasing to avoid.
+* Example page heading.
+* Example supporting text.
+* Example call to action.
+* Example short service description.
+
+The samples should reflect the customer’s industry and onboarding answers.
+
+### Design system
+
+Include:
+
+* Spacing scale.
+* Container width.
+* Section spacing.
+* Corner-radius scale.
+* Border style.
+* Shadow style.
+* Button shape.
+* Motion intensity.
+* Animation duration.
+* Reduced-motion preference.
+
+All fields must remain compatible with the builder Brand tab.
+
+---
+
+# Phase 4 — Brand guide download
+
+Add:
+
+> Download brandguide
+
+Generate one self-contained PDF file.
+
+The PDF must:
+
+* Work offline.
+* Include all important colours, typography, logo, imagery and tone sections.
+* Contain embedded image content rather than temporary signed image URLs.
+* Use a stable, readable layout.
+* Include the website or business name.
+* Include the generation or update date.
+* Avoid editor controls.
+* Be generated from the canonical stored brand-guide data.
+
+Suggested filename:
+
+```txt
+brandguide-[sanitised-business-name].pdf
+```
+
+Inspect the repository for existing PDF or server-side rendering infrastructure before adding a new dependency.
+
+Do not rebuild the guide from untrusted client-submitted JSON during download. Load it server-side after verifying website ownership.
+
+---
+
+# Phase 5 — Rebuild the final onboarding screen
+
+Replace the current report-first/payment-first result experience with a preview-and-decision workspace.
+
+## Desktop layout
+
+Use a two-column layout:
+
+### Left side
+
+* Live website preview.
+* Page selector where the generated website has multiple pages.
+* Desktop/mobile toggle.
+* Preview status.
+* Refresh after an adjustment is completed.
+
+### Right side
+
+Use tabs or sections for:
+
+* Brandguide
+* Byggerapport
+* Justeringer
+
+Keep the existing build report and adjustment-round functionality available, but they are secondary to seeing the actual website.
+
+Add a sticky decision area at the bottom of the right panel.
+
+## Mobile layout
+
+Use primary tabs:
+
+```txt
+Hjemmeside
+Brandguide
+```
+
+The build report and adjustments can be accessible through a secondary menu or expandable section.
+
+Actions must remain visible without covering important content.
+
+## Primary actions
+
+```txt
+Godkend og betal
+Jeg vil have den tilpasset
+```
+
+Do not make the customisation option look like an error, rejection or hidden secondary link.
+
+The two options represent legitimate customer paths.
+
+## Payment-choice modal
+
+After `Godkend og betal`, show:
+
+### Betal med kort nu
+
+> Betal opstartsbeløbet og start dit abonnement med det samme via en sikker Stripe-betaling.
+
+### Modtag faktura
+
+> Få opstartsbeløbet og den første abonnementsbetaling samlet på en faktura. Betalingsfristen er den 1. i næste måned.
+
+Load and show the actual setup fee and subscription price from server-side Stripe Price configuration.
+
+Do not import or expose Stripe secret keys in the client.
+
+---
+
+# Phase 6 — Stripe card payment
+
+## Price configuration
+
+Use Stripe Price IDs as the source of truth.
+
+The setup fee must be a one-time Stripe Price.
+
+The subscription must be a recurring Stripe Price.
+
+Do not hardcode amounts in:
+
+```txt
+client
+server
+shared/subscriptionPlans.ts
+```
+
+`shared/subscriptionPlans.ts` may identify plan keys or server-resolved price references, but frontend-visible amounts must come from a server endpoint that retrieves or safely caches Stripe Price information.
+
+Suggested response:
+
+```ts
+{
+  currency: "dkk",
+  setupFee: {
+    priceId: string;
+    name: string;
+    unitAmount: number;
+  },
+  subscription: {
+    priceId: string;
+    name: string;
+    unitAmount: number;
+    interval: "month";
+  }
+}
+```
+
+## Checkout session
+
+Create one Stripe Checkout Session in subscription mode with:
+
+```ts
+line_items: [
+  {
+    price: recurringSubscriptionPriceId,
+    quantity: 1
+  },
+  {
+    price: oneTimeSetupPriceId,
+    quantity: 1
+  }
+]
+```
+
+Include metadata that safely maps back to:
+
+```ts
+userId;
+websiteId;
+onboardingSessionId;
+siteRevision;
+decisionPath: "direct_approval";
+paymentMethodChoice: "card";
+```
+
+Reuse the existing Stripe customer when one exists.
+
+Generate success and cancel URLs using the application’s existing origin resolver.
+
+Example destinations:
+
+```txt
+success:
+  /onboarding?payment=success
+
+cancel:
+  /onboarding?payment=cancelled
+```
+
+Both URLs must resume the same onboarding decision record.
+
+A cancelled Checkout must not restart onboarding or remove the approved website.
+
+## Idempotency
+
+Repeated clicks must not create multiple active subscriptions or repeated setup charges.
+
+Use:
+
+* A database transaction or payment-attempt record.
+* Stripe idempotency keys.
+* Existing open Checkout Session reuse where safe.
+* Server-side checks for existing paid or pending billing records.
+
+A useful idempotency scope is:
+
+```txt
+websiteId + siteRevision + paymentMethodChoice
+```
+
+---
+
+# Phase 7 — Stripe invoice payment
+
+When the customer chooses `Modtag faktura`:
+
+1. Verify ownership.
+2. Verify that the selected site revision is still current.
+3. Find or create the Stripe customer.
+4. Calculate the number of calendar days until the first day of the next month.
+5. Create a Stripe subscription using the recurring Price.
+6. Set collection method to `send_invoice`.
+7. Add the one-time setup Price to the first invoice.
+8. Store the subscription and invoice IDs.
+9. Set BirdFlow payment status to `invoice_open`.
+10. Show the hosted invoice URL where available.
+11. Send the invoice through Stripe.
+12. Prevent duplicate invoices.
+
+Use the Stripe equivalent of:
+
+```ts
+stripe.subscriptions.create({
+  customer: stripeCustomerId,
+  items: [
+    {
+      price: recurringSubscriptionPriceId
+    }
+  ],
+  collection_method: "send_invoice",
+  days_until_due: daysUntilFirstOfNextMonth,
+  add_invoice_items: [
+    {
+      price: oneTimeSetupPriceId
+    }
+  ],
+  metadata: {
+    userId,
+    websiteId,
+    onboardingSessionId,
+    siteRevision: String(siteRevision),
+    paymentMethodChoice: "invoice"
+  }
+});
+```
+
+Confirm the exact parameter format against the installed Stripe SDK version.
+
+After the initial invoice is created, recurring invoice terms may use the existing BirdFlow/Stripe invoice configuration rather than permanently inheriting an unusual one-day or thirty-day first-invoice deadline.
+
+## Invoice state
+
+Show:
+
+> Din faktura er sendt
+> Betalingsfrist: 1. september 2026
+>
+> Vi giver dig besked, så snart betalingen er registreret.
+
+Provide:
+
+```txt
+Se faktura
+```
+
+where Stripe provides a hosted invoice URL.
+
+Do not display the customer as paid until the verified `invoice.paid` webhook has been processed.
+
+Paid-only publishing or subscription features must remain gated while the invoice is open, unless the existing BirdFlow business rules explicitly allow access before payment.
+
+The preview, brand guide and payment status screen must remain accessible.
+
+---
+
+# Phase 8 — Webhooks and billing state
+
+Extend the existing webhook implementation rather than creating a second webhook endpoint.
+
+Verify Stripe signatures using the raw request body.
+
+Handle at minimum:
+
+```txt
+checkout.session.completed
+invoice.paid
+invoice.payment_failed
+customer.subscription.updated
+customer.subscription.deleted
+```
+
+Also handle asynchronous Checkout events if the existing enabled payment methods require them.
+
+Webhook processing must be idempotent.
+
+Store processed Stripe event IDs or use the project’s existing webhook deduplication system.
+
+## Required behaviour
+
+### checkout.session.completed
+
+* Find the onboarding decision from metadata.
+* Save Stripe customer and subscription IDs.
+* Do not blindly trust URL query parameters.
+* Update Checkout state.
+
+### invoice.paid
+
+* Find the related website/onboarding record.
+* Confirm the invoice belongs to the expected Stripe customer and subscription.
+* Set `paymentStatus = paid`.
+* Set `paidAt`.
+* Activate the paid BirdFlow subscription state.
+* Ensure the setup fee is not processed twice.
+
+### invoice.payment_failed
+
+* Set the relevant failed or past-due state.
+* Show a clear payment recovery action.
+* Do not delete the customer’s generated site or brand guide.
+
+### subscription.deleted
+
+* Update the local subscription state using existing cancellation rules.
+* Do not change historical onboarding approval records.
+
+---
+
+# Phase 9 — Customisation and review loop
+
+## After booking
+
+Set:
+
+```ts
+decisionStatus = "meeting_booked";
+paymentStatus = "not_started";
+```
+
+Show the booked-meeting state whenever the customer returns.
+
+Do not return them to the original two-choice screen unless the booking is cancelled or an authorised admin deliberately resets the path.
+
+## Admin workflow
+
+From the admin dashboard, an authorised admin must be able to:
+
+1. Open the customer record.
+2. Open their website in the builder or existing admin-edit mode.
+3. Make improvements.
+4. Save a new website revision.
+5. Mark the website as ready for customer review.
+
+Add an action:
+
+```txt
+Klar til kundens godkendelse
+```
+
+When triggered:
+
+```ts
+decisionStatus = "ready_for_review";
+reviewRevision = currentSiteRevision;
+```
+
+The action must be idempotent and require an admin role server-side.
+
+## Customer return
+
+The customer can return from:
+
+* Their dashboard.
+* The onboarding resume route.
+* The review-ready email.
+
+They must see:
+
+* The updated website preview.
+* The updated canonical brand guide.
+* A message that the improved result is ready.
+* The same approval and payment choices.
+
+Suggested copy:
+
+> Din opdaterede hjemmeside er klar
+> Vi har nu finpudset resultatet ud fra jeres møde. Gennemgå hjemmesiden og brandguiden, og godkend først, når du er tilfreds.
+
+The customer may also request another adjustment through the existing adjustment system if allowed by BirdFlow’s business rules.
+
+## Review-ready email
+
+Only send automatically in production.
+
+Use the existing production environment guard.
+
+The email link should point to the normal authenticated onboarding decision route.
+
+Do not place an ownership-bypassing website token in the URL.
+
+If the user is not logged in, redirect through authentication and then back to the decision page.
+
+---
+
+# Phase 10 — Resume logic
+
+Create one server-derived resume decision.
+
+The frontend must not guess the correct onboarding stage from local storage alone.
+
+Suggested logic:
+
+```ts
+if (generationStatus !== "complete") {
+  resume generation/interview state;
+}
+
+if (decisionStatus === "awaiting_decision") {
+  show preview and initial decision screen;
+}
+
+if (
+  decisionStatus === "customisation_requested" ||
+  decisionStatus === "meeting_booked" ||
+  decisionStatus === "in_customisation"
+) {
+  show customisation progress state;
+}
+
+if (decisionStatus === "ready_for_review") {
+  show updated preview and approval screen;
+}
+
+if (
+  decisionStatus === "approved" &&
+  paymentStatus === "checkout_pending"
+) {
+  show approved result and payment retry option;
+}
+
+if (
+  decisionStatus === "approved" &&
+  paymentStatus === "invoice_open"
+) {
+  show invoice state;
+}
+
+if (paymentStatus === "paid") {
+  show onboarding completion state and dashboard action;
+}
+```
+
+Leaving during any state must preserve:
+
+* Generated website.
+* Pages and components.
+* Brand guide.
+* Selected decision path.
+* Meeting booking.
+* Approval revision.
+* Payment attempt.
+* Stripe references.
+
+After a cancelled Stripe Checkout, return to the approved decision screen with the option to restart payment.
+
+Do not restart the interview after generation is complete unless an authorised reset action is deliberately used.
+
+---
+
+# Phase 11 — BirdFlow visual design
+
+Restyle the complete onboarding shell:
+
+* Header.
+* BirdFlow logo.
+* Progress rail.
+* Chat bubbles.
+* Question cards.
+* Loading/generation state.
+* Preview screen.
+* Brand guide.
+* Booking calendar.
+* Payment-choice modal.
+* Confirmation screens.
+* Error states.
+
+Use BirdFlow’s existing:
+
+* Blue palette.
+* Display font.
+* Logo.
+* Radius scale.
+* Shadows.
+* Button treatment.
+* Spacing system.
+* Motion preferences.
+
+Do not create disconnected “generic admin dashboard” styling.
+
+Use existing design tokens where available.
+
+Do not hardcode a second set of nearly identical BirdFlow colours in the onboarding page.
+
+Respect reduced-motion preferences.
+
+---
+
+# Security requirements
+
+Every server endpoint that reads or modifies:
+
+* A generated website.
+* Onboarding answers.
+* Brand-guide data.
+* Booking data.
+* Decision state.
+* Stripe payment state.
+* PDF downloads.
+
+must verify ownership or admin authorisation.
+
+Customer access must use a condition equivalent to:
+
+```ts
+website.ownerUserId === authenticatedUser.id
+```
+
+Admin access must use a verified server-side admin role.
+
+Never trust these values from the client:
+
+```txt
+userId
+website owner
+setup fee amount
+subscription amount
+Stripe customer ID
+payment status
+admin role
+site revision
+```
+
+Stripe webhook metadata is a mapping aid, not a replacement for validating the corresponding database record.
+
+Do not expose secret keys, private onboarding answers or another customer’s preview through iframe routes, download endpoints or predictable IDs.
+
+---
+
+# Suggested API surface
+
+Adapt these names to the project’s route conventions:
+
+```txt
+GET  /api/onboarding/:id/decision
+GET  /api/onboarding/:id/preview-data
+GET  /api/onboarding/:id/brand-guide
+GET  /api/onboarding/:id/brand-guide.pdf
+
+GET  /api/onboarding/:id/payment-options
+POST /api/onboarding/:id/approve/card
+POST /api/onboarding/:id/approve/invoice
+
+GET  /api/onboarding/:id/meeting-slots
+POST /api/onboarding/:id/book-meeting
+
+POST /api/admin/onboarding/:id/mark-in-customisation
+POST /api/admin/onboarding/:id/mark-ready-for-review
+
+GET  /api/admin/bookings
+GET  /api/admin/bookings/availability
+PUT  /api/admin/bookings/availability
+```
+
+Reuse existing booking routes when they already cover these operations.
+
+Do not add duplicate endpoints merely to match these example names.
+
+---
+
+# Relevant existing files
+
+Inspect and modify as appropriate:
+
+```txt
+client/src/pages/onboarding.tsx
+server/onboardingGenerator.ts
+server/onboardingAgent.ts
+server/designInterview.ts
+server/subscriptionService.ts
+server/routes.ts
+shared/customComponents.ts
+shared/subscriptionPlans.ts
+client/src/components/builder/BrandGuidePanel.tsx
+client/src/components/builder/ComponentRenderer.tsx
+```
+
+Also locate:
+
+* Current booking API files.
+* Booking database schema.
+* Admin dashboard routes and navigation.
+* Builder canvas/preview components.
+* Existing Stripe webhook handler.
+* Email service.
+* Authentication middleware.
+* Admin middleware.
+* Database migrations.
+* Origin/base URL helper.
+* Existing PDF utilities.
+
+Potential new modules, only where useful:
+
+```txt
+client/src/components/onboarding/WebsitePreview.tsx
+client/src/components/onboarding/BrandGuidePreview.tsx
+client/src/components/onboarding/DecisionActions.tsx
+client/src/components/onboarding/MeetingBooking.tsx
+client/src/components/onboarding/PaymentChoiceDialog.tsx
+
+server/services/onboardingDecisionService.ts
+server/services/brandGuidePdfService.ts
+server/services/onboardingMeetingService.ts
+server/services/onboardingBillingService.ts
+```
+
+Follow existing repository naming and folder conventions instead of forcing these exact paths.
+
+---
+
+# Testing requirements
+
+Add automated tests where the repository already supports them.
+
+At minimum verify:
+
+## Ownership
+
+* Customer A cannot preview Customer B’s website.
+* Customer A cannot download Customer B’s brand guide.
+* Customer A cannot approve or book for Customer B.
+* Non-admin users cannot mark a website ready for review.
+* Non-admin users cannot access BirdFlow admin bookings.
+
+## Preview
+
+* All generated pages render.
+* Internal preview navigation works.
+* Mobile and desktop widths work.
+* Editing controls do not appear.
+* Preview forms cannot execute real submissions.
+
+## Booking
+
+* A slot cannot be double-booked.
+* Booking uses Europe/Copenhagen correctly.
+* Existing customer website bookings still work.
+* BirdFlow onboarding bookings remain separated.
+* Reloading preserves the booking confirmation.
+
+## Card billing
+
+* Setup fee and subscription are included.
+* Amounts come from Stripe Price configuration.
+* Duplicate clicks do not create duplicate subscriptions.
+* Cancelled Checkout returns to the decision screen.
+* Successful webhook marks payment correctly.
+
+## Invoice billing
+
+* Setup fee and first subscription charge appear.
+* Due date is the first day of the next month.
+* December correctly rolls into January of the next year.
+* Reloading does not create another invoice.
+* An open invoice is not treated as paid.
+* `invoice.paid` activates the paid state.
+* Failed or past-due invoices show recovery UI.
+
+## Customisation
+
+* Booking creates the correct decision state.
+* Admin can mark the website ready for review.
+* Customer sees the newest review revision.
+* Approval records the correct revision.
+* Email sends only in production.
+
+## Resume
+
+Test reload and sign-in return for:
+
+* Awaiting decision.
+* Meeting booked.
+* In customisation.
+* Ready for review.
+* Checkout pending.
+* Checkout cancelled.
+* Invoice open.
+* Payment failed.
+* Paid.
+
+---
+
+# Definition of done
+
+The task is complete only when:
+
+1. Customers see their real generated website, not a summary card.
+2. The preview supports desktop, mobile and multi-page navigation.
+3. Customers see a useful, designed brand guide.
+4. The guide downloads as one offline PDF.
+5. The same canonical guide appears in the builder Brand tab.
+6. Customers can approve and choose card or invoice.
+7. Card payment includes setup fee and recurring subscription.
+8. Invoice payment includes setup fee and first subscription charge.
+9. Stripe prices are not hardcoded.
+10. Invoice customers are not marked paid before `invoice.paid`.
+11. Customers can book a free 30-minute improvement meeting.
+12. The existing booking engine is reused.
+13. BirdFlow admins receive a functional Bookings tab.
+14. Admins can mark an improved site ready for customer review.
+15. Customers can return and approve the improved revision.
+16. All paths survive reloads, logout/login and cancelled Checkout.
+17. Production-only review email works.
+18. Ownership and admin permissions are enforced server-side.
+19. Existing website generation, builder rendering, customer bookings and Stripe subscriptions continue working.
+20. The complete experience visually feels like BirdFlow.
+
+---
+
+# Out of scope
+
+Do not include:
+
+* Changes to the onboarding interview questions.
+* A rewrite of the core AI website-generation pipeline.
+* Custom-domain publishing during checkout.
+* Automatic domain purchasing.
+* A second unrelated booking engine.
+* Rebranding authentication email-verification and password-reset pages.
+* Public unauthenticated website preview links.
+* Full contract or debt-collection functionality for unpaid invoices.
+
+Implement this in controlled phases and run type checking, migrations, relevant tests and existing build commands after each major backend/frontend integration.

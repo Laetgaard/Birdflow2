@@ -17,6 +17,7 @@
 import type { BuilderStateData } from "@shared/schema";
 import type { PrimitiveNode } from "@shared/customComponents";
 import { componentRegistry } from "@shared/componentRegistry";
+import { guardResponsive } from "./responsiveGuard";
 
 export type SelfCheckResult = { state: BuilderStateData; notes: string[] };
 
@@ -68,13 +69,6 @@ function normalizePath(path: string): string {
   let target = path.split("#")[0].split("?")[0];
   if (target.endsWith("/") && target !== "/") target = target.slice(0, -1);
   return target;
-}
-
-function countGridColumns(value: string | undefined): number {
-  if (typeof value !== "string" || !value.trim()) return 0;
-  const repeat = value.match(/repeat\(\s*(\d+)/);
-  if (repeat) return parseInt(repeat[1], 10);
-  return value.trim().split(/\s+/).length;
 }
 
 // ============ Main check ============
@@ -179,34 +173,14 @@ function checkTree(
       }
     }
 
-    // Responsive: fixed widths wider than a phone
-    const widthPx = styles.width?.match(/^(\d+(?:\.\d+)?)px$/);
-    if (widthPx && parseFloat(widthPx[1]) > 640 && !node.mobileStyles?.width) {
-      node.mobileStyles = { ...(node.mobileStyles ?? {}), width: "100%", maxWidth: "100%" };
-      notes.push(`Mobiltilpasning: fast bredde ${styles.width} på "${nodeName}" i ${label} gøres fleksibel på mobil.`);
-    }
-
-    // Responsive: multi-column grids collapse on small screens
-    const cols = countGridColumns(styles.gridTemplateColumns);
-    if (cols >= 3 && !node.mobileStyles?.gridTemplateColumns) {
-      node.mobileStyles = { ...(node.mobileStyles ?? {}), gridTemplateColumns: "1fr" };
-      if (cols >= 4 && !node.tabletStyles?.gridTemplateColumns) {
-        node.tabletStyles = { ...(node.tabletStyles ?? {}), gridTemplateColumns: "repeat(2, 1fr)" };
-      }
-      notes.push(`Mobiltilpasning: ${cols} kolonner i "${nodeName}" i ${label} stables på mobil.`);
-    }
-
-    // Responsive: display-size fonts get a mobile override
-    const fontPx = styles.fontSize?.match(/^(\d+(?:\.\d+)?)px$/);
-    if (fontPx && parseFloat(fontPx[1]) >= 48 && !node.mobileStyles?.fontSize) {
-      const scaled = Math.max(28, Math.round(parseFloat(fontPx[1]) * 0.62));
-      node.mobileStyles = { ...(node.mobileStyles ?? {}), fontSize: `${scaled}px` };
-      notes.push(
-        `Mobiltilpasning: skriftstørrelse ${styles.fontSize} på "${nodeName}" i ${label} nedskaleres til ${scaled}px på mobil.`
-      );
-    }
-
     if (Array.isArray(node.children)) node.children.forEach(walk);
   };
   walk(root);
+
+  // Responsive hazards are guardResponsive's job — one implementation,
+  // shared with the build orchestrator, which additionally REFUSES the
+  // mutations whose hazards cannot be repaired. At save time we only take
+  // the repairs: refusing here would mean losing work already applied.
+  const responsive = guardResponsive(root, label);
+  notes.push(...responsive.repairs);
 }

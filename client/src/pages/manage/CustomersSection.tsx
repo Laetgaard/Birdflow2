@@ -39,7 +39,7 @@ export function CustomersSection({ websiteId, accessToken }: SectionProps) {
       });
       if (!res.ok) throw new Error(`Kunne ikke hente kunder (${res.status})`);
       const data: CustomersResponse = await res.json();
-      setCustomers(data.customers);
+      setCustomers(Array.isArray(data.customers) ? data.customers : []);
       setCurrency(data.currency || "DKK");
     } catch (error: any) {
       setLoadError(error.message || "Kunne ikke hente kunder");

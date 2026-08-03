@@ -26,6 +26,7 @@ import { analyzeAndPlanWebsite } from "./websiteArchitect";
 import { captureWebsiteScreenshot } from "./screenshotService";
 import { getOpenAI } from "./openaiClient";
 import { storage } from "./storage";
+import { classifyChange, type LargeChangeVerdict } from "./largeChange";
 
 /* ─────────────────────────────────────────────────────────────
    Tool catalogue for the builder agent.
@@ -51,11 +52,32 @@ export type AgentContext = {
   notes: string[];
   /** Descriptions of images generated this run (for the report). */
   createdImages: string[];
-  /** Unique (aspect, description) → url, so repeats are free. */
+  /**
+   * Unique (aspect, description) → url, so repeats are free.
+   *
+   * Also the image BUDGET: generate_image refuses once the cache holds
+   * MAX_IMAGES_PER_RUN entries. A multi-step build passes one cache through
+   * every step on purpose, so the budget is per build and a ten-step plan
+   * cannot generate thirty images.
+   */
   imageCache: Map<string, string>;
   /** True once the caller has approved large changes for this run. */
   approvedLargeChanges: boolean;
+  /**
+   * Optional extra gate, consulted after the large-change classifier and
+   * BEFORE technical validation. Build mode uses it to enforce the approved
+   * plan's scope, the copy rules and responsive repairs. Returning a reason
+   * refuses the mutation; the model sees the reason and corrects itself.
+   * A guard may repair the mutation in place and report what it changed.
+   */
+  guard?: MutationGuard;
 };
+
+export type GuardVerdict =
+  | { ok: true; notes?: string[] }
+  | { ok: false; reason: string };
+
+export type MutationGuard = (mutation: BuilderMutation, ctx: AgentContext) => GuardVerdict;
 
 export type ToolResult =
   | {
@@ -84,55 +106,12 @@ export type AgentTool = {
 
 /* ─────────── large-change classification ─────────── */
 
-export type LargeChangeVerdict = { large: boolean; reason?: string };
-
-/**
- * Hybrid autonomy: the agent edits freely, but structural changes need
- * a human. Pure function of the mutations applied so far plus the one
- * being attempted, so it is directly testable.
- */
-export function classifyChange(
-  appliedSoFar: BuilderMutation[],
-  next: BuilderMutation,
-  state: BuilderStateData
-): LargeChangeVerdict {
-  const all = [...appliedSoFar, next];
-
-  if (next.action === "remove_page") {
-    return { large: true, reason: "En hel side slettes" };
-  }
-  if (next.action === "update_brand_guide") {
-    return { large: true, reason: "Brand guiden ændres" };
-  }
-  if (next.action === "apply_preset") {
-    return { large: true, reason: "Et helt designtema skiftes" };
-  }
-
-  const removals = all.filter((m) => m.action === "remove_component").length;
-  if (removals >= 3) {
-    return { large: true, reason: `${removals} sektioner fjernes` };
-  }
-
-  if (all.length > 12) {
-    return { large: true, reason: `${all.length} ændringer i én omgang` };
-  }
-
-  // More than half of a single page's sections removed
-  if (next.action === "remove_component") {
-    const pageId = next.pageId;
-    const page = state.pages.find((p) => p.id === pageId);
-    if (page && page.components.length > 0) {
-      const removedOnPage = all.filter(
-        (m) => m.action === "remove_component" && m.pageId === pageId
-      ).length;
-      if (removedOnPage / page.components.length > 0.5) {
-        return { large: true, reason: `Over halvdelen af "${page.name}" fjernes` };
-      }
-    }
-  }
-
-  return { large: false };
-}
+// One definition, in server/largeChange.ts — Plan mode and the build
+// orchestrator need the same verdict, and a second copy here would let the
+// plan promise something the orchestrator refuses. Re-exported so existing
+// importers (and tests) keep working.
+export { classifyChange };
+export type { LargeChangeVerdict };
 
 /* ─────────── helpers ─────────── */
 
@@ -169,6 +148,16 @@ function applyWrite(
     };
   }
 
+  if (ctx.guard) {
+    const guarded = ctx.guard(mutation, ctx);
+    if (!guarded.ok) {
+      return { ok: false, error: guarded.reason };
+    }
+    if (guarded.notes?.length) ctx.notes.push(...guarded.notes);
+  }
+
+  // Deliberately after the guard: an approved plan buys scope, never a
+  // bypass of what the builder considers a valid mutation.
   const check = validateMutation(mutation, ctx.state);
   if (!check.valid) {
     // Returned to the model, not thrown: it gets to correct itself.
@@ -210,10 +199,17 @@ function writeTool(
 
 /* ─────────── the catalogue ─────────── */
 
-export function buildToolCatalogue(): AgentTool[] {
+/**
+ * The read-only half of the catalogue.
+ *
+ * Plan mode is handed EXACTLY this array, which is what makes planning
+ * physically incapable of changing the site: there is no write tool in the
+ * registry for the model to call. Filtering a full catalogue down by a
+ * `mutates` flag would leave every write tool one bug away from reachable,
+ * so the split is structural rather than a predicate.
+ */
+export function buildReadTools(): AgentTool[] {
   const tools: AgentTool[] = [];
-
-  // ---- read tools ----
 
   tools.push({
     name: "list_pages",
@@ -333,6 +329,13 @@ export function buildToolCatalogue(): AgentTool[] {
       };
     },
   });
+
+  return tools;
+}
+
+/** Read tools plus every write tool: the ordinary assistant's catalogue. */
+export function buildToolCatalogue(): AgentTool[] {
+  const tools: AgentTool[] = buildReadTools();
 
   // ---- write tools (one per mutation action) ----
 

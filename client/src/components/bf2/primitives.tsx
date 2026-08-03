@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { BLUSH, LIME, PURPLE, fadeUp } from "./theme";
 
 /* ─────────────────────────────────────────────────────────────
@@ -51,6 +58,72 @@ export function RevealOnView({
   );
 }
 
+/**
+ * Renders `children` at a fixed design width and scales the result down to
+ * whatever width is actually available, taking the scaled height so the page
+ * flows normally around it.
+ *
+ * This is how phones show a desktop composition (the example practice site,
+ * the Birdflow workspace) as a legible miniature instead of letting it reflow
+ * into a very tall stack. Children opt individual nodes into their wide layout
+ * with the `bf2-w-*` utilities, since Tailwind breakpoints still key off the
+ * viewport inside the scaled box.
+ */
+export function ScaleToFit({
+  designWidth,
+  className,
+  children,
+}: {
+  designWidth: number;
+  className?: string;
+  children: ReactNode;
+}) {
+  const outerRef = useRef<HTMLDivElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(1);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+
+  // layout effect: measure before paint so the full-width composition is
+  // never shown unscaled for a frame.
+  useLayoutEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    const measure = () => {
+      const available = outer.clientWidth;
+      if (!available) return;
+      const next = Math.min(1, available / designWidth);
+      setScale(next);
+      setHeight(inner.offsetHeight * next);
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    // offsetHeight is the untransformed layout height, so applying the scale
+    // does not feed back into the observer.
+    const ro = new ResizeObserver(measure);
+    ro.observe(outer);
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, [designWidth]);
+
+  return (
+    <div ref={outerRef} className={className} style={{ height }}>
+      <div
+        ref={innerRef}
+        className="bf2-wide"
+        style={{ width: designWidth, transformOrigin: "top left", transform: `scale(${scale})` }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /* ─────────── the Birdflow bird ─────────── */
 
 const BIRD_PATH =
@@ -90,12 +163,23 @@ export function Bird({ className, style }: { className?: string; style?: CSSProp
 /* ─────────── wave separators ─────────── */
 
 /** Tall band wave: top bg → purple band → bottom bg (viewBox 1440×415) */
-export function BandWave({ top, bottom, flip = false }: { top: string; bottom: string; flip?: boolean }) {
+export function BandWave({
+  top,
+  bottom,
+  flip = false,
+  compact = false,
+}: {
+  top: string;
+  bottom: string;
+  flip?: boolean;
+  /** Shorter on phones only — decoration should not push content off the fold. */
+  compact?: boolean;
+}) {
   return (
     <svg
       viewBox="0 0 1440 415"
       preserveAspectRatio="none"
-      className="block w-full h-36 md:h-64 lg:h-[390px]"
+      className={`block w-full md:h-64 lg:h-[390px] ${compact ? "h-20 sm:h-36" : "h-36"}`}
       style={flip ? { transform: "scaleX(-1)", marginTop: -1, marginBottom: -1 } : { marginTop: -1 }}
       aria-hidden="true"
     >
@@ -112,34 +196,79 @@ export function BandWave({ top, bottom, flip = false }: { top: string; bottom: s
   );
 }
 
+/** The single edge curve, drawn in a 1440×205 box, shared by both edge waves. */
+const EDGE_WAVE_PATH =
+  "M0 0 L1440 0 L1440 205 C1370 160 1290 118 1160 95 C1000 70 860 72 640 76 C420 80 200 55 0 0 Z";
+
 /** Short edge wave into/out of a purple field (viewBox 1440×205) */
-export function EdgeWave({ other, flip }: { other: string; flip?: "x" | "xy" }) {
+export function EdgeWave({
+  other,
+  flip,
+  compact = false,
+}: {
+  other: string;
+  flip?: "x" | "xy";
+  /** Shorter on phones only — decoration should not push content off the fold. */
+  compact?: boolean;
+}) {
   const transform =
     flip === "x" ? "scaleX(-1)" : flip === "xy" ? "scale(-1,-1)" : undefined;
   return (
     <svg
       viewBox="0 0 1440 205"
       preserveAspectRatio="none"
-      className="block w-full h-24 lg:h-[195px]"
+      className={`block w-full lg:h-[195px] ${compact ? "h-16 sm:h-24" : "h-24"}`}
       style={{ transform, marginTop: -1, marginBottom: -1 }}
       aria-hidden="true"
     >
       <rect x="0" y="0" width="1440" height="205" fill={PURPLE} />
-      <path
-        d="M0 0 L1440 0 L1440 205 C1370 160 1290 118 1160 95 C1000 70 860 72 640 76 C420 80 200 55 0 0 Z"
-        fill={other}
-      />
+      <path d={EDGE_WAVE_PATH} fill={other} />
+    </svg>
+  );
+}
+
+/**
+ * The same edge curve turned on its side — purple on the left, `other` on
+ * the right — for a seam where a purple field meets a light ground
+ * vertically instead of horizontally (the /auth two-column composition).
+ *
+ * The drawing stays in the 1440×205 space so the curve is literally the
+ * same one the horizontal wave uses; the group rotates it into the
+ * 205×1440 viewBox, and preserveAspectRatio="none" stretches that to
+ * whatever strip it is placed in.
+ */
+export function EdgeWaveVertical({
+  other,
+  className,
+  style,
+}: {
+  other: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <svg
+      viewBox="0 0 205 1440"
+      preserveAspectRatio="none"
+      className={className}
+      style={style}
+      aria-hidden="true"
+    >
+      <g transform="translate(205,0) rotate(90)">
+        <rect x="0" y="0" width="1440" height="205" fill={PURPLE} />
+        <path d={EDGE_WAVE_PATH} fill={other} />
+      </g>
     </svg>
   );
 }
 
 /** Wave B before the Amalie case (viewBox 1440×455) */
-export function WaveB() {
+export function WaveB({ compact = false }: { compact?: boolean }) {
   return (
     <svg
       viewBox="0 0 1440 455"
       preserveAspectRatio="none"
-      className="block w-full h-40 md:h-64 lg:h-[420px]"
+      className={`block w-full md:h-64 lg:h-[420px] ${compact ? "h-24 sm:h-40" : "h-40"}`}
       aria-hidden="true"
     >
       <rect x="0" y="0" width="1440" height="455" fill={BLUSH} />

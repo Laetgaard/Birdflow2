@@ -14,7 +14,10 @@ import type {
   AnalyticsTimeseriesPoint, CountryVisitors, LiveVisitorStats, DeviceBreakdown,
 } from "@shared/schema";
 import type { SectionProps } from "./types";
-import { authHeaders, formatCents, LoadingState, ErrorState } from "./shared";
+import {
+  manageFetch, SessionExpiredError, SessionExpiredState,
+  formatCents, LoadingState, ErrorState,
+} from "./shared";
 import { WorldMap, countryNameDa } from "./WorldMap";
 
 const nf = new Intl.NumberFormat("da-DK");
@@ -106,22 +109,22 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
   const [live, setLive] = useState<LiveVisitorStats>({ activeVisitors: 0, byCountry: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const headers = authHeaders(accessToken);
       const base = `/api/websites/${websiteId}/analytics`;
       const [ovRes, fuRes, trRes, pgRes, tsRes, coRes, deRes, liRes] = await Promise.all([
-        fetch(`${base}/overview?days=${days}`, { headers }),
-        fetch(`${base}/funnel?days=${days}`, { headers }),
-        fetch(`${base}/traffic?days=${days}`, { headers }),
-        fetch(`${base}/pages?days=${days}`, { headers }),
-        fetch(`${base}/timeseries?days=${days}`, { headers }),
-        fetch(`${base}/countries?days=${days}`, { headers }),
-        fetch(`${base}/devices?days=${days}`, { headers }),
-        fetch(`${base}/live`, { headers }),
+        manageFetch(`${base}/overview?days=${days}`, accessToken),
+        manageFetch(`${base}/funnel?days=${days}`, accessToken),
+        manageFetch(`${base}/traffic?days=${days}`, accessToken),
+        manageFetch(`${base}/pages?days=${days}`, accessToken),
+        manageFetch(`${base}/timeseries?days=${days}`, accessToken),
+        manageFetch(`${base}/countries?days=${days}`, accessToken),
+        manageFetch(`${base}/devices?days=${days}`, accessToken),
+        manageFetch(`${base}/live`, accessToken),
       ]);
       if (!ovRes.ok) throw new Error("Kunne ikke hente statistik");
       setOverview(await ovRes.json());
@@ -132,8 +135,13 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
       if (coRes.ok) setCountries((await coRes.json()).countries || []);
       if (deRes.ok) setDevices((await deRes.json()).devices || []);
       if (liRes.ok) setLive(await liRes.json());
+      setSessionExpired(false);
     } catch (e: any) {
-      setError(e.message || "Kunne ikke hente statistik");
+      if (e instanceof SessionExpiredError) {
+        setSessionExpired(true);
+      } else {
+        setError(e.message || "Kunne ikke hente statistik");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -143,20 +151,23 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
     load();
   }, [load]);
 
-  // Poll live visitors every 15 seconds
+  // Poll live visitors every 15 seconds. Stops once the session is known to
+  // be expired - polling with a dead token would just produce 401s forever.
   useEffect(() => {
+    if (sessionExpired) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/websites/${websiteId}/analytics/live`, {
-          headers: authHeaders(accessToken),
-        });
+        const res = await manageFetch(`/api/websites/${websiteId}/analytics/live`, accessToken);
         if (res.ok) setLive(await res.json());
-      } catch {
-        // silent - next tick retries
+      } catch (e) {
+        if (e instanceof SessionExpiredError) {
+          setSessionExpired(true);
+        }
+        // other errors: silent - next tick retries
       }
     }, 15000);
     return () => clearInterval(interval);
-  }, [websiteId, accessToken]);
+  }, [websiteId, accessToken, sessionExpired]);
 
   const totalSourceSessions = useMemo(
     () => traffic.reduce((sum, t) => sum + t.sessions, 0),
@@ -167,6 +178,7 @@ export function AnalyticsSection({ websiteId, accessToken }: SectionProps) {
     [pages]
   );
 
+  if (sessionExpired) return <SessionExpiredState />;
   if (isLoading) return <LoadingState label="Indlæser statistik..." />;
   if (error || !overview) return <ErrorState message={error || "Kunne ikke hente statistik"} onRetry={load} />;
 

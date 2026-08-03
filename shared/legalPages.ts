@@ -1,5 +1,22 @@
+/**
+ * Ready-made Terms and Privacy pages for a customer's website, in the
+ * customer's own language.
+ *
+ * Nothing in the product calls this yet - generated and template sites link to
+ * legal text they do not create here. It is localized anyway so that whoever
+ * wires it up passes the website's language (`normalizeSiteLanguage(website.language)`)
+ * rather than shipping a Danish privacy policy onto an English site. Both
+ * entry points default to Danish, which is what the module produced before
+ * the language choice existed.
+ */
 import type { BuilderComponentData } from './componentRegistry';
 import type { BuilderPage } from './schema';
+import {
+  DEFAULT_SITE_LANGUAGE,
+  PUBLISHED_SITE_STRINGS,
+  SITE_LOCALE,
+  type SiteLanguage,
+} from './siteLanguage';
 
 export type LegalPlaceholders = {
   websiteName: string;
@@ -24,10 +41,18 @@ export function replacePlaceholders(text: string, placeholders: Partial<LegalPla
     .replace(/\{\{address\}\}/g, merged.businessAddress);
 }
 
-export const defaultTermsContent = `
+function lastUpdated(lang: SiteLanguage): string {
+  return new Date().toLocaleDateString(SITE_LOCALE[lang], {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+const englishTerms = `
 Terms of Service
 
-Last updated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+Last updated: {{last_updated}}
 
 1. Agreement to Terms
 By accessing or using {{website_name}}, you agree to be bound by these Terms of Service. If you disagree with any part of these terms, you may not access our service.
@@ -56,10 +81,10 @@ Email: {{email}}
 Address: {{address}}
 `.trim();
 
-export const defaultPrivacyContent = `
+const englishPrivacy = `
 Privacy Policy
 
-Last updated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+Last updated: {{last_updated}}
 
 1. Introduction
 {{company_name}} ("we", "our", or "us") respects your privacy. This Privacy Policy explains how we collect, use, and protect your personal information when you use {{website_name}}.
@@ -106,11 +131,118 @@ Email: {{email}}
 Address: {{address}}
 `.trim();
 
+const danishTerms = `
+Handelsbetingelser
+
+Senest opdateret: {{last_updated}}
+
+1. Accept af betingelserne
+Ved at bruge {{website_name}} accepterer du disse handelsbetingelser. Er du ikke enig i en del af betingelserne, kan du ikke bruge tjenesten.
+
+2. Brug af tjenesten
+{{company_name}} giver dig en begrænset, ikke-eksklusiv og ikke-overdragelig ret til at bruge vores tjenester til privat eller erhvervsmæssig brug i overensstemmelse med disse betingelser.
+
+3. Brugerkonti
+Når du opretter en konto, skal du give korrekte og fuldstændige oplysninger. Du er selv ansvarlig for at holde din konto og adgangskode sikker.
+
+4. Køb og betaling
+Alle køb på {{website_name}} er omfattet af vores betalingsbetingelser. Priser kan ændres uden varsel. Vi forbeholder os retten til at afvise eller annullere ordrer.
+
+5. Immaterielle rettigheder
+Indhold, funktioner og design på {{website_name}} tilhører {{company_name}} og er beskyttet af ophavsret, varemærkeret og anden lovgivning om immaterielle rettigheder.
+
+6. Ansvarsbegrænsning
+{{company_name}} er ikke ansvarlig for indirekte tab, følgeskader eller andre indirekte omkostninger, der opstår som følge af din brug af eller manglende adgang til tjenesten.
+
+7. Ændringer af betingelserne
+Vi kan til enhver tid ændre disse betingelser. Væsentlige ændringer offentliggøres på denne side.
+
+8. Kontakt
+Har du spørgsmål til betingelserne, er du velkommen til at kontakte os:
+E-mail: {{email}}
+Adresse: {{address}}
+`.trim();
+
+const danishPrivacy = `
+Privatlivspolitik
+
+Senest opdateret: {{last_updated}}
+
+1. Indledning
+{{company_name}} ("vi", "vores" eller "os") respekterer dit privatliv. Denne privatlivspolitik beskriver, hvordan vi indsamler, bruger og beskytter dine personoplysninger, når du bruger {{website_name}}.
+
+2. Oplysninger vi indsamler
+Vi kan indsamle oplysninger, du selv giver os, for eksempel:
+- Navn og kontaktoplysninger
+- Betalings- og faktureringsoplysninger
+- Loginoplysninger
+- Beskeder, du sender til os
+
+3. Sådan bruger vi dine oplysninger
+Vi bruger dine oplysninger til at:
+- Behandle bestillinger og sende relevante beskeder
+- Sende dig tekniske beskeder og support
+- Besvare dine spørgsmål og henvendelser
+- Levere og forbedre vores tjenester
+
+4. Videregivelse af oplysninger
+Vi sælger ikke dine personoplysninger. Vi kan dele dem med:
+- Leverandører, der hjælper med driften
+- Professionelle rådgivere
+- Myndigheder, når loven kræver det
+
+5. Datasikkerhed
+Vi bruger passende sikkerhedsforanstaltninger til at beskytte dine personoplysninger. Ingen overførsel via internettet er dog 100 % sikker.
+
+6. Dine rettigheder
+Efter databeskyttelsesforordningen (GDPR) har du blandt andet ret til at:
+- Få indsigt i dine personoplysninger
+- Få rettet forkerte oplysninger
+- Få slettet dine oplysninger
+- Gøre indsigelse mod behandlingen
+
+7. Cookies
+Vi bruger cookies for at forbedre din oplevelse. Du kan styre cookies i din browsers indstillinger.
+
+8. Ændringer af politikken
+Vi kan opdatere denne privatlivspolitik. Ændringer offentliggøres på denne side.
+
+9. Kontakt os
+Har du spørgsmål til privatlivspolitikken, er du velkommen til at kontakte os:
+E-mail: {{email}}
+Adresse: {{address}}
+`.trim();
+
+const TERMS_BY_LANGUAGE: Record<SiteLanguage, string> = {
+  da: danishTerms,
+  en: englishTerms,
+};
+
+const PRIVACY_BY_LANGUAGE: Record<SiteLanguage, string> = {
+  da: danishPrivacy,
+  en: englishPrivacy,
+};
+
+/** Kept for callers that only ever wanted the English wording. */
+export const defaultTermsContent = englishTerms;
+export const defaultPrivacyContent = englishPrivacy;
+
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): BuilderPage[] {
-  const termsContent = replacePlaceholders(defaultTermsContent, placeholders || {});
-  const privacyContent = replacePlaceholders(defaultPrivacyContent, placeholders || {});
+export function createLegalPages(
+  placeholders?: Partial<LegalPlaceholders>,
+  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE
+): BuilderPage[] {
+  const t = PUBLISHED_SITE_STRINGS[lang];
+  const stamp = lastUpdated(lang);
+  const termsContent = replacePlaceholders(TERMS_BY_LANGUAGE[lang], placeholders || {}).replace(
+    /\{\{last_updated\}\}/g,
+    stamp
+  );
+  const privacyContent = replacePlaceholders(PRIVACY_BY_LANGUAGE[lang], placeholders || {}).replace(
+    /\{\{last_updated\}\}/g,
+    stamp
+  );
   
   const headerStyles = {
     backgroundColor: '#ffffff',
@@ -136,7 +268,7 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
   // Footer includes links to Terms and Privacy pages
   const termsPage: BuilderPage = {
     id: 'terms',
-    name: 'Terms of Service',
+    name: t.legalTerms,
     path: '/terms',
     hidden: true, // Hidden from main navigation, only in footer
     components: [
@@ -146,7 +278,7 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
         props: {
           title: websiteName,
           items: [
-            { id: '1', title: 'Home', description: '/' },
+            { id: '1', title: t.legalHome, description: '/' },
           ],
         },
         styles: headerStyles,
@@ -155,7 +287,7 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
         id: generateId(),
         type: 'text-image',
         props: {
-          title: 'Terms of Service',
+          title: t.legalTerms,
           description: termsContent,
           imageSide: 'right',
         },
@@ -165,11 +297,11 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
         id: generateId(),
         type: 'footer',
         props: {
-          title: `© ${new Date().getFullYear()} ${websiteName}. All rights reserved.`,
+          title: `© ${new Date().getFullYear()} ${websiteName}. ${t.legalRightsReserved}`,
           description: placeholders?.contactEmail || defaultPlaceholders.contactEmail,
           items: [
-            { id: '1', title: 'Terms of Service', description: '/terms' },
-            { id: '2', title: 'Privacy Policy', description: '/privacy' },
+            { id: '1', title: t.legalTerms, description: '/terms' },
+            { id: '2', title: t.legalPrivacy, description: '/privacy' },
           ],
         },
         styles: footerStyles,
@@ -179,7 +311,7 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
   
   const privacyPage: BuilderPage = {
     id: 'privacy',
-    name: 'Privacy Policy',
+    name: t.legalPrivacy,
     path: '/privacy',
     hidden: true, // Hidden from main navigation, only in footer
     components: [
@@ -189,7 +321,7 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
         props: {
           title: websiteName,
           items: [
-            { id: '1', title: 'Home', description: '/' },
+            { id: '1', title: t.legalHome, description: '/' },
           ],
         },
         styles: headerStyles,
@@ -198,7 +330,7 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
         id: generateId(),
         type: 'text-image',
         props: {
-          title: 'Privacy Policy',
+          title: t.legalPrivacy,
           description: privacyContent,
           imageSide: 'right',
         },
@@ -208,11 +340,11 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
         id: generateId(),
         type: 'footer',
         props: {
-          title: `© ${new Date().getFullYear()} ${websiteName}. All rights reserved.`,
+          title: `© ${new Date().getFullYear()} ${websiteName}. ${t.legalRightsReserved}`,
           description: placeholders?.contactEmail || defaultPlaceholders.contactEmail,
           items: [
-            { id: '1', title: 'Terms of Service', description: '/terms' },
-            { id: '2', title: 'Privacy Policy', description: '/privacy' },
+            { id: '1', title: t.legalTerms, description: '/terms' },
+            { id: '2', title: t.legalPrivacy, description: '/privacy' },
           ],
         },
         styles: footerStyles,
@@ -225,9 +357,10 @@ export function createLegalPages(placeholders?: Partial<LegalPlaceholders>): Bui
 
 export function addLegalPagesToBuilderState<T extends { pages: BuilderPage[] }>(
   state: T,
-  placeholders?: Partial<LegalPlaceholders>
+  placeholders?: Partial<LegalPlaceholders>,
+  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE
 ): T {
-  const legalPages = createLegalPages(placeholders);
+  const legalPages = createLegalPages(placeholders, lang);
   const existingPageIds = state.pages.map(p => p.id);
   
   const pagesToAdd = legalPages.filter(lp => !existingPageIds.includes(lp.id));

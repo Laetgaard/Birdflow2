@@ -128,6 +128,23 @@ export function buildWebsiteAccessContext(args: {
 }): WebsiteAccessContext | null {
   const { website, actorUserId, actorIsAdmin } = args;
 
+  // BirdFlow's own platform calendar is a websites row owned by a sentinel,
+  // not by a person. Nobody is ever its owner; only a verified administrator
+  // may read or manage it. Stated explicitly rather than relying on the
+  // sentinel never matching a real user id.
+  if (website.kind === "platform") {
+    if (!actorIsAdmin) return null;
+    return {
+      website,
+      actorUserId,
+      ownerUserId: website.ownerId,
+      mode: "admin",
+      permissions: computeWebsitePermissions("admin"),
+      adminSessionId: sanitizeAdminSessionId(args.adminSessionId),
+      requestId: args.requestId ?? randomUUID(),
+    };
+  }
+
   const mode: WebsiteAccessMode | null =
     website.ownerId === actorUserId ? "owner" : actorIsAdmin ? "admin" : null;
 

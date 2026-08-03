@@ -30,6 +30,18 @@ import { processAIBuildRequest, applyMutations } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
 import { buildReport } from "./aiReport";
+import { enrichBrandGuide } from "./brandGuideEnrichment";
+import {
+  markGenerationComplete,
+  markGenerationFailed,
+  markGenerationStarted,
+} from "./onboardingDecision";
+import {
+  copyLanguageInstruction,
+  normalizeSiteLanguage,
+  pickLang,
+  type SiteLanguage,
+} from "@shared/siteLanguage";
 
 // ============ Input ============
 
@@ -57,6 +69,14 @@ export type OnboardingGenInput = {
    * what was approved is what gets built.
    */
   plan?: WebsitePlan;
+  /**
+   * The language the customer picked in onboarding. Everything this pipeline
+   * writes - the plan prompt, the enhancement prompt, the brand-guide
+   * interview and the deterministic fallback site - is produced in it.
+   * Absent means Danish, which is what every build produced before the
+   * language step existed.
+   */
+  language?: SiteLanguage;
 };
 
 // ============ Status registry ============
@@ -163,7 +183,18 @@ export function startOnboardingGeneration(
   runningJobs.add(websiteId);
   persistStatus(status);
 
+  // The decision record is the resume authority for the whole flow, so it
+  // learns about the generation the same moment the in-memory job does.
+  markGenerationStarted(websiteId).catch((err) =>
+    console.error(`[OnboardingGen] Failed to mark generation started for ${websiteId}:`, err)
+  );
+
   runPipeline(websiteId, input, status)
+    .then(() =>
+      markGenerationComplete(websiteId).catch((err) =>
+        console.error(`[OnboardingGen] Failed to mark generation complete for ${websiteId}:`, err)
+      )
+    )
     .catch((error) => {
       // runPipeline handles its own fallbacks; this only triggers when even
       // the fallback save failed (e.g. database unavailable).
@@ -174,6 +205,9 @@ export function startOnboardingGeneration(
         "Noget gik galt under opbygningen. Din konto og dit projekt er sikre — prøv igen, eller fortsæt og byg videre med AI-assistenten i editoren.";
       status.updatedAt = Date.now();
       persistStatus(status);
+      markGenerationFailed(websiteId).catch((err) =>
+        console.error(`[OnboardingGen] Failed to mark generation failed for ${websiteId}:`, err)
+      );
     })
     .finally(() => {
       runningJobs.delete(websiteId);
@@ -181,6 +215,199 @@ export function startOnboardingGeneration(
 
   return status;
 }
+
+// ============ What the customer reads while it builds ============
+
+/**
+ * Progress lines, report notes and every word of the deterministic fallback
+ * site. Kept together so a new language is one entry rather than a hunt
+ * through the pipeline.
+ */
+type GenStrings = {
+  analyzedImages: (n: number) => string;
+  guideFromPicks: string;
+  phasePlan: string;
+  usingApprovedPlan: (pages: number) => string;
+  pagesPlanned: (pages: number) => string;
+  phaseBuild: string;
+  phaseEnhance: string;
+  enhanceFailed: string;
+  phaseCheck: string;
+  phaseFallback: string;
+  fallbackNote: string;
+  guideCreated: string;
+  pageBuilt: (name: string, sections: number) => string;
+  pageCreated: (name: string, sections: number) => string;
+  /** Deterministic starter site. */
+  site: {
+    navAbout: string;
+    navShop: string;
+    navGallery: string;
+    navContact: string;
+    pathAbout: string;
+    pathShop: string;
+    pathGallery: string;
+    pathContact: string;
+    pageHome: string;
+    footerRights: (year: number, name: string) => string;
+    footerBuiltWith: string;
+    heroFallbackDescription: (name: string) => string;
+    heroButtonBooking: string;
+    heroButtonContact: string;
+    featuresTitle: string;
+    feature1Title: string;
+    feature1Body: string;
+    feature2Title: string;
+    feature2Body: (industry: string) => string;
+    feature3Title: string;
+    feature3Body: string;
+    ctaTitleBooking: string;
+    ctaTitleContact: string;
+    ctaBody: string;
+    ctaButtonBooking: string;
+    ctaButtonContact: string;
+    aboutTitle: (name: string) => string;
+    aboutFallback: (name: string, industry: string) => string;
+    contactTitle: string;
+    contactBody: string;
+    contactButton: string;
+    fieldName: string;
+    fieldNamePlaceholder: string;
+    fieldEmail: string;
+    fieldEmailPlaceholder: string;
+    fieldMessage: string;
+    fieldMessagePlaceholder: string;
+    productsTitle: string;
+    galleryTitle: string;
+    ownField: string;
+  };
+};
+
+const GEN_STRINGS: Record<SiteLanguage, GenStrings> = {
+  da: {
+    analyzedImages: (n) => `${n} af dine billeder er analyseret og omsat til brandguidens billedstil.`,
+    guideFromPicks: "Brand guiden er bygget direkte ud fra dine valg af farver og typografi.",
+    phasePlan: "Planlægger sider, sektioner og indhold…",
+    usingApprovedPlan: (pages) => `Bruger den godkendte plan (${pages} sider) — bygger nu…`,
+    pagesPlanned: (pages) => `${pages} sider planlagt — bygger nu…`,
+    phaseBuild: "Bygger dine sider med indhold på dansk…",
+    phaseEnhance: "Designer unikke komponenter og billeder…",
+    enhanceFailed:
+      "Den ekstra designrunde kunne ikke gennemføres — dit website er bygget og klar alligevel.",
+    phaseCheck: "Tjekker links, kontrast og mobilvisning…",
+    phaseFallback: "Bygger en solid startside ud fra dine svar…",
+    fallbackNote:
+      "AI'en kunne ikke færdiggøre hele opbygningen, så vi har bygget en solid startside ud fra dine svar. Brug AI-assistenten i editoren til at bygge videre — den kender allerede din brand guide.",
+    guideCreated: "Brand guide oprettet ud fra dine valg.",
+    pageBuilt: (name, sections) => `Side "${name}" bygget med ${sections} sektioner.`,
+    pageCreated: (name, sections) => `Side "${name}" oprettet med ${sections} sektioner.`,
+    site: {
+      navAbout: "Om os",
+      navShop: "Shop",
+      navGallery: "Galleri",
+      navContact: "Kontakt",
+      pathAbout: "/om",
+      pathShop: "/shop",
+      pathGallery: "/galleri",
+      pathContact: "/kontakt",
+      pageHome: "Hjem",
+      footerRights: (year, name) => `© ${year} ${name}. Alle rettigheder forbeholdes.`,
+      footerBuiltWith: "Bygget med BirdFlow",
+      heroFallbackDescription: (name) => `Velkommen til ${name} — vi er klar til at hjælpe dig.`,
+      heroButtonBooking: "Book en tid",
+      heroButtonContact: "Kontakt os",
+      featuresTitle: "Det kan du forvente af os",
+      feature1Title: "Personlig service",
+      feature1Body: "Vi tager os tid til dig og dine behov.",
+      feature2Title: "Erfaring du kan stole på",
+      feature2Body: (industry) => `Professionel hjælp inden for ${industry || "vores felt"}.`,
+      feature3Title: "Nemt at komme i gang",
+      feature3Body: "Skriv eller ring — vi vender hurtigt tilbage.",
+      ctaTitleBooking: "Klar til at booke en tid?",
+      ctaTitleContact: "Skal vi tage en snak?",
+      ctaBody: "Vi glæder os til at høre fra dig.",
+      ctaButtonBooking: "Book nu",
+      ctaButtonContact: "Kontakt os",
+      aboutTitle: (name) => `Om ${name}`,
+      aboutFallback: (name, industry) =>
+        `${name} er en virksomhed inden for ${industry || "sit felt"}. Her kan du fortælle jeres historie — hvem I er, hvad I brænder for, og hvorfor kunderne vælger jer.`,
+      contactTitle: "Kontakt os",
+      contactBody: "Udfyld formularen, så vender vi tilbage hurtigst muligt.",
+      contactButton: "Send besked",
+      fieldName: "Navn",
+      fieldNamePlaceholder: "Dit navn",
+      fieldEmail: "Email",
+      fieldEmailPlaceholder: "din@email.dk",
+      fieldMessage: "Besked",
+      fieldMessagePlaceholder: "Hvad kan vi hjælpe med?",
+      productsTitle: "Vores produkter",
+      galleryTitle: "Se vores arbejde",
+      ownField: "vores felt",
+    },
+  },
+  en: {
+    analyzedImages: (n) =>
+      `${n} of your images were analysed and turned into the brand guide's image style.`,
+    guideFromPicks: "The brand guide is built directly from your colour and typography choices.",
+    phasePlan: "Planning pages, sections and content…",
+    usingApprovedPlan: (pages) => `Using the approved plan (${pages} pages) — building now…`,
+    pagesPlanned: (pages) => `${pages} pages planned — building now…`,
+    phaseBuild: "Building your pages with English copy…",
+    phaseEnhance: "Designing unique components and images…",
+    enhanceFailed:
+      "The extra design round could not be completed — your website is built and ready all the same.",
+    phaseCheck: "Checking links, contrast and the mobile view…",
+    phaseFallback: "Building a solid starting page from your answers…",
+    fallbackNote:
+      "The AI could not finish the whole build, so we have built a solid starting page from your answers. Use the AI assistant in the editor to carry on — it already knows your brand guide.",
+    guideCreated: "Brand guide created from your choices.",
+    pageBuilt: (name, sections) => `Page "${name}" built with ${sections} sections.`,
+    pageCreated: (name, sections) => `Page "${name}" created with ${sections} sections.`,
+    site: {
+      navAbout: "About",
+      navShop: "Shop",
+      navGallery: "Gallery",
+      navContact: "Contact",
+      pathAbout: "/about",
+      pathShop: "/shop",
+      pathGallery: "/gallery",
+      pathContact: "/contact",
+      pageHome: "Home",
+      footerRights: (year, name) => `© ${year} ${name}. All rights reserved.`,
+      footerBuiltWith: "Built with BirdFlow",
+      heroFallbackDescription: (name) => `Welcome to ${name} — we're ready to help you.`,
+      heroButtonBooking: "Book an appointment",
+      heroButtonContact: "Contact us",
+      featuresTitle: "What you can expect from us",
+      feature1Title: "Personal service",
+      feature1Body: "We take the time to understand you and your needs.",
+      feature2Title: "Experience you can trust",
+      feature2Body: (industry) => `Professional help within ${industry || "our field"}.`,
+      feature3Title: "Easy to get started",
+      feature3Body: "Write or call — we get back to you quickly.",
+      ctaTitleBooking: "Ready to book an appointment?",
+      ctaTitleContact: "Shall we have a chat?",
+      ctaBody: "We look forward to hearing from you.",
+      ctaButtonBooking: "Book now",
+      ctaButtonContact: "Contact us",
+      aboutTitle: (name) => `About ${name}`,
+      aboutFallback: (name, industry) =>
+        `${name} is a business within ${industry || "its field"}. This is where you can tell your story — who you are, what you care about, and why customers choose you.`,
+      contactTitle: "Contact us",
+      contactBody: "Fill in the form and we'll get back to you as soon as possible.",
+      contactButton: "Send message",
+      fieldName: "Name",
+      fieldNamePlaceholder: "Your name",
+      fieldEmail: "Email",
+      fieldEmailPlaceholder: "you@email.com",
+      fieldMessage: "Message",
+      fieldMessagePlaceholder: "What can we help with?",
+      productsTitle: "Our products",
+      galleryTitle: "See our work",
+      ownField: "our field",
+    },
+  },
+};
 
 // ============ Pipeline ============
 
@@ -192,6 +419,8 @@ async function runPipeline(
   const builderData = await storage.getBuilderState(websiteId);
   if (!builderData) throw new Error("Builder state not found");
   const initialState = builderData.state as BuilderStateData;
+  const lang = normalizeSiteLanguage(input.language);
+  const t = GEN_STRINGS[lang];
 
   // ---- Phase 1: brand guide (deterministic fallback seeded from picks) ----
   let guide: BrandGuide;
@@ -208,20 +437,19 @@ async function runPipeline(
         fontPair: input.fontPair,
         imageUrls: visionUrls,
         notes: buildBrandNotes(input),
+        language: lang,
       },
       initialState
     );
     guide = finalized.guide;
     status.summary = finalized.summary;
     if (finalized.analyzedImages > 0) {
-      guideNotes.push(
-        `${finalized.analyzedImages} af dine billeder er analyseret og omsat til brandguidens billedstil.`
-      );
+      guideNotes.push(t.analyzedImages(finalized.analyzedImages));
     }
   } catch (error) {
     console.error(`[OnboardingGen] Brand guide AI failed for ${websiteId}, using picks directly:`, error);
     guide = deterministicGuide(input);
-    guideNotes.push("Brand guiden er bygget direkte ud fra dine valg af farver og typografi.");
+    guideNotes.push(t.guideFromPicks);
   }
   // The user's explicit choices always win, and the logo is theirs.
   guide.colors = { ...guide.colors, ...input.palette.colors };
@@ -243,18 +471,18 @@ async function runPipeline(
   await storage.updateBuilderState(websiteId, stateWithGuide);
 
   // ---- Phase 2: plan ----
-  setPhase(status, "plan", "Planlægger sider, sektioner og indhold…");
+  setPhase(status, "plan", t.phasePlan);
   let plan: WebsitePlan | undefined;
   if (input.plan) {
     // The user approved this exact plan in the walkthrough preview.
     plan = structuredClone(input.plan);
-    status.detail = `Bruger den godkendte plan (${plan.pages.length} sider) — bygger nu…`;
+    status.detail = t.usingApprovedPlan(plan.pages.length);
   } else {
     try {
       const planResult = await analyzeAndPlanWebsite(buildPlanPrompt(input));
       if (planResult.success && planResult.plan) {
         plan = planResult.plan;
-        status.detail = `${plan.pages.length} sider planlagt — bygger nu…`;
+        status.detail = t.pagesPlanned(plan.pages.length);
       }
     } catch (error) {
       console.error(`[OnboardingGen] Plan failed for ${websiteId}:`, error);
@@ -268,7 +496,7 @@ async function runPipeline(
   // ---- Phase 3: build ----
   let builtState: BuilderStateData | undefined;
   if (plan) {
-    setPhase(status, "build", "Bygger dine sider med indhold på dansk…");
+    setPhase(status, "build", t.phaseBuild);
     try {
       const buildResult = await buildFromPlan(plan);
       if (buildResult.success && buildResult.builderState && buildResult.builderState.pages.length > 0) {
@@ -291,13 +519,13 @@ async function runPipeline(
   builtState.globalStyles = { ...builtState.globalStyles, ...brandGuideToDesignTokens(guide) };
 
   // ---- Phase 4: signature enhancement (custom components + AI images) ----
-  setPhase(status, "enhance", "Designer unikke komponenter og billeder…");
+  setPhase(status, "enhance", t.phaseEnhance);
   let finalState = builtState;
   let enhanceMutations: BuilderMutation[] = [];
   let imageNotes: string[] = [];
   let imageCreated: string[] = [];
   try {
-    const aiResponse = await processAIBuildRequest(buildEnhancePrompt(input), builtState, "creative");
+    const aiResponse = await processAIBuildRequest(buildEnhancePrompt(input), builtState, "creative", lang);
     const resolved = await resolveAiImageMarkers(websiteId, aiResponse.mutations, guide);
     finalState = applyMutations(builtState, resolved.mutations);
     enhanceMutations = resolved.mutations;
@@ -307,24 +535,28 @@ async function runPipeline(
     console.error(`[OnboardingGen] Enhancement pass failed for ${websiteId} (keeping base build):`, error);
     finalState = builtState;
     enhanceMutations = [];
-    imageNotes = ["Den ekstra designrunde kunne ikke gennemføres — dit website er bygget og klar alligevel."];
+    imageNotes = [t.enhanceFailed];
   }
 
   // ---- Phase 5: self-check + save ----
-  setPhase(status, "check", "Tjekker links, kontrast og mobilvisning…");
+  setPhase(status, "check", t.phaseCheck);
   const check = runSelfCheck(finalState);
   finalState = check.state;
   sanitizeBuilderStateCustomContent(finalState);
   await storage.updateBuilderState(websiteId, finalState);
 
-  const pageLines = finalState.pages.map(
-    (p) => `Side "${p.name}" bygget med ${p.components.length} sektioner.`
-  );
+  // ---- Phase 6: brand-guide enrichment ----
+  // Runs on the finished site so the guide can show the customer's own
+  // imagery. Purely additive: it never rebuilds pages, and a failure leaves
+  // the mechanical guide exactly as it was saved in phase 1.
+  await enrichSavedBrandGuide(websiteId, input, finalState, guide);
+
+  const pageLines = finalState.pages.map((p) => t.pageBuilt(p.name, p.components.length));
   status.report = buildReport(
     enhanceMutations,
     finalState,
     [...guideNotes, ...imageNotes, ...check.notes],
-    ["Brand guide oprettet ud fra dine valg.", ...pageLines, ...imageCreated]
+    [t.guideCreated, ...pageLines, ...imageCreated]
   );
   setPhase(status, "done");
   status.done = true;
@@ -340,30 +572,64 @@ async function applyFallback(
   guideNotes: string[],
   status: OnboardingGenStatus
 ): Promise<void> {
-  setPhase(status, "check", "Bygger en solid startside ud fra dine svar…");
+  const t = GEN_STRINGS[normalizeSiteLanguage(input.language)];
+  setPhase(status, "check", t.phaseFallback);
   let state = buildFallbackState(input, guide);
   const check = runSelfCheck(state);
   state = check.state;
   sanitizeBuilderStateCustomContent(state);
   await storage.updateBuilderState(websiteId, state);
 
+  // A fallback site still gets a full brand guide - it is half of what the
+  // customer is about to be shown.
+  await enrichSavedBrandGuide(websiteId, input, state, guide);
+
   status.report = buildReport(
     [],
     state,
     [
       ...guideNotes,
-      "AI'en kunne ikke færdiggøre hele opbygningen, så vi har bygget en solid startside ud fra dine svar. Brug AI-assistenten i editoren til at bygge videre — den kender allerede din brand guide.",
+      t.fallbackNote,
       ...check.notes,
     ],
-    [
-      "Brand guide oprettet ud fra dine valg.",
-      ...state.pages.map((p) => `Side "${p.name}" oprettet med ${p.components.length} sektioner.`),
-    ]
+    [t.guideCreated, ...state.pages.map((p) => t.pageCreated(p.name, p.components.length))]
   );
   status.fallback = true;
   setPhase(status, "done");
   status.done = true;
   persistStatus(status);
+}
+
+/**
+ * Enrich the stored brand guide in place: re-read the saved state so the
+ * enrichment lands on top of whatever the build actually wrote, and never let
+ * a failure here take down a finished website.
+ */
+async function enrichSavedBrandGuide(
+  websiteId: string,
+  input: OnboardingGenInput,
+  state: BuilderStateData,
+  guide: BrandGuide
+): Promise<void> {
+  try {
+    const enriched = await enrichBrandGuide(
+      state.brandGuide ?? guide,
+      {
+        businessName: input.business.name,
+        industry: input.business.industry,
+        description: input.business.description,
+        feeling: input.feeling,
+        goals: input.wishes.goals,
+        notes: input.wishes.notes,
+      },
+      state
+    );
+    const current = await storage.getBuilderState(websiteId);
+    const latest = (current?.state as BuilderStateData | undefined) ?? state;
+    await storage.updateBuilderState(websiteId, { ...latest, brandGuide: enriched });
+  } catch (error) {
+    console.error(`[OnboardingGen] Brand guide enrichment failed for ${websiteId}:`, error);
+  }
 }
 
 function deterministicGuide(input: OnboardingGenInput): BrandGuide {
@@ -381,8 +647,9 @@ function deterministicGuide(input: OnboardingGenInput): BrandGuide {
   return guide;
 }
 
-/** Exported for tests. Builds a complete branded Danish starter site without AI. */
+/** Exported for tests. Builds a complete branded starter site without AI, in the customer's language. */
 export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide): BuilderStateData {
+  const s = GEN_STRINGS[normalizeSiteLanguage(input.language)].site;
   const c = guide.colors;
   const name = input.business.name;
   const industry = input.business.industry;
@@ -404,10 +671,10 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
     ...overrides,
   });
 
-  const navItems = [{ id: "1", title: "Om os", description: "/om" }];
-  if (goals.has("webshop")) navItems.push({ id: "shop", title: "Shop", description: "/shop" });
-  if (goals.has("portfolio")) navItems.push({ id: "galleri", title: "Galleri", description: "/galleri" });
-  navItems.push({ id: "kontakt", title: "Kontakt", description: "/kontakt" });
+  const navItems = [{ id: "1", title: s.navAbout, description: s.pathAbout }];
+  if (goals.has("webshop")) navItems.push({ id: "shop", title: s.navShop, description: s.pathShop });
+  if (goals.has("portfolio")) navItems.push({ id: "galleri", title: s.navGallery, description: s.pathGallery });
+  navItems.push({ id: "kontakt", title: s.navContact, description: s.pathContact });
 
   const header = (): BuilderComponentData => ({
     id: generateComponentId(),
@@ -420,8 +687,8 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
     id: generateComponentId(),
     type: "footer",
     props: {
-      title: `© ${year} ${name}. Alle rettigheder forbeholdes.`,
-      description: "Bygget med BirdFlow",
+      title: s.footerRights(year, name),
+      description: s.footerBuiltWith,
     },
     styles: base({ padding: "48px 32px", backgroundColor: c.surface }),
   });
@@ -434,10 +701,9 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
       props: {
         title: name,
         subtitle: industry,
-        description:
-          shortDescription || `Velkommen til ${name} — vi er klar til at hjælpe dig.`,
-        buttonText: goals.has("booking") ? "Book en tid" : "Kontakt os",
-        buttonLink: "/kontakt",
+        description: shortDescription || s.heroFallbackDescription(name),
+        buttonText: goals.has("booking") ? s.heroButtonBooking : s.heroButtonContact,
+        buttonLink: s.pathContact,
         alignment: "center",
         ...(ownImages[0] ? { imageUrl: ownImages[0] } : {}),
       },
@@ -452,12 +718,12 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
       id: generateComponentId(),
       type: "features",
       props: {
-        title: "Det kan du forvente af os",
+        title: s.featuresTitle,
         subtitle: "",
         items: [
-          { id: "1", title: "Personlig service", description: "Vi tager os tid til dig og dine behov.", icon: "star" },
-          { id: "2", title: "Erfaring du kan stole på", description: `Professionel hjælp inden for ${industry.toLowerCase() || "vores felt"}.`, icon: "shield" },
-          { id: "3", title: "Nemt at komme i gang", description: "Skriv eller ring — vi vender hurtigt tilbage.", icon: "zap" },
+          { id: "1", title: s.feature1Title, description: s.feature1Body, icon: "star" },
+          { id: "2", title: s.feature2Title, description: s.feature2Body(industry.toLowerCase()), icon: "shield" },
+          { id: "3", title: s.feature3Title, description: s.feature3Body, icon: "zap" },
         ],
         alignment: "center",
       },
@@ -467,10 +733,10 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
       id: generateComponentId(),
       type: "cta",
       props: {
-        title: goals.has("booking") ? "Klar til at booke en tid?" : "Skal vi tage en snak?",
-        description: "Vi glæder os til at høre fra dig.",
-        buttonText: goals.has("booking") ? "Book nu" : "Kontakt os",
-        buttonLink: "/kontakt",
+        title: goals.has("booking") ? s.ctaTitleBooking : s.ctaTitleContact,
+        description: s.ctaBody,
+        buttonText: goals.has("booking") ? s.ctaButtonBooking : s.ctaButtonContact,
+        buttonLink: s.pathContact,
       },
       styles: base({
         backgroundColor: c.primary,
@@ -488,10 +754,8 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
       id: generateComponentId(),
       type: "text-image",
       props: {
-        title: `Om ${name}`,
-        description:
-          description ||
-          `${name} er en virksomhed inden for ${industry.toLowerCase() || "sit felt"}. Her kan du fortælle jeres historie — hvem I er, hvad I brænder for, og hvorfor kunderne vælger jer.`,
+        title: s.aboutTitle(name),
+        description: description || s.aboutFallback(name, industry.toLowerCase()),
         imageSide: "right",
         ...(ownImages[1] || ownImages[0] ? { imageUrl: ownImages[1] || ownImages[0] } : {}),
       },
@@ -506,13 +770,13 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
       id: generateComponentId(),
       type: "contact-form",
       props: {
-        title: "Kontakt os",
-        description: "Udfyld formularen, så vender vi tilbage hurtigst muligt.",
-        buttonText: "Send besked",
+        title: s.contactTitle,
+        description: s.contactBody,
+        buttonText: s.contactButton,
         formFields: [
-          { id: "1", label: "Navn", type: "text", required: true, placeholder: "Dit navn" },
-          { id: "2", label: "Email", type: "email", required: true, placeholder: "din@email.dk" },
-          { id: "3", label: "Besked", type: "textarea", required: true, placeholder: "Hvad kan vi hjælpe med?" },
+          { id: "1", label: s.fieldName, type: "text", required: true, placeholder: s.fieldNamePlaceholder },
+          { id: "2", label: s.fieldEmail, type: "email", required: true, placeholder: s.fieldEmailPlaceholder },
+          { id: "3", label: s.fieldMessage, type: "textarea", required: true, placeholder: s.fieldMessagePlaceholder },
         ],
       },
       styles: base({ buttonColor: c.primary }),
@@ -521,21 +785,21 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
   ];
 
   const pages: BuilderPage[] = [
-    { id: "home", name: "Hjem", path: "/", components: homeComponents },
-    { id: "om", name: "Om os", path: "/om", components: aboutComponents },
+    { id: "home", name: s.pageHome, path: "/", components: homeComponents },
+    { id: "om", name: s.navAbout, path: s.pathAbout, components: aboutComponents },
   ];
 
   if (goals.has("webshop")) {
     pages.push({
       id: "shop",
-      name: "Shop",
-      path: "/shop",
+      name: s.navShop,
+      path: s.pathShop,
       components: [
         header(),
         {
           id: generateComponentId(),
           type: "product-grid",
-          props: { title: "Vores produkter", columns: 3, productLimit: 9, showAddToCart: true },
+          props: { title: s.productsTitle, columns: 3, productLimit: 9, showAddToCart: true },
           styles: base(),
         },
         footer(),
@@ -546,15 +810,15 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
   if (goals.has("portfolio")) {
     pages.push({
       id: "galleri",
-      name: "Galleri",
-      path: "/galleri",
+      name: s.navGallery,
+      path: s.pathGallery,
       components: [
         header(),
         {
           id: generateComponentId(),
           type: "gallery",
           props: {
-            title: "Se vores arbejde",
+            title: s.galleryTitle,
             items: ownImages.slice(0, 6).map((url, i) => ({ id: String(i + 1), title: "", imageUrl: url })),
           },
           styles: base(),
@@ -564,7 +828,7 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
     });
   }
 
-  pages.push({ id: "kontakt", name: "Kontakt", path: "/kontakt", components: contactComponents });
+  pages.push({ id: "kontakt", name: s.navContact, path: s.pathContact, components: contactComponents });
 
   return {
     pages,
@@ -591,45 +855,69 @@ function pickReadableOn(hex: string): string {
 
 // ============ Prompt builders ============
 
-const GOAL_LABELS: Record<string, string> = {
-  booking: "online booking af tider",
-  webshop: "webshop med produkter",
-  portfolio: "portfolio/galleri der viser arbejde frem",
-  blog: "blog/nyheder",
-  kontakt: "kontaktformular",
-  nyhedsbrev: "nyhedsbrevstilmelding",
+const GOAL_LABELS: Record<SiteLanguage, Record<string, string>> = {
+  da: {
+    booking: "online booking af tider",
+    webshop: "webshop med produkter",
+    portfolio: "portfolio/galleri der viser arbejde frem",
+    blog: "blog/nyheder",
+    kontakt: "kontaktformular",
+    nyhedsbrev: "nyhedsbrevstilmelding",
+  },
+  en: {
+    booking: "online appointment booking",
+    webshop: "a webshop with products",
+    portfolio: "a portfolio/gallery showing off work",
+    blog: "a blog/news section",
+    kontakt: "a contact form",
+    nyhedsbrev: "newsletter signup",
+  },
 };
 
-function goalSentence(goals: string[]): string {
-  const labels = goals.map((g) => GOAL_LABELS[g] ?? g).filter(Boolean);
-  return labels.length > 0 ? labels.join(", ") : "professionel præsentation af virksomheden";
+function goalSentence(goals: string[], lang: SiteLanguage): string {
+  const labels = goals.map((g) => GOAL_LABELS[lang][g] ?? g).filter(Boolean);
+  if (labels.length > 0) return labels.join(", ");
+  return pickLang(
+    { da: "professionel præsentation af virksomheden", en: "a professional presentation of the business" },
+    lang
+  );
 }
 
 function buildBrandNotes(input: OnboardingGenInput): string {
-  const parts = [
-    `Virksomhed: ${input.business.name} (${input.business.industry}).`,
-    input.business.description ? `Om virksomheden: ${input.business.description}` : "",
-    `Hjemmesiden skal bruges til: ${goalSentence(input.wishes.goals)}.`,
-    input.wishes.notes ? `Kundens egne ønsker: ${input.wishes.notes}` : "",
-  ];
+  const lang = normalizeSiteLanguage(input.language);
+  const parts =
+    lang === "en"
+      ? [
+          `Business: ${input.business.name} (${input.business.industry}).`,
+          input.business.description ? `About the business: ${input.business.description}` : "",
+          `The website will be used for: ${goalSentence(input.wishes.goals, lang)}.`,
+          input.wishes.notes ? `The customer's own wishes: ${input.wishes.notes}` : "",
+        ]
+      : [
+          `Virksomhed: ${input.business.name} (${input.business.industry}).`,
+          input.business.description ? `Om virksomheden: ${input.business.description}` : "",
+          `Hjemmesiden skal bruges til: ${goalSentence(input.wishes.goals, lang)}.`,
+          input.wishes.notes ? `Kundens egne ønsker: ${input.wishes.notes}` : "",
+        ];
   return parts.filter(Boolean).join("\n").slice(0, 1500);
 }
 
 function buildPlanPrompt(input: OnboardingGenInput): string {
+  const lang = normalizeSiteLanguage(input.language);
   return [
-    `Plan a complete website for a Danish business. ALL website copy must be in Danish (da-DK) — headlines, body text, buttons, navigation.`,
+    `Plan a complete website for a small business. ${copyLanguageInstruction(lang)}`,
     ``,
     `Business name: ${input.business.name}`,
     `Industry: ${input.business.industry}`,
     `About the business: ${input.business.description || "(not provided)"}`,
-    `The website must support: ${goalSentence(input.wishes.goals)}.`,
+    `The website must support: ${goalSentence(input.wishes.goals, lang)}.`,
     input.wishes.notes ? `Customer's own wishes: ${input.wishes.notes}` : ``,
     ``,
     `Constraints:`,
     `- 3 to 5 pages. Always include a home page ("/") and a contact page.`,
     input.wishes.goals.indexOf("webshop") !== -1 ? `- Include a shop page with a product grid section.` : ``,
     input.wishes.goals.indexOf("booking") !== -1 ? `- CTAs should drive visitors to book an appointment.` : ``,
-    `- Danish tone of voice matching this feeling: "${input.feeling}".`,
+    `- Tone of voice matching this feeling: "${input.feeling}".`,
     `- The design system colors and fonts are ALREADY chosen by the customer and will be overridden; focus your creativity on page structure, sections and copy.`,
   ]
     .filter(Boolean)
@@ -657,7 +945,19 @@ function designSystemFromGuide(planSystem: DesignSystem, guide: BrandGuide): Des
 }
 
 function buildEnhancePrompt(input: OnboardingGenInput): string {
+  const lang = normalizeSiteLanguage(input.language);
   const ownImages = input.ownImageUrls.slice(0, 4);
+  if (lang === "en") {
+    return [
+      `This website has just been built for "${input.business.name}" (${input.business.industry}) and needs a unique, premium look. Do one focused design round:`,
+      `1. Replace the home page's hero section with ONE bespoke custom component (add_custom_component with saveToLibrary: true) — a striking layout matching the brand guide, ideally with decorative SVG shapes, and a clear CTA to "${input.wishes.goals.indexOf("booking") !== -1 ? "Book an appointment" : "Contact"}".`,
+      ownImages.length > 0
+        ? `2. The customer's own images (use them where they fit naturally, e.g. the hero or the about section): ${ownImages.join(", ")}`
+        : `2. Add 1-2 AI-generated images (ai:// markers) where the pages lack visual identity — for example the home page or the about page.`,
+      `3. Fix small things that stand out (e.g. sections without content), but do NOT make large changes to the other pages.`,
+      copyLanguageInstruction("en"),
+    ].join("\n");
+  }
   return [
     `Dette website er netop bygget til "${input.business.name}" (${input.business.industry}) og skal have et unikt, premium udtryk. Lav en fokuseret designrunde:`,
     `1. Erstat forsidens hero-sektion med ÉN skræddersyet custom-komponent (add_custom_component med saveToLibrary: true) — et markant layout der matcher brand guiden, gerne med dekorative SVG-former, og en tydelig CTA til "${input.wishes.goals.indexOf("booking") !== -1 ? "Book en tid" : "Kontakt"}".`,
@@ -665,6 +965,6 @@ function buildEnhancePrompt(input: OnboardingGenInput): string {
       ? `2. Kundens egne billeder (brug dem hvor de passer naturligt, fx hero eller om-sektionen): ${ownImages.join(", ")}`
       : `2. Tilføj 1-2 AI-genererede billeder (ai://-markører) hvor siderne mangler visuel identitet — fx forsiden eller om-siden.`,
     `3. Ret småting der stikker ud (fx sektioner uden indhold), men lav IKKE store ændringer på de øvrige sider.`,
-    `Alt indhold på dansk.`,
+    copyLanguageInstruction("da"),
   ].join("\n");
 }

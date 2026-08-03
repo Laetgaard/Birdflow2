@@ -1,22 +1,768 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "wouter";
-import { Menu, X } from "lucide-react";
 
 /* ─────────────────────────────────────────────────────────────
    Birdflow landing page — implemented from "Birdflow Landing.dc.html"
    Purple/lime/blush wave design targeting psychologists & private
    practices. Desktop layout mirrors the design file; below lg the
    absolute collages degrade to stacked, scroll-revealed layouts.
+
+   Render order is defined once, in the page assembly at the bottom
+   of this file — the sections below are NOT declared in that order:
+     hero → sticky story → kundeoplevelse → FAQ → klientens vej →
+     sådan virker det → final CTA + footer
+   Every section sits on LIME or BLUSH and the waves between them
+   carry those two colours, so reordering sections means re-deriving
+   the wave arguments in the assembly to match their new neighbours.
    ───────────────────────────────────────────────────────────── */
 
 import {
-  PURPLE, BLUE, LIME, BLUSH, GREEN, EASE, POP,
+  PURPLE, BLUE, LIME, BLUSH, GREEN, EASE,
   PAGE_CSS, prefersReducedMotion, fadeUp, popIn,
 } from "@/components/bf2/theme";
 import {
-  useInView, RevealOnView, BirdDefs, Bird, BandWave, EdgeWave, WaveB,
+  useInView, RevealOnView, BirdDefs, Bird, BandWave, EdgeWave, WaveB, ScaleToFit,
 } from "@/components/bf2/primitives";
-import { Nav, NAV_LINKS, NavLink, bookHref, useOnLanding } from "@/components/bf2/Nav";
+import { Nav, NavLink, SIGNUP_HREF, useNavLinks, useSignupLabel } from "@/components/bf2/Nav";
+import { useLocale, pick, type Lang } from "@/lib/locale";
+
+/* ─────────────────────────────────────────────────────────────
+   Bilingual copy. One structured object, organised section by
+   section in roughly the order the sections appear on the page.
+   Non-text bits (icons, colours, hrefs, image paths) stay in the
+   language-neutral markup — only the strings live here.
+   ───────────────────────────────────────────────────────────── */
+
+type LandingCopy = {
+  // Shared example-site chrome (Sofie Lund) — reused by several mockups
+  siteMock: {
+    barName: string;
+    live: string;
+    liveShort: string;
+    managePractice: string;
+    manageShort: string;
+    navName: string;
+    role: string;
+    navItems: string[];
+    bookConversation: string;
+    eyebrow: string;
+    heroTitle: string;
+    heroBody: string;
+    heroBodyAlt: string; // "uro" variant used in the smaller mockups
+    bookInitial: string;
+    readAbout: string;
+    shortWait: string;
+    cityOnline: string;
+    services: Array<[string, string]>;
+    domain: string;
+    seeWebsite: string;
+  };
+  // HERO
+  hero: {
+    eyebrow: string;
+    titleLead: string;
+    titleEm: string;
+    bodyMobile: string;
+    bodyDesktop: string;
+    checks: string[];
+    seeExample: string;
+    quote: string;
+    quoteAttr: string;
+    flowNotes: Array<{ title: string; sub: string }>;
+    newEnquiriesSuffix: string; // "nye henvendelser"
+    seeInBirdflow: string;
+  };
+  // STICKY PRODUCT STORY (mindre administration)
+  story: {
+    headingLead: string;
+    headingEm: string;
+    body: string;
+    steps: string[];
+    adminListTitle: string;
+    adminTodos: string[];
+    forYouSuffix: string; // "til dig"
+    doneByBirdflow: string;
+    today: string;
+    conversation: string;
+    clinic: string;
+    online: string;
+    bookedSelf: string;
+    adminBetween: string;
+    zeroMin: string;
+    chips: Array<{ title: string; sub: string }>;
+    finale: string;
+    overview: {
+      greeting: string;
+      date: string;
+      todayLabel: string;
+      todayRows: Array<[string, string, string]>;
+      newTag: string; // "· ny" suffix marker
+      stats: Array<[string, string]>;
+      newEnquiries: string;
+      confirmMail: string;
+      active: string;
+      website: string;
+      published: string;
+      visitsThisMonth: string;
+      navItems: string[]; // sidebar
+    };
+  };
+  // PROCESS (sådan virker det)
+  process: {
+    headingLead: string;
+    headingEm: string;
+    bodyMobile: string;
+    bodyDesktopA: string;
+    bodyDesktopB: string;
+    workspace: {
+      seeWebsite: string;
+      visualExpression: string;
+      direction: string;
+      directionTags: string[];
+      colours: string;
+      typography: string;
+      headings: string;
+      bodyText: string;
+      madeWith: string;
+      haveBrandQ: string;
+      haveBrandA: string;
+      siteReady: string;
+      pages: string[];
+      footerServices: string[];
+      footerLinks: string;
+    };
+    liveEdit: {
+      title: string;
+      fixSmall: string;
+      textImages: string;
+      quoteEdit: string;
+      editText: string;
+      changeImage: string;
+      developMore: string;
+      developSub: string;
+    };
+    techFlow: {
+      title: string;
+      rows: Array<[string, string]>;
+      allRunning: string;
+    };
+  };
+  // KUNDEOPLEVELSE (Amalie case)
+  case: {
+    site: {
+      role: string;
+      navItems: string[];
+      bookConversation: string;
+      eyebrow: string;
+      heroTitle: string;
+      heroBody: string;
+      bookInitial: string;
+      readTherapy: string;
+      services: Array<[string, string]>;
+      builtWith: string;
+    };
+    mockupAlt: string;
+    badge: string;
+    heading: string;
+    quoteShort: string;
+    attr: string;
+    quoteFull: string;
+    hideQuote: string;
+    readFullQuote: string;
+    seeSite: string;
+  };
+  // JOURNEY (klientens vej)
+  journey: {
+    headingLead: string;
+    headingEm: string;
+    body: string;
+    closingLead: string;
+    closingEm: string;
+    swipeHint: string;
+    ariaLabel: string;
+    steps: string[];
+    site: { domain: string; role: string; navItems: string[]; bookConversation: string; eyebrow: string; heroTitle: string; heroBody: string; bookInitial: string; shortWait: string; cityOnline: string };
+    booking: {
+      title: string;
+      month: string;
+      weekdays: string[];
+      fields: Array<[string, string]>;
+      confirm: string;
+      summary: string;
+    };
+    confirmed: {
+      newBooking: string;
+      confirmed: string;
+      name: string;
+      detail: string;
+    };
+    mail: {
+      subject: string;
+      sentAuto: string;
+      sending: string;
+      body: string[];
+      signoff: string;
+      signer: string;
+      meta: string;
+    };
+  };
+  // FAQ
+  faq: {
+    heading: string;
+    body: string;
+    items: Array<{ q: string; a: string }>;
+  };
+  // FINAL CTA + FOOTER
+  finalCta: {
+    heading: string;
+    body: string;
+    reassurance: string;
+    footerTagline: string;
+    login: string;
+    copyright: string;
+  };
+};
+
+const COPY: Record<Lang, LandingCopy> = {
+  da: {
+    siteMock: {
+      barName: "Psykolog Sofie Lund",
+      live: "Hjemmesiden er live",
+      liveShort: "Live",
+      managePractice: "Administrer praksis →",
+      manageShort: "Administrer praksis",
+      navName: "Sofie Lund",
+      role: "Psykolog",
+      navItems: ["Samtaleterapi", "Forløb", "Priser", "Kontakt"],
+      bookConversation: "Book en samtale",
+      eyebrow: "AUTORISERET PSYKOLOG · KØBENHAVN & ONLINE",
+      heroTitle: "Et roligt sted til det, der fylder.",
+      heroBody: "Samtaleterapi til dig, der oplever stress, angst eller står midt i en forandring i livet.",
+      heroBodyAlt: "Samtaleterapi til dig, der oplever stress, uro eller står midt i en forandring i livet.",
+      bookInitial: "Book en indledende samtale",
+      readAbout: "Læs om et forløb",
+      shortWait: "Kort ventetid",
+      cityOnline: "København & online",
+      services: [
+        ["Samtaleterapi", "50 min. · 1.100 kr."],
+        ["Stressforløb", "6–10 samtaler"],
+        ["Parterapi", "75 min. · 1.500 kr."],
+      ],
+      domain: "sofielund.dk",
+      seeWebsite: "Se hjemmeside",
+    },
+    hero: {
+      eyebrow: "TIL PSYKOLOGER & PRIVATE PRAKSISSER",
+      titleLead: "Din praksis online.",
+      titleEm: "Uden at blive webdesigner.",
+      bodyMobile: "Hjemmeside, booking, henvendelser og automatiske mails — samlet ét sted og sat op omkring din praksis.",
+      bodyDesktop: "Birdflow samler din hjemmeside, booking, henvendelser og automatiske mails ét sted — sat op omkring dig og din måde at arbejde på.",
+      checks: ["Klar på få minutter", "Ingen teknisk forberedelse", "Du godkender, før den går live"],
+      seeExample: "Se en eksempelpraksis →",
+      quote: "»Lige den stemning jeg ønskede.«",
+      quoteAttr: "— Amalie, psykolog",
+      flowNotes: [
+        { title: "Ny booking", sub: "Tirsdag kl. 13.30 · Via hjemmesiden" },
+        { title: "Automatisk mail sendt", sub: "Bookingbekræftelse · Sendt til klient" },
+      ],
+      newEnquiriesSuffix: "nye henvendelser",
+      seeInBirdflow: "Se i Birdflow →",
+    },
+    story: {
+      headingLead: "Mindre administration.",
+      headingEm: "Mere ro i praksissen.",
+      body: "Din opmærksomhed skal ligge hos klienterne — ikke i det digitale bagved. Følg med i, hvad der bliver klaret for dig:",
+      steps: [
+        "Du er hos dine klienter",
+        "Bekræftelsen — sendt for dig",
+        "Kalenderen — opdateret for dig",
+        "Henvendelsen — fulgt op for dig",
+        "Påmindelsen — planlagt for dig",
+        "Overblikket venter, når du er klar",
+      ],
+      adminListTitle: "Din admin-liste",
+      adminTodos: [
+        "Send bekræftelse til ny booking",
+        "Skriv tiden ind i kalenderen",
+        "Følg op på ny henvendelse",
+        "Planlæg påmindelse før samtalen",
+      ],
+      forYouSuffix: "til dig",
+      doneByBirdflow: "Klaret af Birdflow — mens du var i samtale",
+      today: "I DAG · TIRSDAG",
+      conversation: "Samtale",
+      clinic: "Klinik",
+      online: "Online",
+      bookedSelf: "NY — bookede sig selv",
+      adminBetween: "Admin mellem samtalerne:",
+      zeroMin: "0 min.",
+      chips: [
+        { title: "Bekræftelse sendt", sub: "Til klienten · automatisk" },
+        { title: "Kalenderen opdateret", sub: "Tirsdag d. 14. · kl. 13.30" },
+        { title: "Henvendelse fulgt op", sub: "Samlet med status i Birdflow" },
+        { title: "Påmindelse planlagt", sub: "Før samtalen i morgen" },
+      ],
+      finale: "Resten klarer Birdflow ✓",
+      overview: {
+        greeting: "God formiddag, Sofie",
+        date: "Tirsdag d. 14. oktober",
+        todayLabel: "I DAG",
+        todayRows: [
+          ["10.00", "Booket samtale", "Klinik"],
+          ["13.30", "Booket samtale · ny", "Klinik"],
+          ["15.00", "Booket samtale", "Online"],
+        ],
+        newTag: "",
+        stats: [],
+        newEnquiries: "Nye henvendelser",
+        confirmMail: "Bekræftelsesmail",
+        active: "Aktiv",
+        website: "Hjemmeside",
+        published: "Udgivet",
+        visitsThisMonth: "Besøg denne måned",
+        navItems: ["Overblik", "Hjemmeside", "Bookinger", "Henvendelser", "Automatiske mails", "Analyse"],
+      },
+    },
+    process: {
+      headingLead: "Vi bygger din hjemmeside.",
+      headingEm: "Du bliver ikke låst fast i den.",
+      bodyMobile: "Vi designer og bygger siden omkring din praksis — med dit eksisterende brand eller et nyt udtryk. Bagefter kan du selv rette tekst og billeder, mens booking, henvendelser og automatiske mails kører samlet i Birdflow.",
+      bodyDesktopA: "Vi skaber designet, bygger hjemmesiden og tilpasser den til din praksis. Har du allerede et brand, tager vi udgangspunkt i det. Ellers kan vi skabe det visuelle udtryk fra bunden.",
+      bodyDesktopB: "Når siden er live, kan du selv ændre tekst, billeder og indhold — eller få os til at videreudvikle løsningen. Booking, henvendelser og automatiske mails kører samlet i Birdflow.",
+      workspace: {
+        seeWebsite: "Se hjemmeside",
+        visualExpression: "DIT VISUELLE UDTRYK",
+        direction: "RETNING",
+        directionTags: ["Rolig", "Varm", "Enkel"],
+        colours: "FARVER",
+        typography: "TYPOGRAFI",
+        headings: "Lora · Overskrifter",
+        bodyText: "Nunito · Brødtekst",
+        madeWith: "Skabt med Birdflow",
+        haveBrandQ: "Har du allerede et brand?",
+        haveBrandA: "Vi bygger videre på det.",
+        siteReady: "✓ Din hjemmeside er klar",
+        pages: ["✓ Forside", "✓ Samtaleterapi", "✓ Om Sofie", "✓ Forløb & priser", "✓ Kontakt & booking"],
+        footerServices: ["Samtaleterapi", "Stressforløb", "Parterapi"],
+        footerLinks: "Kontakt · Praktisk info · Priser",
+      },
+      liveEdit: {
+        title: "Når siden er live",
+        fixSmall: "RET SELV DE SMÅ TING",
+        textImages: "Tekst, billeder og indhold",
+        quoteEdit: "»…står midt i en forandring i livet«",
+        editText: "Redigér tekst",
+        changeImage: "Skift billede",
+        developMore: "VIDEREUDVIKL MED BIRDFLOW",
+        developSub: "Nye sider, design og funktioner",
+      },
+      techFlow: {
+        title: "DET TEKNISKE FLOW",
+        rows: [
+          ["Booking", "Forbundet ✓"],
+          ["Henvendelser", "Forbundet ✓"],
+          ["Automatiske mails", "Aktive ✓"],
+        ],
+        allRunning: "Alt kører i Birdflow",
+      },
+    },
+    case: {
+      site: {
+        role: "Psykolog",
+        navItems: ["Terapi", "Om mig", "Priser", "Kontakt"],
+        bookConversation: "Book en samtale",
+        eyebrow: "AUTORISERET PSYKOLOG · ROSKILDE",
+        heroTitle: "Ro til at finde fodfæste igen.",
+        heroBody: "Samtaleterapi for voksne — ved stress, angst, sorg og livets overgange. I trygge rammer i Roskilde eller online.",
+        bookInitial: "Book en indledende samtale",
+        readTherapy: "Læs om terapien",
+        services: [
+          ["Individuel terapi", "50 min. · Roskilde & online"],
+          ["Stress & udbrændthed", "Forløb med fast struktur"],
+          ["Sorg & kriser", "Støtte når livet ændrer sig"],
+        ],
+        builtWith: "Bygget med Birdflow",
+      },
+      mockupAlt: "Amalie Vebers færdige hjemmeside vist på laptop og mobil — bygget med Birdflow",
+      badge: "KUNDEOPLEVELSE · AMALIE VEBER · PSYKOLOG I ROSKILDE",
+      heading: "Kundeoplevelse",
+      quoteShort: "»Christoffer har været lynhurtig til at fange min vision for hjemmesiden og formået at skabe lige den stemning jeg ønskede.«",
+      attr: "— AMALIE VEBER, PSYKOLOG I ROSKILDE",
+      quoteFull: "»Det har været en fornøjelse at opleve hvordan mine tanker og ønsker er kommet til live gennem Christoffers arbejde. Han har været god til at skabe overblik og klarhed i både den visuelle og tekstbaserede kommunikation på hjemmesiden. Christoffer er lydhør og behagelig at samarbejde med, og jeg giver ham mine bedste anbefalinger.«",
+      hideQuote: "Skjul udtalelsen",
+      readFullQuote: "Læs hele udtalelsen",
+      seeSite: "Se Amalie Vebers hjemmeside ↗",
+    },
+    journey: {
+      headingLead: "Klientens vej skal føles tryg.",
+      headingEm: "Også før den første samtale.",
+      body: "Fra det øjeblik en potentiel klient finder din hjemmeside, hjælper Birdflow med at skabe en enkel vej videre — til booking og den praktiske information omkring samtalen.",
+      closingLead: "Du tager dig af samtalen.",
+      closingEm: "Birdflow holder styr på flowet omkring den.",
+      swipeHint: "Stryg til siden for at se alle fire trin →",
+      ariaLabel: "Klientens vej, trin for trin — stryg til siden for at se alle fire trin",
+      steps: [
+        "01 · KLIENTEN FINDER DIG",
+        "02 · EMMA BOOKER EN TID",
+        "03 · BOOKINGEN ER PÅ PLADS",
+        "04 · DET PRAKTISKE ER SENDT",
+      ],
+      site: {
+        domain: "sofielund.dk",
+        role: "Psykolog",
+        navItems: ["Samtaleterapi", "Forløb", "Priser"],
+        bookConversation: "Book en samtale",
+        eyebrow: "AUTORISERET PSYKOLOG · KØBENHAVN & ONLINE",
+        heroTitle: "Et roligt sted til det, der fylder.",
+        heroBody: "Samtaleterapi til dig, der oplever stress, uro eller står midt i en forandring i livet.",
+        bookInitial: "Book en indledende samtale",
+        shortWait: "Kort ventetid",
+        cityOnline: "København & online",
+      },
+      booking: {
+        title: "Book en indledende samtale",
+        month: "April 2026",
+        weekdays: ["MAN", "TIR", "ONS", "TOR", "FRE"],
+        fields: [
+          ["NAVN", "Emma Jensen"],
+          ["EMAIL", "emma@email.dk"],
+        ],
+        confirm: "Bekræft booking",
+        summary: "Tirsdag d. 14. april · kl. 13.30 · Online",
+      },
+      confirmed: {
+        newBooking: "Ny booking",
+        confirmed: "Bekræftet",
+        name: "Emma Jensen",
+        detail: "Tirsdag · 13.30 · Indledende samtale · Online",
+      },
+      mail: {
+        subject: "Bookingbekræftelse",
+        sentAuto: "Sendt automatisk ✓",
+        sending: "Sender…",
+        body: [
+          "Hej Emma",
+          "Tak for din booking. Jeg glæder mig til vores samtale tirsdag kl. 13.30.",
+          "Du modtager et link til vores online samtale inden mødet.",
+          "De bedste hilsner",
+        ],
+        signoff: "",
+        signer: "Sofie",
+        meta: "Sendt til Emma · 10.42 — uden at du skulle gøre noget",
+      },
+    },
+    faq: {
+      heading: "Spørgsmål, vi ofte får.",
+      body: "Ærlige svar — også om det, Birdflow ikke gør endnu.",
+      items: [
+        {
+          q: "Skal jeg selv bygge hjemmesiden?",
+          a: "Nej. Vi bygger den første version ud fra din praksis — hvem du hjælper, dine forløb og den stemning, siden skal have. Du gennemgår det hele, justerer og godkender, før noget går live.",
+        },
+        {
+          q: "Kan jeg ændre den bagefter?",
+          a: "Ja. Tekster, sektioner og sider redigerer du selv i Birdflow — direkte på siden, uden kode eller plugins. Du udgiver, når du er klar.",
+        },
+        {
+          q: "Jeg har allerede en hjemmeside — kan Birdflow stadig give mening?",
+          a: "Ja — mange kommer fra en ældre WordPress-løsning. Vi tager udgangspunkt i det, der allerede virker for din praksis, og indholdet kan flytte med over.",
+        },
+        {
+          q: "Kan jeg bruge mit eget domæne?",
+          a: "Ja. Dit eksisterende domæne kobles på hjemmesiden — vi hjælper med at forbinde det. Selve domænet køber og ejer du fortsat hos din nuværende udbyder.",
+        },
+        {
+          q: "Kan klienter booke direkte på hjemmesiden?",
+          a: "Ja. Klienten vælger ydelse, tidspunkt og udfylder sine oplysninger — direkte på din hjemmeside. Bookingen ligger i Birdflow med det samme, og bekræftelsen sendes automatisk. Hvilke tider der er åbne, styrer du selv.",
+        },
+        {
+          q: "Hvad sker der, når jeg går i gang?",
+          a: "Du opretter en konto og fortæller kort om din praksis — hvem du hjælper, dine forløb og den stemning, siden skal have. Derefter bygger Birdflow det første udkast, som du gennemgår og retter til. Intet går live, før du siger god for det.",
+        },
+      ],
+    },
+    finalCta: {
+      heading: "Lad os tage udgangspunkt i din praksis.",
+      body: "Fortæl kort om, hvordan din praksis arbejder i dag — så bygger Birdflow det første udkast til din hjemmeside.",
+      reassurance: "Ingen teknisk forberedelse · Du godkender, før den går live",
+      footerTagline: "Den digitale platform for private psykologpraksisser.",
+      login: "Log ind",
+      copyright: "© 2026 Birdflow",
+    },
+  },
+  en: {
+    siteMock: {
+      barName: "Sofie Lund, psychologist",
+      live: "The website is live",
+      liveShort: "Live",
+      managePractice: "Manage practice →",
+      manageShort: "Manage practice",
+      navName: "Sofie Lund",
+      role: "Psychologist",
+      navItems: ["Talking therapy", "Programmes", "Pricing", "Contact"],
+      bookConversation: "Book a session",
+      eyebrow: "REGISTERED PSYCHOLOGIST · COPENHAGEN & ONLINE",
+      heroTitle: "A calm space for what weighs on you.",
+      heroBody: "Talking therapy for you if you're facing stress, anxiety or a big change in life.",
+      heroBodyAlt: "Talking therapy for you if you're facing stress, unease or a big change in life.",
+      bookInitial: "Book an initial consultation",
+      readAbout: "Read about a programme",
+      shortWait: "Short wait",
+      cityOnline: "Copenhagen & online",
+      services: [
+        ["Talking therapy", "50 min. · 1,100 kr."],
+        ["Stress programme", "6–10 sessions"],
+        ["Couples therapy", "75 min. · 1,500 kr."],
+      ],
+      domain: "sofielund.dk",
+      seeWebsite: "See website",
+    },
+    hero: {
+      eyebrow: "FOR PSYCHOLOGISTS & PRIVATE PRACTICES",
+      titleLead: "Your practice online.",
+      titleEm: "Without becoming a web designer.",
+      bodyMobile: "Website, booking, enquiries and automatic emails — in one place and set up around your practice.",
+      bodyDesktop: "Birdflow brings your website, booking, enquiries and automatic emails together in one place — set up around you and the way you work.",
+      checks: ["Ready in minutes", "No technical preparation", "You approve it before it goes live"],
+      seeExample: "See an example practice →",
+      quote: "“Exactly the mood I wanted.”",
+      quoteAttr: "— Amalie, psychologist",
+      flowNotes: [
+        { title: "New booking", sub: "Tuesday at 13.30 · Via the website" },
+        { title: "Automatic email sent", sub: "Booking confirmation · Sent to client" },
+      ],
+      newEnquiriesSuffix: "new enquiries",
+      seeInBirdflow: "See in Birdflow →",
+    },
+    story: {
+      headingLead: "Less admin.",
+      headingEm: "More calm in your practice.",
+      body: "Your attention belongs with your clients — not the digital work behind the scenes. Watch what gets handled for you:",
+      steps: [
+        "You're with your clients",
+        "The confirmation — sent for you",
+        "The calendar — updated for you",
+        "The enquiry — followed up for you",
+        "The reminder — scheduled for you",
+        "The overview is ready when you are",
+      ],
+      adminListTitle: "Your admin list",
+      adminTodos: [
+        "Send confirmation for the new booking",
+        "Write the time into the calendar",
+        "Follow up on a new enquiry",
+        "Schedule a reminder before the session",
+      ],
+      forYouSuffix: "for you",
+      doneByBirdflow: "Handled by Birdflow — while you were in session",
+      today: "TODAY · TUESDAY",
+      conversation: "Session",
+      clinic: "Clinic",
+      online: "Online",
+      bookedSelf: "NEW — booked online",
+      adminBetween: "Admin between sessions:",
+      zeroMin: "0 min.",
+      chips: [
+        { title: "Confirmation sent", sub: "To the client · automatically" },
+        { title: "Calendar updated", sub: "Tuesday the 14th · at 13.30" },
+        { title: "Enquiry followed up", sub: "Together with its status in Birdflow" },
+        { title: "Reminder scheduled", sub: "Before tomorrow's session" },
+      ],
+      finale: "Birdflow handles the rest ✓",
+      overview: {
+        greeting: "Good morning, Sofie",
+        date: "Tuesday 14 October",
+        todayLabel: "TODAY",
+        todayRows: [
+          ["10.00", "Booked session", "Clinic"],
+          ["13.30", "Booked session · new", "Clinic"],
+          ["15.00", "Booked session", "Online"],
+        ],
+        newTag: "",
+        stats: [],
+        newEnquiries: "New enquiries",
+        confirmMail: "Confirmation email",
+        active: "Active",
+        website: "Website",
+        published: "Published",
+        visitsThisMonth: "Visits this month",
+        navItems: ["Overview", "Website", "Bookings", "Enquiries", "Automatic emails", "Analytics"],
+      },
+    },
+    process: {
+      headingLead: "We build your website.",
+      headingEm: "You're never locked into it.",
+      bodyMobile: "We design and build the site around your practice — with your existing brand or a fresh look. Afterwards you edit text and images yourself, while booking, enquiries and automatic emails run together in Birdflow.",
+      bodyDesktopA: "We create the design, build the website and tailor it to your practice. If you already have a brand, we start from it. If not, we can create the visual look from scratch.",
+      bodyDesktopB: "Once the site is live, you can change text, images and content yourself — or have us develop it further. Booking, enquiries and automatic emails run together in Birdflow.",
+      workspace: {
+        seeWebsite: "See website",
+        visualExpression: "YOUR VISUAL LOOK",
+        direction: "DIRECTION",
+        directionTags: ["Calm", "Warm", "Simple"],
+        colours: "COLOURS",
+        typography: "TYPOGRAPHY",
+        headings: "Lora · Headings",
+        bodyText: "Nunito · Body text",
+        madeWith: "Made with Birdflow",
+        haveBrandQ: "Already have a brand?",
+        haveBrandA: "We build on it.",
+        siteReady: "✓ Your website is ready",
+        pages: ["✓ Home", "✓ Talking therapy", "✓ About Sofie", "✓ Programmes & pricing", "✓ Contact & booking"],
+        footerServices: ["Talking therapy", "Stress programme", "Couples therapy"],
+        footerLinks: "Contact · Practical info · Pricing",
+      },
+      liveEdit: {
+        title: "Once the site is live",
+        fixSmall: "FIX THE SMALL THINGS YOURSELF",
+        textImages: "Text, images and content",
+        quoteEdit: "“…in the middle of a change in life”",
+        editText: "Edit text",
+        changeImage: "Change image",
+        developMore: "DEVELOP FURTHER WITH BIRDFLOW",
+        developSub: "New pages, design and features",
+      },
+      techFlow: {
+        title: "THE TECHNICAL FLOW",
+        rows: [
+          ["Booking", "Connected ✓"],
+          ["Enquiries", "Connected ✓"],
+          ["Automatic emails", "Active ✓"],
+        ],
+        allRunning: "Everything runs in Birdflow",
+      },
+    },
+    case: {
+      site: {
+        role: "Psychologist",
+        navItems: ["Therapy", "About me", "Pricing", "Contact"],
+        bookConversation: "Book a session",
+        eyebrow: "REGISTERED PSYCHOLOGIST · ROSKILDE",
+        heroTitle: "Room to find your feet again.",
+        heroBody: "Talking therapy for adults — for stress, anxiety, grief and life's transitions. In a safe setting in Roskilde or online.",
+        bookInitial: "Book an initial consultation",
+        readTherapy: "Read about the therapy",
+        services: [
+          ["Individual therapy", "50 min. · Roskilde & online"],
+          ["Stress & burnout", "A programme with a set structure"],
+          ["Grief & crisis", "Support when life changes"],
+        ],
+        builtWith: "Built with Birdflow",
+      },
+      mockupAlt: "Amalie Veber's finished website shown on laptop and mobile — built with Birdflow",
+      badge: "CUSTOMER STORY · AMALIE VEBER · PSYCHOLOGIST IN ROSKILDE",
+      heading: "Customer story",
+      quoteShort: "“Christoffer was lightning fast at grasping my vision for the website and managed to create exactly the mood I wanted.”",
+      attr: "— AMALIE VEBER, PSYCHOLOGIST IN ROSKILDE",
+      quoteFull: "“It has been a pleasure to see how my thoughts and wishes came to life through Christoffer's work. He was good at creating clarity and structure in both the visual and written communication on the website. Christoffer is a good listener and a pleasure to work with, and I give him my warmest recommendations.”",
+      hideQuote: "Hide the review",
+      readFullQuote: "Read the full review",
+      seeSite: "See Amalie Veber's website ↗",
+    },
+    journey: {
+      headingLead: "The client's path should feel safe.",
+      headingEm: "Even before the first session.",
+      body: "From the moment a potential client finds your website, Birdflow helps create a simple way forward — to booking and the practical details around the session.",
+      closingLead: "You take care of the session.",
+      closingEm: "Birdflow keeps track of the flow around it.",
+      swipeHint: "Swipe sideways to see all four steps →",
+      ariaLabel: "The client's path, step by step — swipe sideways to see all four steps",
+      steps: [
+        "01 · THE CLIENT FINDS YOU",
+        "02 · EMMA BOOKS A TIME",
+        "03 · THE BOOKING IS IN PLACE",
+        "04 · THE PRACTICAL DETAILS ARE SENT",
+      ],
+      site: {
+        domain: "sofielund.dk",
+        role: "Psychologist",
+        navItems: ["Talking therapy", "Programmes", "Pricing"],
+        bookConversation: "Book a session",
+        eyebrow: "REGISTERED PSYCHOLOGIST · COPENHAGEN & ONLINE",
+        heroTitle: "A calm space for what weighs on you.",
+        heroBody: "Talking therapy for you if you're facing stress, unease or a big change in life.",
+        bookInitial: "Book an initial consultation",
+        shortWait: "Short wait",
+        cityOnline: "Copenhagen & online",
+      },
+      booking: {
+        title: "Book an initial consultation",
+        month: "April 2026",
+        weekdays: ["MON", "TUE", "WED", "THU", "FRI"],
+        fields: [
+          ["NAME", "Emma Jensen"],
+          ["EMAIL", "emma@email.dk"],
+        ],
+        confirm: "Confirm booking",
+        summary: "Tuesday 14 April · at 13.30 · Online",
+      },
+      confirmed: {
+        newBooking: "New booking",
+        confirmed: "Confirmed",
+        name: "Emma Jensen",
+        detail: "Tuesday · 13.30 · Initial consultation · Online",
+      },
+      mail: {
+        subject: "Booking confirmation",
+        sentAuto: "Sent automatically ✓",
+        sending: "Sending…",
+        body: [
+          "Hi Emma",
+          "Thank you for your booking. I'm looking forward to our session on Tuesday at 13.30.",
+          "You'll receive a link to our online session before we meet.",
+          "Warm regards",
+        ],
+        signoff: "",
+        signer: "Sofie",
+        meta: "Sent to Emma · 10.42 — without you lifting a finger",
+      },
+    },
+    faq: {
+      heading: "Questions we're often asked.",
+      body: "Honest answers — including what Birdflow doesn't do yet.",
+      items: [
+        {
+          q: "Do I have to build the website myself?",
+          a: "No. We build the first version from your practice — who you help, your programmes and the mood the site should have. You review it all, adjust it and approve it before anything goes live.",
+        },
+        {
+          q: "Can I change it afterwards?",
+          a: "Yes. You edit text, sections and pages yourself in Birdflow — directly on the page, with no code or plugins. You publish when you're ready.",
+        },
+        {
+          q: "I already have a website — can Birdflow still make sense?",
+          a: "Yes — many people come from an older WordPress setup. We start from what already works for your practice, and your content can move across.",
+        },
+        {
+          q: "Can I use my own domain?",
+          a: "Yes. Your existing domain is connected to the website — we help you link it up. You still buy and own the domain itself with your current provider.",
+        },
+        {
+          q: "Can clients book directly on the website?",
+          a: "Yes. The client picks a service and time and fills in their details — directly on your website. The booking lands in Birdflow straight away, and the confirmation is sent automatically. You decide which times are open.",
+        },
+        {
+          q: "What happens when I get started?",
+          a: "You create an account and tell us briefly about your practice — who you help, your programmes and the mood the site should have. Birdflow then builds the first draft, which you review and adjust. Nothing goes live until you say so.",
+        },
+      ],
+    },
+    finalCta: {
+      heading: "Let's start from your practice.",
+      body: "Tell us briefly how your practice works today — and Birdflow builds the first draft of your website.",
+      reassurance: "No technical preparation · You approve it before it goes live",
+      footerTagline: "The digital platform for private psychology practices.",
+      login: "Log in",
+      copyright: "© 2026 Birdflow",
+    },
+  },
+};
+
+/** Hook shorthand for the active landing copy. */
+function useLandingCopy(): LandingCopy {
+  const { lang } = useLocale();
+  return pick(COPY, lang);
+}
 
 /* ─────────── decorative portrait placeholder ───────────
    Stands in for the design's droppable portrait slots. */
@@ -66,9 +812,230 @@ function PortraitArt({ className }: { className?: string }) {
   );
 }
 
-/* ─────────── 01 · HERO ─────────── */
+/** Renders an image from /public; the provided artwork paints behind it until
+    the real pixels load, and remains if the file ever fails to load. */
+function ImgWithFallback({
+  src,
+  alt,
+  className,
+  style,
+  fallback,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: CSSProperties;
+  fallback: ReactNode;
+}) {
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  if (failed) return <>{fallback}</>;
+  // The image stays in layout (no display:none) so it actually loads; the
+  // fallback renders behind it until the real pixels paint over. Every usage
+  // positions both absolutely over the same box, so they overlap cleanly.
+  return (
+    <>
+      {!loaded && fallback}
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        style={style}
+        decoding="async"
+        onError={() => setFailed(true)}
+        onLoad={() => setLoaded(true)}
+      />
+    </>
+  );
+}
+
+/** The clinic photo inside the example practice-site mockups (the design's
+    klinik image, cropped to the bare room — the original had a decorative
+    gold blob outline and cream border baked into the pixels, which fought
+    with the rounded frames these mockups draw around it). Falls back to the
+    illustrated portrait until it loads. */
+function PortraitSlot({ className }: { className?: string }) {
+  const { lang } = useLocale();
+  const alt =
+    lang === "en"
+      ? "A calm clinic room with sofas and skylights"
+      : "Roligt klinikrum med sofaer og ovenlysvinduer";
+  return (
+    <ImgWithFallback
+      src="/landing/klinik-room.webp"
+      alt={alt}
+      className={`${className ?? ""} object-cover`}
+      fallback={<PortraitArt className={className} />}
+    />
+  );
+}
+
+/* ─────────── HERO ─────────── */
+
+/* ─────────── the example practice website ───────────
+   The finished Sofie Lund site sitting inside a minimal Birdflow bar.
+   Rendered at full size in the desktop hero and, on phones, inside
+   ScaleToFit as a proportional miniature — the bf2-w-* classes are what
+   keep the wide layout there, since Tailwind breakpoints follow the
+   viewport rather than the scaled container. */
+function PracticeSiteMock({ demo }: { demo: number }) {
+  const t = useLandingCopy();
+  const s = t.siteMock;
+  return (
+    <>
+    {/* minimal Birdflow platform bar */}
+    <div className="flex items-center gap-3 px-3.5 py-3 lg:px-[18px] border-b border-black/[0.07]">
+      <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
+      <span className="flex-none text-[12px] lg:text-[13.5px] font-extrabold">{s.barName}</span>
+      <span
+        className="flex-none flex items-center gap-[7px] text-[10px] lg:text-[11.5px] font-extrabold rounded-full px-3 py-[5px]"
+        style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
+      >
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }}
+        />
+        <span className="hidden sm:inline bf2-w-inline">{s.live}</span>
+        <span className="sm:hidden bf2-w-hide">{s.liveShort}</span>
+      </span>
+      <span
+        className="min-w-0 truncate ml-auto text-[11px] lg:text-[12.5px] font-extrabold"
+        style={{ color: BLUE }}
+      >
+        {s.managePractice}
+      </span>
+    </div>
+
+    {/* the finished practice website */}
+    <div style={{ background: "#FBF7EF", fontFamily: "Georgia, serif", color: "#2B2A26" }}>
+      <div className="flex items-center gap-3.5 px-4 lg:px-[26px] bf2-w-pad-row py-[15px] border-b" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
+        <span className="flex items-center gap-2.5 text-[14px] lg:text-[15px] font-semibold">
+          <svg viewBox="0 0 24 24" className="w-[23px] h-[23px] flex-none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="#4C5F50" strokeWidth="1.6" />
+            <circle cx="12" cy="12" r="6.4" fill="none" stroke="#B96D4A" strokeWidth="1.5" />
+            <circle cx="12" cy="12" r="2.5" fill="#4C5F50" />
+          </svg>
+          {s.navName}{" "}
+          <span className="italic text-[12px] lg:text-[12.5px]" style={{ color: "rgba(43,42,38,0.55)" }}>
+            · {s.role}
+          </span>
+        </span>
+        <span
+          className="ml-auto hidden md:flex bf2-w-flex gap-[15px] items-center text-[11px] font-bold"
+          style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
+        >
+          {s.navItems.map((it) => (
+            <span key={it}>{it}</span>
+          ))}
+        </span>
+        <span
+          className="ml-auto md:ml-0 bf2-w-ml0 text-[10px] lg:text-[11px] font-extrabold rounded-full px-[15px] py-[7px] whitespace-nowrap"
+          style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
+        >
+          {s.bookConversation}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-[1.25fr_0.9fr] bf2-w-cols-hero gap-5 lg:gap-[26px] px-4 lg:px-7 pt-6 lg:pt-[34px] pb-6 lg:pb-[30px] bf2-w-pad-hero items-center">
+        <div>
+          <p
+            className="m-0 text-[9px] lg:text-[10px] font-extrabold tracking-[0.18em]"
+            style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
+          >
+            {s.eyebrow}
+          </p>
+          <p className="mt-4 mb-0 text-[24px] lg:text-[31px] leading-[1.25] max-w-[340px]">
+            {s.heroTitle}
+          </p>
+          <p
+            className="mt-4 mb-0 text-[12.5px] lg:text-[13.5px] leading-[1.65] max-w-[330px]"
+            style={{ color: "rgba(43,42,38,0.72)" }}
+          >
+            {s.heroBody}
+          </p>
+          <div className="flex items-center gap-4 mt-5 flex-wrap">
+            <span
+              className="text-[12px] lg:text-[12.5px] font-extrabold rounded-full px-5 py-[11px]"
+              style={{
+                fontFamily: "'Nunito', sans-serif",
+                color: "#FBF7EF",
+                background: "#4C5F50",
+                boxShadow: demo === 1 ? "0 0 0 4px rgba(76,95,80,0.3)" : "0 0 0 0 rgba(76,95,80,0)",
+                transform: demo === 1 ? "scale(0.95)" : "none",
+                transition: "box-shadow 0.4s, transform 0.35s",
+              }}
+            >
+              {s.bookInitial}
+            </span>
+            <span
+              className="italic text-[12px] lg:text-[12.5px] pb-px"
+              style={{ color: "#B96D4A", borderBottom: "1px solid rgba(185,109,74,0.5)" }}
+            >
+              {s.readAbout}
+            </span>
+          </div>
+          <div
+            className="flex gap-4 mt-4 text-[10px] lg:text-[10.5px] font-bold"
+            style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
+          >
+            <span className="flex items-center gap-[5px]">
+              <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>{s.shortWait}
+            </span>
+            <span className="flex items-center gap-[5px]">
+              <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>{s.cityOnline}
+            </span>
+          </div>
+        </div>
+
+        <div className="relative pt-2 pr-2 max-w-[240px] sm:max-w-none mx-auto sm:mx-0 bf2-w-full w-full">
+          <svg
+            viewBox="0 0 200 200"
+            className="absolute -right-[26px] -top-6 w-[110px] lg:w-[150px] h-auto"
+            aria-hidden="true"
+          >
+            <circle cx="100" cy="100" r="96" fill="none" stroke="#B96D4A" strokeWidth="1.4" opacity="0.5" />
+            <circle cx="100" cy="100" r="74" fill="none" stroke="#4C5F50" strokeWidth="1.4" opacity="0.4" />
+            <circle cx="100" cy="100" r="52" fill="none" stroke="#B96D4A" strokeWidth="1.4" opacity="0.3" />
+          </svg>
+          <div
+            className="absolute -right-[10px] -top-[2px] w-[84%] h-[97%]"
+            style={{ borderRadius: "999px 999px 16px 16px", background: "#E3DCCB" }}
+          />
+          <div
+            className="relative h-[200px] lg:h-[270px] bf2-w-portrait overflow-hidden"
+            style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
+          >
+            <PortraitSlot className="absolute inset-0 w-full h-full" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 bf2-w-cols-3 border-t" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
+        {s.services.map(([name, sub], i) => (
+          <div
+            key={i}
+            className={`px-5 lg:px-[22px] py-3 lg:py-3.5 ${i < 2 ? "border-b sm:border-b-0 sm:border-r bf2-w-cell" : ""}`}
+            style={{ borderColor: "rgba(43,42,38,0.08)" }}
+          >
+            <p className="m-0 text-[13px] lg:text-[13.5px] font-bold">{name}</p>
+            <p
+              className="mt-[3px] mb-0 text-[10px] lg:text-[10.5px] font-bold"
+              style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.55)" }}
+            >
+              {sub}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+    </>
+  );
+}
 
 function Hero() {
+  const signupLabel = useSignupLabel();
+  const t = useLandingCopy();
+  const HERO_FLOW_NOTES = t.hero.flowNotes;
   const [heroIn, setHeroIn] = useState(false);
   const [demo, setDemo] = useState(0);
 
@@ -85,32 +1052,25 @@ function Hero() {
     return () => clearInterval(t);
   }, []);
 
-  const check = (label: string) => (
-    <span className="flex items-center gap-1.5">
-      <span style={{ color: GREEN, fontWeight: 900 }}>✓</span>
-      {label}
-    </span>
-  );
-
   return (
     <section data-testid="section-hero" className="relative overflow-hidden" style={{ background: LIME }}>
-      <div className="relative z-[2] max-w-[1240px] mx-auto px-5 md:px-9 pt-12 pb-16 lg:pt-20 lg:pb-[104px] grid grid-cols-1 lg:grid-cols-[minmax(0,42fr)_minmax(0,58fr)] gap-12 lg:gap-14 items-center">
+      <div className="relative z-[2] max-w-[1240px] mx-auto px-5 md:px-9 pt-10 pb-12 sm:pt-12 sm:pb-16 lg:pt-20 lg:pb-[104px] grid grid-cols-1 lg:grid-cols-[minmax(0,42fr)_minmax(0,58fr)] gap-8 sm:gap-12 lg:gap-14 items-center">
         <div>
           <span
             className="inline-flex items-center gap-2 text-[11px] lg:text-[12px] font-extrabold tracking-[0.12em] rounded-full px-4 py-[7px] border-2"
             style={{ color: PURPLE, borderColor: "rgba(128,22,195,0.35)", ...fadeUp(heroIn, 0.05) }}
           >
             <Bird className="w-4 h-[13px]" style={{ color: PURPLE }} />
-            TIL PSYKOLOGER &amp; PRIVATE PRAKSISSER
+            {t.hero.eyebrow}
           </span>
 
           <h1
             className="bf2-display mt-[22px] max-w-[520px] text-[34px] sm:text-[42px] lg:text-[52px] leading-[1.2]"
             style={fadeUp(heroIn, 0.15)}
           >
-            Din praksis online.{" "}
+            {t.hero.titleLead}{" "}
             <span className="relative inline-block" style={{ color: PURPLE }}>
-              Uden at blive webdesigner.
+              {t.hero.titleEm}
               <svg
                 viewBox="0 0 320 14"
                 preserveAspectRatio="none"
@@ -135,64 +1095,142 @@ function Hero() {
             </span>
           </h1>
 
+          {/* the full promise on wider screens, the same promise in one
+              breath on a phone — four lines of intro pushes the example site
+              and the CTA off the first screen */}
           <p
-            className="mt-[26px] max-w-[450px] text-[17px] lg:text-[20px] leading-[1.65]"
+            className="mt-[22px] sm:mt-[26px] max-w-[450px] text-[17px] lg:text-[20px] leading-[1.6] sm:leading-[1.65]"
             style={fadeUp(heroIn, 0.3)}
           >
-            Birdflow samler din hjemmeside, booking, henvendelser og automatiske mails ét sted —
-            sat op omkring dig og din måde at arbejde på.
+            <span className="sm:hidden">
+              {t.hero.bodyMobile}
+            </span>
+            <span className="hidden sm:inline">
+              {t.hero.bodyDesktop}
+            </span>
           </p>
 
           <div
             className="flex items-center gap-6 mt-[34px] flex-wrap"
             style={fadeUp(heroIn, 0.45)}
           >
-            <a
-              href="#kontakt"
+            <Link
+              href={SIGNUP_HREF}
               className="inline-flex w-full sm:w-auto justify-center items-center gap-[11px] text-white no-underline text-[17px] lg:text-[18px] font-extrabold px-7 py-4 rounded-[10px] transition hover:-translate-y-0.5"
               style={{ background: BLUE, boxShadow: "0 6px 18px rgba(48,109,218,0.35)" }}
-              data-testid="button-book-hero"
+              data-testid="button-signup-hero"
             >
               <Bird className="w-5 h-4 text-white" />
-              Book 20 min. gratis forsamtale
-            </a>
+              {signupLabel}
+            </Link>
           </div>
 
           <div
             className="flex gap-x-[18px] gap-y-2 flex-wrap mt-[18px] text-[14px] lg:text-[14.5px] font-bold"
             style={{ color: "rgba(0,0,0,0.62)", opacity: heroIn ? 1 : 0, transition: "opacity 0.7s ease 0.6s" }}
           >
-            {check("Uforpligtende")}
-            {check("Gratis")}
-            {check("Ingen teknisk forberedelse")}
+            {t.hero.checks.map((c) => (
+              <span key={c} className="flex items-center gap-1.5">
+                <span style={{ color: GREEN, fontWeight: 900 }}>✓</span>
+                {c}
+              </span>
+            ))}
           </div>
 
           <div
             className="flex items-center gap-x-[18px] gap-y-2 flex-wrap mt-5"
             style={{ opacity: heroIn ? 1 : 0, transition: "opacity 0.7s ease 0.72s" }}
           >
+            {/* the anchor carries a 44px tap target on touch sizes while the
+                inner span keeps the underline hugging the text */}
             <a
               href="#kundecase"
-              className="no-underline text-[15px] lg:text-[16px] font-extrabold pb-[2px] hover:text-[#8016C3] transition-colors"
-              style={{ color: "#000000", borderBottom: `2.5px solid ${PURPLE}` }}
+              className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[15px] lg:text-[16px] font-extrabold hover:text-[#8016C3] transition-colors"
+              style={{ color: "#000000" }}
             >
-              Se en eksempelpraksis →
+              <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
+                {t.hero.seeExample}
+              </span>
             </a>
             <span className="text-[14px] lg:text-[14.5px] font-bold" style={{ color: "rgba(0,0,0,0.6)" }}>
-              »Lige den stemning jeg ønskede.«{" "}
+              {t.hero.quote}{" "}
               <a
                 href="#kundecase"
                 className="no-underline font-extrabold hover:text-[#24559E] transition-colors"
                 style={{ color: PURPLE }}
               >
-                — Amalie, psykolog
+                {t.hero.quoteAttr}
               </a>
             </span>
           </div>
         </div>
 
         {/* The finished practice website, powered by Birdflow */}
-        <div className="relative min-w-0 mt-6 lg:mt-0 lg:-mr-[100px]">
+
+        {/* Phones: the same example site as a proportional miniature, so the
+            whole website is visible at once instead of reflowing into a very
+            tall stack. The workflow notes sit under it rather than floating
+            over its corners, where they would cover most of the miniature. */}
+        <div className="lg:hidden min-w-0">
+          <div
+            className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
+            style={{ boxShadow: "0 20px 50px rgba(20,5,40,0.16)", ...fadeUp(heroIn, 0.35) }}
+          >
+            <ScaleToFit designWidth={700}>
+              <PracticeSiteMock demo={demo} />
+            </ScaleToFit>
+          </div>
+
+          <div className="mt-3.5 flex flex-col gap-2.5" aria-hidden="true">
+            <div style={popIn(heroIn, 0.95)}>
+              <div
+                className="flex items-center gap-3 bg-white rounded-[14px] border border-black/[0.07] px-3.5 py-2.5"
+                style={{
+                  boxShadow: `0 14px 32px rgba(20,5,40,0.14), 0 0 0 3px ${demo >= 1 ? "rgba(48,109,218,0.4)" : "rgba(48,109,218,0)"}`,
+                  transition: "box-shadow 0.45s",
+                }}
+              >
+                <span
+                  className="w-9 h-9 flex-none rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(48,109,218,0.12)" }}
+                >
+                  <Bird className="w-[17px] h-3.5" style={{ color: BLUE }} />
+                </span>
+                <span>
+                  <span className="block text-[13px] font-extrabold">{HERO_FLOW_NOTES[0].title}</span>
+                  <span className="block mt-[2px] text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
+                    {HERO_FLOW_NOTES[0].sub}
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div style={popIn(heroIn, 1.1)}>
+              <div
+                className="flex items-center gap-3 bg-white rounded-[14px] border border-black/[0.07] px-3.5 py-2.5"
+                style={{
+                  boxShadow: `0 14px 32px rgba(20,5,40,0.14), 0 0 0 3px ${demo >= 2 ? "rgba(46,125,79,0.4)" : "rgba(46,125,79,0)"}`,
+                  transition: "box-shadow 0.45s",
+                }}
+              >
+                <span
+                  className="w-9 h-9 flex-none rounded-full flex items-center justify-center text-[15px] font-black"
+                  style={{ background: "rgba(46,125,79,0.12)", color: GREEN }}
+                >
+                  {demo >= 2 ? "✓" : "…"}
+                </span>
+                <span>
+                  <span className="block text-[13px] font-extrabold">{HERO_FLOW_NOTES[1].title}</span>
+                  <span className="block mt-[2px] text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
+                    {HERO_FLOW_NOTES[1].sub}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Desktop: full-size composition with the floating workflow cards */}
+        <div className="relative min-w-0 mt-6 lg:mt-0 lg:-mr-[100px] hidden lg:block">
           <div
             className="absolute -inset-[9%_-7%]"
             style={{
@@ -206,157 +1244,7 @@ function Hero() {
             className="relative z-[1] bg-white rounded-[18px] overflow-hidden border border-black/[0.08]"
             style={{ boxShadow: "0 34px 90px rgba(20,5,40,0.2)", ...fadeUp(heroIn, 0.35) }}
           >
-            {/* minimal Birdflow platform bar */}
-            <div className="flex items-center gap-3 px-3.5 py-3 lg:px-[18px] border-b border-black/[0.07]">
-              <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
-              <span className="flex-none text-[12px] lg:text-[13.5px] font-extrabold">Psykolog Sofie Lund</span>
-              <span
-                className="flex-none flex items-center gap-[7px] text-[10px] lg:text-[11.5px] font-extrabold rounded-full px-3 py-[5px]"
-                style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
-              >
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }}
-                />
-                <span className="hidden sm:inline">Hjemmesiden er live</span>
-                <span className="sm:hidden">Live</span>
-              </span>
-              <span
-                className="min-w-0 truncate ml-auto text-[11px] lg:text-[12.5px] font-extrabold"
-                style={{ color: BLUE }}
-              >
-                Administrer praksis →
-              </span>
-            </div>
-
-            {/* the finished practice website */}
-            <div style={{ background: "#FBF7EF", fontFamily: "Georgia, serif", color: "#2B2A26" }}>
-              <div className="flex items-center gap-3.5 px-4 lg:px-[26px] py-[15px] border-b" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-                <span className="flex items-center gap-2.5 text-[14px] lg:text-[15px] font-semibold">
-                  <svg viewBox="0 0 24 24" className="w-[23px] h-[23px] flex-none" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" fill="none" stroke="#4C5F50" strokeWidth="1.6" />
-                    <circle cx="12" cy="12" r="6.4" fill="none" stroke="#B96D4A" strokeWidth="1.5" />
-                    <circle cx="12" cy="12" r="2.5" fill="#4C5F50" />
-                  </svg>
-                  Sofie Lund{" "}
-                  <span className="italic text-[12px] lg:text-[12.5px]" style={{ color: "rgba(43,42,38,0.55)" }}>
-                    · Psykolog
-                  </span>
-                </span>
-                <span
-                  className="ml-auto hidden md:flex gap-[15px] items-center text-[11px] font-bold"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                >
-                  <span>Samtaleterapi</span>
-                  <span>Forløb</span>
-                  <span>Priser</span>
-                  <span>Kontakt</span>
-                </span>
-                <span
-                  className="ml-auto md:ml-0 text-[10px] lg:text-[11px] font-extrabold rounded-full px-[15px] py-[7px] whitespace-nowrap"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
-                >
-                  Book en samtale
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-[1.25fr_0.9fr] gap-5 lg:gap-[26px] px-4 lg:px-7 pt-6 lg:pt-[34px] pb-6 lg:pb-[30px] items-center">
-                <div>
-                  <p
-                    className="m-0 text-[9px] lg:text-[10px] font-extrabold tracking-[0.18em]"
-                    style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
-                  >
-                    AUTORISERET PSYKOLOG · KØBENHAVN &amp; ONLINE
-                  </p>
-                  <p className="mt-4 mb-0 text-[24px] lg:text-[31px] leading-[1.25] max-w-[340px]">
-                    Et roligt sted til det, der fylder.
-                  </p>
-                  <p
-                    className="mt-4 mb-0 text-[12.5px] lg:text-[13.5px] leading-[1.65] max-w-[330px]"
-                    style={{ color: "rgba(43,42,38,0.72)" }}
-                  >
-                    Samtaleterapi til dig, der oplever stress, angst eller står midt i en forandring
-                    i livet.
-                  </p>
-                  <div className="flex items-center gap-4 mt-5 flex-wrap">
-                    <span
-                      className="text-[12px] lg:text-[12.5px] font-extrabold rounded-full px-5 py-[11px]"
-                      style={{
-                        fontFamily: "'Nunito', sans-serif",
-                        color: "#FBF7EF",
-                        background: "#4C5F50",
-                        boxShadow: demo === 1 ? "0 0 0 4px rgba(76,95,80,0.3)" : "0 0 0 0 rgba(76,95,80,0)",
-                        transform: demo === 1 ? "scale(0.95)" : "none",
-                        transition: "box-shadow 0.4s, transform 0.35s",
-                      }}
-                    >
-                      Book en indledende samtale
-                    </span>
-                    <span
-                      className="italic text-[12px] lg:text-[12.5px] pb-px"
-                      style={{ color: "#B96D4A", borderBottom: "1px solid rgba(185,109,74,0.5)" }}
-                    >
-                      Læs om et forløb
-                    </span>
-                  </div>
-                  <div
-                    className="flex gap-4 mt-4 text-[10px] lg:text-[10.5px] font-bold"
-                    style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                  >
-                    <span className="flex items-center gap-[5px]">
-                      <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Kort ventetid
-                    </span>
-                    <span className="flex items-center gap-[5px]">
-                      <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>København &amp; online
-                    </span>
-                  </div>
-                </div>
-
-                <div className="relative pt-2 pr-2 max-w-[240px] sm:max-w-none mx-auto sm:mx-0 w-full">
-                  <svg
-                    viewBox="0 0 200 200"
-                    className="absolute -right-[26px] -top-6 w-[110px] lg:w-[150px] h-auto"
-                    aria-hidden="true"
-                  >
-                    <circle cx="100" cy="100" r="96" fill="none" stroke="#B96D4A" strokeWidth="1.4" opacity="0.5" />
-                    <circle cx="100" cy="100" r="74" fill="none" stroke="#4C5F50" strokeWidth="1.4" opacity="0.4" />
-                    <circle cx="100" cy="100" r="52" fill="none" stroke="#B96D4A" strokeWidth="1.4" opacity="0.3" />
-                  </svg>
-                  <div
-                    className="absolute -right-[10px] -top-[2px] w-[84%] h-[97%]"
-                    style={{ borderRadius: "999px 999px 16px 16px", background: "#E3DCCB" }}
-                  />
-                  <div
-                    className="relative h-[200px] lg:h-[270px] overflow-hidden"
-                    style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
-                  >
-                    <PortraitArt className="absolute inset-0 w-full h-full" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 border-t" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-                {[
-                  ["Samtaleterapi", "50 min. · 1.100 kr."],
-                  ["Stressforløb", "6–10 samtaler"],
-                  ["Parterapi", "75 min. · 1.500 kr."],
-                ].map(([t, s], i) => (
-                  <div
-                    key={t}
-                    className={`px-5 lg:px-[22px] py-3 lg:py-3.5 ${i < 2 ? "border-b sm:border-b-0 sm:border-r" : ""}`}
-                    style={{ borderColor: "rgba(43,42,38,0.08)" }}
-                  >
-                    <p className="m-0 text-[13px] lg:text-[13.5px] font-bold">{t}</p>
-                    <p
-                      className="mt-[3px] mb-0 text-[10px] lg:text-[10.5px] font-bold"
-                      style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.55)" }}
-                    >
-                      {s}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <PracticeSiteMock demo={demo} />
           </div>
 
           {/* floating Birdflow workflow cards */}
@@ -382,9 +1270,9 @@ function Hero() {
                 <Bird className="w-[17px] h-3.5" style={{ color: BLUE }} />
               </span>
               <span>
-                <span className="block text-[13px] lg:text-[13.5px] font-extrabold">Ny booking</span>
+                <span className="block text-[13px] lg:text-[13.5px] font-extrabold">{HERO_FLOW_NOTES[0].title}</span>
                 <span className="block mt-[2px] text-[11px] lg:text-[11.5px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-                  Tirsdag kl. 13.30 · Via hjemmesiden
+                  {HERO_FLOW_NOTES[0].sub}
                 </span>
               </span>
             </div>
@@ -412,9 +1300,9 @@ function Hero() {
                 {demo >= 2 ? "✓" : "…"}
               </span>
               <span>
-                <span className="block text-[13px] lg:text-[13.5px] font-extrabold">Automatisk mail sendt</span>
+                <span className="block text-[13px] lg:text-[13.5px] font-extrabold">{HERO_FLOW_NOTES[1].title}</span>
                 <span className="block mt-[2px] text-[11px] lg:text-[11.5px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-                  Bookingbekræftelse · Sendt til klient
+                  {HERO_FLOW_NOTES[1].sub}
                 </span>
               </span>
             </div>
@@ -438,9 +1326,9 @@ function Hero() {
                 {demo >= 3 ? "4" : "3"}
               </span>
               <span>
-                <span className="block text-[13.5px] font-extrabold">{demo >= 3 ? "4" : "3"} nye henvendelser</span>
+                <span className="block text-[13.5px] font-extrabold">{demo >= 3 ? "4" : "3"} {t.hero.newEnquiriesSuffix}</span>
                 <span className="block mt-[2px] text-[11.5px] font-extrabold" style={{ color: PURPLE }}>
-                  Se i Birdflow →
+                  {t.hero.seeInBirdflow}
                 </span>
               </span>
             </div>
@@ -474,7 +1362,7 @@ function Hero() {
   );
 }
 
-/* ─────────── 02 · KLIENTENS VEJ ─────────── */
+/* ─────────── KLIENTENS VEJ (kunderejsen) ─────────── */
 
 function StepLabel({ children, boxed = false }: { children: ReactNode; boxed?: boolean }) {
   return (
@@ -494,6 +1382,7 @@ function StepLabel({ children, boxed = false }: { children: ReactNode; boxed?: b
 
 /** 01 · the mini practice website in a browser frame */
 function JourneySiteCard() {
+  const j = useLandingCopy().journey.site;
   return (
     <div
       className="bg-white rounded-[14px] overflow-hidden border border-black/[0.08]"
@@ -507,7 +1396,7 @@ function JourneySiteCard() {
           className="mx-auto text-[10.5px] font-bold rounded-md px-6 py-1"
           style={{ color: "rgba(0,0,0,0.45)", background: "rgba(0,0,0,0.045)" }}
         >
-          sofielund.dk
+          {j.domain}
         </span>
       </div>
       <div style={{ background: "#FBF7EF", fontFamily: "Georgia, serif", color: "#2B2A26" }}>
@@ -515,22 +1404,22 @@ function JourneySiteCard() {
           <span className="text-[13px] lg:text-[13.5px] font-bold whitespace-nowrap">
             Sofie Lund{" "}
             <span className="italic text-[11px]" style={{ color: "rgba(43,42,38,0.55)" }}>
-              · Psykolog
+              · {j.role}
             </span>
           </span>
           <span
             className="ml-auto hidden sm:flex gap-3 text-[10px] font-bold"
             style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
           >
-            <span>Samtaleterapi</span>
-            <span>Forløb</span>
-            <span>Priser</span>
+            {j.navItems.map((it) => (
+              <span key={it}>{it}</span>
+            ))}
           </span>
           <span
             className="ml-auto sm:ml-0 text-[10px] font-extrabold rounded-md px-2.5 py-1.5 whitespace-nowrap"
             style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
           >
-            Book en samtale
+            {j.bookConversation}
           </span>
         </div>
         <div className="grid grid-cols-[1.2fr_0.8fr] gap-4 lg:gap-[18px] px-4 lg:px-5 py-5 items-center">
@@ -539,33 +1428,32 @@ function JourneySiteCard() {
               className="m-0 text-[8px] lg:text-[9px] font-extrabold tracking-[0.18em]"
               style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
             >
-              AUTORISERET PSYKOLOG · KØBENHAVN &amp; ONLINE
+              {j.eyebrow}
             </p>
             <p className="mt-3 mb-0 text-[19px] lg:text-[24px] leading-[1.28] max-w-[250px]">
-              Et roligt sted til det, der fylder.
+              {j.heroTitle}
             </p>
             <p
               className="mt-3 mb-0 text-[11px] lg:text-[12px] leading-[1.6] max-w-[250px]"
               style={{ color: "rgba(43,42,38,0.72)" }}
             >
-              Samtaleterapi til dig, der oplever stress, uro eller står midt i en forandring i
-              livet.
+              {j.heroBody}
             </p>
             <span
               className="inline-block mt-3.5 text-[10.5px] lg:text-[11.5px] font-extrabold rounded-lg px-[15px] py-2.5"
               style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
             >
-              Book en indledende samtale
+              {j.bookInitial}
             </span>
             <div
               className="flex gap-3.5 mt-[13px] text-[9px] lg:text-[10px] font-bold flex-wrap"
               style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
             >
               <span className="flex items-center gap-[5px]">
-                <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Kort ventetid
+                <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>{j.shortWait}
               </span>
               <span className="flex items-center gap-[5px]">
-                <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>København &amp; online
+                <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>{j.cityOnline}
               </span>
             </div>
           </div>
@@ -578,7 +1466,7 @@ function JourneySiteCard() {
               className="relative h-[140px] sm:h-[196px] overflow-hidden"
               style={{ borderRadius: "999px 999px 12px 12px", background: "#EDE6D8" }}
             >
-              <PortraitArt className="absolute inset-0 w-full h-full" />
+              <PortraitSlot className="absolute inset-0 w-full h-full" />
             </div>
           </div>
         </div>
@@ -589,22 +1477,25 @@ function JourneySiteCard() {
 
 /** 02 · Emma books a slot */
 function JourneyBookingCard() {
+  const b = useLandingCopy().journey.booking;
   return (
     <div
       className="bg-white rounded-[14px] border border-black/[0.08] px-5 py-[18px]"
       style={{ boxShadow: "0 24px 56px rgba(20,5,40,0.18)" }}
     >
-      <p className="m-0 text-[14.5px] font-extrabold">Book en indledende samtale</p>
+      <p className="m-0 text-[14.5px] font-extrabold">{b.title}</p>
       <div className="flex items-center mt-3 text-[12px] font-extrabold">
         <span style={{ color: "rgba(0,0,0,0.35)" }}>‹</span>
-        <span className="mx-auto">April 2026</span>
+        <span className="mx-auto">{b.month}</span>
         <span style={{ color: "rgba(0,0,0,0.35)" }}>›</span>
       </div>
       <div
         className="grid grid-cols-5 gap-1.5 mt-2.5 text-[9.5px] font-extrabold text-center"
         style={{ color: "rgba(0,0,0,0.45)" }}
       >
-        <span>MAN</span><span>TIR</span><span>ONS</span><span>TOR</span><span>FRE</span>
+        {b.weekdays.map((d) => (
+          <span key={d}>{d}</span>
+        ))}
       </div>
       <div className="grid grid-cols-5 gap-1.5 mt-[5px] text-[12px] font-bold text-center">
         <span className="py-[7px]" style={{ color: "rgba(0,0,0,0.75)" }}>13</span>
@@ -634,10 +1525,7 @@ function JourneyBookingCard() {
         ))}
       </div>
       <div className="mt-3.5 flex flex-col gap-2">
-        {[
-          ["NAVN", "Emma Jensen"],
-          ["EMAIL", "emma@email.dk"],
-        ].map(([label, value]) => (
+        {b.fields.map(([label, value]) => (
           <div key={label} className="rounded-lg px-3 py-2" style={{ border: "1.5px solid rgba(0,0,0,0.1)" }}>
             <span className="block text-[9px] font-extrabold tracking-[0.08em]" style={{ color: "rgba(0,0,0,0.45)" }}>
               {label}
@@ -650,10 +1538,10 @@ function JourneyBookingCard() {
         className="mt-3 text-white text-center rounded-[9px] py-[11px] text-[13px] font-extrabold"
         style={{ background: BLUE, boxShadow: "0 6px 16px rgba(48,109,218,0.3)" }}
       >
-        Bekræft booking
+        {b.confirm}
       </div>
       <p className="mt-2.5 mb-0 text-center text-[10.5px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
-        Tirsdag d. 14. april · kl. 13.30 · Online
+        {b.summary}
       </p>
     </div>
   );
@@ -661,6 +1549,7 @@ function JourneyBookingCard() {
 
 /** 03 · booking confirmed in Birdflow */
 function JourneyConfirmedCard() {
+  const c = useLandingCopy().journey.confirmed;
   return (
     <div
       className="bg-white rounded-[14px] border border-black/[0.08] px-[18px] py-4"
@@ -673,19 +1562,19 @@ function JourneyConfirmedCard() {
         >
           <Bird className="w-[17px] h-3.5" style={{ color: PURPLE }} />
         </span>
-        <span className="text-[14px] font-extrabold">Ny booking</span>
+        <span className="text-[14px] font-extrabold">{c.newBooking}</span>
         <span
           className="ml-auto flex items-center gap-1.5 text-[10.5px] font-extrabold rounded-full px-[11px] py-1"
           style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
         >
           <span className="w-[7px] h-[7px] rounded-full" style={{ background: GREEN }} />
-          Bekræftet
+          {c.confirmed}
         </span>
       </div>
       <div className="mt-[13px] border-t border-black/[0.07] pt-3">
-        <p className="m-0 text-[13.5px] font-extrabold">Emma Jensen</p>
+        <p className="m-0 text-[13.5px] font-extrabold">{c.name}</p>
         <p className="mt-1 mb-0 text-[12px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-          Tirsdag · 13.30 · Indledende samtale · Online
+          {c.detail}
         </p>
       </div>
     </div>
@@ -694,36 +1583,35 @@ function JourneyConfirmedCard() {
 
 /** 04 · confirmation mail sent automatically */
 function JourneyMailCard({ sent }: { sent: boolean }) {
+  const m = useLandingCopy().journey.mail;
   return (
     <div
       className="bg-white rounded-[14px] border border-black/[0.08] px-[19px] py-4"
       style={{ boxShadow: "0 22px 52px rgba(20,5,40,0.17)" }}
     >
       <div className="flex items-center gap-2.5">
-        <span className="text-[13.5px] font-extrabold">Bookingbekræftelse</span>
+        <span className="text-[13.5px] font-extrabold">{m.subject}</span>
         <span
           className="ml-auto text-[10.5px] font-extrabold rounded-full px-[11px] py-1 whitespace-nowrap"
           style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
         >
-          {sent ? "Sendt automatisk ✓" : "Sender…"}
+          {sent ? m.sentAuto : m.sending}
         </span>
       </div>
       <div
         className="mt-3 rounded-[10px] px-[15px] py-[13px] text-[12px] leading-[1.7]"
         style={{ border: "1px solid rgba(0,0,0,0.08)", color: "rgba(0,0,0,0.78)" }}
       >
-        Hej Emma
-        <br />
-        Tak for din booking. Jeg glæder mig til vores samtale tirsdag kl. 13.30.
-        <br />
-        Du modtager et link til vores online samtale inden mødet.
-        <br />
-        De bedste hilsner
-        <br />
-        Sofie
+        {m.body.map((line, i) => (
+          <span key={i}>
+            {line}
+            <br />
+          </span>
+        ))}
+        {m.signer}
       </div>
       <p className="mt-2.5 mb-0 text-[10.5px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
-        Sendt til Emma · 10.42 — uden at du skulle gøre noget
+        {m.meta}
       </p>
     </div>
   );
@@ -731,38 +1619,63 @@ function JourneyMailCard({ sent }: { sent: boolean }) {
 
 function ClientJourney() {
   const [ref, on] = useInView<HTMLDivElement>(0.12);
+  const jc = useLandingCopy().journey;
 
   const intro = (
     <>
       <h2 className="m-0 text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.15] font-black tracking-[-0.01em]">
-        Klientens vej skal føles tryg.{" "}
-        <span style={{ color: PURPLE }}>Også før den første samtale.</span>
+        {jc.headingLead}{" "}
+        <span style={{ color: PURPLE }}>{jc.headingEm}</span>
       </h2>
       <p className="mt-[22px] mb-0 max-w-[440px] text-[16.5px] lg:text-[20px] leading-[1.65]">
-        Fra det øjeblik en potentiel klient finder din hjemmeside, hjælper Birdflow med at skabe en
-        enkel vej videre — til booking og den praktiske information omkring samtalen.
+        {jc.body}
       </p>
       <p className="mt-7 mb-0 max-w-[420px] text-[18px] lg:text-[22px] leading-[1.45] font-black">
-        Du tager dig af samtalen.{" "}
-        <span style={{ color: PURPLE }}>Birdflow holder styr på flowet omkring den.</span>
+        {jc.closingLead}{" "}
+        <span style={{ color: PURPLE }}>{jc.closingEm}</span>
       </p>
     </>
   );
 
+  /** The four steps, shared by the phone carousel and the tablet timeline. */
+  const JOURNEY_STEPS: Array<[string, ReactNode]> = [
+    [jc.steps[0], <JourneySiteCard key="c" />],
+    [jc.steps[1], <div key="c" className="max-w-[360px]"><JourneyBookingCard /></div>],
+    [jc.steps[2], <div key="c" className="max-w-[360px]"><JourneyConfirmedCard /></div>],
+    [jc.steps[3], <div key="c" className="max-w-[400px]"><JourneyMailCard sent /></div>],
+  ];
+
   return (
     <section data-testid="section-journey" style={{ background: BLUSH }}>
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-24 lg:pb-[130px]">
-        {/* ── mobile / tablet: vertical timeline ── */}
+        {/* ── mobile / tablet ── */}
         <div className="lg:hidden">
           {intro}
-          <div className="mt-10 flex flex-col items-stretch">
-            {[
-              ["01 · KLIENTEN FINDER DIG", <JourneySiteCard key="c" />],
-              ["02 · EMMA BOOKER EN TID", <div key="c" className="max-w-[360px]"><JourneyBookingCard /></div>],
-              ["03 · BOOKINGEN ER PÅ PLADS", <div key="c" className="max-w-[360px]"><JourneyConfirmedCard /></div>],
-              ["04 · DET PRAKTISKE ER SENDT", <div key="c" className="max-w-[400px]"><JourneyMailCard sent /></div>],
-            ].map(([label, card], i) => (
-              <div key={i as number} className="flex flex-col">
+
+          {/* Phones: a swipeable set. Stacked vertically the four steps run
+              to nearly two screens of scrolling before anything new appears,
+              and the story reads better as one step at a time anyway. */}
+          <div
+            className="sm:hidden mt-8 -mx-5 flex gap-4 overflow-x-auto snap-x snap-mandatory px-5 pb-4 bf2-noscrollbar"
+            tabIndex={0}
+            role="group"
+            aria-label={jc.ariaLabel}
+          >
+            {JOURNEY_STEPS.map(([label, card], i) => (
+              <div key={i} className="snap-center shrink-0 w-[86%] max-w-[330px] flex flex-col">
+                <StepLabel>{label}</StepLabel>
+                {card}
+              </div>
+            ))}
+          </div>
+          <p className="sm:hidden m-0 mt-1 text-[13.5px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
+            {jc.swipeHint}
+          </p>
+
+          {/* Tablets: the vertical timeline, which has room to breathe */}
+          <div className="hidden sm:flex mt-10 flex-col items-stretch">
+            {JOURNEY_STEPS.map(([label, card], i) => (
+              <div key={i} className="flex flex-col">
                 {i > 0 && (
                   <span
                     className="w-[3px] h-10 rounded-full my-3 ml-6"
@@ -771,8 +1684,8 @@ function ClientJourney() {
                   />
                 )}
                 <RevealOnView delay={0.05}>
-                  <StepLabel>{label as string}</StepLabel>
-                  {card as ReactNode}
+                  <StepLabel>{label}</StepLabel>
+                  {card}
                 </RevealOnView>
               </div>
             ))}
@@ -810,22 +1723,22 @@ function ClientJourney() {
             </svg>
 
             <div className="absolute left-0 top-0 w-[540px] z-[1]" style={fadeUp(on, 0.05, 26)}>
-              <StepLabel>01 · KLIENTEN FINDER DIG</StepLabel>
+              <StepLabel>{jc.steps[0]}</StepLabel>
               <JourneySiteCard />
             </div>
 
             <div className="absolute right-0 top-[300px] w-[320px] z-[2]" style={fadeUp(on, 0.35, 26)}>
-              <StepLabel boxed>02 · EMMA BOOKER EN TID</StepLabel>
+              <StepLabel boxed>{jc.steps[1]}</StepLabel>
               <JourneyBookingCard />
             </div>
 
             <div className="absolute right-[330px] top-[508px] w-[288px] z-[2]" style={fadeUp(on, 0.65, 26)}>
-              <StepLabel>03 · BOOKINGEN ER PÅ PLADS</StepLabel>
+              <StepLabel>{jc.steps[2]}</StepLabel>
               <JourneyConfirmedCard />
             </div>
 
             <div className="absolute right-3.5 top-[836px] w-[350px] z-[3]" style={fadeUp(on, 0.95, 26)}>
-              <StepLabel>04 · DET PRAKTISKE ER SENDT</StepLabel>
+              <StepLabel>{jc.steps[3]}</StepLabel>
               <JourneyMailCard sent={on} />
             </div>
           </div>
@@ -835,25 +1748,11 @@ function ClientJourney() {
   );
 }
 
-/* ─────────── 03 · STICKY PRODUCT STORY ─────────── */
-
-const STORY_STEPS = [
-  "Du er hos dine klienter",
-  "Bekræftelsen — sendt for dig",
-  "Kalenderen — opdateret for dig",
-  "Henvendelsen — fulgt op for dig",
-  "Påmindelsen — planlagt for dig",
-  "Overblikket venter, når du er klar",
-];
-
-const ADMIN_TODOS = [
-  "Send bekræftelse til ny booking",
-  "Skriv tiden ind i kalenderen",
-  "Følg op på ny henvendelse",
-  "Planlæg påmindelse før samtalen",
-];
+/* ─────────── STICKY PRODUCT STORY (mindre administration) ─────────── */
 
 function AdminListCard({ step }: { step: number }) {
+  const st = useLandingCopy().story;
+  const ADMIN_TODOS = st.adminTodos;
   return (
     <div
       className="relative bg-white rounded-2xl border border-black/[0.08] px-[17px] py-[15px]"
@@ -865,12 +1764,12 @@ function AdminListCard({ step }: { step: number }) {
       }}
     >
       <div className="flex items-center gap-2">
-        <span className="text-[14px] font-black">Din admin-liste</span>
+        <span className="text-[14px] font-black">{st.adminListTitle}</span>
         <span
           className="ml-auto text-[10px] font-extrabold rounded-full px-2.5 py-[3px]"
           style={{ color: PURPLE, background: "rgba(128,22,195,0.09)" }}
         >
-          {Math.max(0, 4 - step)} til dig
+          {Math.max(0, 4 - step)} {st.forYouSuffix}
         </span>
       </div>
       {ADMIN_TODOS.map((t, i) => {
@@ -913,7 +1812,7 @@ function AdminListCard({ step }: { step: number }) {
       >
         <Bird className="w-4 h-[13px]" style={{ color: PURPLE }} />
         <span className="text-[12px] font-black" style={{ color: PURPLE }}>
-          Klaret af Birdflow — mens du var i samtale
+          {st.doneByBirdflow}
         </span>
       </div>
     </div>
@@ -921,6 +1820,7 @@ function AdminListCard({ step }: { step: number }) {
 }
 
 function TodayCard({ step }: { step: number }) {
+  const st = useLandingCopy().story;
   return (
     <div
       className="relative bg-white rounded-2xl border border-black/[0.08] px-[17px] py-[15px]"
@@ -933,7 +1833,7 @@ function TodayCard({ step }: { step: number }) {
     >
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-          I DAG · TIRSDAG
+          {st.today}
         </span>
         <span
           className="ml-auto w-2 h-2 rounded-full"
@@ -942,29 +1842,29 @@ function TodayCard({ step }: { step: number }) {
       </div>
       <div className="flex gap-2.5 items-center py-[9px] border-b border-black/[0.06]">
         <span className="text-[12.5px] font-extrabold w-10">10.00</span>
-        <span className="text-[12px] font-bold">Samtale</span>
-        <span className="ml-auto text-[10px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>Klinik</span>
+        <span className="text-[12px] font-bold">{st.conversation}</span>
+        <span className="ml-auto text-[10px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>{st.clinic}</span>
       </div>
       <div className="flex gap-2.5 items-center py-[9px] border-b border-black/[0.06]">
         <span className="text-[12.5px] font-extrabold w-10">11.30</span>
-        <span className="text-[12px] font-bold">Samtale</span>
-        <span className="ml-auto text-[10px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>Online</span>
+        <span className="text-[12px] font-bold">{st.conversation}</span>
+        <span className="ml-auto text-[10px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>{st.online}</span>
       </div>
       <div className="flex gap-2.5 items-center py-[9px]">
         <span className="text-[12.5px] font-extrabold w-10" style={{ color: BLUE }}>13.30</span>
-        <span className="text-[12px] font-extrabold" style={{ color: BLUE }}>Samtale</span>
+        <span className="text-[12px] font-extrabold" style={{ color: BLUE }}>{st.conversation}</span>
         <span
           className="ml-auto text-[9px] font-extrabold text-white rounded-full px-2 py-[2px]"
           style={{ background: BLUE, opacity: step >= 2 ? 1 : 0, transition: "opacity 0.55s" }}
         >
-          NY — bookede sig selv
+          {st.bookedSelf}
         </span>
       </div>
       <div
         className="mt-1.5 rounded-[9px] px-[11px] py-2 text-[11px] font-extrabold"
         style={{ background: LIME, color: "rgba(0,0,0,0.75)" }}
       >
-        Admin mellem samtalerne: <span style={{ color: PURPLE }}>0 min.</span>
+        {st.adminBetween} <span style={{ color: PURPLE }}>{st.zeroMin}</span>
       </div>
     </div>
   );
@@ -998,21 +1898,22 @@ const CHIP_ICONS = {
   ),
 };
 
+/** Language-neutral chip styling; the text comes from the copy object by index. */
 const STORY_CHIPS: Array<{
   icon: keyof typeof CHIP_ICONS;
   iconBg: string;
-  title: string;
-  sub: string;
   rot: string;
   anim: string;
 }> = [
-  { icon: "mail", iconBg: "rgba(46,125,79,0.12)", title: "Bekræftelse sendt", sub: "Til klienten · automatisk", rot: "-3deg", anim: "bf2Float 7s ease-in-out -1s infinite" },
-  { icon: "calendar", iconBg: "rgba(48,109,218,0.12)", title: "Kalenderen opdateret", sub: "Tirsdag d. 14. · kl. 13.30", rot: "2.5deg", anim: "bf2Float 8s ease-in-out -3s infinite" },
-  { icon: "chat", iconBg: "rgba(128,22,195,0.1)", title: "Henvendelse fulgt op", sub: "Samlet med status i Birdflow", rot: "-2deg", anim: "bf2Float 8.5s ease-in-out -5s infinite" },
-  { icon: "clock", iconBg: "rgba(48,109,218,0.12)", title: "Påmindelse planlagt", sub: "Før samtalen i morgen", rot: "2deg", anim: "bf2Float 7.5s ease-in-out -2s infinite" },
+  { icon: "mail", iconBg: "rgba(46,125,79,0.12)", rot: "-3deg", anim: "bf2Float 7s ease-in-out -1s infinite" },
+  { icon: "calendar", iconBg: "rgba(48,109,218,0.12)", rot: "2.5deg", anim: "bf2Float 8s ease-in-out -3s infinite" },
+  { icon: "chat", iconBg: "rgba(128,22,195,0.1)", rot: "-2deg", anim: "bf2Float 8.5s ease-in-out -5s infinite" },
+  { icon: "clock", iconBg: "rgba(48,109,218,0.12)", rot: "2deg", anim: "bf2Float 7.5s ease-in-out -2s infinite" },
 ];
 
-function StoryChip({ chip }: { chip: (typeof STORY_CHIPS)[number] }) {
+function StoryChip({ index }: { index: number }) {
+  const chip = STORY_CHIPS[index];
+  const text = useLandingCopy().story.chips[index];
   return (
     <div
       className="relative flex items-center gap-[11px] bg-white rounded-2xl border border-black/[0.08] px-[15px] py-[11px]"
@@ -1036,9 +1937,9 @@ function StoryChip({ chip }: { chip: (typeof STORY_CHIPS)[number] }) {
         {CHIP_ICONS[chip.icon]}
       </span>
       <span>
-        <span className="block text-[13px] font-extrabold">{chip.title}</span>
+        <span className="block text-[13px] font-extrabold">{text.title}</span>
         <span className="block mt-[2px] text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
-          {chip.sub}
+          {text.sub}
         </span>
       </span>
     </div>
@@ -1059,7 +1960,7 @@ function PuffCloud({ className, style }: { className?: string; style?: CSSProper
   );
 }
 
-/** Man reclining on a cloud (SVG stand-in for the design's mancloud.png) */
+/** Man reclining on a cloud (fallback artwork while /landing/cloud-man.webp loads) */
 function CloudManArt({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 520 340" className={className} aria-hidden="true">
@@ -1098,6 +1999,12 @@ function CloudManArt({ className }: { className?: string }) {
 }
 
 function CloudScene({ lifted, showFinale }: { lifted: boolean; showFinale: boolean }) {
+  const { lang } = useLocale();
+  const st = pick(COPY, lang).story;
+  const cloudAlt =
+    lang === "en"
+      ? "A man sitting relaxed on a cloud, writing in his notebook"
+      : "Mand, der sidder afslappet på en sky og skriver i sin notesbog";
   return (
     <div
       className="absolute left-[5%] top-[2%] w-[90%] h-[78%]"
@@ -1120,7 +2027,14 @@ function CloudScene({ lifted, showFinale }: { lifted: boolean; showFinale: boole
         }}
       />
       <div className="relative w-full h-full" style={{ animation: "bf2Float 9s ease-in-out -3s infinite" }}>
-        <CloudManArt className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[86%] max-w-[520px] h-auto" />
+        <ImgWithFallback
+          src="/landing/cloud-man.webp"
+          alt={cloudAlt}
+          className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[74%] max-w-[460px] h-auto"
+          fallback={
+            <CloudManArt className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[86%] max-w-[520px] h-auto" />
+          }
+        />
         <Bird
           className="absolute left-[21%] bottom-[13%] w-[42px] h-[34px]"
           style={{
@@ -1138,7 +2052,7 @@ function CloudScene({ lifted, showFinale }: { lifted: boolean; showFinale: boole
             className="inline-block text-white text-[12px] lg:text-[13px] font-extrabold rounded-full px-[17px] py-2.5"
             style={{ background: PURPLE, boxShadow: "0 14px 34px rgba(20,5,40,0.3)" }}
           >
-            Resten klarer Birdflow ✓
+            {st.finale}
           </span>
         </div>
       </div>
@@ -1147,12 +2061,13 @@ function CloudScene({ lifted, showFinale }: { lifted: boolean; showFinale: boole
 }
 
 function OverviewCard() {
+  const o = useLandingCopy().story.overview;
   return (
     <div
       className="w-full bg-white rounded-2xl border border-black/[0.07] overflow-hidden flex"
       style={{ boxShadow: "0 30px 80px rgba(20,5,40,0.22)" }}
     >
-      <div className="w-[190px] flex-none border-r border-black/[0.07] py-[18px] hidden md:block" style={{ background: "#FDFDFB" }}>
+      <div className="w-[190px] flex-none border-r border-black/[0.07] py-[18px] hidden md:block bf2-w-block" style={{ background: "#FDFDFB" }}>
         <div className="flex items-center gap-2 px-[18px] pb-3.5">
           <Bird className="w-5 h-4" style={{ color: BLUE }} />
           <span className="text-[13.5px] font-extrabold">Birdflow</span>
@@ -1161,20 +2076,20 @@ function OverviewCard() {
           className="text-[12.5px] font-extrabold px-[18px] py-[9px]"
           style={{ color: BLUE, background: "rgba(48,109,218,0.08)", borderLeft: `2.5px solid ${BLUE}` }}
         >
-          Overblik
+          {o.navItems[0]}
         </div>
-        {["Hjemmeside", "Bookinger"].map((x) => (
+        {[o.navItems[1], o.navItems[2]].map((x) => (
           <div key={x} className="text-[12.5px] font-bold px-[18px] py-[9px]" style={{ color: "rgba(0,0,0,0.6)" }}>
             {x}
           </div>
         ))}
         <div className="text-[12.5px] font-bold px-[18px] py-[9px] flex items-center" style={{ color: "rgba(0,0,0,0.6)" }}>
-          Henvendelser
+          {o.navItems[3]}
           <span className="ml-auto text-[10px] font-extrabold text-white rounded-[9px] px-2 py-[2px]" style={{ background: PURPLE }}>
             7
           </span>
         </div>
-        {["Automatiske mails", "Analyse"].map((x) => (
+        {[o.navItems[4], o.navItems[5]].map((x) => (
           <div key={x} className="text-[12.5px] font-bold px-[18px] py-[9px]" style={{ color: "rgba(0,0,0,0.6)" }}>
             {x}
           </div>
@@ -1182,23 +2097,21 @@ function OverviewCard() {
       </div>
       <div className="flex-1 px-4 py-4 lg:px-[26px] lg:py-[22px] min-w-0">
         <div className="flex items-baseline gap-3.5 flex-wrap">
-          <span className="text-[17px] lg:text-[20px] font-black tracking-[-0.01em]">God formiddag, Sofie</span>
+          <span className="text-[17px] lg:text-[20px] font-black tracking-[-0.01em]">{o.greeting}</span>
           <span className="text-[12px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>
-            Tirsdag d. 14. oktober
+            {o.date}
           </span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-[1.3fr_1fr] gap-4 mt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-[1.3fr_1fr] bf2-w-cols-overview gap-4 mt-4">
           <div className="rounded-[11px] px-4 py-3.5" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
             <p className="m-0 text-[10px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-              I DAG
+              {o.todayLabel}
             </p>
-            {[
-              ["10.00", "Booket samtale", "Klinik", false],
-              ["13.30", "Booket samtale · ny", "Klinik", true],
-              ["15.00", "Booket samtale", "Online", false],
-            ].map(([time, label, place, isNew], i) => (
+            {o.todayRows.map(([time, label, place], i) => {
+              const isNew = i === 1;
+              return (
               <div
-                key={time as string}
+                key={i}
                 className={`flex gap-3 items-baseline py-[9px] ${i < 2 ? "border-b border-black/[0.06]" : ""}`}
               >
                 <span className="text-[13px] font-extrabold w-11" style={isNew ? { color: BLUE } : undefined}>
@@ -1211,14 +2124,15 @@ function OverviewCard() {
                   {place}
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
           <div className="flex flex-col gap-3">
             {[
-              ["Nye henvendelser", <span key="v" className="text-[19px] font-black" style={{ color: PURPLE }}>7</span>],
-              ["Bekræftelsesmail", <span key="v" className="text-[11.5px] font-extrabold" style={{ color: GREEN }}>Aktiv</span>],
-              ["Hjemmeside", <span key="v" className="text-[11.5px] font-extrabold" style={{ color: GREEN }}>Udgivet</span>],
-              ["Besøg denne måned", <span key="v" className="text-[15px] font-black">184</span>],
+              [o.newEnquiries, <span key="v" className="text-[19px] font-black" style={{ color: PURPLE }}>7</span>],
+              [o.confirmMail, <span key="v" className="text-[11.5px] font-extrabold" style={{ color: GREEN }}>{o.active}</span>],
+              [o.website, <span key="v" className="text-[11.5px] font-extrabold" style={{ color: GREEN }}>{o.published}</span>],
+              [o.visitsThisMonth, <span key="v" className="text-[15px] font-black">184</span>],
             ].map(([label, value]) => (
               <div
                 key={label as string}
@@ -1237,6 +2151,7 @@ function OverviewCard() {
 }
 
 function StoryRail({ step, fill }: { step: number; fill: string }) {
+  const STORY_STEPS = useLandingCopy().story.steps;
   return (
     <div className="relative mt-7">
       <div className="absolute left-[15px] top-2 bottom-2 w-[3px] rounded-sm" style={{ background: "rgba(128,22,195,0.15)" }} />
@@ -1246,7 +2161,7 @@ function StoryRail({ step, fill }: { step: number; fill: string }) {
       />
       {STORY_STEPS.map((t, i) => (
         <div
-          key={t}
+          key={i}
           className="relative flex gap-4 py-2.5"
           style={{ opacity: i === step ? 1 : 0.38, transition: "opacity 0.55s" }}
         >
@@ -1271,6 +2186,7 @@ function StoryRail({ step, fill }: { step: number; fill: string }) {
 }
 
 function StickyStory() {
+  const st = useLandingCopy().story;
   /* desktop: scroll-driven pinned stage */
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [prog, setProg] = useState(0);
@@ -1316,11 +2232,10 @@ function StickyStory() {
   const heading = (
     <>
       <h2 className="bf2-display m-0 text-[28px] sm:text-[34px] lg:text-[40px] leading-[1.2]">
-        Mindre administration. <span style={{ color: PURPLE }}>Mere ro i praksissen.</span>
+        {st.headingLead} <span style={{ color: PURPLE }}>{st.headingEm}</span>
       </h2>
       <p className="mt-4 mb-0 text-[16px] lg:text-[17px] leading-[1.6]" style={{ color: "rgba(0,0,0,0.75)" }}>
-        Din opmærksomhed skal ligge hos klienterne — ikke i det digitale bagved. Følg med i, hvad
-        der bliver klaret for dig:
+        {st.body}
       </p>
     </>
   );
@@ -1328,28 +2243,37 @@ function StickyStory() {
   return (
     <section id="platformen" data-testid="section-story" style={{ background: LIME }}>
       {/* ── mobile / tablet: linear story ── */}
-      <div className="lg:hidden max-w-[1240px] mx-auto px-5 md:px-9 py-14" ref={mRef}>
+      <div className="lg:hidden max-w-[1240px] mx-auto px-5 md:px-9 py-11 sm:py-14" ref={mRef}>
         {heading}
         <StoryRail step={mStep === 4 ? 5 : mStep} fill={mStep >= 4 ? "100%" : `${((mStep + 1) / 6) * 100}%`} />
-        <div className="mt-10 max-w-[340px]">
+        <div className="mt-8 sm:mt-10 max-w-[340px]">
           <AdminListCard step={mStep} />
         </div>
-        <div className="relative mt-10 -mx-2">
+        <div className="relative mt-8 sm:mt-10 -mx-2">
           <PuffCloud className="absolute left-0 top-[8%] w-24 opacity-90" style={{ animation: "bf2Drift 32s ease-in-out -9s infinite alternate" }} />
           <PuffCloud className="absolute right-0 top-0 w-16 opacity-60" style={{ animation: "bf2Drift 24s ease-in-out -3s infinite alternate-reverse" }} />
-          <div className="relative h-[300px] sm:h-[380px]">
+          <div className="relative h-[210px] sm:h-[380px]">
             <CloudScene lifted={false} showFinale={mStep >= 4} />
           </div>
         </div>
-        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-4 mt-8">
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 sm:gap-4 mt-7 sm:mt-8">
           {STORY_CHIPS.map((chip, i) => (
-            <div key={chip.title} style={popIn(mStep >= i + 1, 0)}>
-              <StoryChip chip={chip} />
+            <div key={i} style={popIn(mStep >= i + 1, 0)}>
+              <StoryChip index={i} />
             </div>
           ))}
         </div>
-        <RevealOnView className="mt-10" delay={0.1}>
-          <OverviewCard />
+        {/* the overview is a wide dashboard — on phones it reads as a
+            miniature rather than a stack of full-width rows */}
+        <RevealOnView className="mt-8 sm:mt-10" delay={0.1}>
+          <div className="sm:hidden">
+            <ScaleToFit designWidth={820}>
+              <OverviewCard />
+            </ScaleToFit>
+          </div>
+          <div className="hidden sm:block">
+            <OverviewCard />
+          </div>
         </RevealOnView>
       </div>
 
@@ -1437,16 +2361,16 @@ function StickyStory() {
 
               {/* step chips appear around the cloud */}
               <div className="absolute left-[1%] top-[51%] z-[2]" style={popIn(step >= 1 && step < 5)}>
-                <StoryChip chip={STORY_CHIPS[0]} />
+                <StoryChip index={0} />
               </div>
               <div className="absolute right-[1%] top-[51%] z-[2]" style={popIn(step >= 2 && step < 5)}>
-                <StoryChip chip={STORY_CHIPS[1]} />
+                <StoryChip index={1} />
               </div>
               <div className="absolute left-[2%] top-[66%] z-[2]" style={popIn(step >= 3 && step < 5)}>
-                <StoryChip chip={STORY_CHIPS[2]} />
+                <StoryChip index={2} />
               </div>
               <div className="absolute right-[5%] top-[64%] z-[2]" style={popIn(step >= 4 && step < 5)}>
-                <StoryChip chip={STORY_CHIPS[3]} />
+                <StoryChip index={3} />
               </div>
 
               {/* admin list + today cards */}
@@ -1476,694 +2400,13 @@ function StickyStory() {
   );
 }
 
-/* ─────────── 04 · FEATURE CHAPTERS ─────────── */
-
-function FeatureText({
-  kicker,
-  title,
-  body,
-  bullets,
-}: {
-  kicker: string;
-  title: string;
-  body: string;
-  bullets?: string[];
-}) {
-  return (
-    <div>
-      <p className="m-0 text-[12px] lg:text-[12.5px] font-extrabold tracking-[0.14em]" style={{ color: PURPLE }}>
-        {kicker}
-      </p>
-      <h3 className="mt-3.5 mb-0 text-[24px] lg:text-[34px] leading-[1.2] font-black tracking-[-0.01em]">{title}</h3>
-      <p className="mt-[18px] mb-0 max-w-[440px] text-[16px] lg:text-[19px] leading-[1.65]">{body}</p>
-      {bullets && (
-        <div className="mt-[22px] max-w-[430px]">
-          {bullets.map((b, i) => (
-            <div
-              key={b}
-              className="flex gap-3 py-3 text-[15px] lg:text-[16px] font-bold"
-              style={{
-                borderTop: "1.5px solid rgba(0,0,0,0.1)",
-                borderBottom: i === bullets.length - 1 ? "1.5px solid rgba(0,0,0,0.1)" : undefined,
-              }}
-            >
-              <span style={{ color: PURPLE }}>—</span>
-              {b}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** A · the website editor mockup */
-function EditorMockup() {
-  return (
-    <div className="relative">
-      <div
-        className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
-        style={{ boxShadow: "0 26px 64px rgba(20,5,40,0.14)" }}
-      >
-        {/* Birdflow editor top bar */}
-        <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-[18px] py-3 border-b border-black/[0.07]">
-          <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
-          <span className="flex-none text-[12px] lg:text-[13.5px] font-extrabold">Psykolog Sofie Lund</span>
-          <span
-            className="flex-none flex items-center gap-1.5 text-[10px] lg:text-[11.5px] font-extrabold rounded-full px-[11px] py-1"
-            style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
-          >
-            <span className="w-[7px] h-[7px] rounded-full" style={{ background: GREEN }} />
-            Udgivet
-          </span>
-          <span className="min-w-0 truncate text-[12px] font-bold hidden sm:inline" style={{ color: "rgba(0,0,0,0.45)" }}>
-            sofielund.dk
-          </span>
-          <span
-            className="flex-none ml-auto text-[11px] lg:text-[12.5px] font-extrabold rounded-lg px-2.5 lg:px-3.5 py-[7px] hidden sm:inline"
-            style={{ color: "rgba(0,0,0,0.6)", border: "1.5px solid rgba(0,0,0,0.14)" }}
-          >
-            Gem ændringer
-          </span>
-          <span
-            className="flex-none ml-auto sm:ml-0 text-white text-[11px] lg:text-[12.5px] font-extrabold rounded-lg px-3 lg:px-4 py-2"
-            style={{ background: BLUE }}
-          >
-            Udgiv
-          </span>
-        </div>
-        {/* page tabs */}
-        <div
-          className="flex items-center gap-1 px-3 lg:px-[18px] py-2 border-b border-black/[0.07] text-[11px] lg:text-[12px] font-bold overflow-x-auto"
-          style={{ color: "rgba(0,0,0,0.55)" }}
-        >
-          <span className="rounded-[7px] px-3 py-1.5 font-extrabold whitespace-nowrap" style={{ background: "rgba(48,109,218,0.1)", color: BLUE }}>
-            Forside
-          </span>
-          {["Samtaleterapi", "Forløb", "Priser", "Kontakt"].map((t) => (
-            <span key={t} className="px-3 py-1.5 whitespace-nowrap">
-              {t}
-            </span>
-          ))}
-          <span className="ml-auto hidden md:flex gap-1.5 items-center flex-none">
-            <span className="w-[18px] h-[13px] rounded-[3px]" style={{ border: "1.5px solid rgba(0,0,0,0.3)" }} />
-            <span className="w-[9px] h-3.5 rounded-[2.5px]" style={{ border: "1.5px solid rgba(0,0,0,0.3)" }} />
-          </span>
-        </div>
-        {/* canvas */}
-        <div className="flex" style={{ background: "#F1EDE6" }}>
-          <div className="flex-1 p-3 lg:px-[22px] lg:py-6 min-w-0">
-            <div
-              className="rounded-[10px] overflow-hidden"
-              style={{ background: "#FBF7EF", boxShadow: "0 10px 30px rgba(20,5,40,0.1)", fontFamily: "Georgia, serif", color: "#2B2A26" }}
-            >
-              <div className="flex items-center gap-3.5 px-4 lg:px-[22px] py-[13px] border-b" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-                <span className="text-[13px] lg:text-[14.5px] font-bold whitespace-nowrap">
-                  Sofie Lund{" "}
-                  <span className="italic text-[11px] lg:text-[12px]" style={{ color: "rgba(43,42,38,0.55)" }}>
-                    · Psykolog
-                  </span>
-                </span>
-                <span
-                  className="ml-auto hidden md:flex gap-[13px] items-center text-[10.5px] font-bold"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                >
-                  <span>Samtaleterapi</span>
-                  <span>Forløb</span>
-                  <span>Priser</span>
-                  <span>Kontakt</span>
-                </span>
-                <span
-                  className="ml-auto md:ml-0 text-[10px] lg:text-[10.5px] font-extrabold rounded-md px-[11px] py-1.5 whitespace-nowrap"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
-                >
-                  Book en samtale
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[1.3fr_0.9fr] gap-5 px-4 lg:px-[22px] py-6 items-center">
-                <div>
-                  <p
-                    className="m-0 text-[9px] lg:text-[9.5px] font-extrabold tracking-[0.18em]"
-                    style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
-                  >
-                    AUT. PSYKOLOG · KØBENHAVN K
-                  </p>
-                  <div
-                    className="relative inline-block mt-[30px]"
-                    style={{ outline: `2px dashed ${BLUE}`, outlineOffset: 7 }}
-                  >
-                    <span
-                      className="absolute -top-7 -left-[9px] text-[9.5px] font-extrabold tracking-[0.06em] text-white rounded-[5px] px-[9px] py-[3px]"
-                      style={{ fontFamily: "'Nunito', sans-serif", background: BLUE }}
-                    >
-                      REDIGERER
-                    </span>
-                    <p className="m-0 text-[21px] lg:text-[26px] leading-[1.28] max-w-[300px]">
-                      Et roligt sted til det, der fylder
-                    </p>
-                  </div>
-                  <div
-                    className="mt-4 inline-flex items-center gap-2 bg-white rounded-[9px] px-2.5 py-[7px] text-[10px] font-bold flex-wrap"
-                    style={{
-                      fontFamily: "'Nunito', sans-serif",
-                      border: "1px solid rgba(0,0,0,0.08)",
-                      boxShadow: "0 12px 32px rgba(20,5,40,0.16)",
-                      color: "rgba(0,0,0,0.7)",
-                    }}
-                  >
-                    <span className="rounded-[5px] px-2 py-[3px]" style={{ border: "1px solid rgba(0,0,0,0.12)" }}>Lora ▾</span>
-                    <span className="rounded-[5px] px-2 py-[3px]" style={{ border: "1px solid rgba(0,0,0,0.12)" }}>44 ▾</span>
-                    <span className="flex items-center gap-1 rounded-[5px] px-2 py-[3px]" style={{ border: "1px solid rgba(0,0,0,0.12)" }}>
-                      Farve <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: "#2B2A26" }} />
-                    </span>
-                    <span className="font-extrabold" style={{ color: BLUE }}>Rediger tekst</span>
-                  </div>
-                  <p className="mt-3.5 mb-0 text-[12px] lg:text-[12.5px] leading-[1.6] max-w-[310px]" style={{ color: "rgba(43,42,38,0.7)" }}>
-                    Samtaleterapi ved stress, angst og livets overgange — i rolige lokaler i
-                    København K eller online.
-                  </p>
-                  <div className="flex items-center gap-3.5 mt-[15px] flex-wrap">
-                    <span
-                      className="text-[11px] lg:text-[12px] font-extrabold rounded-lg px-4 py-[9px]"
-                      style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
-                    >
-                      Book en samtale
-                    </span>
-                    <span className="italic text-[11px] lg:text-[12px] pb-px" style={{ borderBottom: "1px solid rgba(43,42,38,0.4)" }}>
-                      Læs om et forløb
-                    </span>
-                  </div>
-                  <div
-                    className="flex gap-3.5 mt-3.5 text-[9.5px] lg:text-[10px] font-bold"
-                    style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                  >
-                    <span className="flex items-center gap-[5px]">
-                      <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Kort ventetid
-                    </span>
-                    <span className="flex items-center gap-[5px]">
-                      <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Klinik &amp; online
-                    </span>
-                  </div>
-                </div>
-                <div className="relative pt-1.5 pr-1.5 max-w-[220px] sm:max-w-none mx-auto sm:mx-0 w-full">
-                  <div
-                    className="absolute -right-2 -top-[2px] w-[82%] h-[96%]"
-                    style={{ borderRadius: "999px 999px 16px 16px", background: "#E3DCCB" }}
-                  />
-                  <div
-                    className="relative h-[180px] lg:h-[238px] overflow-hidden"
-                    style={{ borderRadius: "999px 999px 14px 14px", background: "#EDE6D8" }}
-                  >
-                    <PortraitArt className="absolute inset-0 w-full h-full" />
-                  </div>
-                  <div
-                    className="absolute -left-3.5 bottom-3 bg-white rounded-[9px] px-3 py-2"
-                    style={{ boxShadow: "0 10px 26px rgba(20,5,40,0.14)", fontFamily: "'Nunito', sans-serif" }}
-                  >
-                    <span className="flex items-center gap-1.5 text-[10px] font-extrabold" style={{ color: "#2B2A26" }}>
-                      <span className="w-[7px] h-[7px] rounded-full" style={{ background: GREEN }} />
-                      Aut. psykolog · 12 års erfaring
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 border-t" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-                {[
-                  ["Samtaleterapi", "50 min. · 1.100 kr."],
-                  ["Stressforløb", "6–10 samtaler"],
-                  ["Parterapi", "75 min. · 1.500 kr."],
-                ].map(([t, s], i) => (
-                  <div
-                    key={t}
-                    className={`px-[18px] py-[13px] ${i < 2 ? "border-b sm:border-b-0 sm:border-r" : ""}`}
-                    style={{ borderColor: "rgba(43,42,38,0.08)" }}
-                  >
-                    <p className="m-0 text-[13px] font-bold">{t}</p>
-                    <p className="mt-[3px] mb-0 text-[10px] font-bold" style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.55)" }}>
-                      {s}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          {/* right panel — desktop only */}
-          <div className="w-[168px] flex-none bg-white border-l border-black/[0.07] py-3.5 hidden lg:block">
-            <div className="flex gap-[2px] mx-3 mb-3 rounded-[7px] p-[3px]" style={{ background: "rgba(0,0,0,0.05)" }}>
-              <span className="flex-1 text-center text-[10.5px] font-extrabold bg-white rounded-[5px] py-[5px]" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-                Indhold
-              </span>
-              <span className="flex-1 text-center text-[10.5px] font-bold py-[5px]" style={{ color: "rgba(0,0,0,0.5)" }}>
-                Design
-              </span>
-            </div>
-            <p className="mx-4 mb-2 mt-0 text-[9px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.4)" }}>
-              SEKTIONER
-            </p>
-            <div
-              className="text-[11.5px] font-extrabold px-4 py-2"
-              style={{ color: BLUE, background: "rgba(48,109,218,0.08)", borderLeft: `2.5px solid ${BLUE}` }}
-            >
-              Hero
-            </div>
-            {["Samtaler", "Om Sofie", "Priser", "Kontakt"].map((s) => (
-              <div key={s} className="text-[11.5px] font-bold px-4 py-2" style={{ color: "rgba(0,0,0,0.6)" }}>
-                {s}
-              </div>
-            ))}
-            <p className="mx-4 mt-2.5 mb-0 text-[11px] font-extrabold" style={{ color: BLUE }}>
-              + Tilføj sektion
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** B · the booking flow mockup */
-function BookingMockup() {
-  return (
-    <div
-      className="bg-white rounded-2xl border border-black/[0.08] px-4 py-5 lg:px-[26px] lg:py-6"
-      style={{ boxShadow: "0 26px 64px rgba(20,5,40,0.14)" }}
-    >
-      <div className="flex items-center gap-2.5 text-[11px] lg:text-[12px] font-extrabold flex-wrap">
-        <span className="flex items-center gap-[7px]" style={{ color: GREEN }}>
-          <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px]" style={{ background: "rgba(46,125,79,0.12)" }}>
-            ✓
-          </span>
-          Ydelse
-        </span>
-        <span className="w-[26px] h-[1.5px]" style={{ background: "rgba(0,0,0,0.15)" }} />
-        <span className="flex items-center gap-[7px]" style={{ color: BLUE }}>
-          <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px] text-white" style={{ background: BLUE }}>
-            2
-          </span>
-          Dato &amp; tid
-        </span>
-        <span className="w-[26px] h-[1.5px]" style={{ background: "rgba(0,0,0,0.15)" }} />
-        <span className="flex items-center gap-[7px]" style={{ color: "rgba(0,0,0,0.45)" }}>
-          <span className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px]" style={{ border: "1.5px solid rgba(0,0,0,0.25)" }}>
-            3
-          </span>
-          Oplysninger
-        </span>
-        <span className="ml-auto text-[11px] lg:text-[11.5px] font-bold hidden sm:inline" style={{ color: "rgba(0,0,0,0.5)" }}>
-          Individuel samtale · 50 min.
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_1fr] gap-5 mt-5">
-        <div className="rounded-xl px-4 py-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-          <div className="flex items-baseline">
-            <span className="text-[13.5px] font-extrabold">Oktober 2026</span>
-            <span className="ml-auto text-[12px] font-extrabold" style={{ color: "rgba(0,0,0,0.4)" }}>‹ ›</span>
-          </div>
-          <div className="grid grid-cols-7 gap-1 mt-3 text-[10px] font-extrabold text-center" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {["M", "T", "O", "T", "F", "L", "S"].map((d, i) => (
-              <span key={i}>{d}</span>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-1 mt-1.5 text-[11.5px] font-bold text-center" style={{ color: "rgba(0,0,0,0.75)" }}>
-            {[5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19].map((d, i) => (
-              <span
-                key={i}
-                className={`py-1.5 ${d === 14 ? "rounded-[7px] font-extrabold text-white" : ""}`}
-                style={
-                  d === 14
-                    ? { background: BLUE }
-                    : d === 10 || d === 11 || d === 18 || d === 19
-                      ? { color: "rgba(0,0,0,0.3)" }
-                      : undefined
-                }
-              >
-                {d}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div>
-          <p className="mt-0 mb-2 text-[12px] font-extrabold" style={{ color: "rgba(0,0,0,0.55)" }}>
-            Tirsdag d. 14. oktober
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-1 gap-[7px]">
-            {["09.00", "10.30", "13.30", "15.00"].map((t) => (
-              <span
-                key={t}
-                className="text-[12.5px] text-center rounded-lg py-[9px]"
-                style={
-                  t === "13.30"
-                    ? { fontWeight: 800, background: BLUE, color: "#fff", boxShadow: "0 6px 16px rgba(48,109,218,0.3)" }
-                    : { fontWeight: 700, border: "1.5px solid rgba(0,0,0,0.14)" }
-                }
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 mt-[18px] pt-4 border-t border-black/[0.07] flex-wrap">
-        <span className="text-[11.5px] lg:text-[12px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-          Bekræftelsen sendes automatisk, når tiden er booket.
-        </span>
-        <span
-          className="ml-auto text-white text-[13px] font-extrabold rounded-[9px] px-[22px] py-2.5"
-          style={{ background: BLUE }}
-        >
-          Fortsæt
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/** C · inquiries inbox mockup */
-function InquiriesMockup() {
-  const rows: Array<[string, string, string]> = [
-    ["Mulighed for stressforløb i november?", "i går", "NY"],
-    ["Dækker min sundhedsforsikring?", "i går", "NY"],
-    ["Kan samtaler foregå online?", "mandag", "I GANG"],
-    ["Henvisning fra forsikringsselskab", "sidste uge", "BESVARET"],
-  ];
-  const badge = (b: string) =>
-    b === "NY"
-      ? { color: "#FFFFFF", background: PURPLE }
-      : b === "I GANG"
-        ? { color: BLUE, background: "rgba(48,109,218,0.12)" }
-        : { color: "rgba(0,0,0,0.55)", background: "rgba(0,0,0,0.07)" };
-  return (
-    <div
-      className="bg-white rounded-2xl border border-black/[0.08] overflow-hidden"
-      style={{ boxShadow: "0 26px 64px rgba(20,5,40,0.14)" }}
-    >
-      <div className="flex items-center gap-3 px-4 lg:px-[22px] py-[15px] border-b border-black/[0.07]">
-        <span className="text-[14px] lg:text-[15px] font-extrabold">Henvendelser</span>
-        <span className="ml-auto text-[11.5px] font-extrabold rounded-full px-[13px] py-[5px]" style={{ background: "rgba(0,0,0,0.06)" }}>
-          Alle
-        </span>
-        {["Nye", "I gang", "Besvarede"].map((f) => (
-          <span key={f} className="text-[11.5px] font-bold hidden sm:inline" style={{ color: "rgba(0,0,0,0.5)" }}>
-            {f}
-          </span>
-        ))}
-      </div>
-      {rows.map(([title, when, status], i) => (
-        <div
-          key={title}
-          className={`flex items-center gap-3 px-4 lg:px-[22px] py-3.5 ${i < rows.length - 1 ? "border-b border-black/[0.05]" : ""}`}
-        >
-          <span
-            className={`min-w-0 truncate text-[13px] lg:text-[13.5px] ${i < 2 ? "font-extrabold" : "font-bold"}`}
-            style={i === 2 ? { color: "rgba(0,0,0,0.75)" } : i === 3 ? { color: "rgba(0,0,0,0.6)" } : undefined}
-          >
-            {title}
-          </span>
-          <span className="ml-auto text-[11px] font-bold whitespace-nowrap hidden sm:inline" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {when}
-          </span>
-          <span className="text-[10px] font-extrabold rounded-full px-[11px] py-1 whitespace-nowrap" style={badge(status)}>
-            {status}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** D · automatic mails mockup */
-function MailsMockup() {
-  const templates: Array<[string, string]> = [
-    ["Booking ændret", "AKTIV"],
-    ["Booking aflyst", "AKTIV"],
-    ["Ny henvendelse", "AKTIV"],
-    ["Påmindelse", "PLANLAGT"],
-  ];
-  const chip = (v: string) => (
-    <span className="bg-[rgba(48,109,218,0.1)] rounded px-1.5 py-px font-extrabold text-[11px]" style={{ color: BLUE }}>
-      {v}
-    </span>
-  );
-  return (
-    <div
-      className="bg-white rounded-2xl border border-black/[0.08] overflow-hidden flex"
-      style={{ boxShadow: "0 26px 64px rgba(20,5,40,0.14)" }}
-    >
-      <div className="w-[230px] flex-none border-r border-black/[0.07] py-4 hidden md:block" style={{ background: "#FDFDFB" }}>
-        <p className="mx-[18px] mb-2.5 mt-0 text-[9.5px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.4)" }}>
-          MAILSKABELONER
-        </p>
-        <div
-          className="flex items-center px-[18px] py-[9px]"
-          style={{ background: "rgba(48,109,218,0.08)", borderLeft: `2.5px solid ${BLUE}` }}
-        >
-          <span className="text-[12px] font-extrabold" style={{ color: BLUE }}>Bookingbekræftelse</span>
-          <span className="ml-auto text-[9.5px] font-extrabold" style={{ color: GREEN }}>AKTIV</span>
-        </div>
-        {templates.map(([name, status]) => (
-          <div key={name} className="flex items-center px-[18px] py-[9px]">
-            <span className="text-[12px] font-bold" style={{ color: "rgba(0,0,0,0.65)" }}>{name}</span>
-            <span className="ml-auto text-[9.5px] font-extrabold" style={{ color: status === "AKTIV" ? GREEN : PURPLE }}>
-              {status}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="flex-1 px-4 py-4 lg:px-[22px] lg:py-[18px] min-w-0">
-        <div className="flex items-center gap-2.5">
-          <span className="text-[13px] lg:text-[13.5px] font-extrabold">Bookingbekræftelse</span>
-          <span className="ml-auto text-[11px] lg:text-[11.5px] font-extrabold whitespace-nowrap" style={{ color: BLUE }}>
-            Rediger skabelon
-          </span>
-        </div>
-        <div className="mt-3 text-[11.5px] font-bold flex gap-2 items-center" style={{ color: "rgba(0,0,0,0.55)" }}>
-          Emne
-          <span className="flex-1 rounded-[7px] px-[11px] py-[7px] text-black" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>
-            Din tid er bekræftet
-          </span>
-        </div>
-        <div
-          className="mt-2.5 rounded-[10px] px-4 py-3.5 text-[12px] leading-[1.7]"
-          style={{ border: "1px solid rgba(0,0,0,0.08)", color: "rgba(0,0,0,0.75)" }}
-        >
-          Hej {chip("fornavn")},<br />
-          tak for din booking. Vi ses {chip("dato")} kl. {chip("tid")}.<br />
-          Venlig hilsen
-          <br />
-          Sofie Lund · Gammel Mønt 4, København K
-        </div>
-        <p className="mt-2.5 mb-0 text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
-          Udfyldes automatisk med din praksis&apos; oplysninger.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function FeatureChapters() {
-  const sectionRef = useRef<HTMLElement | null>(null);
-  const [funkP, setFunkP] = useState(0);
-  useEffect(() => {
-    const onScroll = () => {
-      const el = sectionRef.current;
-      if (!el) return;
-      const vh = window.innerHeight;
-      const r = el.getBoundingClientRect();
-      const p = Math.min(1, Math.max(0, (vh * 0.85 - r.top) / (r.height * 0.92)));
-      setFunkP((prev) => (Math.abs(p - prev) > 0.01 ? p : prev));
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    onScroll();
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, []);
-
-  return (
-    <section id="funktioner" ref={sectionRef} data-testid="section-features" className="relative" style={{ background: BLUSH }}>
-      {/* winding blue path behind the chapters (desktop only) */}
-      <svg
-        viewBox="0 0 1240 2360"
-        preserveAspectRatio="none"
-        className="absolute inset-0 w-full h-full hidden lg:block"
-        aria-hidden="true"
-      >
-        <path
-          d="M760 -20 C1060 130 1040 300 890 430 C740 560 420 570 300 770 C190 950 320 1090 580 1170 C880 1265 1020 1340 950 1530 C880 1720 470 1670 335 1850 C245 1975 285 2130 430 2240"
-          pathLength="1"
-          fill="none"
-          stroke={BLUE}
-          strokeWidth="8"
-          strokeLinecap="round"
-          opacity="0.32"
-          style={{ strokeDasharray: "1 1", strokeDashoffset: (1 - funkP).toFixed(3), transition: "stroke-dashoffset 0.35s linear" }}
-        />
-        <circle cx="430" cy="2240" r="7" fill={BLUE} opacity={funkP > 0.97 ? 0.9 : 0} style={{ transition: "opacity 0.4s" }} />
-      </svg>
-
-      <div className="relative z-[1] max-w-[1240px] mx-auto px-5 md:px-9 pt-10 pb-16 lg:pb-[130px]">
-        {/* A · Hjemmesiden */}
-        <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr] gap-8 lg:gap-[52px] items-center">
-          <RevealOnView>
-            <FeatureText
-              kicker="HJEMMESIDEN"
-              title="En hjemmeside omkring din praksis — ikke omkring en skabelon."
-              body="Fundamentet formes efter dine forløb og din stemning. Bagefter redigerer du selv tekster, sektioner og sider — direkte på siden."
-              bullets={[
-                "Eget domæne kobles på",
-                "Sider til forløb, priser og praktisk information",
-                "Udgiv, når du er klar",
-              ]}
-            />
-          </RevealOnView>
-          <RevealOnView delay={0.1}>
-            <EditorMockup />
-          </RevealOnView>
-        </div>
-
-        {/* B · Booking */}
-        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-8 lg:gap-[52px] items-center mt-16 lg:mt-[120px]">
-          <RevealOnView delay={0.1} className="order-2 lg:order-1">
-            <BookingMockup />
-          </RevealOnView>
-          <RevealOnView className="order-1 lg:order-2">
-            <FeatureText
-              kicker="BOOKING"
-              title="Klienten vælger en ledig tid direkte på hjemmesiden."
-              body="Tre enkle trin: ydelse, tidspunkt, oplysninger. Bookingen ligger i Birdflow med det samme — og hvilke tider der er åbne, bestemmer du."
-            />
-          </RevealOnView>
-        </div>
-
-        {/* C · Henvendelser */}
-        <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr] gap-8 lg:gap-[52px] items-center mt-16 lg:mt-[120px]">
-          <RevealOnView>
-            <FeatureText
-              kicker="HENVENDELSER"
-              title="Nye henvendelser samlet med status."
-              body="Kontaktformularen samler henvendelserne i Birdflow — så du kan se, hvad der er nyt, hvad der er i gang, og hvad der er besvaret. Ikke noget med at lede i indbakken."
-            />
-          </RevealOnView>
-          <RevealOnView delay={0.1}>
-            <InquiriesMockup />
-          </RevealOnView>
-        </div>
-
-        {/* D · Automatiske mails */}
-        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-8 lg:gap-[52px] items-center mt-16 lg:mt-[120px]">
-          <RevealOnView delay={0.1} className="order-2 lg:order-1">
-            <MailsMockup />
-          </RevealOnView>
-          <RevealOnView className="order-1 lg:order-2">
-            <FeatureText
-              kicker="AUTOMATISKE MAILS"
-              title="Sendt automatisk. Ikke husket."
-              body="Bekræftelser og beskeder ved ændringer sender sig selv — med din praksis' egne oplysninger, adresse og afslutning. Du tilpasser skabelonerne én gang."
-            />
-          </RevealOnView>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─────────── 05 · OFFER (purple field) ─────────── */
-
-const OFFER_ITEMS = [
-  "Skræddersyet hjemmeside-fundament",
-  "Sider og struktur til din praksis",
-  "Redigeringsadgang — uden kode",
-  "Booking sat op på hjemmesiden",
-  "Kontaktformular og henvendelser",
-  "Automatiske mailskabeloner",
-  "Udgivelse og drift",
-  "Dit eget domæne kobles på",
-  "Enkel analyse af besøg",
-  "Betaling via din egen Stripe-konto",
-];
-
-function Offer() {
-  return (
-    <section id="tilbud" data-testid="section-offer" style={{ background: PURPLE }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 py-16 lg:pt-[100px] lg:pb-[104px]">
-        <h2 className="m-0 max-w-[620px] text-white text-[28px] sm:text-[34px] lg:text-[42px] leading-[1.15] font-black tracking-[-0.01em]">
-          Hvad får du med Birdflow?
-        </h2>
-        <p className="mt-[18px] mb-0 max-w-[560px] text-[16.5px] lg:text-[20px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.85)" }}>
-          Birdflow er ikke kun et værktøj. Det er også hjælpen til at få den første version på
-          plads — omkring din praksis.
-        </p>
-        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-10 lg:gap-16 mt-10 lg:mt-[54px]">
-          <div>
-            <p className="mt-0 mb-3.5 text-[12.5px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(255,255,255,0.65)" }}>
-              FUNDAMENTET
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10">
-              {OFFER_ITEMS.map((item, i) => (
-                <div
-                  key={item}
-                  className="flex gap-3 items-baseline py-3 text-white text-[15.5px] lg:text-[16.5px] font-bold"
-                  style={{
-                    borderTop: "1.5px solid rgba(255,255,255,0.2)",
-                    borderBottom: i >= OFFER_ITEMS.length - 2 ? "1.5px solid rgba(255,255,255,0.2)" : undefined,
-                  }}
-                >
-                  <span style={{ color: LIME }}>✓</span>
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div
-            className="rounded-2xl px-6 py-6 lg:px-8 lg:py-[30px]"
-            style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.18)" }}
-          >
-            <p className="mt-0 mb-1.5 text-[12.5px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(255,255,255,0.65)" }}>
-              SÅDAN FOREGÅR DET
-            </p>
-            {[
-              "Vi forstår din praksis",
-              "Vi bygger den første version",
-              "Du gennemgår og justerer",
-              "Du driver det videre i Birdflow",
-            ].map((s, i) => (
-              <div
-                key={s}
-                className="flex gap-3.5 py-[13px] text-white"
-                style={i > 0 ? { borderTop: "1px solid rgba(255,255,255,0.15)" } : undefined}
-              >
-                <span className="text-[15px] font-black" style={{ color: LIME }}>
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span className="text-[15.5px] lg:text-[16.5px] font-bold">{s}</span>
-              </div>
-            ))}
-            <p className="mt-[18px] mb-0 text-[15px] lg:text-[16px] leading-[1.6]" style={{ color: "rgba(255,255,255,0.85)" }}>
-              Efter en kort introduktion får du et konkret forslag til din praksis.
-            </p>
-            <a
-              href="#kontakt"
-              className="inline-block w-full sm:w-auto text-center mt-[18px] text-white no-underline text-[15px] lg:text-[16px] font-extrabold px-[26px] py-3.5 rounded-[10px] hover:brightness-110 transition"
-              style={{ background: BLUE, boxShadow: "0 6px 18px rgba(10,2,25,0.35)" }}
-              data-testid="button-book-offer"
-            >
-              Book 20 minutter med Birdflow
-            </a>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─────────── 06 · PROCESS ─────────── */
+/* ─────────── PROCESS (sådan virker det) ─────────── */
 
 /** the Birdflow workspace mockup (visual identity + finished site) */
 function WorkspaceMockup() {
+  const t = useLandingCopy();
+  const w = t.process.workspace;
+  const s = t.siteMock;
   return (
     <div
       className="bg-white rounded-[18px] overflow-hidden border border-black/[0.08]"
@@ -2172,56 +2415,56 @@ function WorkspaceMockup() {
       <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-5 py-[13px] border-b border-black/[0.07]">
         <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
         <span className="flex-none text-[13px] lg:text-[13.5px] font-extrabold">Birdflow</span>
-        <span className="flex-none w-px h-4 bg-black/10 hidden sm:block" />
-        <span className="flex-none text-[12px] lg:text-[13px] font-bold hidden sm:inline" style={{ color: "rgba(0,0,0,0.65)" }}>
-          Psykolog Sofie Lund
+        <span className="flex-none w-px h-4 bg-black/10 hidden sm:block bf2-w-block" />
+        <span className="flex-none text-[12px] lg:text-[13px] font-bold hidden sm:inline bf2-w-inline" style={{ color: "rgba(0,0,0,0.65)" }}>
+          {s.barName}
         </span>
         <span
           className="flex-none flex items-center gap-[7px] text-[10px] lg:text-[11.5px] font-extrabold rounded-full px-3 py-[5px]"
           style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
         >
           <span className="w-2 h-2 rounded-full" style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }} />
-          <span className="hidden sm:inline">Hjemmesiden er live</span>
-          <span className="sm:hidden">Live</span>
+          <span className="hidden sm:inline bf2-w-inline">{s.live}</span>
+          <span className="sm:hidden bf2-w-hide">{s.liveShort}</span>
         </span>
         <span
-          className="flex-none ml-auto text-[12px] font-extrabold rounded-lg px-[13px] py-[7px] hidden md:inline"
+          className="flex-none ml-auto text-[12px] font-extrabold rounded-lg px-[13px] py-[7px] hidden md:inline bf2-w-inline"
           style={{ color: "rgba(0,0,0,0.6)", border: "1.5px solid rgba(0,0,0,0.14)" }}
         >
-          Se hjemmeside
+          {w.seeWebsite}
         </span>
-        <span className="flex-none ml-auto md:ml-0 text-white text-[11px] lg:text-[12px] font-extrabold rounded-lg px-3 lg:px-3.5 py-2" style={{ background: BLUE }}>
-          Administrer praksis
+        <span className="flex-none ml-auto md:ml-0 bf2-w-ml0 text-white text-[11px] lg:text-[12px] font-extrabold rounded-lg px-3 lg:px-3.5 py-2" style={{ background: BLUE }}>
+          {s.manageShort}
         </span>
       </div>
-      <div className="flex flex-col md:flex-row">
+      <div className="flex flex-col md:flex-row bf2-w-row">
         {/* visual identity panel */}
-        <div className="w-full md:w-[246px] flex-none border-b md:border-b-0 md:border-r border-black/[0.07] px-5 pt-[18px] pb-5">
+        <div className="w-full md:w-[246px] flex-none border-b md:border-b-0 md:border-r bf2-w-panel border-black/[0.07] px-5 pt-[18px] pb-5">
           <p className="m-0 text-[9.5px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-            DIT VISUELLE UDTRYK
+            {w.visualExpression}
           </p>
           <p className="mt-3 mb-0 text-[18px] font-bold" style={{ fontFamily: "Georgia, serif", color: "#2B2A26" }}>
             Sofie Lund
           </p>
           <p className="mt-px mb-0 text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
-            Psykolog
+            {s.role}
           </p>
           <p className="mt-4 mb-[7px] text-[9px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-            RETNING
+            {w.direction}
           </p>
           <div className="flex gap-1.5 flex-wrap">
-            {["Rolig", "Varm", "Enkel"].map((t) => (
+            {w.directionTags.map((tag) => (
               <span
-                key={t}
+                key={tag}
                 className="text-[10.5px] font-extrabold rounded-full px-[11px] py-[5px]"
                 style={{ background: "rgba(128,22,195,0.09)", color: PURPLE }}
               >
-                {t}
+                {tag}
               </span>
             ))}
           </div>
           <p className="mt-4 mb-[7px] text-[9px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-            FARVER
+            {w.colours}
           </p>
           <div className="flex gap-2">
             <span className="w-[26px] h-[26px] rounded-full" style={{ background: "#FBF7EF", border: "1px solid rgba(0,0,0,0.14)" }} />
@@ -2230,36 +2473,36 @@ function WorkspaceMockup() {
             <span className="w-[26px] h-[26px] rounded-full" style={{ background: "#2B2A26" }} />
           </div>
           <p className="mt-4 mb-[7px] text-[9px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-            TYPOGRAFI
+            {w.typography}
           </p>
           <div className="flex items-baseline gap-2.5 py-[7px] border-b border-black/[0.06]">
             <span className="text-[19px]" style={{ fontFamily: "Georgia, serif" }}>Aa</span>
-            <span className="text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.6)" }}>Lora · Overskrifter</span>
+            <span className="text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.6)" }}>{w.headings}</span>
           </div>
           <div className="flex items-baseline gap-2.5 py-[7px]">
             <span className="text-[17px] font-extrabold">Aa</span>
-            <span className="text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.6)" }}>Nunito · Brødtekst</span>
+            <span className="text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.6)" }}>{w.bodyText}</span>
           </div>
           <div
             className="mt-3.5 inline-flex items-center gap-[7px] text-[10px] font-extrabold rounded-full px-3 py-[5px]"
             style={{ color: PURPLE, background: "rgba(128,22,195,0.08)" }}
           >
             <Bird className="w-[13px] h-[11px]" style={{ color: PURPLE }} />
-            Skabt med Birdflow
+            {w.madeWith}
           </div>
           <div className="mt-3 rounded-[10px] px-3 py-2.5" style={{ border: "1.5px dashed rgba(0,0,0,0.14)" }}>
-            <p className="m-0 text-[11px] font-extrabold">Har du allerede et brand?</p>
+            <p className="m-0 text-[11px] font-extrabold">{w.haveBrandQ}</p>
             <p className="mt-[3px] mb-0 text-[10.5px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-              Vi bygger videre på det.
+              {w.haveBrandA}
             </p>
           </div>
         </div>
         {/* website preview */}
         <div className="flex-1 min-w-0 px-4 lg:px-5 pt-[18px] pb-5" style={{ background: "#F1EDE6" }}>
           <div className="flex items-center gap-2.5 flex-wrap">
-            <span className="text-[13px] font-extrabold" style={{ color: GREEN }}>✓ Din hjemmeside er klar</span>
+            <span className="text-[13px] font-extrabold" style={{ color: GREEN }}>{w.siteReady}</span>
             <span className="ml-auto flex gap-1.5 flex-wrap">
-              {["✓ Forside", "✓ Samtaleterapi", "✓ Om Sofie", "✓ Forløb & priser", "✓ Kontakt & booking"].map((p) => (
+              {w.pages.map((p) => (
                 <span
                   key={p}
                   className="text-[9.5px] font-extrabold bg-white rounded-full px-2.5 py-1"
@@ -2277,55 +2520,56 @@ function WorkspaceMockup() {
             <div className="flex items-center gap-3 px-4 lg:px-5 py-3 border-b" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
               <span className="text-[13px] lg:text-[13.5px] font-bold whitespace-nowrap">
                 Sofie Lund{" "}
-                <span className="italic text-[11px]" style={{ color: "rgba(43,42,38,0.55)" }}>· Psykolog</span>
+                <span className="italic text-[11px]" style={{ color: "rgba(43,42,38,0.55)" }}>· {s.role}</span>
               </span>
               <span
-                className="ml-auto hidden sm:flex gap-3 text-[10px] font-bold"
+                className="ml-auto hidden sm:flex bf2-w-flex gap-3 text-[10px] font-bold"
                 style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
               >
-                <span>Samtaleterapi</span><span>Forløb</span><span>Priser</span><span>Kontakt</span>
+                {s.navItems.map((it) => (
+                  <span key={it}>{it}</span>
+                ))}
               </span>
               <span
-                className="ml-auto sm:ml-0 text-[10px] font-extrabold rounded-md px-2.5 py-1.5 whitespace-nowrap"
+                className="ml-auto sm:ml-0 bf2-w-ml0 text-[10px] font-extrabold rounded-md px-2.5 py-1.5 whitespace-nowrap"
                 style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
               >
-                Book en samtale
+                {s.bookConversation}
               </span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.8fr] gap-[18px] px-4 lg:px-5 py-[22px] items-center">
+            <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.8fr] bf2-w-cols-site gap-[18px] px-4 lg:px-5 py-[22px] items-center">
               <div>
                 <p
                   className="m-0 text-[9px] font-extrabold tracking-[0.18em]"
                   style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
                 >
-                  AUTORISERET PSYKOLOG · KØBENHAVN &amp; ONLINE
+                  {s.eyebrow}
                 </p>
                 <p className="mt-3 mb-0 text-[20px] lg:text-[23px] leading-[1.28] max-w-[250px]">
-                  Et roligt sted til det, der fylder.
+                  {s.heroTitle}
                 </p>
                 <p className="mt-[11px] mb-0 text-[11.5px] leading-[1.6] max-w-[250px]" style={{ color: "rgba(43,42,38,0.72)" }}>
-                  Samtaleterapi til dig, der oplever stress, uro eller står midt i en forandring i
-                  livet.
+                  {s.heroBodyAlt}
                 </p>
                 <span
                   className="inline-block mt-[13px] text-[11px] font-extrabold rounded-lg px-3.5 py-[9px]"
                   style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
                 >
-                  Book en indledende samtale
+                  {s.bookInitial}
                 </span>
                 <div
                   className="flex gap-[13px] mt-3 text-[9.5px] font-bold flex-wrap"
                   style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
                 >
                   <span className="flex items-center gap-1">
-                    <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>Kort ventetid
+                    <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>{s.shortWait}
                   </span>
                   <span className="flex items-center gap-1">
-                    <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>København &amp; online
+                    <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>{s.cityOnline}
                   </span>
                 </div>
               </div>
-              <div className="relative pt-1.5 pr-1.5 max-w-[200px] sm:max-w-none mx-auto sm:mx-0 w-full">
+              <div className="relative pt-1.5 pr-1.5 max-w-[200px] sm:max-w-none mx-auto sm:mx-0 bf2-w-full w-full">
                 <div
                   className="absolute -right-2 -top-[2px] w-[84%] h-[97%]"
                   style={{ borderRadius: "999px 999px 14px 14px", background: "#E3DCCB" }}
@@ -2334,7 +2578,7 @@ function WorkspaceMockup() {
                   className="relative h-[150px] lg:h-[186px] overflow-hidden"
                   style={{ borderRadius: "999px 999px 12px 12px", background: "#EDE6D8" }}
                 >
-                  <PortraitArt className="absolute inset-0 w-full h-full" />
+                  <PortraitSlot className="absolute inset-0 w-full h-full" />
                 </div>
               </div>
             </div>
@@ -2342,10 +2586,10 @@ function WorkspaceMockup() {
               className="flex gap-4 items-center px-4 lg:px-5 py-[11px] border-t text-[9.5px] font-bold flex-wrap"
               style={{ borderColor: "rgba(43,42,38,0.08)", fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.55)" }}
             >
-              <span>Samtaleterapi</span>
-              <span>Stressforløb</span>
-              <span>Parterapi</span>
-              <span className="ml-auto">Kontakt · Praktisk info · Priser</span>
+              {w.footerServices.map((fs) => (
+                <span key={fs}>{fs}</span>
+              ))}
+              <span className="ml-auto">{w.footerLinks}</span>
             </div>
           </div>
         </div>
@@ -2356,34 +2600,35 @@ function WorkspaceMockup() {
 
 /** "Når siden er live" card */
 function LiveEditCard() {
+  const le = useLandingCopy().process.liveEdit;
   return (
     <div
       className="bg-white rounded-2xl border border-black/[0.08] px-[22px] py-5"
       style={{ boxShadow: "0 26px 60px rgba(20,5,40,0.2)" }}
     >
-      <p className="m-0 text-[16px] font-black">Når siden er live</p>
+      <p className="m-0 text-[16px] font-black">{le.title}</p>
       <div className="mt-3.5 rounded-xl px-4 py-3.5" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
         <p className="m-0 text-[10px] font-extrabold tracking-[0.12em]" style={{ color: PURPLE }}>
-          RET SELV DE SMÅ TING
+          {le.fixSmall}
         </p>
         <p className="mt-[5px] mb-0 text-[12.5px] font-bold" style={{ color: "rgba(0,0,0,0.65)" }}>
-          Tekst, billeder og indhold
+          {le.textImages}
         </p>
         <div className="flex items-center gap-2 mt-[11px] rounded-lg px-3 py-[9px] flex-wrap" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>
           <span className="min-w-0 truncate text-[11.5px] font-bold" style={{ color: "rgba(0,0,0,0.7)" }}>
-            »…står midt i en forandring i livet«
+            {le.quoteEdit}
           </span>
           <span
             className="flex-none whitespace-nowrap ml-auto text-[9.5px] font-extrabold rounded-[5px] px-2 py-[3px]"
             style={{ color: BLUE, background: "rgba(48,109,218,0.1)" }}
           >
-            Redigér tekst
+            {le.editText}
           </span>
           <span
             className="flex-none whitespace-nowrap text-[9.5px] font-extrabold rounded-[5px] px-2 py-[3px]"
             style={{ color: BLUE, background: "rgba(48,109,218,0.1)" }}
           >
-            Skift billede
+            {le.changeImage}
           </span>
         </div>
       </div>
@@ -2393,10 +2638,10 @@ function LiveEditCard() {
         </span>
         <span>
           <span className="block text-[10px] font-extrabold tracking-[0.12em]" style={{ color: PURPLE }}>
-            VIDEREUDVIKL MED BIRDFLOW
+            {le.developMore}
           </span>
           <span className="block mt-1 text-[12.5px] font-bold" style={{ color: "rgba(0,0,0,0.65)" }}>
-            Nye sider, design og funktioner
+            {le.developSub}
           </span>
         </span>
       </div>
@@ -2406,27 +2651,25 @@ function LiveEditCard() {
 
 /** "Det tekniske flow" card */
 function TechFlowCard({ on }: { on: boolean }) {
+  const tf = useLandingCopy().process.techFlow;
+  const delays = [1, 1.15, 1.3];
   return (
     <div
       className="bg-white rounded-2xl border border-black/[0.08] px-5 py-[18px]"
       style={{ boxShadow: "0 26px 60px rgba(20,5,40,0.2)" }}
     >
       <p className="m-0 text-[10px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-        DET TEKNISKE FLOW
+        {tf.title}
       </p>
-      {[
-        ["Booking", "Forbundet ✓", 1],
-        ["Henvendelser", "Forbundet ✓", 1.15],
-        ["Automatiske mails", "Aktive ✓", 1.3],
-      ].map(([label, status, delay], i) => (
+      {tf.rows.map(([label, status], i) => (
         <div
-          key={label as string}
+          key={label}
           className={`flex items-center py-[11px] text-[13px] font-bold ${i < 2 ? "border-b border-black/[0.07]" : ""}`}
-          style={{ opacity: on ? 1 : 0, transition: `opacity 0.5s ease ${delay}s` }}
+          style={{ opacity: on ? 1 : 0, transition: `opacity 0.5s ease ${delays[i]}s` }}
         >
-          <span>{label as string}</span>
+          <span>{label}</span>
           <span className="ml-auto text-[11.5px] font-extrabold" style={{ color: GREEN }}>
-            {status as string}
+            {status}
           </span>
         </div>
       ))}
@@ -2435,7 +2678,7 @@ function TechFlowCard({ on }: { on: boolean }) {
         style={{ borderTop: "1.5px solid rgba(0,0,0,0.1)", opacity: on ? 1 : 0, transition: "opacity 0.5s ease 1.5s" }}
       >
         <span className="w-[9px] h-[9px] rounded-full" style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }} />
-        <span className="text-[13.5px] font-black">Alt kører i Birdflow</span>
+        <span className="text-[13.5px] font-black">{tf.allRunning}</span>
       </div>
     </div>
   );
@@ -2443,29 +2686,41 @@ function TechFlowCard({ on }: { on: boolean }) {
 
 function Process() {
   const [ref, on] = useInView<HTMLDivElement>(0.12);
+  const p = useLandingCopy().process;
   return (
     <section id="saadan-virker-det" data-testid="section-process" style={{ background: LIME }}>
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-16 pb-16 lg:pt-[104px] lg:pb-[120px]">
         <h2 className="m-0 max-w-[760px] text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.15] font-black tracking-[-0.01em]">
-          Vi bygger din hjemmeside. <span style={{ color: PURPLE }}>Du bliver ikke låst fast i den.</span>
+          {p.headingLead} <span style={{ color: PURPLE }}>{p.headingEm}</span>
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-11 mt-6 max-w-[1020px]">
+        {/* two full paragraphs are a wall of text on a phone — the same two
+            points, tightened, sit above the workspace instead */}
+        <p className="sm:hidden m-0 mt-5 text-[16px] leading-[1.6]">
+          {p.bodyMobile}
+        </p>
+        <div className="hidden sm:grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-11 mt-6 max-w-[1020px]">
           <p className="m-0 text-[16px] lg:text-[18.5px] leading-[1.65]">
-            Vi skaber designet, bygger hjemmesiden og tilpasser den til din praksis. Har du
-            allerede et brand, tager vi udgangspunkt i det. Ellers kan vi skabe det visuelle udtryk
-            fra bunden.
+            {p.bodyDesktopA}
           </p>
           <p className="m-0 text-[16px] lg:text-[18.5px] leading-[1.65]">
-            Når siden er live, kan du selv ændre tekst, billeder og indhold — eller få os til at
-            videreudvikle løsningen. Booking, henvendelser og automatiske mails kører samlet i
-            Birdflow.
+            {p.bodyDesktopB}
           </p>
         </div>
 
-        {/* ── mobile / tablet: stacked ── */}
-        <div className="lg:hidden mt-12 flex flex-col gap-8">
+        {/* ── mobile / tablet: stacked ──
+            The workspace is shown as a scaled miniature so the sidebar,
+            identity panel and live preview stay side by side; stacking them
+            at phone width turns one screenshot into a metre of scrolling. */}
+        <div className="lg:hidden mt-9 sm:mt-12 flex flex-col gap-7 sm:gap-8">
           <RevealOnView>
-            <WorkspaceMockup />
+            <div className="sm:hidden">
+              <ScaleToFit designWidth={900}>
+                <WorkspaceMockup />
+              </ScaleToFit>
+            </div>
+            <div className="hidden sm:block">
+              <WorkspaceMockup />
+            </div>
           </RevealOnView>
           <RevealOnView delay={0.1} className="max-w-[400px]">
             <LiveEditCard />
@@ -2528,28 +2783,31 @@ function Process() {
   );
 }
 
-/* ─────────── 07 · AMALIE CASE ─────────── */
+/* ─────────── KUNDEOPLEVELSE (Amalie-casen) ─────────── */
 
 /** Stylised preview of Amalie's practice site (stands in for a live screenshot) */
 function AmalieSiteArt() {
+  const cs = useLandingCopy().case.site;
   return (
     <div style={{ background: "#F7F3EC", fontFamily: "Georgia, serif", color: "#33302B" }}>
       <div className="flex items-center gap-3 px-5 lg:px-7 py-3.5 border-b" style={{ borderColor: "rgba(51,48,43,0.09)" }}>
         <span className="text-[14px] lg:text-[15px] font-semibold whitespace-nowrap">
           Amalie Veber{" "}
-          <span className="italic text-[11.5px]" style={{ color: "rgba(51,48,43,0.55)" }}>· Psykolog</span>
+          <span className="italic text-[11.5px]" style={{ color: "rgba(51,48,43,0.55)" }}>· {cs.role}</span>
         </span>
         <span
           className="ml-auto hidden sm:flex gap-3.5 text-[10.5px] font-bold"
           style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(51,48,43,0.6)" }}
         >
-          <span>Terapi</span><span>Om mig</span><span>Priser</span><span>Kontakt</span>
+          {cs.navItems.map((it) => (
+            <span key={it}>{it}</span>
+          ))}
         </span>
         <span
           className="ml-auto sm:ml-0 text-[10.5px] font-extrabold rounded-full px-3.5 py-[7px] whitespace-nowrap"
           style={{ fontFamily: "'Nunito', sans-serif", color: "#F7F3EC", background: "#5F7263" }}
         >
-          Book en samtale
+          {cs.bookConversation}
         </span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.9fr] gap-6 px-5 lg:px-7 py-7 lg:py-9 items-center">
@@ -2558,24 +2816,23 @@ function AmalieSiteArt() {
             className="m-0 text-[9px] lg:text-[10px] font-extrabold tracking-[0.18em]"
             style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(51,48,43,0.5)" }}
           >
-            AUTORISERET PSYKOLOG · ROSKILDE
+            {cs.eyebrow}
           </p>
           <p className="mt-3.5 mb-0 text-[24px] lg:text-[30px] leading-[1.25] max-w-[320px]">
-            Ro til at finde fodfæste igen.
+            {cs.heroTitle}
           </p>
           <p className="mt-3.5 mb-0 text-[12.5px] lg:text-[13.5px] leading-[1.65] max-w-[320px]" style={{ color: "rgba(51,48,43,0.72)" }}>
-            Samtaleterapi for voksne — ved stress, angst, sorg og livets overgange. I trygge rammer
-            i Roskilde eller online.
+            {cs.heroBody}
           </p>
           <div className="flex items-center gap-4 mt-5 flex-wrap">
             <span
               className="text-[12px] font-extrabold rounded-full px-[18px] py-2.5"
               style={{ fontFamily: "'Nunito', sans-serif", color: "#F7F3EC", background: "#5F7263" }}
             >
-              Book en indledende samtale
+              {cs.bookInitial}
             </span>
             <span className="italic text-[12px] pb-px" style={{ color: "#C4756B", borderBottom: "1px solid rgba(196,117,107,0.5)" }}>
-              Læs om terapien
+              {cs.readTherapy}
             </span>
           </div>
         </div>
@@ -2597,11 +2854,7 @@ function AmalieSiteArt() {
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 border-t" style={{ borderColor: "rgba(51,48,43,0.09)" }}>
-        {[
-          ["Individuel terapi", "50 min. · Roskilde & online"],
-          ["Stress & udbrændthed", "Forløb med fast struktur"],
-          ["Sorg & kriser", "Støtte når livet ændrer sig"],
-        ].map(([t, s], i) => (
+        {cs.services.map(([t, s], i) => (
           <div
             key={t}
             className={`px-5 lg:px-6 py-3.5 ${i < 2 ? "border-b sm:border-b-0 sm:border-r" : ""}`}
@@ -2620,7 +2873,7 @@ function AmalieSiteArt() {
       >
         <Bird className="w-3.5 h-3" style={{ color: PURPLE }} />
         <span className="text-[10px] font-extrabold" style={{ color: PURPLE }}>
-          Bygget med Birdflow
+          {cs.builtWith}
         </span>
         <span className="ml-auto text-[10px] font-bold" style={{ color: "rgba(51,48,43,0.5)" }}>
           psykologamalieveber.laet.dk
@@ -2632,27 +2885,46 @@ function AmalieSiteArt() {
 
 function CaseStudy() {
   const [fullQuote, setFullQuote] = useState(false);
+  const c = useLandingCopy().case;
   return (
     <section id="kundecase" data-testid="section-case" style={{ background: BLUSH }}>
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-[90px] lg:pb-[130px]">
         <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-10 lg:gap-14 items-center">
           <RevealOnView className="order-2 lg:order-1">
+            {/* Real screenshot of Amalie's live site; the coded preview paints
+                behind it until the pixels load and stays if the file is missing.
+                Fixed aspect ratio (819×648) prevents layout shift. */}
             <div
-              className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
-              style={{ boxShadow: "0 30px 70px rgba(20,5,40,0.16)" }}
+              className="relative w-full max-w-[560px] mx-auto lg:max-w-none"
+              style={{ aspectRatio: "819 / 648" }}
             >
-              <div className="flex items-center gap-[5px] px-4 py-2.5 border-b border-black/[0.07]">
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span className="w-2 h-2 rounded-full bg-black/10" />
-                <span
-                  className="mx-auto text-[10.5px] font-bold rounded-md px-4 sm:px-6 py-1 truncate"
-                  style={{ color: "rgba(0,0,0,0.45)", background: "rgba(0,0,0,0.045)" }}
-                >
-                  psykologamalieveber.laet.dk
-                </span>
-              </div>
-              <AmalieSiteArt />
+              <ImgWithFallback
+                src="/landing/amalie-mockup.webp"
+                alt={c.mockupAlt}
+                className="absolute inset-0 w-full h-full object-contain"
+                style={{ mixBlendMode: "multiply" }}
+                fallback={
+                  <div className="absolute inset-0 overflow-hidden">
+                    <div
+                      className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
+                      style={{ boxShadow: "0 30px 70px rgba(20,5,40,0.16)" }}
+                    >
+                      <div className="flex items-center gap-[5px] px-4 py-2.5 border-b border-black/[0.07]">
+                        <span className="w-2 h-2 rounded-full bg-black/10" />
+                        <span className="w-2 h-2 rounded-full bg-black/10" />
+                        <span className="w-2 h-2 rounded-full bg-black/10" />
+                        <span
+                          className="mx-auto text-[10.5px] font-bold rounded-md px-4 sm:px-6 py-1 truncate"
+                          style={{ color: "rgba(0,0,0,0.45)", background: "rgba(0,0,0,0.045)" }}
+                        >
+                          psykologamalieveber.laet.dk
+                        </span>
+                      </div>
+                      <AmalieSiteArt />
+                    </div>
+                  </div>
+                }
+              />
             </div>
           </RevealOnView>
           <RevealOnView delay={0.1} className="order-1 lg:order-2">
@@ -2660,45 +2932,44 @@ function CaseStudy() {
               className="inline-block text-[11px] lg:text-[12px] font-extrabold tracking-[0.12em] rounded-full px-4 py-[7px] border-2"
               style={{ color: PURPLE, borderColor: "rgba(128,22,195,0.35)" }}
             >
-              KUNDECASE · AMALIE VEBER · PSYKOLOG I ROSKILDE
+              {c.badge}
             </span>
             <h2 className="bf2-display mt-6 mb-0 text-[26px] sm:text-[32px] lg:text-[40px] leading-[1.22]">
-              »Lige den stemning jeg ønskede.«
+              {c.heading}
             </h2>
             <p className="mt-6 mb-0 max-w-[470px] text-[18px] lg:text-[22px] leading-[1.6] font-bold">
-              »Christoffer har været lynhurtig til at fange min vision for hjemmesiden og formået
-              at skabe lige den stemning jeg ønskede.«
+              {c.quoteShort}
             </p>
             <p className="mt-4 mb-0 text-[13px] lg:text-[14px] font-extrabold tracking-[0.08em]" style={{ color: PURPLE }}>
-              — AMALIE VEBER, PSYKOLOG I ROSKILDE
+              {c.attr}
             </p>
             {fullQuote && (
               <p className="mt-5 mb-0 max-w-[470px] text-[15.5px] lg:text-[17px] leading-[1.7]" style={{ color: "rgba(0,0,0,0.8)" }}>
-                »Det har været en fornøjelse at opleve hvordan mine tanker og ønsker er kommet til
-                live gennem Christoffers arbejde. Han har været god til at skabe overblik og
-                klarhed i både den visuelle og tekstbaserede kommunikation på hjemmesiden.
-                Christoffer er lydhør og behagelig at samarbejde med, og jeg giver ham mine bedste
-                anbefalinger.«
+                {c.quoteFull}
               </p>
             )}
             <div className="flex items-center gap-x-[26px] gap-y-3 mt-6 flex-wrap">
               <button
                 onClick={() => setFullQuote(!fullQuote)}
-                className="cursor-pointer bg-transparent p-0 text-[15px] lg:text-[15.5px] font-extrabold pb-[2px] hover:text-[#8016C3] transition-colors"
-                style={{ color: "#000000", borderBottom: `2.5px solid ${PURPLE}` }}
+                className="cursor-pointer bg-transparent p-0 inline-flex items-center min-h-[44px] lg:min-h-0 text-[15px] lg:text-[15.5px] font-extrabold hover:text-[#8016C3] transition-colors"
+                style={{ color: "#000000" }}
                 data-testid="button-toggle-quote"
               >
-                {fullQuote ? "Skjul udtalelsen" : "Læs hele udtalelsen"}
+                <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
+                  {fullQuote ? c.hideQuote : c.readFullQuote}
+                </span>
               </button>
               <a
                 href="https://psykologamalieveber.laet.dk/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="no-underline text-[15px] lg:text-[15.5px] font-extrabold pb-[2px] hover:text-[#8016C3] transition-colors"
-                style={{ color: "#000000", borderBottom: `2.5px solid ${PURPLE}` }}
+                className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[15px] lg:text-[15.5px] font-extrabold hover:text-[#8016C3] transition-colors"
+                style={{ color: "#000000" }}
                 data-testid="link-case-site"
               >
-                Se Amalie Vebers hjemmeside ↗
+                <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
+                  {c.seeSite}
+                </span>
               </a>
             </div>
           </RevealOnView>
@@ -2708,51 +2979,25 @@ function CaseStudy() {
   );
 }
 
-/* ─────────── 08 · FAQ ─────────── */
-
-const FAQS: Array<{ q: string; a: string }> = [
-  {
-    q: "Skal jeg selv bygge hjemmesiden?",
-    a: "Nej. Vi bygger den første version ud fra din praksis — hvem du hjælper, dine forløb og den stemning, siden skal have. Du gennemgår det hele, justerer og godkender, før noget går live.",
-  },
-  {
-    q: "Kan jeg ændre den bagefter?",
-    a: "Ja. Tekster, sektioner og sider redigerer du selv i Birdflow — direkte på siden, uden kode eller plugins. Du udgiver, når du er klar.",
-  },
-  {
-    q: "Jeg har allerede en hjemmeside — kan Birdflow stadig give mening?",
-    a: "Ja — mange kommer fra en ældre WordPress-løsning. Vi tager udgangspunkt i det, der allerede virker for din praksis, og indholdet kan flytte med over.",
-  },
-  {
-    q: "Kan jeg bruge mit eget domæne?",
-    a: "Ja. Dit eksisterende domæne kobles på hjemmesiden — vi hjælper med at forbinde det. Selve domænet køber og ejer du fortsat hos din nuværende udbyder.",
-  },
-  {
-    q: "Kan klienter booke direkte på hjemmesiden?",
-    a: "Ja. Klienten vælger ydelse, tidspunkt og udfylder sine oplysninger — direkte på din hjemmeside. Bookingen ligger i Birdflow med det samme, og bekræftelsen sendes automatisk. Hvilke tider der er åbne, styrer du selv.",
-  },
-  {
-    q: "Hvad sker der efter de 20 minutter?",
-    a: "Vi taler om, hvordan din praksis arbejder i dag, og viser Birdflow med din praksis i tankerne. Bagefter får du et konkret forslag til din praksis — og beslutter dig i ro og mag.",
-  },
-];
+/* ─────────── FAQ ─────────── */
 
 function Faq() {
   const [openIdx, setOpenIdx] = useState(-1);
+  const faq = useLandingCopy().faq;
   return (
     <section data-testid="section-faq" style={{ background: LIME }}>
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-8 pb-16 lg:pb-[120px]">
         <div className="grid grid-cols-1 lg:grid-cols-[4fr_8fr] gap-8 lg:gap-14">
           <div>
             <h2 className="m-0 text-[26px] sm:text-[30px] lg:text-[38px] leading-[1.15] font-black tracking-[-0.01em]">
-              Spørgsmål, vi ofte får.
+              {faq.heading}
             </h2>
             <p className="mt-4 mb-0 max-w-[340px] text-[16px] lg:text-[18px] leading-[1.6]">
-              Ærlige svar — også om det, Birdflow ikke gør endnu.
+              {faq.body}
             </p>
           </div>
           <div>
-            {FAQS.map((f, i) => {
+            {faq.items.map((f, i) => {
               const open = openIdx === i;
               return (
                 <div key={f.q} style={{ borderBottom: "1.5px solid rgba(0,0,0,0.12)" }}>
@@ -2796,29 +3041,32 @@ function Faq() {
   );
 }
 
-/* ─────────── 09 · FINAL CTA + FOOTER ─────────── */
+/* ─────────── FINAL CTA + FOOTER ─────────── */
 
 function FinalCta() {
+  const navLinks = useNavLinks();
+  const signupLabel = useSignupLabel();
+  const fc = useLandingCopy().finalCta;
+
   return (
     <section id="kontakt" data-testid="section-cta" style={{ background: PURPLE }}>
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-12 pb-16 lg:pb-[90px] text-center">
         <h2 className="bf2-display mx-auto my-0 max-w-[680px] text-white text-[30px] sm:text-[38px] lg:text-[46px] leading-[1.2]">
-          Lad os tage udgangspunkt i din praksis.
+          {fc.heading}
         </h2>
         <p className="mt-[22px] mx-auto mb-0 max-w-[540px] text-[16.5px] lg:text-[20px] leading-[1.65]" style={{ color: "rgba(255,255,255,0.85)" }}>
-          Fortæl kort om, hvordan din praksis arbejder i dag — og se, om Birdflow giver mening for
-          dig.
+          {fc.body}
         </p>
-        <a
-          href="/dfy#kontakt"
+        <Link
+          href={SIGNUP_HREF}
           className="inline-block w-full sm:w-auto mt-[34px] text-white no-underline text-[17px] lg:text-[19px] font-extrabold px-[34px] py-[17px] rounded-[10px] hover:brightness-110 transition"
           style={{ background: BLUE, boxShadow: "0 8px 22px rgba(10,2,25,0.4)" }}
-          data-testid="button-book-final"
+          data-testid="button-signup-final"
         >
-          Book 20 minutter Forsamtale
-        </a>
+          {signupLabel}
+        </Link>
         <p className="mt-[18px] mb-0 text-[14px] lg:text-[15px] font-extrabold" style={{ color: "rgba(255,255,255,0.7)" }}>
-          20 minutter · Ingen teknisk forberedelse
+          {fc.reassurance}
         </p>
         <div className="flex justify-center mt-11" aria-hidden="true">
           <Bird className="w-[34px] h-7 text-white" />
@@ -2834,14 +3082,16 @@ function FinalCta() {
             <span className="bf2-display text-[20px] text-white">Birdflow</span>
           </div>
           <p className="m-0 text-[14px] font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>
-            Den digitale platform for private psykologpraksisser.
+            {fc.footerTagline}
           </p>
-          <nav className="md:ml-auto flex flex-wrap gap-x-[26px] gap-y-2">
-            {NAV_LINKS.map(([href, label]) => (
+          {/* min-h gives the footer links a 44px tap target on touch sizes;
+              the row is a single line from lg up, where it is unchanged */}
+          <nav className="md:ml-auto flex flex-wrap gap-x-[26px] gap-y-0 sm:gap-y-2">
+            {navLinks.map(([href, label]) => (
               <NavLink
                 key={href}
                 href={href}
-                className="no-underline text-[14px] font-extrabold hover:opacity-100"
+                className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[14px] font-extrabold hover:opacity-100"
                 style={{ color: "rgba(255,255,255,0.85)" }}
               >
                 {label}
@@ -2849,15 +3099,15 @@ function FinalCta() {
             ))}
             <Link
               href="/auth?mode=signin"
-              className="no-underline text-[14px] font-extrabold"
+              className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[14px] font-extrabold"
               style={{ color: "rgba(255,255,255,0.85)" }}
               data-testid="link-login-footer"
             >
-              Log ind
+              {fc.login}
             </Link>
           </nav>
           <p className="m-0 text-[13.5px] font-bold" style={{ color: "rgba(255,255,255,0.6)" }}>
-            © 2026 Birdflow
+            {fc.copyright}
           </p>
         </div>
       </div>
@@ -2866,6 +3116,86 @@ function FinalCta() {
 }
 
 /* ─────────── page assembly ─────────── */
+
+/**
+ * Phone-only CTA bar. The hero button scrolls away after the first screen and
+ * the next one is at the very bottom of a long page, so between them there is
+ * nothing to tap. Appears once the hero CTA is gone and steps aside for the
+ * final CTA so the two never stack.
+ */
+function MobileStickyCta() {
+  const signupLabel = useSignupLabel();
+  const [show, setShow] = useState(false);
+  const barRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const finalCta = document.querySelector("[data-testid='section-cta']");
+    let finalVisible = false;
+
+    function update() {
+      setShow(window.scrollY > 560 && !finalVisible);
+    }
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        finalVisible = entry.isIntersecting;
+        update();
+      },
+      { threshold: 0 },
+    );
+    if (finalCta) io.observe(finalCta);
+
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      io.disconnect();
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // the bar slides out rather than unmounting, so it has to be taken out of
+  // the tab order *and* release focus — otherwise a keyboard user who tabbed
+  // to it keeps an invisible, off-screen control focused once it hides
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    if (show) {
+      el.removeAttribute("inert");
+      return;
+    }
+    if (el.contains(document.activeElement)) {
+      (document.activeElement as HTMLElement | null)?.blur();
+    }
+    el.setAttribute("inert", "");
+  }, [show]);
+
+  return (
+    <div
+      ref={barRef}
+      className={`lg:hidden fixed inset-x-0 bottom-0 z-40 px-4 pt-3 border-t border-black/[0.06] bg-white/75 backdrop-blur-md transition-transform duration-300 ${
+        show ? "" : "pointer-events-none"
+      }`}
+      style={{
+        transform: show ? "translateY(0)" : "translateY(130%)",
+        paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+      }}
+      aria-hidden={!show}
+    >
+      <Link
+        href={SIGNUP_HREF}
+        className="flex items-center justify-center gap-2.5 w-full text-white no-underline text-[16.5px] font-extrabold py-[15px] rounded-[12px]"
+        style={{ background: BLUE, boxShadow: "0 10px 26px rgba(48,109,218,0.35)" }}
+        tabIndex={show ? undefined : -1}
+        data-testid="button-signup-sticky"
+      >
+        <Bird className="w-5 h-4 text-white" />
+        {signupLabel}
+      </Link>
+    </div>
+  );
+}
 
 export default function BirdflowLandingPage() {
   return (
@@ -2889,32 +3219,31 @@ export default function BirdflowLandingPage() {
         />
       </svg>
 
+      {/* `compact` only shortens the waves on phones, where six full-height
+          ribbons add most of a screen of pure decoration to the scroll */}
       <main>
         <Hero />
-        {/* wave A: lime → blush */}
-        <BandWave top={LIME} bottom={BLUSH} />
-        <ClientJourney />
-        {/* wave: blush → lime (mirrored) */}
-        <BandWave top={BLUSH} bottom={LIME} flip />
+        {/* hero and the story both sit on lime, so the seam between them is a
+            purple ribbon rather than a colour change */}
+        <BandWave top={LIME} bottom={LIME} compact />
         <StickyStory />
-        {/* wave C: lime → blush */}
-        <BandWave top={LIME} bottom={BLUSH} />
-        <FeatureChapters />
-        {/* wave D: blush → purple */}
-        <EdgeWave other={BLUSH} flip="x" />
-        <Offer />
-        {/* wave E: purple → lime */}
-        <EdgeWave other={LIME} flip="xy" />
-        <Process />
-        <WaveB />
+        {/* lime → blush */}
+        <WaveB compact />
         <CaseStudy />
-        {/* wave F: blush → lime */}
-        <BandWave top={BLUSH} bottom={LIME} />
+        {/* blush → lime */}
+        <BandWave top={BLUSH} bottom={LIME} compact />
         <Faq />
-        {/* wave into final CTA */}
-        <EdgeWave other={LIME} flip="x" />
+        {/* lime → blush (mirrored) */}
+        <BandWave top={LIME} bottom={BLUSH} flip compact />
+        <ClientJourney />
+        {/* blush → lime (mirrored) */}
+        <BandWave top={BLUSH} bottom={LIME} flip compact />
+        <Process />
+        {/* lime → purple, into the final CTA */}
+        <EdgeWave other={LIME} flip="x" compact />
         <FinalCta />
       </main>
+      <MobileStickyCta />
     </div>
   );
 }

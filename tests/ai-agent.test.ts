@@ -301,7 +301,11 @@ describe("agent loop invariants (source tripwires)", () => {
   it("is a real tool-calling loop with a step cap", () => {
     expect(agent).toContain("tools: openAITools");
     expect(agent).toContain('tool_choice: "auto"');
-    expect(agent).toContain("while (steps < MAX_STEPS)");
+    // The cap is a parameter now (Build mode runs the same loop per plan
+    // step with a smaller one), but it still defaults to MAX_STEPS and the
+    // loop still cannot run unbounded.
+    expect(agent).toContain("while (steps < maxSteps)");
+    expect(agent).toContain("args.maxSteps ?? MAX_STEPS");
     expect(agent).toContain("MAX_TOTAL_COMPLETION_TOKENS");
   });
 

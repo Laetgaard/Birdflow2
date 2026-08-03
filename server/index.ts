@@ -1,11 +1,17 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { startBookingEmailScheduler } from "./email/bookingScheduler";
+import { startDomainVerificationScheduler } from "./domainVerificationScheduler";
+import { ensurePlatformCalendar } from "./platformCalendar";
+import { startOnboardingDecisionSchema } from "./onboardingDecisionSchema";
+import { startAssistantPlanSchema } from "./assistantPlanDbSchema";
+import { db } from "./storage";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
+import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
 
 const app = express();
 const httpServer = createServer(app);
@@ -137,6 +143,36 @@ app.use((req, res, next) => {
   // Poll-based booking reminder/follow-up emails (published sites write
   // bookings directly to Supabase, so there is no in-request hook)
   startBookingEmailScheduler();
+
+  // Server-side re-check of pending custom domains so they verify (and go
+  // truly live) even when the manage tab is closed
+  startDomainVerificationScheduler();
+
+  // BirdFlow's own booking calendar (the free improvement meeting). Created
+  // idempotently at boot so a fresh environment works without hand-editing
+  // the database. A database that is briefly unreachable must not stop the
+  // server from coming up - the next boot will retry.
+  ensurePlatformCalendar().catch((err) => {
+    console.warn("[PlatformCalendar] setup skipped:", err?.message || err);
+  });
+
+  // The end-of-onboarding decision state (preview → approve → pay) and the
+  // Stripe event-dedup table. Same reasoning as the calendar above: this
+  // project has no migration runner, so the idempotent DDL runs at boot.
+  // It retries with backoff, and everything that touches these columns waits
+  // on the same readiness promise, so no request can run against a schema
+  // that is not there yet - whether boot won the race or not.
+  void startOnboardingDecisionSchema(db);
+
+  // Plan mode / Build mode: builder_state.revision plus the assistant_plans
+  // and assistant_builds tables. Same idempotent-DDL-at-boot pattern, and the
+  // same readiness promise guards every read and write in server/planStore.ts.
+  void startAssistantPlanSchema(db);
+
+  // The per-website language choice made in onboarding. Same idempotent-DDL
+  // reasoning again; the column defaults to Danish so a database that has not
+  // caught up yet still behaves exactly as it did before the choice existed.
+  void startWebsiteLanguageSchema(db);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

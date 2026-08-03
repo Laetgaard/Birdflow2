@@ -1,6 +1,7 @@
 import { generateNextJsProject, cleanupProject } from './generator';
-import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, type VercelConfig } from './vercel';
+import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, getProductionAliasUrl, type VercelConfig } from './vercel';
 import type { BuilderStateData } from '../../shared/schema';
+import { DEFAULT_SITE_LANGUAGE, type SiteLanguage } from '../../shared/siteLanguage';
 
 export type PublishConfig = {
   websiteId: string;
@@ -16,6 +17,8 @@ export type PublishConfig = {
   vercelTeamId?: string;
   customDomain?: string;
   birdflowApiUrl: string; // Required: BirdFlow API URL for email callbacks
+  /** Language the site is written in - drives document lang and baked-in copy. */
+  language?: SiteLanguage;
 };
 
 export type PublishResult = {
@@ -37,6 +40,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       builderState: config.builderState,
       supabaseUrl: config.supabaseUrl,
       supabaseAnonKey: config.supabaseAnonKey,
+      language: config.language ?? DEFAULT_SITE_LANGUAGE,
     });
     
     const vercelConfig: VercelConfig = {
@@ -79,9 +83,14 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       await addCustomDomain(projectId, config.customDomain, vercelConfig);
     }
     
+    // Store the stable public alias, not the per-deployment hashed URL
+    // (hashed URLs can sit behind Vercel SSO protection and also change on
+    // every publish, which breaks host-based website detection).
+    const stableUrl = await getProductionAliasUrl(projectId, vercelConfig);
+    
     return {
       success: true,
-      deploymentUrl: readyDeployment.url,
+      deploymentUrl: stableUrl || readyDeployment.url,
       deploymentId: readyDeployment.id,
     };
   } catch (error) {

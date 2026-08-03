@@ -2,6 +2,13 @@ import { getUncachableResendClient } from '../replit_integrations/resendClient';
 import { storage } from '../storage';
 import { buildBookingIcs, type IcsMethod } from './ics';
 import type { EmailSettings, EmailTemplate, Order, Booking } from '@shared/schema';
+import {
+  DEFAULT_SITE_LANGUAGE,
+  SITE_LOCALE,
+  normalizeSiteLanguage,
+  type SiteLanguage,
+} from '@shared/siteLanguage';
+import { EMAIL_LABELS, defaultEmailTemplates } from './defaultTemplates';
 
 const DEFAULT_BRANDING = {
   senderName: 'BirdFlow',
@@ -9,53 +16,6 @@ const DEFAULT_BRANDING = {
   logoUrl: '',
   primaryColor: '#6366f1',
   footerText: 'Sent via BirdFlow - Website Builder Platform',
-};
-
-const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; bodyText: string; buttonText?: string }> = {
-  order_confirmation: {
-    subject: 'Order Confirmation - #{{orderId}}',
-    heading: 'Thank you for your order!',
-    bodyText: 'We have received your order and are processing it. You will receive another email when your order ships.',
-    buttonText: 'View Order',
-  },
-  order_shipped: {
-    subject: 'Din ordre er på vej - #{{orderId}}',
-    heading: 'Din ordre er afsendt!',
-    bodyText: 'Din ordre er nu på vej til dig. Forventet levering: {{deliveryDate}}. {{trackingLine}}',
-  },
-  booking_confirmation: {
-    subject: 'Booking Confirmation - {{serviceName}}',
-    heading: 'Your booking is confirmed!',
-    bodyText: 'We look forward to seeing you at your scheduled appointment.',
-    buttonText: 'View Booking',
-  },
-  booking_updated: {
-    subject: 'Booking Updated - {{serviceName}}',
-    heading: 'Your booking has been updated',
-    bodyText: 'The details of your booking have been modified. Please review the updated information below.',
-    buttonText: 'View Booking',
-  },
-  booking_cancelled: {
-    subject: 'Booking Cancelled - {{serviceName}}',
-    heading: 'Your booking has been cancelled',
-    bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
-  },
-  booking_reminder: {
-    subject: 'Reminder: {{serviceName}} on {{date}}',
-    heading: 'Your appointment is coming up',
-    bodyText: 'This is a friendly reminder about your upcoming appointment. We look forward to seeing you!',
-  },
-  booking_followup: {
-    subject: 'Thank you for your visit - {{serviceName}}',
-    heading: 'Thank you for visiting us!',
-    bodyText: 'We hope you enjoyed your appointment. We would love to see you again - book your next appointment anytime.',
-  },
-  website_published: {
-    subject: 'Your website is now live!',
-    heading: 'Congratulations! Your website is published',
-    bodyText: 'Your website is now live and accessible to the world. Click below to visit your site.',
-    buttonText: 'Visit Website',
-  },
 };
 
 interface EmailAttachment {
@@ -77,15 +37,17 @@ function generateEmailHtml(
   template: EmailTemplate | null | undefined,
   templateType: string,
   variables: Record<string, string>,
-  buttonUrl?: string
+  buttonUrl: string | undefined,
+  lang: SiteLanguage
 ): string {
+  const defaults = defaultEmailTemplates(lang);
   const branding = {
     logoUrl: settings?.logoUrl || DEFAULT_BRANDING.logoUrl,
     primaryColor: settings?.primaryColor || DEFAULT_BRANDING.primaryColor,
     footerText: settings?.footerText || DEFAULT_BRANDING.footerText,
   };
 
-  const defaultTemplate = DEFAULT_TEMPLATES[templateType] || DEFAULT_TEMPLATES.order_confirmation;
+  const defaultTemplate = defaults[templateType] || defaults.order_confirmation;
   const content = {
     heading: template?.heading || defaultTemplate.heading,
     bodyText: template?.bodyText || defaultTemplate.bodyText,
@@ -150,7 +112,7 @@ function generateEmailHtml(
                       .filter(([key]) => !['orderId', 'serviceName', 'websiteName', 'websiteUrl'].includes(key))
                       .map(([key, value]) => `
                         <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                          <span style="color: #71717a; font-size: 14px;">${formatLabel(key)}:</span>
+                          <span style="color: #71717a; font-size: 14px;">${formatLabel(key, lang)}:</span>
                           <span style="color: #18181b; font-size: 14px; font-weight: 500;">${value}</span>
                         </div>
                       `).join('')}
@@ -186,7 +148,9 @@ function generateEmailHtml(
   `.trim();
 }
 
-function formatLabel(key: string): string {
+function formatLabel(key: string, lang: SiteLanguage): string {
+  const translated = EMAIL_LABELS[lang]?.[key];
+  if (translated) return translated;
   return key
     .replace(/([A-Z])/g, ' $1')
     .replace(/_/g, ' ')
@@ -196,6 +160,21 @@ function formatLabel(key: string): string {
 }
 
 export class EmailService {
+  /**
+   * The language the recipient website is written in. Every default template,
+   * date and label follows it. Danish when the website is gone or unreadable -
+   * the same experience customers had before language was a choice.
+   */
+  private async websiteLanguage(websiteId: string): Promise<SiteLanguage> {
+    try {
+      const website = await storage.getWebsite(websiteId);
+      return normalizeSiteLanguage(website?.language);
+    } catch (err) {
+      console.error('[EmailService] Could not read website language, using Danish:', err);
+      return DEFAULT_SITE_LANGUAGE;
+    }
+  }
+
   async sendEmail(data: EmailData): Promise<boolean> {
     console.log(`[EmailService] Attempting to send ${data.templateType} email to ${data.to} for website ${data.websiteId}`);
     
@@ -247,14 +226,15 @@ export class EmailService {
         heading: template.heading?.substring(0, 50),
       } : 'null (using defaults)');
       
-      const defaultTemplate = DEFAULT_TEMPLATES[data.templateType];
+      const lang = await this.websiteLanguage(data.websiteId);
+      const defaultTemplate = defaultEmailTemplates(lang)[data.templateType];
       let subject = template?.subject || defaultTemplate?.subject || 'Notification';
       
       Object.entries(data.variables).forEach(([key, value]) => {
         subject = subject.replace(new RegExp(`{{${key}}}`, 'g'), value);
       });
 
-      const html = generateEmailHtml(settings, template, data.templateType, data.variables, data.buttonUrl);
+      const html = generateEmailHtml(settings, template, data.templateType, data.variables, data.buttonUrl, lang);
 
       // Priority for sender name: email settings > legal settings company name > default
       const fromName = settings?.senderName || companyName || DEFAULT_BRANDING.senderName;
@@ -368,15 +348,20 @@ export class EmailService {
 
   async sendOrderConfirmation(order: Order, customerEmail: string, websiteUrl?: string): Promise<boolean> {
     const totalCents = typeof order.total === 'number' ? order.total : parseInt(String(order.total)) || 0;
+    const lang = await this.websiteLanguage(order.websiteId);
     return this.sendEmail({
       to: customerEmail,
       websiteId: order.websiteId,
       templateType: 'order_confirmation',
       variables: {
         orderId: order.id,
-        total: `$${(totalCents / 100).toFixed(2)}`,
+        // The customer's own currency, formatted for their language.
+        total: new Intl.NumberFormat(SITE_LOCALE[lang], {
+          style: 'currency',
+          currency: (order.currency || 'DKK').toUpperCase(),
+        }).format(totalCents / 100),
         status: order.status,
-        customerName: order.customerName || 'Customer',
+        customerName: order.customerName || (lang === 'da' ? 'Kunde' : 'Customer'),
       },
       buttonUrl: websiteUrl ? `${websiteUrl}/orders/${order.id}` : undefined,
     });
@@ -387,13 +372,16 @@ export class EmailService {
    * Gated by emailSettings.shippingConfirmationEnabled.
    */
   async sendOrderShipped(order: Order, customerEmail: string, websiteUrl?: string): Promise<boolean> {
+    const lang = await this.websiteLanguage(order.websiteId);
     const deliveryDate = order.deliveryDate
-      ? new Date(order.deliveryDate).toLocaleDateString('da-DK', {
+      ? new Date(order.deliveryDate).toLocaleDateString(SITE_LOCALE[lang], {
           weekday: 'long',
           day: 'numeric',
           month: 'long',
         })
-      : 'snarest muligt';
+      : lang === 'da'
+        ? 'snarest muligt'
+        : 'as soon as possible';
     const trackingLine = order.trackingNumber
       ? `Track & trace${order.trackingCarrier ? ` (${order.trackingCarrier})` : ''}: ${order.trackingNumber}.`
       : '';
@@ -403,7 +391,7 @@ export class EmailService {
       templateType: 'order_shipped',
       variables: {
         orderId: order.id,
-        customerName: order.customerName || 'Kunde',
+        customerName: order.customerName || (lang === 'da' ? 'Kunde' : 'Customer'),
         deliveryDate,
         trackingLine,
         trackingNumber: order.trackingNumber || '',
@@ -413,12 +401,18 @@ export class EmailService {
     });
   }
 
-  private bookingVariables(booking: Booking, serviceName: string): Record<string, string> {
+  private async bookingVariables(booking: Booking, serviceName: string): Promise<Record<string, string>> {
+    const lang = await this.websiteLanguage(booking.websiteId);
     const variables: Record<string, string> = {
       serviceName,
-      date: new Date(booking.date).toLocaleDateString(),
+      date: new Date(booking.date).toLocaleDateString(SITE_LOCALE[lang], {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }),
       time: booking.time || '',
-      customerName: booking.customerName || 'Customer',
+      customerName: booking.customerName || (lang === 'da' ? 'Kunde' : 'Customer'),
     };
     if (booking.place) variables.place = booking.place;
     return variables;
@@ -429,7 +423,7 @@ export class EmailService {
       to: customerEmail,
       websiteId: booking.websiteId,
       templateType: 'booking_confirmation',
-      variables: this.bookingVariables(booking, serviceName),
+      variables: await this.bookingVariables(booking, serviceName),
       buttonUrl: websiteUrl ? `${websiteUrl}/bookings/${booking.id}` : undefined,
       attachments: await this.buildBookingIcsAttachment(booking, serviceName, 'REQUEST'),
     });
@@ -441,7 +435,7 @@ export class EmailService {
       websiteId: booking.websiteId,
       templateType: 'booking_updated',
       variables: {
-        ...this.bookingVariables(booking, serviceName),
+        ...(await this.bookingVariables(booking, serviceName)),
         status: booking.status,
       },
       buttonUrl: websiteUrl ? `${websiteUrl}/bookings/${booking.id}` : undefined,
@@ -454,7 +448,7 @@ export class EmailService {
       to: customerEmail,
       websiteId: booking.websiteId,
       templateType: 'booking_cancelled',
-      variables: this.bookingVariables(booking, serviceName),
+      variables: await this.bookingVariables(booking, serviceName),
       attachments: await this.buildBookingIcsAttachment(booking, serviceName, 'CANCEL'),
     });
   }
@@ -464,7 +458,7 @@ export class EmailService {
       to: customerEmail,
       websiteId: booking.websiteId,
       templateType: 'booking_reminder',
-      variables: this.bookingVariables(booking, serviceName),
+      variables: await this.bookingVariables(booking, serviceName),
       buttonUrl: websiteUrl ? `${websiteUrl}/bookings/${booking.id}` : undefined,
     });
   }
@@ -474,8 +468,55 @@ export class EmailService {
       to: customerEmail,
       websiteId: booking.websiteId,
       templateType: 'booking_followup',
-      variables: this.bookingVariables(booking, serviceName),
+      variables: await this.bookingVariables(booking, serviceName),
       buttonUrl: websiteUrl,
+    });
+  }
+
+  /**
+   * Tell BirdFlow that a customer just claimed one of its own onboarding
+   * meetings. Goes to the platform calendar's own templates, so it never
+   * reaches a customer and never touches a customer site's email settings.
+   */
+  async sendPlatformMeetingNotification(
+    booking: Booking,
+    adminEmail: string,
+    serviceName: string,
+    details: { customerWebsiteName?: string | null; adminUrl?: string }
+  ): Promise<boolean> {
+    return this.sendEmail({
+      to: adminEmail,
+      websiteId: booking.websiteId,
+      templateType: 'platform_meeting_notification',
+      variables: {
+        ...(await this.bookingVariables(booking, serviceName)),
+        customerEmail: booking.customerEmail || '',
+        customerPhone: booking.customerPhone || '',
+        website: details.customerWebsiteName || 'Ingen hjemmeside endnu',
+        notes: booking.notes || '',
+      },
+      buttonUrl: details.adminUrl,
+    });
+  }
+
+  /**
+   * "Din opdaterede hjemmeside er klar" - sent when an admin hands an improved
+   * site back to the customer. Links to the authenticated onboarding page.
+   */
+  async sendOnboardingReadyForReview(
+    customerEmail: string,
+    websiteId: string,
+    details: { customerName: string; websiteName: string; onboardingUrl: string }
+  ): Promise<boolean> {
+    return this.sendEmail({
+      to: customerEmail,
+      websiteId,
+      templateType: 'onboarding_ready_for_review',
+      variables: {
+        customerName: details.customerName,
+        websiteName: details.websiteName,
+      },
+      buttonUrl: details.onboardingUrl,
     });
   }
 

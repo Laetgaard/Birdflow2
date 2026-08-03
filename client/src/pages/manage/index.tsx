@@ -15,6 +15,7 @@ import {
   Loader2, UserRound, type LucideIcon,
 } from "lucide-react";
 import type { ManageWebsite } from "./types";
+import { manageFetch, SessionExpiredError, SessionExpiredState, ErrorState } from "./shared";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import { OverviewSection } from "./OverviewSection";
@@ -117,6 +118,8 @@ export default function ManagePage() {
 
   const [website, setWebsite] = useState<ManageWebsite | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const active: SectionKey = useMemo(() => {
@@ -150,12 +153,26 @@ export default function ManagePage() {
     const urlParams = new URLSearchParams(window.location.search);
     const stripeConnected = urlParams.get("stripe_connected");
     const stripeError = urlParams.get("stripe_error");
-    if (!stripeConnected && !stripeError) return;
+    const stripePending = urlParams.get("stripe_pending");
+    const stripeRefresh = urlParams.get("stripe_refresh");
+    if (!stripeConnected && !stripeError && !stripePending && !stripeRefresh) return;
 
     if (stripeConnected === "true") {
       toast({
         title: "Stripe forbundet",
         description: "Din Stripe-konto er nu forbundet. Dine kunder kan betale online.",
+      });
+    }
+    if (stripePending === "true") {
+      toast({
+        title: "Næsten færdig med Stripe",
+        description: "Stripe mangler stadig nogle oplysninger, før betalinger kan aktiveres. Du kan fortsætte, hvor du slap, under Indstillinger.",
+      });
+    }
+    if (stripeRefresh === "true") {
+      toast({
+        title: "Stripe-tilmeldingen blev afbrudt",
+        description: "Linket udløb eller blev lukket. Klik på 'Fortsæt hos Stripe' for at prøve igen.",
       });
     }
     if (stripeError) {
@@ -170,49 +187,52 @@ export default function ManagePage() {
   }, [toast, id]);
 
   // Load the website itself (sections load their own data)
-  useEffect(() => {
-    const fetchWebsite = async () => {
-      if (!session || !id) return;
-      setIsLoading(true);
-      try {
-        const res = await fetch(`/api/websites/${id}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-        if (!res.ok) {
-          if (res.status === 403 || res.status === 404) {
-            toast({
-              title: "Adgang nægtet",
-              description: "Du har ikke adgang til denne hjemmeside.",
-              variant: "destructive",
-            });
-            setLocation("/dashboard");
-            return;
-          }
-          throw new Error("Hjemmesiden kunne ikke indlæses");
+  const fetchWebsite = useCallback(async () => {
+    if (!session || !id) return;
+    setIsLoading(true);
+    setLoadError(null);
+    setSessionExpired(false);
+    try {
+      const res = await manageFetch(`/api/websites/${id}`, session.access_token);
+      if (!res.ok) {
+        if (res.status === 403 || res.status === 404) {
+          toast({
+            title: "Adgang nægtet",
+            description: "Du har ikke adgang til denne hjemmeside.",
+            variant: "destructive",
+          });
+          setLocation("/dashboard");
+          return;
         }
-        const data = await res.json();
-
-        // Administrators have manage access (readManage/updateManage) and get
-        // a persistent banner instead of a redirect. The banner state comes
-        // from the server-set adminContext - never from client-side flags.
-        if (data.adminContext) {
-          startAdminSession(id!);
-        } else {
-          clearAdminSession(id!);
-        }
-        setWebsite(data);
-      } catch (error: any) {
-        toast({
-          title: "Fejl",
-          description: error.message || "Noget gik galt",
-          variant: "destructive",
-        });
-      } finally {
-        setIsLoading(false);
+        throw new Error("Hjemmesiden kunne ikke indlæses");
       }
-    };
+      const data = await res.json();
+
+      // Administrators have manage access (readManage/updateManage) and get
+      // a persistent banner instead of a redirect. The banner state comes
+      // from the server-set adminContext - never from client-side flags.
+      if (data.adminContext) {
+        startAdminSession(id!);
+      } else {
+        clearAdminSession(id!);
+      }
+      setWebsite(data);
+    } catch (error: any) {
+      // An expired session gets its own full-page prompt; anything else gets
+      // a visible error with retry - never a toast that fades into a blank page.
+      if (error instanceof SessionExpiredError) {
+        setSessionExpired(true);
+      } else {
+        setLoadError(error.message || "Hjemmesiden kunne ikke indlæses");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id, session, toast, setLocation]);
+
+  useEffect(() => {
     fetchWebsite();
-  }, [id, session]);
+  }, [fetchWebsite]);
 
   // Global toast for new bookings, no matter which section is open
   useEffect(() => {
@@ -246,6 +266,28 @@ export default function ManagePage() {
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="w-5 h-5 animate-spin" />
           <span className="text-sm">Indlæser...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Honest failure states: an expired session gets a clear re-login prompt,
+  // any other load failure gets a visible error with retry - never a blank page.
+  if (sessionExpired) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md">
+          <SessionExpiredState />
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError && !website) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md">
+          <ErrorState message={loadError} onRetry={fetchWebsite} />
         </div>
       </div>
     );

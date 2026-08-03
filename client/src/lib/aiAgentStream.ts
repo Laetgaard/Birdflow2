@@ -55,34 +55,56 @@ async function readAgentStream<TResult extends { type: "result" }>(
   response: Response,
   onEvent: (event: AgentStreamEvent) => void
 ): Promise<TResult> {
+  let result: TResult | null = null;
+  let streamError: string | null = null;
+
+  await readSseStream(response, (event: AgentStreamEvent) => {
+    onEvent(event);
+    if (event.type === "result") result = event as unknown as TResult;
+    if (event.type === "error") streamError = event.message;
+  });
+
+  if (result) return result;
+  throw new Error(streamError || "AI-agenten afsluttede uden resultat");
+}
+
+/**
+ * The SSE framing itself: read the body, split on blank lines, parse each
+ * `data:` payload as JSON and hand it to `onEvent`.
+ *
+ * Exported because Plan mode and Build mode stream over the same transport
+ * with different event unions. One parser means one set of chunk-boundary
+ * tests, not three.
+ */
+export async function readSseStream<TEvent>(
+  response: Response,
+  onEvent: (event: TEvent) => void
+): Promise<void> {
   if (!response.ok) {
-    // Errors before the stream starts (429, 400, 403) are plain JSON
+    // Errors before the stream starts (429, 400, 403, 409) are plain JSON
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.message || `AI-agenten svarede ${response.status}`);
+    const error = new Error(body.message || `Serveren svarede ${response.status}`);
+    (error as any).status = response.status;
+    (error as any).body = body;
+    throw error;
   }
   if (!response.body) {
-    throw new Error("Ingen svarstrøm fra AI-agenten");
+    throw new Error("Ingen svarstrøm fra serveren");
   }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let result: TResult | null = null;
-  let streamError: string | null = null;
 
   const handleLine = (line: string) => {
     if (!line.startsWith("data:")) return;
     const raw = line.slice(5).trim();
     if (!raw) return;
-    let event: AgentStreamEvent;
     try {
-      event = JSON.parse(raw) as AgentStreamEvent;
+      onEvent(JSON.parse(raw) as TEvent);
     } catch {
-      return; // ignore a malformed frame rather than killing the run
+      // ignore a malformed frame rather than killing the run
     }
-    onEvent(event);
-    if (event.type === "result") result = event as unknown as TResult;
-    if (event.type === "error") streamError = event.message;
   };
 
   while (true) {
@@ -101,9 +123,6 @@ async function readAgentStream<TResult extends { type: "result" }>(
   }
   // Flush anything left without a trailing blank line
   if (buffer.trim()) buffer.split("\n").forEach(handleLine);
-
-  if (result) return result;
-  throw new Error(streamError || "AI-agenten afsluttede uden resultat");
 }
 
 /**

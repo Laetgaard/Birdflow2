@@ -29,7 +29,10 @@ describe("bf2 design kit extraction", () => {
     expect(primitives).toContain("export function BandWave");
     expect(primitives).toContain("export function RevealOnView");
     expect(nav).toContain("export function Nav");
-    expect(nav).toContain("export const NAV_LINKS");
+    // The nav entries are bilingual now, so the kit owns a hook over a table
+    // of `{ href, label: { da, en } }` rather than a flat constant.
+    expect(nav).toContain("export function useNavLinks");
+    expect(nav).toContain("<LangToggle />");
   });
 
   it("the landing page imports them instead of re-declaring them", () => {
@@ -44,9 +47,9 @@ describe("bf2 design kit extraction", () => {
     expect(landing).not.toContain("function BandWave");
   });
 
-  it("navbar links to both new pages", () => {
-    expect(nav).toContain('["/services", "Ydelser"]');
-    expect(nav).toContain('["/pricing", "Priser"]');
+  it("navbar links to both new pages, in both languages", () => {
+    expect(nav).toContain('{ href: "/services", label: { da: "Ydelser", en: "Services" } }');
+    expect(nav).toContain('{ href: "/pricing", label: { da: "Priser", en: "Pricing" } }');
   });
 
   it("anchors resolve off the landing page", () => {
@@ -57,7 +60,7 @@ describe("bf2 design kit extraction", () => {
   });
 
   it("the landing footer uses NavLink so route entries do not full-reload", () => {
-    const idx = landing.indexOf("NAV_LINKS.map");
+    const idx = landing.indexOf("navLinks.map");
     expect(idx).toBeGreaterThan(-1);
     expect(landing.slice(idx, idx + 400)).toContain("<NavLink");
   });
@@ -69,7 +72,8 @@ describe("services page", () => {
   it("is bilingual and uses the bf2 language", () => {
     expect(services).toContain("const COPY: Record<Lang");
     expect(services).toContain("useLocale");
-    expect(services).toContain("LangToggle");
+    // The toggle itself lives in the shared Nav, so the page renders <Nav />
+    // instead of placing its own switcher.
     expect(services).toContain("PAGE_CSS");
     expect(services).toContain("<Nav />");
   });
@@ -108,7 +112,9 @@ describe("pricing page", () => {
 
   it("is bilingual", () => {
     expect(pricing).toContain("const COPY: Record<Lang");
-    expect(pricing).toContain("LangToggle");
+    expect(pricing).toContain("useLocale");
+    // Same as the services page: the switcher itself belongs to the shared Nav.
+    expect(pricing).toContain("<Nav />");
   });
 });
 

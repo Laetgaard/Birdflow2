@@ -1,0 +1,1924 @@
+#84 — Plan mode and Build mode for the Builder AI
+Objective
+
+Upgrade the existing Birdflow Builder AI into a two-mode assistant:
+
+Build — the current fast editing experience for small, direct changes.
+Plan — a read-only planning workflow for larger or structured requests, followed by controlled step-by-step execution of an approved plan.
+
+The assistant must stay inside Birdflow’s existing data-only component architecture.
+
+It must not generate or execute React, JavaScript, CSS files or other runtime code.
+
+The new system must preserve all existing protections:
+
+Rate limiting.
+Mutation validation.
+Large-change detection.
+Destructive-change confirmation.
+SVG sanitisation.
+Image-generation limits.
+Output validation.
+Deterministic self-check.
+Website ownership checks.
+Product behaviour
+Default mode
+
+The assistant opens in:
+
+Byg
+
+Small requests continue working as they do today.
+
+Examples:
+
+Skift teksten på denne knap
+Gør overskriften kortere
+Brug et andet billede i denne sektion
+
+These should remain fast, direct Build-mode actions.
+
+Plan mode
+
+The customer can manually switch to:
+
+Plan
+
+Plan mode may inspect the website, ask questions and produce or revise a structured plan.
+
+Plan mode must never mutate:
+
+Builder state.
+Pages.
+Sections.
+Navigation.
+Components.
+Brand guide.
+Presets.
+Assets.
+Animations.
+
+The customer edits and approves the plan before any website changes happen.
+
+Large-request recommendation
+
+Build remains the default, but use Birdflow’s existing server-side definition of a large change to recommend Plan mode.
+
+The existing large-change heuristic in:
+
+server/aiAgentTools.ts:85-134
+
+currently includes:
+
+Page deletion.
+Brand-guide overwrite.
+Preset overwrite.
+Three or more removals.
+More than 12 mutations.
+Removal of more than 50% of a page.
+
+Refactor this logic into one reusable function if it is not already reusable.
+
+Do not create a second definition of “large”.
+
+The same function must be used for:
+
+Existing Build-mode large-change approval.
+Recommending Plan mode.
+Summarising destructive or large scope before plan approval.
+Checking that actual plan execution remains inside approved scope.
+
+When a direct Build-mode request produces a mutation proposal that meets this heuristic, do not execute it immediately.
+
+Emit an SSE event showing:
+
+Det her ligner en større ændring. Vil du lave en plan først?
+
+Allow the user to:
+
+Switch to Plan.
+Continue through the existing Build-mode approval path.
+
+Do not force Plan mode for users who deliberately choose the existing approval path.
+
+Danish assistant UI
+
+Add a visible mode control to the Builder AI panel.
+
+Labels:
+
+Plan
+Byg
+
+The active state must always be obvious through more than colour alone.
+
+Use:
+
+Selected background.
+Font weight.
+Indicator or border.
+Accessible state such as aria-pressed.
+Plan-mode explanation
+
+Show a persistent explanation when Plan is selected:
+
+Plan-tilstand ændrer ikke din hjemmeside. Du kan gennemgå og rette planen, før noget bliver bygget.
+Build-mode explanation
+
+A short optional helper may say:
+
+Byg-tilstand udfører mindre ændringer med det samme. Større ændringer kan planlægges først.
+
+Do not redesign the complete assistant panel.
+
+Mandatory inspection
+
+Before implementation, inspect the current behaviour and data flow in:
+
+client/src/components/AIBuilderPanel.tsx
+client/src/lib/aiAgentStream.ts
+client/src/pages/builder.tsx
+
+server/aiAgent.ts
+server/aiAgentTools.ts
+server/aiBuilder.ts
+server/routes.ts
+server/selfCheck.ts
+server/aiImages.ts
+
+shared/aiBuilderSchema.ts
+shared/customComponents.ts
+shared/schema.ts
+shared/svgSanitizer.ts
+
+Specifically identify:
+
+How assistant conversations are stored.
+How Build-mode tool calls are validated.
+How builder-state mutations are applied.
+All code paths that save builder_state.
+Existing large-change classification.
+Existing large-change approval state.
+Existing SSE event parsing.
+How custom components are saved.
+How generated images are counted.
+How SVGs are sanitised.
+How the deterministic self-check receives and writes state.
+Whether architect-build is still needed.
+How the client autosave writes builder state.
+How page and section IDs are validated.
+
+Do not implement a parallel mutation engine.
+
+Reuse the existing schemas, tools and sanitisation pipeline.
+
+Core architectural decisions
+Separate plans from builds
+
+A plan describes approved intent.
+
+A build run records execution.
+
+Do not store build progress only on the plan itself.
+
+Required concepts:
+
+AssistantPlan
+AssistantPlanStep
+AssistantBuildRun
+AssistantBuildStepRun
+Version plans
+
+Every plan must have a monotonically increasing version.
+
+Any customer action that changes the plan must invalidate approval:
+
+Rename a step.
+Edit a step description.
+Reorder steps.
+Add a step.
+Delete a step.
+Include or skip a step.
+Change the selected page.
+Add or change a comment that is intended to affect execution.
+Regenerate machine-readable scope.
+
+When this happens:
+
+plan.version += 1;
+plan.approvedVersion = null;
+plan.approvedAt = null;
+plan.destructiveApproval = null;
+
+A build run must store the exact approved version it executes.
+
+The server must never execute:
+
+plan.version !== plan.approvedVersion
+Plan history
+
+Keep plan history per website.
+
+Retain approximately the latest 20 plans.
+
+Do not delete:
+
+The active plan.
+A plan referenced by an active build.
+A plan whose snapshot is required for an undo action.
+
+Older inactive history can be deleted or archived from the application service after a newer plan is persisted.
+
+Do not rely on an interactive database command for this.
+
+One active plan
+
+Allow one active editable plan per website.
+
+Previous plans remain available as history but cannot simultaneously act as the current draft.
+
+One active build
+
+Only one active or resumable build may exist for a website.
+
+Enforce this at the database level.
+
+Statuses considered active should include at minimum:
+
+queued
+running
+pause_requested
+paused
+
+A partial unique PostgreSQL index should prevent concurrent active builds for the same website.
+
+This is required because all steps mutate the same builder_state row.
+
+Do not rely only on disabling the Build button in the UI.
+
+Explicit SQL migration requirement
+
+Database schema changes must be applied through explicit SQL migration statements.
+
+The project forbids:
+
+db:push
+
+Do not run an interactive schema push.
+
+At minimum, the migration needs to:
+
+Add a monotonic revision to builder_state.
+Create plan storage.
+Create plan-step storage.
+Create build-run storage.
+Create build-step-run storage.
+Add indexes and constraints.
+Add the partial unique active-build constraint.
+
+Adapt names and types to the project’s current ID conventions.
+
+Conceptual SQL:
+
+ALTER TABLE builder_state
+ADD COLUMN revision integer NOT NULL DEFAULT 0;
+
+Every builder-state write path must increment this revision.
+
+Conceptual active-build constraint:
+
+CREATE UNIQUE INDEX assistant_one_active_build_per_website
+ON assistant_build_runs (website_id)
+WHERE status IN (
+  'queued',
+  'running',
+  'pause_requested',
+  'paused'
+);
+
+Add an equivalent constraint for one active editable plan if the chosen table structure supports it cleanly.
+
+Update shared/schema.ts to match the explicit SQL migration.
+
+Suggested plan data model
+
+Adapt this to the project’s schema conventions.
+
+Assistant plan
+type AssistantPlanStatus =
+  | "draft"
+  | "awaiting_clarification"
+  | "ready_for_approval"
+  | "approved"
+  | "stale"
+  | "building"
+  | "paused"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+type AssistantPlan = {
+  id: string;
+  websiteId: string;
+  createdByUserId: string;
+
+  title: string;
+  goal: string;
+
+  version: number;
+  status: AssistantPlanStatus;
+
+  websiteRevisionAtPlanning: number;
+
+  approvedVersion: number | null;
+  approvedAt: Date | null;
+  approvedByUserId: string | null;
+
+  destructiveApproval: {
+    approved: boolean;
+    pageIds: string[];
+    pageNames: string[];
+    brandGuideOverwrite: boolean;
+    presetOverwrite: boolean;
+    approvedAt: string | null;
+  } | null;
+
+  preBuildStateSnapshot: unknown | null;
+  preBuildRevision: number | null;
+
+  createdAt: Date;
+  updatedAt: Date;
+  archivedAt: Date | null;
+};
+
+The complete builder-state snapshot must be captured before execution begins and associated with the approved plan version.
+
+A build run may also reference or duplicate the snapshot identifier for easier retrieval.
+
+Plan step
+type AssistantPlanStepType =
+  | "information_architecture"
+  | "navigation"
+  | "page_creation"
+  | "page_edit"
+  | "section_creation"
+  | "section_edit"
+  | "copywriting"
+  | "component_creation"
+  | "component_edit"
+  | "image_generation"
+  | "illustration_generation"
+  | "motion"
+  | "brand_application"
+  | "self_check";
+
+type AssistantPlanStep = {
+  id: string;
+  planId: string;
+  position: number;
+
+  type: AssistantPlanStepType;
+
+  title: string;
+  description: string;
+  customerComment: string | null;
+
+  included: boolean;
+  selectedPageId: string | null;
+
+  dependsOnStepIds: string[];
+
+  executionScope: ApprovedStepScope;
+
+  createdAt: Date;
+  updatedAt: Date;
+};
+Machine-readable scope
+
+The customer edits human-readable fields.
+
+The server owns and validates technical execution scope.
+
+type ApprovedOperation =
+  | "create_page"
+  | "update_page"
+  | "delete_page"
+  | "update_navigation"
+  | "create_section"
+  | "update_section"
+  | "remove_section"
+  | "reorder_sections"
+  | "create_component"
+  | "update_component"
+  | "generate_image"
+  | "generate_svg"
+  | "set_motion"
+  | "update_copy"
+  | "update_brand_guide"
+  | "overwrite_preset";
+
+type ApprovedStepScope = {
+  targetPageIds: string[];
+  targetSectionIds: string[];
+
+  allowedOperations: ApprovedOperation[];
+
+  mayCreatePages: boolean;
+  mayDeletePages: boolean;
+  mayChangeNavigation: boolean;
+  mayChangeGlobalStyles: boolean;
+  mayOverwriteBrandGuide: boolean;
+  mayOverwritePreset: boolean;
+
+  exactDeletablePageIds: string[];
+  exactRemovableSectionIds: string[];
+
+  maximumMutationCount: number;
+
+  creates: Array<{
+    reference: string;
+    type: "page" | "section" | "component" | "asset";
+    parentReference?: string;
+    parentPageId?: string;
+  }>;
+
+  targetReferences: string[];
+};
+
+Use logical output references for entities that do not exist when the plan is made.
+
+Example:
+
+homepage.new-services-section
+homepage.services-card-component
+
+After a step creates an entity, store the mapping:
+
+{
+  "homepage.new-services-section": "actual-section-uuid"
+}
+
+Later steps may target that reference only when they depend on the creating step.
+
+Do not let the model invent unrestricted IDs during execution.
+
+Build-run model
+type AssistantBuildStatus =
+  | "queued"
+  | "running"
+  | "pause_requested"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "stopped"
+  | "undone";
+
+type AssistantBuildRun = {
+  id: string;
+  websiteId: string;
+  planId: string;
+  approvedPlanVersion: number;
+
+  status: AssistantBuildStatus;
+
+  startingRevision: number;
+  expectedRevision: number;
+  completedRevision: number | null;
+
+  currentStepId: string | null;
+
+  stopRequested: boolean;
+
+  createdComponentIds: string[];
+  generatedAssetIds: string[];
+
+  scopeRepairs: unknown[];
+  responsiveRepairs: unknown[];
+  selfCheckFixes: unknown[];
+
+  summary: unknown | null;
+  error: string | null;
+
+  startedAt: Date | null;
+  completedAt: Date | null;
+  updatedAt: Date;
+};
+Build-step run
+type AssistantBuildStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "paused"
+  | "skipped"
+  | "blocked";
+
+type AssistantBuildStepRun = {
+  id: string;
+  buildRunId: string;
+  planStepId: string;
+
+  position: number;
+  status: AssistantBuildStepStatus;
+  attemptCount: number;
+
+  guidance: string | null;
+
+  mutationCount: number;
+  mutationSummary: unknown | null;
+
+  createdEntityMap: Record<string, string>;
+
+  generatedAssetIds: string[];
+  createdComponentIds: string[];
+
+  responsiveRepairs: unknown[];
+  validationRepairs: unknown[];
+  selfCheckFixes: unknown[];
+
+  errorCode: string | null;
+  errorMessage: string | null;
+
+  startedAt: Date | null;
+  completedAt: Date | null;
+};
+Builder-state revision control
+Add a revision integer
+
+builder_state currently has:
+
+websiteId
+state
+createdAt
+updatedAt
+
+Add:
+
+revision: number;
+
+The revision must increase monotonically for every successful builder-state write.
+
+Do not use updatedAt as a concurrency token.
+
+Planning revision
+
+When a plan is created:
+
+plan.websiteRevisionAtPlanning = builderState.revision;
+Approval check
+
+Before approval, check whether the builder revision still matches the plan’s planning revision.
+
+If not, revalidate all targets and mark the plan stale where necessary.
+
+Build-start check
+
+Before starting:
+
+current builder revision === validated plan revision
+
+Otherwise:
+
+Mark the plan stale.
+Explain that the website changed after the plan was prepared.
+Offer to refresh the plan.
+Do not execute.
+Before every step
+
+Before each step:
+
+Read the current builder revision.
+Compare it with the build run’s expectedRevision.
+If it differs, pause.
+Revalidate the plan step against the current state.
+Never silently continue against changed content.
+Atomic mutation application
+
+Each build step must be applied atomically.
+
+Recommended process:
+
+Read state and revision.
+Let the model propose the step mutations.
+Validate all mutations.
+Enforce approved scope.
+Apply deterministic repairs.
+Validate responsive behaviour.
+Run sanitisation.
+Prepare the final new builder state.
+Save using a revision compare-and-swap.
+Increment the revision exactly once.
+Persist the completed step result.
+
+Conceptual update:
+
+UPDATE builder_state
+SET
+  state = $newState,
+  revision = revision + 1,
+  updated_at = now()
+WHERE website_id = $websiteId
+  AND revision = $expectedRevision
+RETURNING revision;
+
+If no row is returned:
+
+Do not apply the step.
+Mark it paused because the website changed.
+Emit a stale-state event.
+Client autosave
+
+All existing builder-state save paths must increment the revision.
+
+The client autosave must not silently overwrite newer AI changes with an older local state.
+
+Where practical, send the client’s expected revision with autosave and reject stale writes.
+
+On conflict:
+
+Do not overwrite the server state.
+Inform the builder client that newer changes exist.
+Reload or use the project’s safest existing reconciliation behaviour.
+
+This task must not leave AI execution protected while normal autosave can still overwrite it immediately afterwards.
+
+Plan mode server restrictions
+Separate tool registry
+
+Plan mode must use a physically separate tool registry.
+
+Do not pass mutating tools and rely on prompt instructions.
+
+Plan-mode tools may include:
+
+read_website_structure
+read_pages
+read_page_sections
+read_navigation
+read_brand_guide
+read_component_library
+read_existing_assets
+read_supported_animations
+ask_clarifying_question
+submit_plan_draft
+revise_plan_draft
+
+Plan mode must not receive tools capable of:
+
+creating pages
+updating pages
+removing pages
+creating sections
+updating sections
+saving components
+generating images
+saving SVGs
+changing motion
+changing navigation
+changing brand settings
+writing builder state
+
+Persisting the plan itself is allowed.
+
+That persistence should happen through a dedicated plan service, not through general builder mutation tools.
+
+Plan response requirements
+
+A complete plan must contain:
+
+Goal.
+Information architecture.
+Pages involved.
+Navigation changes.
+Section order on each page.
+Sections to create.
+Sections to change.
+Reusable components to create.
+Existing components to reuse.
+Image-generation intent.
+Illustration intent.
+Motion intent.
+Copy angle for every content section.
+Dependencies between steps.
+Destructive operations.
+Expected scope and mutation limits.
+
+For requests involving multiple pages or multiple sections, the first included step must be:
+
+information_architecture
+
+Single, narrowly scoped requests do not need a forced architecture step.
+
+Editable plan UI
+
+Render the plan as a numbered checklist.
+
+Each step must show:
+
+Number.
+Title.
+Description.
+Type label.
+Selected target page.
+Include or skip state.
+Customer comment.
+Execution status after building.
+
+The customer can:
+
+Rename a step.
+Edit the description.
+Reorder steps.
+Delete a step.
+Add a new human-readable step.
+Add a comment.
+Include or skip the step.
+Select an existing page from a dropdown.
+
+The page dropdown must use a server-validated closed list.
+
+Do not let the customer manually enter:
+
+Section IDs.
+Mutation types.
+Mutation limits.
+Tool names.
+Raw execution scope.
+Custom component IDs.
+
+When human-readable content changes:
+
+Increment the plan version.
+Clear approval.
+Regenerate technical execution scope server-side.
+Validate the scope against current pages and sections.
+Require approval again.
+Plan persistence
+
+Plan edits must autosave.
+
+Reloading the builder must restore:
+
+Current plan.
+Step order.
+Comments.
+Include/skip states.
+Selected pages.
+Approval state.
+Current build progress.
+Plan approval
+Additive and edit scope
+
+Approving a plan pre-approves only the exact additive and editing scope stored in the approved plan version.
+
+It does not provide an unlimited large-change bypass.
+
+Do not globally set:
+
+approvedLargeChanges = true;
+
+for the complete build.
+
+Each mutation must still be compared with:
+
+The active plan step.
+Its exact targets.
+Its allowed operations.
+Its maximum mutation count.
+Its approved destructive targets.
+Destructive confirmation
+
+At approval time, show destructive actions separately.
+
+Examples:
+
+Denne plan sletter 2 sider:
+– Om os
+– Tidligere forløb
+Denne plan overskriver hjemmesidens brandguide.
+Denne plan overskriver et eksisterende designpreset.
+
+Require explicit confirmation before approval.
+
+Store:
+
+Exact deleted page IDs.
+Human-readable page names.
+Brand-guide overwrite approval.
+Preset overwrite approval.
+Approval timestamp.
+Approved plan version.
+
+Do not interrupt the middle of a planned build to request confirmation for destructive actions that were already explicitly approved.
+
+If execution proposes a destructive action that was not approved:
+
+Reject it.
+Pause the build.
+Mark the step as outside approved scope.
+Require a plan revision and new approval.
+
+Do not expand approval mid-build.
+
+Scope enforcement
+
+Create one server-side function similar to:
+
+validateMutationAgainstApprovedStep({
+  mutation,
+  stepScope,
+  planApproval,
+  currentBuilderState,
+  createdEntityReferences,
+});
+
+Every proposed mutation must pass.
+
+Validate:
+
+Operation type is allowed.
+Target page is allowed.
+Target section is allowed.
+New entity belongs to the declared parent.
+Generated asset belongs to the current step.
+Mutation count stays within the step maximum.
+Page deletion targets an exact approved page ID.
+Section removal targets an approved ID.
+Brand-guide overwrite is explicitly approved.
+Preset overwrite is explicitly approved.
+Navigation changes are explicitly allowed.
+Global-style changes are explicitly allowed.
+References to previous outputs come from completed dependency steps.
+
+If any mutation fails:
+
+Return structured validation feedback to the model.
+Allow one automatic retry.
+If it fails again, pause the build.
+
+“Nothing outside the approved plan changes” must be a server-enforced invariant.
+
+It must not exist only as prompt text.
+
+Build execution
+One server-side build orchestration
+
+A multi-step build must run as one server-side build orchestration.
+
+Do not treat every plan step as a new public agent request.
+
+The existing user rate limit is:
+
+10 agent runs per user per 10 minutes
+
+A 12-step build must not consume 12 public rate-limit units.
+
+Starting or resuming one approved build should count as one agent run according to the current route-level limiter.
+
+Internal step execution must happen inside that run or through an internal executor that does not independently pass through the public request limiter for each step.
+
+Existing image budget
+
+Image generation currently allows:
+
+3 unique generated images per request
+
+Until a separate usage-budget task changes this, one plan build must preserve that limit.
+
+Therefore:
+
+A complete build may generate at most three unique new images.
+Reusing existing images does not count.
+Reusing the same generated image does not count as another unique image.
+Sanitised SVG illustrations follow their existing tool rules.
+The plan validator must identify when the requested plan exceeds the image limit.
+Plan mode should consolidate imagery or clearly explain the limit before approval.
+
+Do not silently reset the image budget for every step.
+
+SSE transport
+
+The existing endpoint already supports SSE events:
+
+step
+tool
+note
+approval_required
+done
+error
+
+Extend this transport.
+
+Do not create a second polling system.
+
+Suggested additional events:
+
+type PlanBuildEvent =
+  | "plan_created"
+  | "plan_updated"
+  | "plan_stale"
+  | "plan_approved"
+  | "build_started"
+  | "build_step_started"
+  | "build_step_progress"
+  | "build_step_retrying"
+  | "build_step_completed"
+  | "build_step_failed"
+  | "build_pause_requested"
+  | "build_paused"
+  | "build_resumed"
+  | "build_stopped"
+  | "responsive_repair"
+  | "rule_repair"
+  | "self_check_fix"
+  | "build_summary";
+
+Update:
+
+server/aiAgent.ts
+client/src/lib/aiAgentStream.ts
+client/src/components/AIBuilderPanel.tsx
+shared event schemas
+
+The existing:
+
+/ai/architect-build
+
+path is currently a normal non-streamed request.
+
+Do not use it for plan execution unless it is converted to the shared SSE transport.
+
+Prefer one consistent streamed execution path.
+
+Reload and reconnect
+
+Build progress must survive page reloads.
+
+Persist step results before emitting completion events.
+
+On reconnect:
+
+Fetch the active build record.
+Restore completed-step statuses.
+Restore current progress.
+Attach to or safely resume the active build.
+Never start the same step twice.
+
+Use an atomic build-status claim or execution lease so two server processes cannot execute the same build simultaneously.
+
+If the process restarts during a step:
+
+Mark a stale running step as paused after its execution lease expires.
+Let the customer resume safely.
+Do not assume it completed.
+Do not repeat committed mutations.
+Step execution lifecycle
+
+For every included step:
+
+1. Check stop request
+
+If stop was requested before the next step begins:
+
+status = paused
+
+Do not start another step.
+
+2. Check dependencies
+
+All required dependency steps must be completed.
+
+If a dependency was skipped or failed:
+
+status = blocked
+
+Pause and explain why.
+
+3. Check builder revision
+
+Compare current revision with expectedRevision.
+
+Pause if it changed.
+
+4. Resolve references
+
+Resolve logical outputs from previous steps to actual IDs.
+
+Reject unknown or unresolved references.
+
+5. Execute the model for the active step
+
+The model receives:
+
+The approved step.
+Approved technical scope.
+Relevant page and section state.
+Brand guide.
+Existing component library.
+Supported primitive schema.
+Supported animation properties.
+Remaining image budget.
+Structured validation feedback from a prior attempt.
+
+Do not give the model unrelated mutation freedom.
+
+6. Validate output
+
+Run:
+
+Existing Zod validation.
+Page and section ID validation.
+Scope validation.
+Responsive validation.
+Custom-component validation.
+Link validation.
+Copy validation.
+Image-budget validation.
+SVG sanitisation.
+Motion-property validation.
+Existing output validation.
+7. Repair deterministically
+
+Repair safe issues before saving.
+
+Record every repair.
+
+8. Retry once
+
+When validation fails:
+
+Send structured errors to the model.
+Retry the step once.
+Do not charge another public route rate-limit unit.
+Preserve the same approved scope.
+9. Pause after second failure
+
+Show:
+
+Trinnet kunne ikke gennemføres sikkert.
+
+Provide:
+
+Prøv igen med vejledning
+Spring over
+Stop bygning
+
+Customer guidance can clarify execution but cannot expand the approved scope.
+
+Guidance that changes targets or operations requires a plan revision and new approval.
+
+10. Apply atomically
+
+Write the complete step as one builder-state revision.
+
+A failed step must leave no partial changes.
+
+11. Run scoped self-check
+
+Run the deterministic self-check against entities created or touched by the step.
+
+12. Persist result
+
+Store:
+
+Mutations.
+Created IDs.
+Generated assets.
+Components added to the library.
+Repairs.
+Self-check fixes.
+New revision.
+13. Emit completion
+
+Then move to the next included step.
+
+Pause, stop, skip and resume
+Stop behaviour
+
+“Stop” means stop between steps.
+
+If the current step has already started:
+
+Let its atomic execution complete or fail.
+Do not start the next step.
+Keep all completed changes.
+Set the build to paused or stopped, depending on the selected action.
+
+Do not cancel halfway through a database write.
+
+Resume
+
+Resume from the first incomplete included step.
+
+Do not rerun completed steps.
+
+Before resuming:
+
+Check the current builder revision.
+Revalidate remaining targets.
+Pause as stale if the website changed.
+Skip
+
+A failed or pending step may be skipped.
+
+Before skipping:
+
+Check dependsOnStepIds.
+Identify later steps that require it.
+Mark dependent steps blocked.
+Explain which later work cannot run.
+
+Do not blindly continue into cascading invalid references.
+
+Undo the entire build
+
+Before execution starts, store the complete builder-state snapshot and revision.
+
+After a completed, paused or stopped build, provide:
+
+Fortryd hele bygningen
+Safe undo
+
+If the current builder revision still equals the build’s last known revision:
+
+Restore the pre-build snapshot.
+Increment the builder revision.
+Mark the build undone.
+Preserve the build history and summary.
+Newer changes after build
+
+If the builder revision has advanced because of later manual or AI changes:
+
+Do not silently overwrite them.
+Explain that undoing the build would also remove newer work.
+Require explicit destructive confirmation.
+Take a safety snapshot of the current state before restoring.
+
+The undo action itself must be owner-protected and server-validated.
+
+Custom-component rules
+Existing data-only model
+
+All AI-created components must remain within:
+
+shared/customComponents.ts
+
+Supported primitive nodes remain:
+
+box
+text
+image
+button
+svg
+
+Respect:
+
+Maximum 400 nodes.
+Allowed primitive style keys.
+Fixed tablet breakpoint at ≤1024px.
+Fixed mobile breakpoint at ≤640px.
+Existing published-site class and media-query generation.
+Existing SVG sanitisation.
+
+No arbitrary HTML, CSS or JavaScript.
+
+Component-library metadata
+
+CustomComponentEntry currently includes:
+
+{
+  id;
+  name;
+  source;
+  createdAt;
+  updatedAt;
+}
+
+Add:
+
+description?: string;
+
+Legacy entries may omit it.
+
+AI-created entries must have a meaningful description.
+
+If existing storage is inside the builder-state JSONB, update parsing and legacy compatibility without breaking old websites.
+
+What becomes reusable
+
+Do not save every one-off page arrangement as a new library component.
+
+Save a custom component when the AI creates:
+
+A genuinely new visual or functional primitive-tree pattern.
+A customizable pattern intended to be reused.
+A design that cannot be represented by an existing built-in component.
+A planned reusable component explicitly listed in the approved plan.
+
+Do not save a duplicate component when the AI merely:
+
+Reorders existing sections.
+Changes content in an existing component.
+Combines existing library components without creating a new pattern.
+Produces a one-off page composition with no reuse value.
+Naming validation
+
+AI-created library components require:
+
+Meaningful name.
+Meaningful description.
+Website ownership.
+Valid primitive tree.
+Responsive validation.
+Sanitised SVGs.
+Creation-source metadata.
+
+Reject names such as:
+
+Custom Component
+Component 1
+New Section
+Untitled
+Test
+
+Names and descriptions must match the website language.
+
+Responsive-style enforcement
+
+Primitive nodes have:
+
+styles
+tabletStyles
+mobileStyles
+
+Do not require every node to contain arbitrary tablet and mobile values.
+
+A naturally fluid node may safely inherit its base styles.
+
+Instead, implement a deterministic responsive-risk validator.
+
+Risky properties
+
+Check nodes for properties such as:
+
+Fixed pixel width.
+Fixed pixel height.
+Large minWidth.
+Multi-column gridTemplateColumns.
+Horizontal flex layouts with several children.
+Large gaps.
+Large horizontal padding.
+Large font sizes.
+Absolute positioning.
+Fixed left, right, top or bottom offsets.
+Wide images without responsive sizing.
+Buttons or controls that cannot wrap.
+Text blocks with unsafe fixed dimensions.
+Overflow-producing transforms.
+Desktop-only alignment that clips on smaller screens.
+Validation result
+
+Each relevant node should produce one of:
+
+type ResponsiveValidationResult =
+  | { status: "safe_inheritance" }
+  | { status: "explicit_overrides_present" }
+  | { status: "repaired"; repairs: ResponsiveRepair[] }
+  | { status: "rejected"; issues: ResponsiveIssue[] };
+
+Empty objects do not count as responsive work:
+
+tabletStyles: {}
+mobileStyles: {}
+Deterministic repairs
+
+Safe repairs may include:
+
+width: "100%".
+maxWidth: "100%".
+Reducing grid columns on tablet.
+One-column layout on mobile.
+Adding flexWrap: "wrap".
+Changing row layout to column on mobile.
+Reducing padding.
+Reducing gaps.
+Reducing large font sizes.
+Making images fluid.
+Stacking buttons.
+Preventing horizontal overflow.
+Reject rather than guess
+
+Reject cases that cannot be repaired safely, including where appropriate:
+
+Complex absolute positioning without mobile intent.
+Fixed visual compositions that lose meaning when made fluid.
+Overlapping elements with no deterministic responsive arrangement.
+Unsupported layout properties.
+Missing targets for required responsive behaviour.
+
+Return clear structured errors to the model for one retry.
+
+Before saving
+
+An AI-created component may only be saved when:
+
+Every node is responsive-safe.
+Risky nodes contain meaningful tablet/mobile handling or have been repaired.
+The component renders within supported breakpoints.
+All repairs are recorded.
+
+Tell the customer when Birdflow repaired responsiveness automatically.
+
+Images, illustrations and motion
+Images
+
+Use only the existing image-generation tools.
+
+Preserve the three-unique-image build limit.
+
+Store generated assets through the existing asset pipeline.
+
+Do not use external unsanitised URLs as permanent component assets.
+
+SVG illustrations
+
+Illustrations must:
+
+Be generated through the supported SVG process.
+Remain inline data-only graphics.
+Pass shared/svgSanitizer.ts.
+Contain no script.
+Contain no event handlers.
+Contain no unsafe external references.
+Stay within existing size and complexity limits.
+Motion
+
+Motion must use only Birdflow’s supported animation properties.
+
+Do not generate custom CSS keyframes or runtime JavaScript.
+
+Validate:
+
+Supported animation name.
+Duration.
+Delay.
+Easing.
+Trigger.
+Reduced-motion behaviour where currently supported.
+
+Reject unsupported motion instructions.
+
+Copywriting and information architecture
+Copywriting plan step
+
+Add:
+
+copywriting
+
+as a first-class plan-step type.
+
+The plan must define the copy angle for each customer-facing section.
+
+Each planned content section should specify:
+
+Audience need.
+Message goal.
+Headline angle.
+Supporting-message angle.
+Call-to-action intent.
+Brand-voice guidance.
+Site language.
+Generated copy requirements
+
+Generated copy must:
+
+Use the website’s configured language.
+Use the stored brand voice.
+Match the customer’s industry and offer.
+Avoid filler.
+Avoid unsupported claims.
+Avoid fake statistics.
+Avoid placeholder text.
+Use valid internal or external links.
+Use consistent terminology.
+
+Reject content such as:
+
+Lorem ipsum
+Your headline here
+Learn more
+Amazing service
+Welcome to our website
+
+when it is not contextually meaningful.
+
+For new customer-facing sections, require structured content such as:
+
+{
+  eyebrow?: string;
+  headline: string;
+  supportingText: string;
+  primaryCta: {
+    label: string;
+    href: string;
+  };
+  secondaryCta?: {
+    label: string;
+    href: string;
+  };
+}
+
+Where a section type genuinely does not support a CTA, validate against that section type rather than inserting a meaningless button.
+
+Information architecture
+
+For multi-page or multi-section work, the plan must define:
+
+Page purpose.
+Navigation label.
+Page order.
+Section order.
+User journey.
+Primary conversion action.
+Relationships between pages.
+Reusable patterns.
+
+Do not let the Build executor improvise a new architecture outside the approved plan.
+
+Self-check integration
+
+Preserve the existing deterministic self-check.
+
+Extend it to return a structured report.
+
+It must identify:
+
+Issues found.
+Issues fixed.
+Entities changed.
+Rule that triggered the fix.
+Whether the fix came from responsive enforcement, normal validation or self-check.
+Scope protection
+
+During a planned build, self-check auto-fixes must respect approved scope.
+
+For each step:
+
+It may automatically repair entities created or changed by the current step.
+It may report issues elsewhere.
+It must not silently mutate unrelated sections outside the approved plan.
+
+At the end of the build:
+
+Run a full-site self-check.
+Automatically fix only issues inside the total approved scope.
+Report unrelated existing issues without modifying them.
+
+This is necessary to uphold:
+
+Nothing outside the approved plan is changed.
+Result summary
+
+After completion, show one build-summary card.
+
+Include:
+
+Completed work
+Steps completed.
+Steps skipped.
+Steps blocked.
+Pages created or changed.
+Sections created or changed.
+Component library
+Components created.
+Component names.
+Component descriptions.
+Where each component was inserted.
+Generated media
+Images generated.
+Images reused.
+SVG illustrations generated.
+Motion
+Components or sections with new motion.
+Supported motion properties used.
+Automatic repairs
+Responsive repairs.
+Naming repairs.
+Link repairs.
+Contrast repairs.
+Sanitisation actions.
+Validation repairs.
+Self-check
+Issues found.
+Issues fixed.
+Issues reported but not changed because they were outside scope.
+Actions
+
+Show where applicable:
+
+Se ændringer
+Fortsæt bygning
+Prøv fejlet trin igen
+Fortryd hele bygningen
+
+A visual before-and-after diff remains out of scope.
+
+API and route structure
+
+Adapt route names to current conventions.
+
+Possible endpoints:
+
+GET    /api/websites/:websiteId/ai/plans
+POST   /api/websites/:websiteId/ai/plans
+GET    /api/websites/:websiteId/ai/plans/:planId
+PATCH  /api/websites/:websiteId/ai/plans/:planId
+
+POST   /api/websites/:websiteId/ai/plans/:planId/revise
+POST   /api/websites/:websiteId/ai/plans/:planId/approve
+
+POST   /api/websites/:websiteId/ai/plans/:planId/build
+POST   /api/websites/:websiteId/ai/builds/:buildId/pause
+POST   /api/websites/:websiteId/ai/builds/:buildId/resume
+POST   /api/websites/:websiteId/ai/builds/:buildId/stop
+
+POST   /api/websites/:websiteId/ai/builds/:buildId/steps/:stepId/retry
+POST   /api/websites/:websiteId/ai/builds/:buildId/steps/:stepId/skip
+
+GET    /api/websites/:websiteId/ai/builds/:buildId
+POST   /api/websites/:websiteId/ai/builds/:buildId/undo
+
+The build endpoint must use SSE.
+
+Reuse the existing agent route and streaming infrastructure where clean.
+
+Do not duplicate ownership, rate-limit or SSE handling unnecessarily.
+
+Every route must verify:
+
+authenticated user owns website
+
+Admin access, if supported, must use the existing server-side admin rules.
+
+Client implementation
+
+Update:
+
+client/src/components/AIBuilderPanel.tsx
+client/src/lib/aiAgentStream.ts
+client/src/pages/builder.tsx
+
+Potential focused components:
+
+AIBuilderModeSwitch
+AIPlanView
+AIPlanStep
+AIPlanApproval
+AIBuildProgress
+AIBuildStepProgress
+AIBuildResultSummary
+
+Do not over-componentise individual labels.
+
+Build-mode compatibility
+
+The existing chat experience must remain available.
+
+Build mode should continue using the current direct-request workflow until:
+
+The existing large-change heuristic triggers.
+The user manually switches to Plan.
+The user opens an existing plan.
+Progress UI
+
+Each step should display:
+
+Afventer
+Arbejder
+Færdig
+Prøver igen
+Sat på pause
+Sprunget over
+Blokeret
+Fejlet
+
+Show short live progress messages without exposing raw model chain-of-thought.
+
+Appropriate messages include:
+
+Opretter servicesektionen
+Tilpasser mobilvisningen
+Gemmer komponenten i dit bibliotek
+Kontrollerer links og kontrast
+
+Do not expose private reasoning or raw system prompts.
+
+Existing protections
+
+The following must continue running:
+
+User rate limits.
+Image-generation limits.
+Website ownership validation.
+Tool-output Zod validation.
+Page and section ID validation.
+Large-change classification.
+Destructive confirmation.
+SVG sanitisation.
+Primitive allowlists.
+Node-count limit.
+Link validation.
+Deterministic self-check.
+
+Plan approval is not permission to bypass technical validation.
+
+Testing requirements
+
+Use the project’s existing testing infrastructure.
+
+Plan mode cannot mutate
+
+Test that Plan mode has no mutating tools.
+
+Verify that a plan request cannot change:
+
+builder_state.state
+builder_state.revision
+Pages.
+Sections.
+Navigation.
+Components.
+Assets.
+Brand guide.
+Plan persistence
+
+Test:
+
+Plan survives reload.
+Step order survives reload.
+Comments survive reload.
+Include/skip state survives reload.
+Selected page survives reload.
+Editing increments plan version.
+Editing clears approval.
+A build cannot execute an unapproved version.
+Plan history is capped safely.
+Large-change heuristic
+
+Test that the existing shared classifier triggers for:
+
+Page deletion.
+Brand-guide overwrite.
+Preset overwrite.
+Three removals.
+More than 12 mutations.
+More than 50% page removal.
+
+Verify the same function is used by direct Build mode and plan approval.
+
+Destructive approval
+
+Test:
+
+Exact page names appear before approval.
+Approved page deletions execute.
+An unlisted page deletion is rejected.
+Brand-guide overwrite requires explicit approval.
+Preset overwrite requires explicit approval.
+Editing the plan invalidates destructive approval.
+Scope enforcement
+
+Test:
+
+A step cannot edit another page.
+A step cannot remove an unapproved section.
+A step cannot exceed its mutation limit.
+A step cannot change navigation without permission.
+A step cannot update global styles without permission.
+A later step can target an output reference from a completed dependency.
+Unknown output references are rejected.
+Revision safety
+
+Test:
+
+Builder revision increments on normal autosave.
+Builder revision increments after each completed AI step.
+A stale plan cannot start.
+A manual edit between steps pauses the build.
+A concurrent autosave cannot silently overwrite an AI step.
+Two active builds cannot exist for one website.
+Reloading does not rerun a completed step.
+Rate limiting
+
+Test that:
+
+Starting one build consumes one route-level agent run.
+A 12-step internal build does not consume 12 public rate-limit units.
+Direct assistant requests remain rate-limited as before.
+Images
+
+Test:
+
+One build cannot generate more than three unique images.
+Reusing an existing image does not consume the budget.
+Reusing one generated image does not count twice.
+The remaining image budget is visible to step execution.
+Responsive validation
+
+Test components with:
+
+Fluid boxes requiring no overrides.
+Fixed-width boxes requiring mobile repair.
+Multi-column grids requiring responsive columns.
+Large headings requiring mobile sizing.
+Horizontal button groups requiring stacking.
+Unsafe absolute layouts requiring rejection.
+Empty tablet/mobile objects not falsely passing.
+
+Verify every saved AI component is either:
+
+Responsive-safe by inheritance.
+Explicitly responsive.
+Deterministically repaired.
+Custom-component library
+
+Test:
+
+AI reusable components receive meaningful names.
+AI reusable components receive descriptions.
+Components appear under the correct website’s library.
+Another website cannot access them.
+Components remain insertable.
+Legacy entries without descriptions still load.
+Stop and resume
+
+Test:
+
+Stop waits until the current step boundary.
+Completed work remains.
+Resume starts at the next incomplete step.
+Failed step retries once automatically.
+Second failure pauses.
+Retry with guidance preserves scope.
+Skipping a dependency blocks dependent steps.
+Undo
+
+Test:
+
+Undo restores the exact pre-build snapshot.
+Undo increments the revision.
+Undo does not erase newer work without explicit confirmation.
+Another website cannot invoke the undo route.
+Self-check
+
+Test:
+
+Step-level checks report repairs.
+Final full-site check reports fixes.
+Issues outside approved scope are reported but not mutated.
+Existing link, contrast and responsive checks remain active.
+End-to-end scenarios
+
+Run at minimum:
+
+Small direct edit
+Skift teksten på hero-knappen til “Book en samtale”
+
+Expected:
+
+Build mode.
+No plan required.
+One direct validated change.
+New reusable section
+Lav en ny anmeldelsessektion med kundeudtalelser, billede og diskret animation
+
+Expected:
+
+Plan can be used.
+Reusable custom component.
+Meaningful name and description.
+Valid tablet and mobile behaviour.
+Existing image and motion tools.
+Component appears in the website library.
+Multi-page website structure
+
+Request:
+
+New pages.
+Navigation changes.
+Multiple sections.
+New copy.
+Reusable components.
+Images.
+
+Expected:
+
+Information-architecture step first.
+Plan approval.
+Destructive items shown before approval.
+Sequential streamed execution.
+Scope enforcement per step.
+Existing image cap respected.
+Final summary.
+Mid-build manual edit
+
+Expected:
+
+Revision mismatch detected.
+Build pauses.
+No partial step mutation.
+Plan revalidation offered.
+Build verification
+
+Run the supported project commands, including:
+
+npm run check
+npm run test
+npm run build
+
+Also run the explicit SQL migration through the project’s normal migration process.
+
+Do not run:
+
+db:push
+
+Do not declare the task complete while there are:
+
+Type errors.
+Migration mismatches.
+Build failures.
+Broken SSE events.
+Duplicate build execution.
+Unprotected plan routes.
+Builder-state revision conflicts.
+Saved components without responsive validation.
+Definition of done
+
+The task is complete only when:
+
+The assistant has visible Danish Plan and Build modes.
+Build remains the default.
+Small edits continue working directly.
+The existing large-change heuristic recommends Plan.
+There is only one definition of a large change.
+Plan mode has no site-mutating tools.
+Plans persist across reloads.
+Customers can edit, reorder, add, delete, include and skip steps.
+Customers can comment on steps.
+Customers can select an existing page from a validated dropdown.
+Plan edits invalidate approval.
+Approved plan versions are immutable during execution.
+Destructive actions are explicitly confirmed at approval time.
+Plan approval does not create an unlimited mutation bypass.
+Every mutation is checked against its active step scope.
+Builder state has a monotonic revision.
+Every builder-state write increments the revision.
+A stale plan cannot execute silently.
+A website cannot have two active builds.
+Build execution uses the existing SSE infrastructure.
+A multi-step build counts as one public rate-limited run.
+The existing three-image limit applies to the complete build.
+Steps execute sequentially and atomically.
+Completed steps remain after stopping.
+Reloading does not duplicate completed steps.
+Failed steps retry once and then pause.
+Customers can retry, skip or stop.
+Dependency failures block dependent steps.
+AI-created reusable patterns appear in the website component library.
+AI-created components have meaningful names and descriptions.
+AI-created components use only data-only primitive trees.
+Responsive behaviour is validated per risky node.
+Safe responsive problems are repaired before saving.
+Unsafe responsive components are rejected.
+Images use existing generation tools and budgets.
+SVG illustrations remain sanitised.
+Motion uses supported animation properties.
+Copy follows the site language and brand voice.
+Multi-section plans begin with information architecture.
+Self-check fixes are reported.
+Self-check does not modify content outside approved scope.
+The final summary lists work, components, media and repairs.
+The entire build can be undone from its pre-build snapshot.
+Undo does not silently delete newer work.
+Existing ownership, validation, sanitisation and rate limits remain intact.
+Explicit SQL migrations are used.
+Type checking, tests and the production build pass.
+Out of scope
+
+Do not include:
+
+Runtime code generation.
+React-component generation.
+Arbitrary HTML or CSS.
+Arbitrary JavaScript.
+New primitive node types.
+Custom breakpoints.
+AI spend tracking.
+New cost budgets.
+Multi-user plan collaboration.
+Onboarding-assistant Plan mode.
+Visual before-and-after diffing.
+Builder canvas redesign.
+Component-editor redesign.
+Unlimited image generation.
+Automatic execution of unapproved plan revisions.

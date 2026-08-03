@@ -41,14 +41,16 @@ export async function getOrCreateProject(
   if (res.ok) {
     const project = await res.json();
     
-    // Update project settings to ensure Node 20.x is used
+    // Update project settings to ensure Node 20.x is used, and disable
+    // Vercel SSO deployment protection so visitors can reach the site at its
+    // deployment URLs (protection would redirect them to a Vercel login).
+    // Note: the v9 project PATCH only accepts top-level fields (sending a
+    // `projectSettings` object is rejected with 400).
     const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
       method: 'PATCH',
       body: JSON.stringify({
-        projectSettings: {
-          ...(project.projectSettings || {}),
-          nodeVersion: '20.x',
-        },
+        ssoProtection: null,
+        nodeVersion: '20.x',
       }),
     });
     
@@ -83,14 +85,14 @@ export async function getOrCreateProject(
   
   const project = await createRes.json();
   
-  // Update nodeVersion after creation
+  // Update nodeVersion after creation and disable SSO deployment protection
+  // so the published site is publicly reachable. Only top-level fields are
+  // accepted by the v9 project PATCH.
   const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
     method: 'PATCH',
     body: JSON.stringify({
-      projectSettings: {
-        ...(project.projectSettings || {}),
-        nodeVersion: '20.x',
-      },
+      ssoProtection: null,
+      nodeVersion: '20.x',
     }),
   });
   
@@ -218,6 +220,33 @@ export async function deployProject(
   };
 }
 
+// Resolve the stable production alias for a project (e.g. site-xxx.vercel.app).
+// Per-deployment hashed URLs can be SSO-protected by Vercel, so the URL we
+// store and hand to visitors must be a stable public alias domain instead.
+export async function getProductionAliasUrl(
+  projectId: string,
+  config: VercelConfig
+): Promise<string | null> {
+  try {
+    const res = await vercelFetch(`/v9/projects/${projectId}`, config);
+    if (!res.ok) return null;
+    const project = await res.json();
+    const aliases: string[] = project.targets?.production?.alias || [];
+    // Keep only vercel.app aliases and skip the team-scoped alias
+    // (site-...-<team>-projects-<hash>.vercel.app); the shortest remaining
+    // entry is the stable project alias.
+    const candidates = aliases.filter(
+      (a) => typeof a === 'string' && a.endsWith('.vercel.app') && !a.includes('-projects-')
+    );
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => a.length - b.length);
+    return `https://${candidates[0]}`;
+  } catch (err) {
+    console.error('Failed to resolve production alias:', err);
+    return null;
+  }
+}
+
 export async function waitForDeployment(
   deploymentId: string,
   config: VercelConfig,
@@ -278,21 +307,52 @@ export async function waitForDeployment(
   throw new Error('Deployment timed out');
 }
 
-export type DomainConfig = {
+// Ownership verification challenge returned by Vercel when a domain is
+// claimed by a different Vercel account (TXT record on _vercel.<apex>).
+export type VercelVerificationChallenge = {
+  type: string;
+  domain: string;
+  value: string;
+  reason: string;
+};
+
+// Project-domain status from Vercel. IMPORTANT: `verified` here means
+// *ownership* verification only (TXT challenge passed or not needed).
+// It does NOT mean DNS points at Vercel — that truth lives in
+// getDomainDnsConfig().misconfigured.
+export type ProjectDomainStatus = {
+  name: string;
+  apexName: string;
   verified: boolean;
-  verification?: { type: string; domain: string; value: string; reason: string }[];
-  configured?: boolean;
-  error?: { code: string; message: string };
+  verification?: VercelVerificationChallenge[];
+  redirect?: string | null;
+};
+
+// DNS configuration truth for a hostname, from GET /v6/domains/:domain/config.
+// `misconfigured === false` means Vercel sees correct DNS for this host.
+export type DomainDnsConfig = {
+  misconfigured: boolean;
+  configuredBy?: string | null;
+  recommendedIPv4?: { rank: number; value: string[] }[];
+  recommendedCNAME?: { rank: number; value: string }[];
+  aValues?: string[];
+  cnames?: string[];
 };
 
 export async function addCustomDomain(
   projectId: string,
   domain: string,
-  config: VercelConfig
-): Promise<{ success: boolean; domainId?: string; error?: string; domainConfig?: DomainConfig }> {
+  config: VercelConfig,
+  opts?: { redirect?: string; redirectStatusCode?: number }
+): Promise<{ success: boolean; domainId?: string; error?: string; errorCode?: string; domainStatus?: ProjectDomainStatus }> {
+  const body: Record<string, unknown> = { name: domain };
+  if (opts?.redirect) {
+    body.redirect = opts.redirect;
+    body.redirectStatusCode = opts.redirectStatusCode ?? 308;
+  }
   const res = await vercelFetch(`/v10/projects/${projectId}/domains`, config, {
     method: 'POST',
-    body: JSON.stringify({ name: domain }),
+    body: JSON.stringify(body),
   });
   
   const data = await res.json();
@@ -300,14 +360,15 @@ export async function addCustomDomain(
   if (!res.ok) {
     return { 
       success: false, 
-      error: data.error?.message || 'Failed to add domain' 
+      error: data.error?.message || 'Failed to add domain',
+      errorCode: data.error?.code,
     };
   }
   
   return { 
     success: true, 
     domainId: data.name,
-    domainConfig: data
+    domainStatus: data as ProjectDomainStatus,
   };
 }
 
@@ -331,25 +392,46 @@ export async function removeCustomDomain(
   return { success: true };
 }
 
-export async function getDomainConfig(
+// Fetch the project-domain (ownership/redirect) status. Returns
+// { notFound: true } when the domain is not attached to the project.
+export async function getProjectDomain(
   projectId: string,
   domain: string,
   config: VercelConfig
-): Promise<DomainConfig | null> {
+): Promise<{ ok: boolean; notFound?: boolean; status?: ProjectDomainStatus; error?: string }> {
   const res = await vercelFetch(`/v9/projects/${projectId}/domains/${domain}`, config);
-  
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    if (res.status === 404) return { ok: false, notFound: true };
+    return { ok: false, error: data.error?.message || `Failed to fetch domain (${res.status})` };
+  }
+
+  return { ok: true, status: data as ProjectDomainStatus };
+}
+
+// Fetch DNS truth for a hostname. This is the ONLY reliable source for
+// "is DNS pointing at Vercel" plus the exact records Vercel recommends.
+export async function getDomainDnsConfig(
+  domain: string,
+  config: VercelConfig
+): Promise<DomainDnsConfig | null> {
+  const res = await vercelFetch(`/v6/domains/${domain}/config`, config);
+
   if (!res.ok) {
     return null;
   }
-  
+
   return res.json();
 }
 
-export async function verifyDomainConfig(
+// Ask Vercel to re-check the ownership TXT challenge. The returned
+// `verified` refers to ownership ONLY — never treat it as "DNS configured".
+export async function verifyProjectDomain(
   projectId: string,
   domain: string,
   config: VercelConfig
-): Promise<{ success: boolean; configured: boolean; error?: string }> {
+): Promise<{ success: boolean; ownershipVerified: boolean; verification?: VercelVerificationChallenge[]; error?: string }> {
   const res = await vercelFetch(`/v9/projects/${projectId}/domains/${domain}/verify`, config, {
     method: 'POST',
   });
@@ -359,14 +441,16 @@ export async function verifyDomainConfig(
   if (!res.ok) {
     return {
       success: false,
-      configured: false,
+      ownershipVerified: false,
+      verification: data.error?.verification,
       error: data.error?.message || 'Failed to verify domain'
     };
   }
 
   return {
     success: true,
-    configured: data.verified === true
+    ownershipVerified: data.verified === true,
+    verification: data.verification,
   };
 }
 
@@ -434,7 +518,7 @@ export async function checkDomainAvailability(
     price = typeof priceResult.data.price === 'number' ? priceResult.data.price : parseFloat(priceResult.data.price);
     period = priceResult.data.period || 1;
     // Ensure price is a valid number
-    if (isNaN(price)) price = undefined;
+    if (price !== undefined && isNaN(price)) price = undefined;
   }
 
   // Get suggestions for alternative TLDs in parallel (faster than sequential)
@@ -460,7 +544,7 @@ export async function checkDomainAvailability(
           altPrice = typeof altPriceResult.data.price === 'number'
             ? altPriceResult.data.price
             : parseFloat(altPriceResult.data.price);
-          if (isNaN(altPrice)) altPrice = undefined;
+          if (altPrice !== undefined && isNaN(altPrice)) altPrice = undefined;
         }
         return { domain: altDomain, available: true, price: altPrice };
       }

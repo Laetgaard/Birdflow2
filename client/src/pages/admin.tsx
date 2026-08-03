@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PlatformCalendarTab } from "@/components/admin/PlatformCalendarTab";
 import {
   Table,
   TableBody,
@@ -924,7 +925,78 @@ function BillingTab({ subscriptions }: { subscriptions: AdminUserSubscription[] 
   );
 }
 
-function WebsitesTab({ websites }: { websites: AdminWebsiteWithOwner[] }) {
+/**
+ * Hands an improved onboarding site back to the customer for approval.
+ *
+ * The button is a convenience; the server checks that the caller is an
+ * admin, records which revision was reviewed and sends the customer an
+ * email (production only). Pressing it twice is harmless.
+ */
+function ReadyForReviewButton({
+  ownerId,
+  websiteId,
+  getAuthHeaders,
+}: {
+  ownerId: string;
+  websiteId: string;
+  getAuthHeaders: () => Record<string, string>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const mark = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/onboarding/${ownerId}/ready-for-review`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Kunne ikke markere som klar.");
+      setDone(true);
+      // Say plainly whether a mail actually went out: e-mail only sends in
+      // production, and a failed send must not look like a completed handover.
+      const mailNote = body.alreadyReady
+        ? ""
+        : body.emailSent
+          ? " Kunden har fået en e-mail."
+          : body.emailSkipped === "development"
+            ? " Ingen e-mail sendt (udviklingsmiljø)."
+            : " E-mailen kunne ikke sendes — sig det til kunden.";
+      toast.success(
+        (body.alreadyReady
+          ? "Kunden er allerede bedt om at godkende denne version."
+          : `Kunden er bedt om at godkende version ${body.reviewRevision ?? ""}.`.trim()) + mailNote
+      );
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={mark}
+      disabled={busy}
+      title="Marker den forbedrede hjemmeside som klar til kundens godkendelse"
+      data-testid={`button-ready-for-review-${websiteId}`}
+    >
+      <Eye className="h-4 w-4 mr-1" />
+      {done ? "Sendt til godkendelse" : "Klar til godkendelse"}
+    </Button>
+  );
+}
+
+function WebsitesTab({
+  websites,
+  getAuthHeaders,
+}: {
+  websites: AdminWebsiteWithOwner[];
+  getAuthHeaders: () => Record<string, string>;
+}) {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "published" | "draft">("all");
@@ -1027,6 +1099,13 @@ function WebsitesTab({ websites }: { websites: AdminWebsiteWithOwner[] }) {
                       <Pencil className="h-4 w-4 mr-1" />
                       Open builder
                     </Button>
+                    {website.status !== "published" && (
+                      <ReadyForReviewButton
+                        ownerId={website.ownerId}
+                        websiteId={website.id}
+                        getAuthHeaders={getAuthHeaders}
+                      />
+                    )}
                     {website.deploymentUrl && (
                       <Button
                         variant="ghost"
@@ -1550,6 +1629,9 @@ export default function AdminPage() {
             <TabsTrigger value="support" data-testid="tab-support">
               Support ({supportTickets?.length || 0})
             </TabsTrigger>
+            <TabsTrigger value="bookings" data-testid="tab-bookings">
+              Bookinger
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -1619,7 +1701,7 @@ export default function AdminPage() {
             {websitesLoading ? (
               <Skeleton className="h-[400px]" />
             ) : websites ? (
-              <WebsitesTab websites={websites} />
+              <WebsitesTab websites={websites} getAuthHeaders={getAuthHeaders} />
             ) : null}
           </TabsContent>
 
@@ -1645,6 +1727,14 @@ export default function AdminPage() {
                 isUpdating={updateTicketMutation.isPending}
               />
             ) : null}
+          </TabsContent>
+
+          {/* BirdFlows egen bookingkalender. Mountes først når fanen er valgt,
+              så admin-dashboardet ikke henter kalenderen ved hver visning. */}
+          <TabsContent value="bookings">
+            {activeTab === "bookings" && session?.access_token && (
+              <PlatformCalendarTab accessToken={session.access_token} />
+            )}
           </TabsContent>
         </Tabs>
       </div>

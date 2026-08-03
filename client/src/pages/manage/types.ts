@@ -62,8 +62,28 @@ export type Booking = {
   sendReminder?: boolean;
   price?: string;
   notes?: string;
-  status: 'pending' | 'confirmed' | 'cancelled';
+  // "completed" = the appointment was actually held. Set from the booking
+  // dialog; excluded from reminders and follow-ups.
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
   createdAt?: string;
+  // Which calendar the booking belongs to. Customer-site appointments are
+  // "customer_site"; BirdFlow's own onboarding meetings are
+  // "platform_onboarding" and carry the fields below.
+  context?: 'customer_site' | 'platform_onboarding';
+  customerUserId?: string | null;
+  customerWebsiteId?: string | null;
+  onboardingSessionId?: string | null;
+};
+
+/** Who a BirdFlow onboarding meeting is with, for the admin Bookinger tab. */
+export type PlatformMeetingLink = {
+  bookingId: string;
+  customerUserId: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerWebsiteId: string | null;
+  customerWebsiteName: string | null;
+  onboardingSessionId: string | null;
 };
 
 export type TeamMemberAvailabilityWindow = {
@@ -235,13 +255,19 @@ export type PaymentSettings = {
   id?: string;
   websiteId: string;
   stripeAccountId?: string | null;
-  stripeConnectStatus?: 'not_connected' | 'connected';
+  stripeConnectStatus?: 'not_connected' | 'pending' | 'connected';
   stripePublishableKey?: string | null;
   stripeSecretKey?: string | null;
   stripeWebhookSecret?: string | null;
   testMode: boolean;
   isConnected: boolean;
   connectedAt?: string | null;
+  // Live Stripe status from the server-side re-check (transient, not stored)
+  stripeDetailsSubmitted?: boolean | null;
+  stripeChargesEnabled?: boolean | null;
+  stripeRequirementsDue?: number | null;
+  stripeStatusCheckFailed?: boolean;
+  stripeAccountMissing?: boolean;
 };
 
 export type CarrierCredential = {
@@ -260,14 +286,28 @@ export type CarrierInfo = {
   requiredCredentials: { key: string; label: string; type: string }[];
 };
 
+// One DNS record the user must (or should) add at their DNS provider.
+// Always sourced from Vercel's API on the server, never invented locally.
+export type DnsRecord = {
+  type: string; // A | CNAME | TXT
+  name: string; // record host, e.g. "@", "www", "_vercel"
+  value: string;
+  purpose: 'routing' | 'ownership' | 'counterpart';
+  required: boolean;
+};
+
 export type CustomDomain = {
   id: string;
   domain: string;
+  // pending = waiting for the user's DNS changes; verifying = DNS is right,
+  // certificate/edge activation pending; active = actually serves the site.
   status: 'pending' | 'verifying' | 'active' | 'error';
   dnsType?: string;
   dnsName?: string;
   dnsValue?: string;
+  dnsRecords?: DnsRecord[] | null;
   errorMessage?: string;
+  verifiedAt?: string | null;
   createdAt: string;
 };
 

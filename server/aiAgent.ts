@@ -31,6 +31,12 @@ import {
    ───────────────────────────────────────────────────────────── */
 
 import { getOpenAI } from "./openaiClient";
+import {
+  DEFAULT_SITE_LANGUAGE,
+  LANGUAGE_NAME_EN,
+  copyLanguageInstruction,
+  type SiteLanguage,
+} from "@shared/siteLanguage";
 
 const MODEL = "gpt-5.1";
 export const MAX_STEPS = 12;
@@ -75,8 +81,8 @@ export type AgentOutcome =
 
 /* ─────────── prompt ─────────── */
 
-function buildSystemPrompt(): string {
-  return `You are Birdflow's website-building agent. You work on a real Danish website by CALLING TOOLS — you never output website JSON directly.
+function buildSystemPrompt(lang: SiteLanguage): string {
+  return `You are Birdflow's website-building agent. You work on a real, live website by CALLING TOOLS — you never output website JSON directly.
 
 ## How you work
 1. Start by orienting yourself: list_pages, then get_page on the page you will change, and get_brand_guide.
@@ -86,7 +92,8 @@ function buildSystemPrompt(): string {
 
 ## Rules
 - The brand guide is LAW: use only its colours and fonts, follow its spacing, radius, shadow and motion levels, and write all copy in its tone of voice.
-- ALL user-visible copy is Danish, specific and concrete. Never lorem ipsum, never placeholder text like "Din tekst her".
+- ${copyLanguageInstruction(lang)} Every word you write onto the site is idiomatic ${LANGUAGE_NAME_EN[lang]}, specific and concrete — never lorem ipsum, never placeholder text like "Din tekst her". This is the customer's chosen website language and it never changes mid-site.
+- You talk to the user in Danish (the builder interface is Danish), but the copy you put ON the site follows the rule above.
 - Prefer a standard section type when one fits. Valid types: ${componentTypes.join(", ")}.
 - When nothing fits, build one with create_custom_component out of primitive nodes. Always give tabletStyles and mobileStyles as well as base styles — the site must work on phones.
 - Allowed style keys on primitive nodes: ${PRIMITIVE_STYLE_KEYS.join(", ")}.
@@ -178,42 +185,53 @@ function summarizeForApproval(mutations: BuilderMutation[]): string[] {
 
 /* ─────────── the loop ─────────── */
 
-export async function runBuilderAgent(args: {
-  websiteId: string;
-  prompt: string;
-  state: BuilderStateData;
-  approvedLargeChanges?: boolean;
-  onEvent?: (event: AgentEvent) => void;
-}): Promise<AgentOutcome> {
-  const { websiteId, prompt, state, approvedLargeChanges = false } = args;
-  const emit = args.onEvent ?? (() => {});
+export type AgentLoopResult =
+  | { status: "finished"; summary: string; steps: number }
+  | { status: "needs_approval"; reason: string; steps: number }
+  | { status: "failed"; message: string; steps: number };
 
-  const tools = buildToolCatalogue();
+/**
+ * The tool-calling loop itself, with nothing decided for you.
+ *
+ * Extracted so Build mode can run the SAME loop per plan step — same
+ * self-correction on tool errors, same token ceiling, same approval stop —
+ * with a different prompt, a different tool registry and a context that is
+ * shared across steps (which is how the image budget stays per build). A
+ * second loop would be a second set of subtly different bugs.
+ */
+export async function runAgentLoop(args: {
+  tools: AgentTool[];
+  systemPrompt: string;
+  userMessage: string;
+  /** Mutated as tools run: applied mutations, notes, images. */
+  ctx: AgentContext;
+  emit?: (event: AgentEvent) => void;
+  maxSteps?: number;
+  firstStepLabel?: string;
+}): Promise<AgentLoopResult> {
+  const { tools, ctx } = args;
+  const emit = args.emit ?? (() => {});
+  const maxSteps = args.maxSteps ?? MAX_STEPS;
+
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const openAITools = toOpenAITools(tools);
 
-  const ctx: AgentContext = {
-    websiteId,
-    state: structuredClone(state),
-    applied: [],
-    notes: [],
-    createdImages: [],
-    imageCache: new Map(),
-    approvedLargeChanges,
-  };
-
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: buildSystemPrompt() },
-    { role: "user", content: `${buildStateSummary(ctx.state)}\n\nOpgave: ${prompt}` },
+    { role: "system", content: args.systemPrompt },
+    { role: "user", content: args.userMessage },
   ];
 
   let steps = 0;
   let totalCompletionTokens = 0;
   let finalSummary = "";
 
-  while (steps < MAX_STEPS) {
+  while (steps < maxSteps) {
     steps += 1;
-    emit({ type: "step", step: steps, label: steps === 1 ? "Læser hjemmesiden" : "Arbejder" });
+    emit({
+      type: "step",
+      step: steps,
+      label: steps === 1 ? (args.firstStepLabel ?? "Læser hjemmesiden") : "Arbejder",
+    });
 
     let completion: OpenAI.Chat.ChatCompletion;
     try {
@@ -294,20 +312,7 @@ export async function runBuilderAgent(args: {
       });
 
       if (!result.ok && "needsApproval" in result && result.needsApproval) {
-        const summary = summarizeForApproval(ctx.applied);
-        emit({
-          type: "approval_required",
-          reason: result.reason,
-          summary,
-          mutations: ctx.applied,
-        });
-        return {
-          status: "needs_approval",
-          reason: result.reason,
-          mutations: ctx.applied,
-          summary,
-          steps,
-        };
+        return { status: "needs_approval", reason: result.reason, steps };
       }
 
       if (tool?.name === "finish" && result.ok) {
@@ -325,12 +330,76 @@ export async function runBuilderAgent(args: {
     }
   }
 
-  if (steps >= MAX_STEPS && !finalSummary) {
-    ctx.notes.push(`Agenten nåede grænsen på ${MAX_STEPS} trin og stoppede her.`);
+  if (steps >= maxSteps && !finalSummary) {
+    ctx.notes.push(`Agenten nåede grænsen på ${maxSteps} trin og stoppede her.`);
     finalSummary = "Stoppede ved trin-grænsen.";
   }
 
-  emit({ type: "done", summary: finalSummary });
+  return { status: "finished", summary: finalSummary, steps };
+}
+
+/**
+ * The ordinary one-message assistant run: the whole catalogue, the whole
+ * site as context, one approval gate.
+ */
+export async function runBuilderAgent(args: {
+  websiteId: string;
+  prompt: string;
+  state: BuilderStateData;
+  approvedLargeChanges?: boolean;
+  /** The website's own language - all copy the agent writes follows it. */
+  language?: SiteLanguage;
+  onEvent?: (event: AgentEvent) => void;
+}): Promise<AgentOutcome> {
+  const {
+    websiteId,
+    prompt,
+    state,
+    approvedLargeChanges = false,
+    language = DEFAULT_SITE_LANGUAGE,
+  } = args;
+  const emit = args.onEvent ?? (() => {});
+
+  const ctx: AgentContext = {
+    websiteId,
+    state: structuredClone(state),
+    applied: [],
+    notes: [],
+    createdImages: [],
+    imageCache: new Map(),
+    approvedLargeChanges,
+  };
+
+  const outcome = await runAgentLoop({
+    tools: buildToolCatalogue(),
+    systemPrompt: buildSystemPrompt(language),
+    userMessage: `${buildStateSummary(ctx.state)}\n\nOpgave: ${prompt}`,
+    ctx,
+    emit,
+  });
+
+  if (outcome.status === "failed") {
+    return { status: "failed", message: outcome.message, steps: outcome.steps };
+  }
+
+  if (outcome.status === "needs_approval") {
+    const summary = summarizeForApproval(ctx.applied);
+    emit({
+      type: "approval_required",
+      reason: outcome.reason,
+      summary,
+      mutations: ctx.applied,
+    });
+    return {
+      status: "needs_approval",
+      reason: outcome.reason,
+      mutations: ctx.applied,
+      summary,
+      steps: outcome.steps,
+    };
+  }
+
+  emit({ type: "done", summary: outcome.summary });
 
   return {
     status: "completed",
@@ -338,7 +407,7 @@ export async function runBuilderAgent(args: {
     mutations: ctx.applied,
     notes: ctx.notes,
     createdImages: ctx.createdImages,
-    summary: finalSummary,
-    steps,
+    summary: outcome.summary,
+    steps: outcome.steps,
   };
 }

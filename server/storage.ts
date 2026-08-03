@@ -53,7 +53,7 @@ import {
   websiteInputs, type WebsiteInputs, type InsertWebsiteInputs,
   builderState, type BuilderState, type InsertBuilderState, type BuilderStateData,
   orders, type Order, type InsertOrder,
-  bookings, type Booking, type InsertBooking,
+  bookings, type Booking, type InsertBooking, type BookingContext,
   formSubmissions, type FormSubmission, type InsertFormSubmission,
   customers, type Customer, type InsertCustomer,
   products, type Product, type InsertProduct,
@@ -83,11 +83,11 @@ import {
   adminAuditLog, type AdminAuditEntry, type InsertAdminAuditEntry,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
-  type AdminUserWithStats, type AdminWebsiteWithOwner,
+  type AdminUserWithStats, type AdminWebsiteWithOwner, type PlatformMeetingLink,
   type AdminAnalyticsOverview, type AdminTrafficSource, type AdminDailyVisitors,
   type AdminUserSubscription
 } from "@shared/schema";
-import { sql, gte, lte, desc, asc, ne, count, countDistinct, and } from "drizzle-orm";
+import { sql, gte, lte, desc, asc, ne, count, countDistinct, and, or, inArray, isNull, isNotNull, lt } from "drizzle-orm";
 import { copenhagenDayRange, fillDailySeries } from "./analytics";
 
 // A bookable time slot; openSlotId is set when the time comes from an
@@ -100,6 +100,8 @@ export type AvailableSlot = {
 };
 
 import { timeToMinutes, intervalsOverlap, TIME_RE } from "./bookingOverlap";
+import { normalizeSiteLanguage } from "@shared/siteLanguage";
+import { SEEDED_TEMPLATE_TYPES, defaultEmailTemplates } from "./email/defaultTemplates";
 
 // Use Supabase database as primary storage
 // Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
@@ -215,6 +217,7 @@ export interface IStorage {
   
   // Website methods
   getWebsite(id: string): Promise<Website | undefined>;
+  /** Customer sites only - BirdFlow's platform calendar is never included. */
   getWebsitesByOwner(ownerId: string): Promise<Website[]>;
   getWebsiteByDeploymentUrl(url: string): Promise<Website | undefined>;
   createWebsite(website: InsertWebsite): Promise<Website>;
@@ -229,15 +232,32 @@ export interface IStorage {
   // Builder state methods
   getBuilderState(websiteId: string): Promise<BuilderState | undefined>;
   createBuilderState(websiteId: string, state?: BuilderStateData): Promise<BuilderState>;
-  updateBuilderState(websiteId: string, state: BuilderStateData): Promise<BuilderState | undefined>;
+  /**
+   * Persist builder state and bump its revision.
+   *
+   * Pass `expectedRevision` to make the write a compare-and-swap: the row is
+   * only updated when it still carries that revision, and `undefined` comes
+   * back when someone else wrote first. Callers that hold the state for a
+   * long time (the AI assistant, a multi-step build) MUST pass it — omitting
+   * it means "last write wins", which is only correct for the canvas's own
+   * immediate save.
+   */
+  updateBuilderState(
+    websiteId: string,
+    state: BuilderStateData,
+    expectedRevision?: number
+  ): Promise<BuilderState | undefined>;
   
   // Custom domain methods
   getCustomDomains(websiteId: string): Promise<CustomDomain[]>;
   getCustomDomainByDomain(domain: string): Promise<CustomDomain | undefined>;
   createCustomDomain(domain: InsertCustomDomain): Promise<CustomDomain>;
-  updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined>;
+  updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain> & { verifiedAt?: Date | null; lastCheckedAt?: Date | null }): Promise<CustomDomain | undefined>;
   deleteCustomDomain(domainId: string, websiteId: string): Promise<boolean>;
   getWebsiteByCustomDomain(domain: string): Promise<Website | undefined>;
+  getDomainsNeedingCheck(createdAfter: Date, limit: number): Promise<CustomDomain[]>;
+  claimDomainCheck(domainId: string, notCheckedSince: Date): Promise<boolean>;
+  setWebsiteDeploymentUrl(websiteId: string, deploymentUrl: string): Promise<void>;
   
   // Shipping methods
   getShippingMethods(websiteId: string): Promise<ShippingMethod[]>;
@@ -552,7 +572,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getWebsitesByOwner(ownerId: string): Promise<Website[]> {
-    return await db.select().from(websites).where(eq(websites.ownerId, ownerId));
+    // BirdFlow's own platform calendar is a websites row too. It must never
+    // surface in a user's site list, site count or plan limit, so it is
+    // filtered here rather than at each of the dozen call sites.
+    return await db
+      .select()
+      .from(websites)
+      .where(and(eq(websites.ownerId, ownerId), ne(websites.kind, "platform")));
   }
 
   async getWebsiteByDeploymentUrl(url: string): Promise<Website | undefined> {
@@ -627,11 +653,22 @@ export class DatabaseStorage implements IStorage {
     return result[0] as BuilderState;
   }
 
-  async updateBuilderState(websiteId: string, state: BuilderStateData): Promise<BuilderState | undefined> {
+  async updateBuilderState(
+    websiteId: string,
+    state: BuilderStateData,
+    expectedRevision?: number
+  ): Promise<BuilderState | undefined> {
+    const where =
+      typeof expectedRevision === "number"
+        ? and(eq(builderState.websiteId, websiteId), eq(builderState.revision, expectedRevision))
+        : eq(builderState.websiteId, websiteId);
+
     const result = await db
       .update(builderState)
-      .set({ state, updatedAt: new Date() } as any)
-      .where(eq(builderState.websiteId, websiteId))
+      // The bump happens in SQL, not in JS: two writers that both read
+      // revision 7 must not both write revision 8.
+      .set({ state, revision: sql`${builderState.revision} + 1`, updatedAt: new Date() } as any)
+      .where(where)
       .returning();
     return result[0] as BuilderState | undefined;
   }
@@ -670,8 +707,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Bookings methods
-  async getBookings(websiteId: string): Promise<Booking[]> {
-    return db.select().from(bookings).where(eq(bookings.websiteId, websiteId));
+  async getBookings(websiteId: string, context?: BookingContext): Promise<Booking[]> {
+    const where = context
+      ? and(eq(bookings.websiteId, websiteId), eq(bookings.context, context))
+      : eq(bookings.websiteId, websiteId);
+    return db.select().from(bookings).where(where);
   }
 
   async getBooking(bookingId: string, websiteId: string): Promise<Booking | undefined> {
@@ -931,6 +971,7 @@ export class DatabaseStorage implements IStorage {
                  max(${bookings.createdAt}) as last_booking_at
           from ${bookings}
           where ${bookings.websiteId} = ${customers.websiteId}
+            and ${bookings.context} = 'customer_site'
             and lower(${bookings.customerEmail}) = lower(${customers.email})
         ) b`,
         sql`true`
@@ -1109,7 +1150,7 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain>): Promise<CustomDomain | undefined> {
+  async updateCustomDomain(domainId: string, websiteId: string, data: Partial<InsertCustomDomain> & { verifiedAt?: Date | null; lastCheckedAt?: Date | null }): Promise<CustomDomain | undefined> {
     const result = await db
       .update(customDomains)
       .set({ ...data, updatedAt: new Date() } as any)
@@ -1127,11 +1168,57 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getWebsiteByCustomDomain(domain: string): Promise<Website | undefined> {
-    const customDomain = await this.getCustomDomainByDomain(domain);
+    const normalized = domain.toLowerCase();
+    let customDomain = await this.getCustomDomainByDomain(normalized);
+    if (!customDomain) {
+      // Cover the automatically attached www/apex twin so both hosts route
+      // to the website even though only one row is stored.
+      const twin = normalized.startsWith('www.') ? normalized.slice(4) : `www.${normalized}`;
+      customDomain = await this.getCustomDomainByDomain(twin);
+    }
     if (!customDomain || customDomain.status !== 'active') {
       return undefined;
     }
     return this.getWebsite(customDomain.websiteId);
+  }
+
+  // Domains the server-side verification loop should re-check: still waiting
+  // on DNS/activation, attached to a Vercel project, and not so old that the
+  // setup was clearly abandoned (manual "check now" keeps working forever).
+  async getDomainsNeedingCheck(createdAfter: Date, limit: number): Promise<CustomDomain[]> {
+    return db
+      .select()
+      .from(customDomains)
+      .where(and(
+        inArray(customDomains.status, ['pending', 'verifying']),
+        isNotNull(customDomains.vercelProjectId),
+        gte(customDomains.createdAt, createdAfter),
+      ))
+      .orderBy(sql`${customDomains.lastCheckedAt} ASC NULLS FIRST`)
+      .limit(limit);
+  }
+
+  // Soft claim so dev and prod (which share one database) don't hammer
+  // Vercel for the same domain at the same time.
+  async claimDomainCheck(domainId: string, notCheckedSince: Date): Promise<boolean> {
+    const result = await db
+      .update(customDomains)
+      .set({ lastCheckedAt: new Date() })
+      .where(and(
+        eq(customDomains.id, domainId),
+        or(isNull(customDomains.lastCheckedAt), lt(customDomains.lastCheckedAt, notCheckedSince)),
+      ))
+      .returning({ id: customDomains.id });
+    return result.length > 0;
+  }
+
+  // Internal setter (no owner check) used when a custom domain goes live or
+  // is deleted — callers have already authorized the operation.
+  async setWebsiteDeploymentUrl(websiteId: string, deploymentUrl: string): Promise<void> {
+    await db
+      .update(websites)
+      .set({ deploymentUrl, updatedAt: new Date() } as any)
+      .where(eq(websites.id, websiteId));
   }
 
   // Shipping methods
@@ -1698,14 +1785,18 @@ export class DatabaseStorage implements IStorage {
       recentOrderRows,
       live,
     ] = await Promise.all([
+      // A customer's overview only ever counts appointments made through
+      // their own site, never BirdFlow's internal onboarding meetings.
       db.select({ n: count() }).from(bookings).where(and(
         eq(bookings.websiteId, websiteId),
+        eq(bookings.context, 'customer_site'),
         gte(bookings.date, todayStart),
         sql`${bookings.date} < ${todayEnd}`,
         sql`${bookings.status} != 'cancelled'`
       )),
       db.select().from(bookings).where(and(
         eq(bookings.websiteId, websiteId),
+        eq(bookings.context, 'customer_site'),
         gte(bookings.date, todayStart),
         sql`${bookings.status} != 'cancelled'`
       )).orderBy(bookings.date).limit(5),
@@ -1827,47 +1918,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async ensureEmailTemplatesConfigured(websiteId: string): Promise<void> {
-    const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; bodyText: string; buttonText?: string }> = {
-      order_confirmation: {
-        subject: 'Order Confirmation - #{{orderId}}',
-        heading: 'Thank you for your order!',
-        bodyText: 'We have received your order and are processing it. You will receive another email when your order ships.',
-        buttonText: 'View Order',
-      },
-      booking_confirmation: {
-        subject: 'Booking Confirmation - {{serviceName}}',
-        heading: 'Your booking is confirmed!',
-        bodyText: 'We look forward to seeing you at your scheduled appointment.',
-        buttonText: 'View Booking',
-      },
-      booking_updated: {
-        subject: 'Booking Updated - {{serviceName}}',
-        heading: 'Your booking has been updated',
-        bodyText: 'The details of your booking have been modified. Please review the updated information below.',
-        buttonText: 'View Booking',
-      },
-      booking_cancelled: {
-        subject: 'Booking Cancelled - {{serviceName}}',
-        heading: 'Your booking has been cancelled',
-        bodyText: 'Your booking has been cancelled as requested. If you have any questions, please contact us.',
-      },
-      booking_reminder: {
-        subject: 'Reminder: {{serviceName}} on {{date}}',
-        heading: 'Your appointment is coming up',
-        bodyText: 'This is a friendly reminder about your upcoming appointment. We look forward to seeing you!',
-      },
-      booking_followup: {
-        subject: 'Thank you for your visit - {{serviceName}}',
-        heading: 'Thank you for visiting us!',
-        bodyText: 'We hope you enjoyed your appointment. We would love to see you again - book your next appointment anytime.',
-      },
-      website_published: {
-        subject: 'Your website is now live!',
-        heading: 'Congratulations! Your website is published',
-        bodyText: 'Your website is now live and accessible to the world. Click below to visit your site.',
-        buttonText: 'Visit Website',
-      },
-    };
+    // Seed in the website's own language. Existing rows are never touched, so
+    // a customer who edited a template keeps their wording.
+    const website = await this.getWebsite(websiteId);
+    const templates = defaultEmailTemplates(normalizeSiteLanguage(website?.language));
+    const DEFAULT_TEMPLATES: Record<string, { subject: string; heading: string; bodyText: string; buttonText?: string }> =
+      Object.fromEntries(
+        SEEDED_TEMPLATE_TYPES.filter(type => templates[type]).map(type => [type, templates[type]])
+      );
 
     const existingTemplates = await this.getEmailTemplates(websiteId);
     const existingTypes = new Set(existingTemplates.map(t => t.templateType));
@@ -2001,6 +2059,60 @@ export class DatabaseStorage implements IStorage {
       .where(eq(onboardingSessions.websiteId, websiteId));
   }
 
+  /**
+   * Everyone BirdFlow should notify about a new internal meeting. Derived from
+   * the admin flag rather than configuration, so a fresh environment needs no
+   * extra setup.
+   */
+  async getAdminNotificationEmails(): Promise<string[]> {
+    try {
+      const rows = await db
+        .select({ email: profiles.email })
+        .from(profiles)
+        .where(eq(profiles.isAdmin, true));
+      return rows.map(r => r.email).filter((email): email is string => !!email);
+    } catch (error: any) {
+      if (error.message?.includes("is_admin")) return [];
+      throw error;
+    }
+  }
+
+  /**
+   * Customer, website and onboarding session behind each of BirdFlow's own
+   * onboarding meetings, for the admin Bookinger tab's link-through.
+   */
+  async getPlatformMeetingLinks(platformWebsiteId: string): Promise<PlatformMeetingLink[]> {
+    const rows = await db
+      .select({
+        bookingId: bookings.id,
+        customerUserId: bookings.customerUserId,
+        customerWebsiteId: bookings.customerWebsiteId,
+        onboardingSessionId: bookings.onboardingSessionId,
+        customerName: profiles.fullName,
+        customerEmail: profiles.email,
+        customerWebsiteName: websites.name,
+      })
+      .from(bookings)
+      .leftJoin(profiles, eq(profiles.id, bookings.customerUserId))
+      .leftJoin(websites, eq(websites.id, bookings.customerWebsiteId))
+      .where(
+        and(
+          eq(bookings.websiteId, platformWebsiteId),
+          eq(bookings.context, "platform_onboarding")
+        )
+      );
+
+    return rows.map(row => ({
+      bookingId: row.bookingId,
+      customerUserId: row.customerUserId ?? null,
+      customerName: row.customerName ?? null,
+      customerEmail: row.customerEmail ?? null,
+      customerWebsiteId: row.customerWebsiteId ?? null,
+      customerWebsiteName: row.customerWebsiteName ?? null,
+      onboardingSessionId: row.onboardingSessionId ?? null,
+    }));
+  }
+
   // Admin methods
   async isUserAdmin(userId: string): Promise<boolean> {
     try {
@@ -2048,11 +2160,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAdminOverviewStats(): Promise<AdminOverviewStats> {
+    // Customer data only: BirdFlow's own platform calendar and the internal
+    // onboarding meetings on it are not customer activity and must not move
+    // these numbers.
     const [usersResult, websitesResult, ordersResult, bookingsResult] = await Promise.all([
       db.select({ count: count() }).from(profiles),
-      db.select().from(websites),
+      db.select().from(websites).where(ne(websites.kind, "platform")),
       db.select().from(orders),
-      db.select().from(bookings),
+      db.select().from(bookings).where(eq(bookings.context, "customer_site")),
     ]);
 
     const totalUsers = usersResult[0]?.count ?? 0;
@@ -2096,9 +2211,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(websites).where(gte(websites.createdAt, startDate)),
+      db.select().from(websites).where(and(gte(websites.createdAt, startDate), ne(websites.kind, "platform"))),
       db.select().from(orders).where(gte(orders.createdAt, startDate)),
-      db.select().from(bookings).where(gte(bookings.createdAt, startDate)),
+      db.select().from(bookings).where(and(gte(bookings.createdAt, startDate), eq(bookings.context, "customer_site"))),
     ]);
 
     // Helper to safely parse date (handles both Date objects and strings)
@@ -2165,9 +2280,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(websites),
+      db.select().from(websites).where(ne(websites.kind, "platform")),
       db.select().from(orders),
-      db.select().from(bookings),
+      db.select().from(bookings).where(eq(bookings.context, "customer_site")),
     ]);
 
     const totalSignups = allProfiles.length;
@@ -2214,9 +2329,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(websites),
+      db.select().from(websites).where(ne(websites.kind, "platform")),
       db.select().from(orders),
-      db.select().from(bookings),
+      db.select().from(bookings).where(eq(bookings.context, "customer_site")),
     ]);
 
     return allProfiles.map(profile => {
@@ -2253,7 +2368,7 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    const allWebsites = await db.select().from(websites);
+    const allWebsites = await db.select().from(websites).where(ne(websites.kind, "platform"));
 
     return allProfiles.map(profile => {
       const userWebsites = allWebsites.filter(w => w.ownerId === profile.id);
@@ -2288,9 +2403,9 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [allWebsites, allOrders, allBookings] = await Promise.all([
-      db.select().from(websites).orderBy(desc(websites.createdAt)),
+      db.select().from(websites).where(ne(websites.kind, "platform")).orderBy(desc(websites.createdAt)),
       db.select().from(orders),
-      db.select().from(bookings),
+      db.select().from(bookings).where(eq(bookings.context, "customer_site")),
     ]);
 
     const profileMap = new Map(allProfiles.map(p => [p.id, p]));
