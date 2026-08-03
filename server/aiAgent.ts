@@ -3,6 +3,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { BuilderStateData, BrandGuide } from "@shared/schema";
 import type { BuilderMutation } from "@shared/aiBuilderSchema";
 import { buildBrandContext } from "@shared/customComponents";
+import { buildBusinessContextPrompt } from "@shared/businessContext";
 import { PRIMITIVE_STYLE_KEYS } from "@shared/customComponents";
 import { componentTypes } from "@shared/aiBuilderSchema";
 import {
@@ -93,6 +94,7 @@ function buildSystemPrompt(lang: SiteLanguage): string {
 
 ## Rules
 - The brand guide is LAW: use only its colours and fonts, follow its spacing, radius, shadow and motion levels, and write all copy in its tone of voice.
+- The BUSINESS FACTS block is the only source of concrete claims. Never invent testimonials, reviews, ratings, prices, statistics, client counts, qualifications, memberships or treatment results — the server refuses copy with unbacked claims. Rephrase facts freely; use PROTECTED facts verbatim. With no facts, write claim-free copy or leave social-proof sections out.
 - ${copyLanguageInstruction(lang)} Every word you write onto the site is idiomatic ${LANGUAGE_NAME_EN[lang]}, specific and concrete — never lorem ipsum, never placeholder text like "Din tekst her". This is the customer's chosen website language and it never changes mid-site.
 - You talk to the user in Danish (the builder interface is Danish), but the copy you put ON the site follows the rule above.
 - Prefer a standard section type when one fits. Valid types: ${componentTypes.join(", ")}.
@@ -137,7 +139,9 @@ ${pages || "- ingen sider"}
 Aktiv side: ${state.activePage}
 Egne komponenter i biblioteket: ${library}
 
-${brand}`;
+${brand}
+
+${buildBusinessContextPrompt(state.businessContext)}`;
 }
 
 /* ─────────── tool plumbing ─────────── */

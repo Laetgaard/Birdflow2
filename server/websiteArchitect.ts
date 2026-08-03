@@ -1,5 +1,6 @@
 import type { WebsitePlan, DesignSystem, DesignTone } from "@shared/websitePlanSchema";
 import type { BuilderStateData, BuilderPage, DesignTokens } from "@shared/schema";
+import { buildBusinessContextPrompt, type BusinessContext } from "@shared/businessContext";
 import type { BuilderComponentData } from "@shared/componentRegistry";
 import { componentRegistry } from "@shared/componentRegistry";
 import { 
@@ -105,9 +106,15 @@ Return JSON matching the WebsitePlan schema with a complete designSystem object.
 - ALWAYS output the full designSystem object with all properties
 - Every design decision must be intentional and connected to the brand
 - Think about visual rhythm, hierarchy, and user journey
-- Create multiple pages when appropriate`;
+- Create multiple pages when appropriate
+
+## FACTS & CLAIMS POLICY (OVERRIDES SECTION PATTERNS)
+Any BUSINESS FACTS block in the request is the ONLY thing you know about the business. Plan testimonials, stats, pricing, trust-badges or case-studies sections ONLY when those facts contain the material for them. Never plan sections that would need invented reviews, numbers, credentials or results — a plan without a social-proof section is correct when no proof was supplied.`;
 
 const BUILD_SYSTEM_PROMPT = `You are an expert website builder creating Webflow/Framer quality websites. Given a website plan WITH A COMPLETE DESIGN SYSTEM, you apply that system consistently to every component.
+
+## FACTS & CLAIMS POLICY (OVERRIDES EVERYTHING ELSE)
+Any BUSINESS FACTS block in the request is the ONLY thing you know about the business. You may rephrase those facts, but NEVER invent testimonials, reviews, ratings, customer names, prices, statistics, client counts, years of experience, qualifications, certifications, memberships, treatment results or guarantees. If a section in the plan would need such content and the facts do not supply it, build the section without it or leave the section out. Unbacked claims are stripped from the result, so inventing them only produces holes.
 
 ## CRITICAL: USE THE DESIGN SYSTEM
 The plan includes a complete designSystem. You MUST apply it to every component:
@@ -199,13 +206,16 @@ export async function analyzeAndPlanWebsite(
   imageBase64?: string,
   sourceUrl?: string,
   /** The meter of the run that asked, when this is part of a larger run. */
-  meter?: SpendMeter
+  meter?: SpendMeter,
+  /** What the AI is allowed to know — and claim — about the business. */
+  businessContext?: BusinessContext | null
 ): Promise<ArchitectResult> {
   try {
+    const factsBlock = `\n\n${buildBusinessContextPrompt(businessContext)}`;
     const messages: any[] = [
       {
         role: "system",
-        content: ARCHITECT_SYSTEM_PROMPT,
+        content: ARCHITECT_SYSTEM_PROMPT + factsBlock,
       },
     ];
 
@@ -363,7 +373,12 @@ You MUST include:
   }
 }
 
-export async function buildFromPlan(plan: WebsitePlan, meter?: SpendMeter): Promise<BuildResult> {
+export async function buildFromPlan(
+  plan: WebsitePlan,
+  meter?: SpendMeter,
+  /** What the AI is allowed to know — and claim — about the business. */
+  businessContext?: BusinessContext | null
+): Promise<BuildResult> {
   try {
     const response = await meteredChat(
       "architectBuild",
@@ -371,7 +386,7 @@ export async function buildFromPlan(plan: WebsitePlan, meter?: SpendMeter): Prom
         messages: [
         {
           role: "system",
-          content: BUILD_SYSTEM_PROMPT,
+          content: BUILD_SYSTEM_PROMPT + `\n\n${buildBusinessContextPrompt(businessContext)}`,
         },
         {
           role: "user",

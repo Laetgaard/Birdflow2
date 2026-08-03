@@ -13,6 +13,7 @@
 
 import type { BuilderStateData, BrandGuide } from "@shared/schema";
 import { buildBrandContext, PRIMITIVE_STYLE_KEYS } from "@shared/customComponents";
+import { buildBusinessContextPrompt } from "@shared/businessContext";
 import { componentTypes } from "@shared/aiBuilderSchema";
 import {
   MAX_IMAGES_PER_BUILD,
@@ -113,6 +114,7 @@ Your turns are limited, and reading is not the work — the plan is. Two or thre
 - Every custom component must work on phones. Plan it that way; the build refuses layouts that force horizontal scroll on a phone.
 - The whole build shares a budget of ${MAX_IMAGES_PER_BUILD} AI-generated images. Do not plan more, and prefer photography that is already there.
 - The brand guide is law: colours, fonts, spacing, radius, shadow, motion level and tone of voice.
+- The BUSINESS FACTS block is the only source of concrete claims. Never plan sections that would need invented testimonials, prices, statistics, credentials or results — with no backing facts, plan the page without them.
 - Deleting a page, rewriting the brand guide or swapping the whole design theme cannot happen inside a plan — those still need the customer's explicit approval. If the request needs one, say so in notes instead of planning it.`;
 }
 
@@ -137,7 +139,9 @@ ${pages || "- ingen sider"}
 Aktiv side: ${state.activePage}
 Egne komponenter i biblioteket: ${library}
 
-${brand}`;
+${brand}
+
+${buildBusinessContextPrompt(state.businessContext)}`;
 }
 
 /* ─────────── entry point ─────────── */

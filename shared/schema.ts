@@ -3,7 +3,10 @@ import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean, uni
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { CustomComponentEntry, BrandGuide } from "./customComponents";
+import type { BusinessContext } from "./businessContext";
 import type { SiteLanguage } from "./siteLanguage";
+
+export type { BusinessContext, BusinessFact } from "./businessContext";
 
 export type { CustomComponentEntry, BrandGuide } from "./customComponents";
 
@@ -576,6 +579,13 @@ export type BuilderStateData = {
   customComponents?: CustomComponentEntry[];
   /** Per-website brand guide (drives the Brand tab and AI grounding). */
   brandGuide?: BrandGuide;
+  /**
+   * Persistent business facts ("Forretningsfakta"): what the AI is allowed
+   * to know — and therefore claim — about the business. Only the customer
+   * writes it (no AI mutation targets it); server/claimRules.ts refuses AI
+   * copy whose concrete claims it does not back.
+   */
+  businessContext?: BusinessContext;
 };
 
 // Builder state table

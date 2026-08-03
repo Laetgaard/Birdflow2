@@ -26,6 +26,8 @@ import {
 import { storage } from "./storage";
 import { finalizeBrandGuide } from "./designInterview";
 import { analyzeAndPlanWebsite, buildFromPlan } from "./websiteArchitect";
+import { deriveBusinessContext, type BusinessContext } from "@shared/businessContext";
+import { scrubStateClaims } from "./claimRules";
 import { processAIBuildRequest, applyMutations } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
@@ -437,6 +439,19 @@ async function runPipeline(
   const lang = normalizeSiteLanguage(input.language);
   const t = GEN_STRINGS[lang];
 
+  // What the AI is allowed to know — and therefore claim — about this
+  // business, straight from the customer's own onboarding answers. An
+  // existing (customer-edited) context always wins over re-derivation.
+  const businessContext = deriveBusinessContext({
+    businessName: input.business.name,
+    industry: input.business.industry,
+    description: input.business.description,
+    audience: input.plan?.analysis?.targetAudience,
+    conversionGoals: input.wishes.goals.map((g) => GOAL_LABELS[lang][g] ?? g),
+    language: lang,
+    existing: initialState.businessContext,
+  });
+
   // Building one website is one thing the customer asked for: the brand pass,
   // the plan, the build, the enhancement and its images share one ceiling.
   const spendMeter = createSpendMeter("siteGeneration");
@@ -493,9 +508,11 @@ async function runPipeline(
     guide.logoMediaId = input.logoMediaId;
   }
 
-  // Persist the guide immediately so it survives any later failure.
+  // Persist the guide (and the business context) immediately so both
+  // survive any later failure.
   const stateWithGuide = structuredClone(initialState);
   stateWithGuide.brandGuide = guide;
+  stateWithGuide.businessContext = businessContext;
   stateWithGuide.globalStyles = { ...stateWithGuide.globalStyles, ...brandGuideToDesignTokens(guide) };
   await storage.updateBuilderState(websiteId, stateWithGuide);
 
@@ -512,7 +529,8 @@ async function runPipeline(
         buildPlanPrompt(input),
         undefined,
         undefined,
-        spendMeter
+        spendMeter,
+        businessContext
       );
       if (planResult.success && planResult.plan) {
         plan = planResult.plan;
@@ -533,7 +551,7 @@ async function runPipeline(
   if (plan && !spendLimited) {
     setPhase(status, "build", t.phaseBuild);
     try {
-      const buildResult = await buildFromPlan(plan, spendMeter);
+      const buildResult = await buildFromPlan(plan, spendMeter, businessContext);
       if (buildResult.success && buildResult.builderState && buildResult.builderState.pages.length > 0) {
         builtState = buildResult.builderState;
       }
@@ -545,7 +563,7 @@ async function runPipeline(
 
   if (!builtState) {
     // AI plan/build failed → deterministic starter site, still branded.
-    await applyFallback(websiteId, input, guide, guideNotes, status, spendLimited);
+    await applyFallback(websiteId, input, guide, businessContext, guideNotes, status, spendLimited);
     return;
   }
 
@@ -553,6 +571,14 @@ async function runPipeline(
   builtState.brandGuide = guide;
   builtState.customComponents = stateWithGuide.customComponents ?? [];
   builtState.globalStyles = { ...builtState.globalStyles, ...brandGuideToDesignTokens(guide) };
+  builtState.businessContext = businessContext;
+
+  // Strip invented claims from the architect's output BEFORE the enhance
+  // pass reads it: the enhance validation treats what stands on the site
+  // as evidence, and machine output must not vouch for itself.
+  const baseScrub = scrubStateClaims(builtState, businessContext);
+  builtState = baseScrub.state;
+  const claimNotes: string[] = [...baseScrub.notes];
 
   // ---- Phase 4: signature enhancement (custom components + AI images) ----
   setPhase(status, "enhance", t.phaseEnhance);
@@ -582,8 +608,16 @@ async function runPipeline(
     imageNotes = spendLimited ? [t.spendLimitNote] : [t.enhanceFailed];
   }
 
-  // ---- Phase 5: self-check + save ----
+  // ---- Phase 5: claim scrub + self-check + save ----
+  // The enhance mutations were claim-gated individually, but applying an
+  // add_section expands registry defaults (sample testimonials, prices)
+  // AFTER validation — so the finished state gets one last scrub.
   setPhase(status, "check", t.phaseCheck);
+  const finalScrub = scrubStateClaims(finalState, businessContext);
+  finalState = finalScrub.state;
+  for (const n of finalScrub.notes) {
+    if (!claimNotes.includes(n)) claimNotes.push(n);
+  }
   const check = runSelfCheck(finalState);
   finalState = check.state;
   sanitizeBuilderStateCustomContent(finalState);
@@ -603,7 +637,7 @@ async function runPipeline(
   status.report = buildReport(
     enhanceMutations,
     finalState,
-    [...guideNotes, ...imageNotes, ...check.notes],
+    [...guideNotes, ...imageNotes, ...claimNotes, ...check.notes],
     [t.guideCreated, ...pageLines, ...imageCreated]
   );
   if (spendLimited) status.spendLimited = true;
@@ -618,6 +652,7 @@ async function applyFallback(
   websiteId: string,
   input: OnboardingGenInput,
   guide: BrandGuide,
+  businessContext: BusinessContext,
   guideNotes: string[],
   status: OnboardingGenStatus,
   spendLimited = false
@@ -625,6 +660,9 @@ async function applyFallback(
   const t = GEN_STRINGS[normalizeSiteLanguage(input.language)];
   setPhase(status, "check", t.phaseFallback);
   let state = buildFallbackState(input, guide);
+  state.businessContext = businessContext;
+  const claimScrub = scrubStateClaims(state, businessContext);
+  state = claimScrub.state;
   const check = runSelfCheck(state);
   state = check.state;
   sanitizeBuilderStateCustomContent(state);
@@ -642,6 +680,7 @@ async function applyFallback(
     [
       ...guideNotes,
       spendLimited ? t.spendLimitNote : t.fallbackNote,
+      ...claimScrub.notes,
       ...check.notes,
     ],
     [t.guideCreated, ...state.pages.map((p) => t.pageCreated(p.name, p.components.length))]

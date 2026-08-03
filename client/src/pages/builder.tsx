@@ -63,6 +63,7 @@ import {
   type PrimitiveNode,
 } from "@shared/customComponents";
 import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
+import BusinessFactsPanel from "@/components/builder/BusinessFactsPanel";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
@@ -1870,6 +1871,20 @@ export default function BuilderPage() {
                   websiteId={id || ''}
                   accessToken={session?.access_token || ''}
                 />
+              )}
+              {builderState && (
+                <>
+                  <Separator className="my-5" />
+                  <BusinessFactsPanel
+                    value={builderState.businessContext}
+                    onChange={(ctx) =>
+                      updateStateWithHistory(
+                        { ...builderState, businessContext: ctx },
+                        'Opdater forretningsfakta'
+                      )
+                    }
+                  />
+                </>
               )}
             </TabsContent>
           </Tabs>

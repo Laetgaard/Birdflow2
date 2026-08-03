@@ -56,6 +56,7 @@ import {
 import { applyMutations, assertSaneJsonDepth } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
+import { checkMutationClaims, scrubStateClaims } from "./claimRules";
 import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
@@ -5227,6 +5228,14 @@ export async function registerRoutes(
       const check = runSelfCheck(newState);
       newState = check.state;
       sanitizeBuilderStateCustomContent(newState);
+      // Final deterministic claims guard before anything is persisted.
+      // Tool-level gates already judged each mutation, but materialization
+      // (registry defaults, self-check rewrites) happens after them — so the
+      // finished state is judged once more. Evidence = business facts + the
+      // site as it stood BEFORE the run: what already stood survives, what
+      // the run invented does not.
+      const claimScrub = scrubStateClaims(newState, newState.businessContext, currentState);
+      newState = claimScrub.state;
       // An agent run takes minutes; the canvas autosaves every two seconds.
       // The run started from the state read at `builderData.revision`, so
       // writing it back unconditionally would undo everything the customer
@@ -5254,7 +5263,7 @@ export async function registerRoutes(
       const report = buildReport(
         outcome.mutations,
         newState,
-        [...outcome.notes, ...check.notes],
+        [...outcome.notes, ...check.notes, ...claimScrub.notes],
         outcome.createdImages
       );
 
@@ -5300,6 +5309,19 @@ export async function registerRoutes(
       }
 
       const currentState = builderData.state as BuilderStateData;
+
+      // Invented-claims gate for replayed mutations. The agent run that
+      // proposed them was gated when it ran, but this endpoint persists
+      // them against TODAY's state — so they are judged against today's
+      // business facts too, not waved through on age.
+      const claimErrors = validatedMutations.flatMap((m) =>
+        checkMutationClaims(m as Record<string, any>, currentState).map((f) => f.message)
+      );
+      if (claimErrors.length > 0) {
+        return res.status(422).json({
+          message: Array.from(new Set(claimErrors)).join(" "),
+        });
+      }
 
       // Generate any "ai://" images and swap markers for hosted URLs
       const resolved = await resolveAiImageMarkers(
@@ -5657,11 +5679,13 @@ export async function registerRoutes(
       // Read first: the build replaces the whole site, so it must not land
       // on top of edits made while the plan was being executed.
       const existingBuilderState = await storage.getBuilderState(req.params.id);
+      const existingState = existingBuilderState?.state as BuilderStateData | undefined;
 
       const { buildFromPlan } = await import("./websiteArchitect");
       const result = await buildFromPlan(
         plan,
-        runMeterFor("architectBuild", `architect:${req.params.id}`)
+        runMeterFor("architectBuild", `architect:${req.params.id}`),
+        existingState?.businessContext
       );
 
       if (!result.success || !result.builderState) {
@@ -5669,6 +5693,15 @@ export async function registerRoutes(
           message: result.error || "Failed to build website from plan",
         });
       }
+
+      // A rebuild replaces the pages, not what the customer told us about
+      // their business: the context survives, and the fresh machine output
+      // is scrubbed against it (it must not vouch for itself as evidence).
+      if (existingState?.businessContext) {
+        result.builderState.businessContext = existingState.businessContext;
+      }
+      const claimScrub = scrubStateClaims(result.builderState, existingState?.businessContext);
+      result.builderState = claimScrub.state;
 
       // Deterministic self-check on the freshly built site
       const check = runSelfCheck(result.builderState);
@@ -5693,7 +5726,7 @@ export async function registerRoutes(
       const report = buildReport(
         [],
         newState,
-        check.notes,
+        [...claimScrub.notes, ...check.notes],
         newState.pages.map((p: any) => `Side "${p.name}" bygget med ${p.components.length} sektioner.`)
       );
 

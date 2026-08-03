@@ -9,6 +9,7 @@ import { runMeterFor, releaseRunMeter, type SpendMeter } from "./aiSpend";
 import { proposePalettes, proposeFontPairs } from "./designInterview";
 import { readObjectImageAsDataUrl, generateLogo } from "./aiImages";
 import { analyzeAndPlanWebsite } from "./websiteArchitect";
+import { deriveBusinessContext } from "@shared/businessContext";
 import type { WebsitePlan } from "@shared/websitePlanSchema";
 import {
   startOnboardingGeneration,
@@ -581,7 +582,18 @@ export function buildOnboardingTools(): OnboardingTool[] {
         )
           .filter(Boolean)
           .join("\n");
-        const result = await analyzeAndPlanWebsite(prompt, undefined, undefined, ctx.spendMeter);
+        const result = await analyzeAndPlanWebsite(
+          prompt,
+          undefined,
+          undefined,
+          ctx.spendMeter,
+          deriveBusinessContext({
+            businessName: a.businessName,
+            industry: a.industry,
+            description: a.description,
+            language: ctx.lang,
+          })
+        );
         if (!result.success || !result.plan) {
           return { ok: false, error: result.error ?? say(ctx).planCouldNotBeMade };
         }

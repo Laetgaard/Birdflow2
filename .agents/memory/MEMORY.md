@@ -21,3 +21,4 @@
 - [Design tokens](design-tokens.md) — publisher resolves at generation time (resolve before sanitising), sanitiser must allow whole-value refs, migrate fonts via the approved-font resolver, enforce at the mutation choke point.
 - [Builder CAS writes](builder-cas-writes.md) — guarded saves pass the read revision, never retry; every save response must return its new revision and clients must adopt it, or autosave 409s.
 - [Preview vs published parity](renderer-parity.md) — compare by rendering both sides from registry defaults, reasoned exceptions only; escape every generated literal and compile the emitted project.
+- [Invented-claims gate](invented-claims-gate.md) — mutations judge against facts+site copy, whole-state scrubs against facts only; forbidden ≠ evidence; scrub again after registry defaults.

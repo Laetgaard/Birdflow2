@@ -709,7 +709,8 @@ export function buildToolCatalogue(): AgentTool[] {
           prompt,
           imageBase64,
           sourceUrl,
-          ctx.spendMeter
+          ctx.spendMeter,
+          ctx.state.businessContext
         );
         if (!result.success || !result.plan) {
           return { ok: false, error: result.error ?? "Kunne ikke lave en plan" };

@@ -34,7 +34,9 @@ import {
   type CustomComponentEntry,
 } from "@shared/customComponents";
 
+import { buildBusinessContextPrompt } from "@shared/businessContext";
 import { meteredChat } from "./aiCall";
+import { checkMutationClaims, scrubGeneratedComponent } from "./claimRules";
 import type { SpendMeter } from "./aiSpend";
 
 const VALID_ACTIONS = [
@@ -60,6 +62,15 @@ const VALID_ACTIONS = [
 const BASE_SYSTEM_PROMPT = `You are an elite AI website architect and web designer with 15+ years of professional UI/UX expertise. You think like a $200/hour design consultant who obsesses over conversion rates, visual polish, and user psychology. You create stunning, conversion-focused, well-structured websites using structured JSON mutations.
 
 All generated content MUST be in Danish by default unless the user specifically requests another language. You respond with explanations in Danish.
+
+## FACTS & CLAIMS POLICY (OVERRIDES EVERYTHING ELSE IN THIS PROMPT)
+The BUSINESS FACTS block in the context is the ONLY thing you know about this business. You may rephrase those facts freely, but you must NEVER invent:
+- testimonials, reviews, ratings, review counts or customer names
+- prices or discounts
+- statistics, client counts, percentages or years of experience
+- qualifications, certifications, authorisations or memberships
+- treatment results, outcome promises or guarantees
+If a fact is not supplied, write persuasive copy WITHOUT concrete claims — or leave the section out entirely. A page with no social-proof section is correct; a page with an invented one is broken. Facts marked PROTECTED must be used verbatim, never paraphrased. The server rejects mutations containing unbacked claims, so inventing them only wastes the run.
 
 ## YOUR DESIGN PHILOSOPHY
 1. **Think in SECTIONS, not components** - Design pages as a collection of purpose-driven sections
@@ -132,9 +143,10 @@ All generated content MUST be in Danish by default unless the user specifically 
   - DÅRLIG: "Vi tilbyder professionelle webdesign-løsninger til din virksomhed" (too long, feature-focused)
 
 ### Subheadlines (H2/Supporting)
-- Support the headline with SPECIFICS: numbers, timeframes, concrete outcomes
+- Support the headline with substance: who it is for, what it solves, what happens next
 - 12-20 words that expand on the headline's promise
-- Example: "Over 2.000 danske virksomheder bruger vores platform til at øge deres online salg med op til 40%"
+- Use numbers ONLY when the business facts supply them; otherwise stay concrete without figures
+- Example: "Samtaleterapi for voksne og unge — trygge rammer, uden ventelister og lange forløb uden retning"
 
 ### Call-to-Action (CTA) Buttons
 - Use SPECIFIC action verbs - tell users exactly what happens when they click
@@ -145,11 +157,9 @@ All generated content MUST be in Danish by default unless the user specifically 
 - Maximum 2 CTAs per section. One primary, one secondary.
 
 ### Social Proof & Testimonials
-- Use SPECIFIC numbers: "4.8/5 baseret på 347 anmeldelser" not "Mange glade kunder"
-- Real-sounding Danish names with job titles: "Maria Jensen, Indehaver af Café Norden" not "Kunde A"
-- Diverse testimonials: mix genders, industries, company sizes
-- Include concrete results: "Vores omsætning steg 65% på 3 måneder" not "Godt produkt"
-- Always include at least 3 testimonials - one is not believable, two looks limited
+- Social proof comes EXCLUSIVELY from the business facts: only quote testimonials, ratings, review counts and results the customer has supplied
+- If the facts contain no testimonials or numbers, OMIT social-proof sections entirely — never pad with invented names, ratings or outcomes
+- When real testimonials exist, reproduce their content faithfully (a rephrased quote is a fabricated quote) and attribute them exactly as supplied
 
 ### Feature Descriptions
 - Follow the **Benefit → Feature → How** pattern:
@@ -173,17 +183,18 @@ All generated content MUST be in Danish by default unless the user specifically 
   1. Clear value proposition headline (what + for whom + benefit)
   2. Supporting subheadline with specifics
   3. Primary CTA button (high contrast, action-oriented text)
-  4. Trust signal (e.g., "Brugt af 2.000+ virksomheder" or star rating)
+  4. Trust signal ONLY if the business facts back one (e.g. a real membership or client count); otherwise skip it
   5. Optional: hero image or illustration that supports the message
 - Users decide in 3-5 seconds whether to stay. The hero must answer: "What is this? Is it for me? What do I do next?"
 
 ### AIDA Framework (structure every landing page this way)
 1. **Attention** (Hero): Bold headline, striking visuals, immediate value proposition
 2. **Interest** (Features/Benefits): Expand on the promise, show how it works, address pain points
-3. **Desire** (Social Proof + Results): Testimonials, case studies, stats, before/after - make them WANT it
+3. **Desire** (Social Proof + Results): Testimonials, case studies, stats - but ONLY those the business facts supply; with none, build desire through vivid benefit copy instead
 4. **Action** (CTA): Clear, easy next step with reduced friction. Repeat CTA after every major section.
 
 ### Social Proof Placement Strategy
+- (Applies only to social proof that exists in the business facts)
 - Place social proof AFTER every major decision point:
   - After hero (quick trust: logos, rating, customer count)
   - After features (detailed testimonials proving the features work)
@@ -193,7 +204,7 @@ All generated content MUST be in Danish by default unless the user specifically 
 ### Friction Reduction
 - Minimal form fields: name + email + one relevant field maximum for initial contact
 - Clear, transparent pricing - hidden costs kill conversions
-- Trust signals near every CTA: "Ingen kreditkort påkrævet", "30 dages pengene-tilbage-garanti", "Gratis prøveperiode"
+- Trust signals near every CTA - but only ones the business facts support; never invent guarantees or free-trial promises
 - FAQ section to pre-answer objections before the user leaves
 - Progress indicators for multi-step processes
 
@@ -206,6 +217,8 @@ All generated content MUST be in Danish by default unless the user specifically 
 ---
 
 ## INDUSTRY-SPECIFIC DESIGN EXPERTISE
+
+NOTE: The sections below suggest LAYOUT and TONE. Where they mention stats, testimonials, certifications, guarantees or specific figures, that content still has to come from the business facts — with none supplied, skip those sections rather than invent numbers (FACTS & CLAIMS POLICY above always wins).
 
 ### Restaurant / Café
 - **Preset**: modern or playful
@@ -294,12 +307,12 @@ All generated content MUST be in Danish by default unless the user specifically 
 
 1. **NEVER use placeholder text** - No "Lorem ipsum", no "Tekst her", no "[Indsæt navn]". Always write realistic, business-appropriate Danish content.
 2. **Image URLs must be real Unsplash URLs** - Use format: https://images.unsplash.com/photo-[ID]?w=1200&h=800&fit=crop for proper sizing. Choose images relevant to the business type.
-3. **Minimum content depth** - Each features section: minimum 3 items (ideally 4-6). Each testimonials section: minimum 3 testimonials. Pricing: 3 tiers. FAQ: minimum 4 questions.
+3. **Minimum content depth** - Each features section: minimum 3 items (ideally 4-6). FAQ: minimum 4 questions. Testimonials/pricing sections: only with backing facts, and then show ALL supplied entries rather than inventing extras to fill a layout.
 4. **Typography consistency** - Do NOT mix serif and sans-serif fonts without clear purpose. Headings and body must feel like they belong to the same design system.
 5. **Color contrast compliance** - All text MUST pass WCAG AA contrast ratio (4.5:1 for normal text). Dark text on light bg: minimum #374151. Light text on dark bg: minimum #e5e7eb.
 6. **Button affordance** - Buttons must look clickable: sufficient padding (12px 24px minimum), clear color contrast against background, hover state implied by solid/gradient styles.
 7. **Danish content by default** - All text content, button labels, section titles, testimonial names, FAQ questions - everything in Danish unless the user explicitly requests otherwise.
-8. **Realistic testimonial names** - Use common Danish names: Lars Nielsen, Mette Andersen, Thomas Pedersen, Camilla Sørensen, Mikkel Hansen, etc. Include realistic job titles and company names.
+8. **No invented people** - Testimonial names, job titles and quotes may ONLY come from the business facts. Never generate plausible-sounding Danish names as customers.
 9. **Consistent icon usage** - Use Lucide icon names that match the feature: "zap" for speed, "shield" for security, "clock" for time-saving, "trending-up" for growth, "heart" for care, "check-circle" for reliability.
 
 ---
@@ -1065,7 +1078,20 @@ function expandHighLevelMutations(
         sectionMutation.position,
         currentState?.globalStyles
       );
-      expandedMutations.push(...componentMutations);
+      // Registry defaults materialize AFTER validateMutation ran on the
+      // high-level add_section, so sample quotes/numbers in the blueprint
+      // would ship unchecked. Scrub each materialized component against the
+      // live site's evidence; fully-unbacked social proof is not added.
+      for (const cm of componentMutations) {
+        if (!currentState || (cm as any).action !== 'add_component' || !(cm as any).component) {
+          expandedMutations.push(cm);
+          continue;
+        }
+        const { component, keep } = scrubGeneratedComponent((cm as any).component, currentState);
+        if (!keep) continue;
+        (cm as any).component = component;
+        expandedMutations.push(cm);
+      }
     } else if (mutation.action === 'apply_preset') {
       const presetMutation = mutation as {
         action: 'apply_preset';
@@ -1131,6 +1157,7 @@ function getCurrentStateContext(state: BuilderStateData): string {
 - Shared chrome: ${chrome.length ? chrome.join(' + ') + ' (stored once, drawn on every page that has not opted out)' : 'none — each page has its own header/footer sections'}
 - Global styles: ${JSON.stringify(state.globalStyles)}
 - Brand guide:\n${state.brandGuide ? buildBrandContext(state.brandGuide) : 'none defined yet — follow the user request and general design principles'}
+- Business facts:\n${buildBusinessContextPrompt(state.businessContext)}
 - Component library ("Mine komponenter"): ${library.length > 0 ? JSON.stringify(library) : 'empty'}
 - Page details: ${JSON.stringify(pages, null, 2)}`;
 }
@@ -1222,105 +1249,28 @@ Generate unique component IDs using: componenttype-${Date.now()}`
   }
 }
 
-function validateMutationsInternal(mutations: any[], initialState: BuilderStateData): string[] {
+export function validateMutationsInternal(mutations: any[], initialState: BuilderStateData): string[] {
   const errors: string[] = [];
   let currentState = structuredClone(initialState);
   
   for (let i = 0; i < mutations.length; i++) {
     const mutation = mutations[i];
-    const action = mutation?.action;
     
-    if (action === 'add_component') {
-      const componentType = mutation.component?.type;
-      if (componentType && !componentTypes.includes(componentType)) {
-        errors.push(`Step ${i + 1}: Unknown component type "${componentType}"`);
-        continue;
-      }
-      if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      }
+    // EVERY mutation — content writes included — goes through the same
+    // validator as the agent and /ai/apply paths. The invented-claims gate
+    // lives at the end of validateMutation, so a subset-of-actions shortcut
+    // here would be a bypass for the one-shot builder and the onboarding
+    // enhancement pass. Structural checks are identical (validateMutation
+    // is a superset of what this loop used to duplicate inline).
+    const verdict = validateMutation(mutation, currentState);
+    if (!verdict.valid) {
+      errors.push(`Step ${i + 1}: ${verdict.error}`);
+      continue;
     }
     
-    if (['update_component', 'remove_component', 'move_component', 'duplicate_component'].includes(action)) {
-      const page = currentState.pages.find(p => p.id === mutation.pageId);
-      if (!page) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      } else if (mutation.componentId && !page.components.some(c => c.id === mutation.componentId)) {
-        errors.push(`Step ${i + 1}: Component "${mutation.componentId}" not found`);
-        continue;
-      }
-    }
-    
-    if (['remove_page', 'update_page'].includes(action)) {
-      if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      }
-    }
-
-    if (['reorder_pages', 'update_navigation', 'update_site_chrome'].includes(action)) {
-      const verdict = validateMutation(mutation, currentState);
-      if (!verdict.valid) {
-        errors.push(`Step ${i + 1}: ${verdict.error}`);
-        continue;
-      }
-    }
-    
-    if (action === 'add_custom_component') {
-      if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      }
-      const tree = measureAiTree(mutation.tree);
-      if (tree.nodes === 0) {
-        errors.push(`Step ${i + 1}: Custom component tree is empty or invalid`);
-        continue;
-      }
-      if (tree.nodes > MAX_CUSTOM_TREE_NODES) {
-        errors.push(`Step ${i + 1}: Custom component tree exceeds ${MAX_CUSTOM_TREE_NODES} nodes`);
-        continue;
-      }
-      if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
-        errors.push(`Step ${i + 1}: Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels`);
-        continue;
-      }
-    }
-    
-    if (action === 'update_custom_component') {
-      const page = currentState.pages.find(p => p.id === mutation.pageId);
-      if (!page) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      }
-      const component = page.components.find(c => c.id === mutation.componentId);
-      if (!component) {
-        errors.push(`Step ${i + 1}: Component "${mutation.componentId}" not found`);
-        continue;
-      }
-      if (component.type !== 'custom') {
-        errors.push(`Step ${i + 1}: Component "${mutation.componentId}" is not a custom component — use update_component instead`);
-        continue;
-      }
-      if (mutation.tree) {
-        const tree = measureAiTree(mutation.tree);
-        if (tree.nodes === 0) {
-          errors.push(`Step ${i + 1}: Custom component tree is empty or invalid`);
-          continue;
-        }
-        if (tree.nodes > MAX_CUSTOM_TREE_NODES) {
-          errors.push(`Step ${i + 1}: Custom component tree exceeds ${MAX_CUSTOM_TREE_NODES} nodes`);
-          continue;
-        }
-        if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
-          errors.push(`Step ${i + 1}: Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels`);
-          continue;
-        }
-      }
-    }
-    
-    // Simulate applying this mutation so subsequent steps see the updated state
+    // Simulate applying this mutation so subsequent steps see the updated
+    // state — later mutations may legitimately echo copy an earlier valid
+    // mutation just introduced.
     try {
       currentState = simulateMutation(currentState, mutation);
     } catch (e) {
@@ -2063,7 +2013,17 @@ export function validateMutation(
       }
     }
   }
-  
+
+  // Invented-claims gate (server-side, deterministic — the prompt asks,
+  // this refuses). Copy the mutation writes may only contain testimonials,
+  // prices, statistics, qualifications, credentials or treatment results
+  // that the customer supplied (business facts) or that already stand on
+  // the site. Runs LAST so structural errors keep their specific messages.
+  const claimFindings = checkMutationClaims(mutation, state);
+  if (claimFindings.length > 0) {
+    return { valid: false, error: claimFindings.map((f) => f.message).join(' ') };
+  }
+
   return { valid: true };
 }
 
