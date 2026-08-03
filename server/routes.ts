@@ -1,4 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { runMeterFor } from "./aiSpend";
+import { isSpendLimitError } from "./aiCall";
+import { respondSpendLimit } from "./spendLimitResponse";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
@@ -353,6 +356,7 @@ async function getOrCreateProfile(userId: string, authUser: any): Promise<{ prof
     return { profile: null, error: "Kunne ikke oprette brugerprofil. Prøv at logge ud og ind igen." };
   }
 }
+
 
 export async function registerRoutes(
   httpServer: Server,
@@ -762,6 +766,18 @@ export async function registerRoutes(
         language: agentSite ? normalizeSiteLanguage(agentSite.language) : undefined,
         onEvent: send,
       });
+
+      if (outcome.status === "spend_limit") {
+        // A cost stop, not an outage: say so, and do not invite a retry that
+        // cannot succeed.
+        send({
+          type: "error",
+          message: outcome.message ?? "Samtalen nåede sit omkostningsloft.",
+          reason: "spend_limit",
+          canRetry: false,
+        });
+        return res.end();
+      }
 
       if (outcome.status === "failed") {
         send({ type: "error", message: outcome.message ?? "Agenten fejlede" });
@@ -5248,7 +5264,14 @@ export async function registerRoutes(
       const currentState = builderData.state as BuilderStateData;
 
       // Generate any "ai://" images and swap markers for hosted URLs
-      const resolved = await resolveAiImageMarkers(req.params.id, validatedMutations, currentState.brandGuide);
+      const resolved = await resolveAiImageMarkers(
+        req.params.id,
+        validatedMutations,
+        currentState.brandGuide,
+        // One image budget per editing session for this website. Per request
+        // it would refill on every save, which is no budget at all.
+        runMeterFor("image", `mutations:${req.params.id}`, { ttlMs: 60 * 60 * 1000 })
+      );
 
       let newState = applyMutations(currentState, resolved.mutations);
 
@@ -5273,6 +5296,7 @@ export async function registerRoutes(
         report,
       });
     } catch (error: any) {
+      if (isSpendLimitError(error)) return respondSpendLimit(res, error);
       console.error("AI Apply error:", error);
       res.status(500).json({ message: error.message });
     }
@@ -5348,13 +5372,28 @@ export async function registerRoutes(
       const interviewWebsite = await storage.getWebsite(req.params.id);
       const interviewLanguage = normalizeSiteLanguage(interviewWebsite?.language);
 
+      // Palettes, fonts and the finalize pass are three requests but one
+      // interview, so they share one ceiling.
+      const interviewMeter = runMeterFor("designInterview", `interview:${req.params.id}`);
+
       if (body.step === "palettes") {
-        const palettes = await proposePalettes(body.feeling, currentState, interviewLanguage);
+        const palettes = await proposePalettes(
+          body.feeling,
+          currentState,
+          interviewLanguage,
+          interviewMeter
+        );
         return res.json({ success: true, palettes });
       }
 
       if (body.step === "typography") {
-        const fontPairs = await proposeFontPairs(body.feeling, body.palette, currentState, interviewLanguage);
+        const fontPairs = await proposeFontPairs(
+          body.feeling,
+          body.palette,
+          currentState,
+          interviewLanguage,
+          interviewMeter
+        );
         return res.json({ success: true, fontPairs });
       }
 
@@ -5382,7 +5421,8 @@ export async function registerRoutes(
           notes: body.notes,
           language: interviewLanguage,
         },
-        currentState
+        currentState,
+        interviewMeter
       );
 
       const newState = structuredClone(currentState);
@@ -5404,6 +5444,7 @@ export async function registerRoutes(
 
       return res.json({ success: true, brandGuide: guide, newState, report, summary });
     } catch (error: any) {
+      if (isSpendLimitError(error)) return respondSpendLimit(res, error);
       console.error("Design interview error:", error);
       res.status(500).json({ message: error.message });
     }
@@ -5547,7 +5588,10 @@ export async function registerRoutes(
       }
 
       const { buildFromPlan } = await import("./websiteArchitect");
-      const result = await buildFromPlan(plan);
+      const result = await buildFromPlan(
+        plan,
+        runMeterFor("architectBuild", `architect:${req.params.id}`)
+      );
 
       if (!result.success || !result.builderState) {
         return res.status(500).json({
@@ -5578,6 +5622,7 @@ export async function registerRoutes(
         report,
       });
     } catch (error: any) {
+      if (isSpendLimitError(error)) return respondSpendLimit(res, error);
       console.error("AI Architect Build error:", error);
       res.status(500).json({ message: error.message });
     }

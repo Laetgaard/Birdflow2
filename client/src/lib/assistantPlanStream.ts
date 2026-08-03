@@ -18,7 +18,23 @@ import { adminSessionHeaders } from "@/lib/adminSession";
    ───────────────────────────────────────────────────────────── */
 
 /** Plan mode streams the assistant's reading, then the finished plan. */
-export type PlanStreamEvent = AgentStreamEvent | { type: "plan"; plan: AssistantPlan };
+export type PlanStreamEvent =
+  | AgentStreamEvent
+  | { type: "plan"; plan: AssistantPlan }
+  /** The server's own failure frame: why it stopped, and whether to retry. */
+  | { type: "error"; message: string; reason?: string; canRetry?: boolean };
+
+/** A planning round that produced nothing, with the reason kept attached. */
+export class PlanFailedError extends Error {
+  readonly reason: string;
+  readonly canRetry: boolean;
+  constructor(message: string, reason = "unknown", canRetry = true) {
+    super(message);
+    this.name = "PlanFailedError";
+    this.reason = reason;
+    this.canRetry = canRetry;
+  }
+}
 
 export type BuildStateSummary = {
   id: number;
@@ -81,16 +97,25 @@ export async function runPlanMode(args: {
     signal: args.signal,
   });
 
+  if (!response.ok && response.headers.get("content-type")?.includes("json")) {
+    // A rejection before the stream opened (too long, no budget left) still
+    // has to reach the customer as words, not as a status code.
+    await json(response);
+  }
+
   let plan: AssistantPlan | null = null;
-  let streamError: string | null = null;
+  let failure: PlanFailedError | null = null;
   await readSseStream<PlanStreamEvent>(response, (event) => {
     args.onEvent(event);
     if (event.type === "plan") plan = event.plan;
-    if (event.type === "error") streamError = event.message;
+    if (event.type === "error") {
+      const detail = event as { message: string; reason?: string; canRetry?: boolean };
+      failure = new PlanFailedError(detail.message, detail.reason, detail.canRetry !== false);
+    }
   });
 
   if (plan) return plan;
-  throw new Error(streamError || "Planlægningen sluttede uden en plan.");
+  throw failure ?? new PlanFailedError("Planlægningen sluttede uden en plan.");
 }
 
 /** Save an edited checklist. The server answers with the NEXT version. */

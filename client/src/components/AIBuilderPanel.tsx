@@ -97,6 +97,12 @@ type Message = {
   displays?: DisplayCard[];
   /** Set when the agent stopped on a large change and needs a decision. */
   approval?: { reason: string; summary: string[]; mutations: BuilderMutation[] };
+  /**
+   * A failed planning round the customer can run again without retyping.
+   * The prompt is kept here rather than in the input box so a retry uses
+   * exactly the words that were sent, not whatever was typed since.
+   */
+  retryPrompt?: string;
 };
 
 type AIBuilderPanelProps = {
@@ -312,7 +318,20 @@ export default function AIBuilderPanel({
         working: false,
         error: true,
         content: `Planen kunne ikke laves: ${error.message}`,
+        ...(error?.canRetry === false ? {} : { retryPrompt: userInput }),
       }));
+    }
+  };
+
+  /** Run the same description again, from the failed message's own button. */
+  const retryPlan = async (messageId: string, prompt: string) => {
+    if (isLoading) return;
+    patchMessage(messageId, (m) => ({ ...m, retryPrompt: undefined }));
+    setIsLoading(true);
+    try {
+      await runPlanTurn(prompt);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -842,6 +861,23 @@ export default function AIBuilderPanel({
                         Annullér
                       </Button>
                     </div>
+                  </div>
+                )}
+
+                {/* A failed planning round: the words are still here, so
+                    trying again is one click, not a retype. */}
+                {message.retryPrompt && (
+                  <div className="mt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[11.5px]"
+                      disabled={isLoading}
+                      onClick={() => retryPlan(message.id, message.retryPrompt!)}
+                      data-testid="button-retry-plan"
+                    >
+                      Prøv igen med samme beskrivelse
+                    </Button>
                   </div>
                 )}
 

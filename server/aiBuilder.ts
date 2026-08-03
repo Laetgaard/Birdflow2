@@ -32,7 +32,8 @@ import {
   type CustomComponentEntry,
 } from "@shared/customComponents";
 
-import { getOpenAI } from "./openaiClient";
+import { meteredChat } from "./aiCall";
+import type { SpendMeter } from "./aiSpend";
 
 const VALID_ACTIONS = [
   'add_component',
@@ -1077,13 +1078,14 @@ export async function processAIBuildRequest(
   prompt: string,
   currentState: BuilderStateData,
   mode: CreativeMode = 'creative',
-  language: SiteLanguage = DEFAULT_SITE_LANGUAGE
+  language: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<AIResponse> {
   const stateContext = getCurrentStateContext(currentState);
   const systemPrompt = getSystemPrompt(mode, language);
-  
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
+
+  const response = await meteredChat("siteGeneration", {
     messages: [
       { role: "system", content: systemPrompt },
       { 
@@ -1100,8 +1102,7 @@ Generate unique component IDs using: componenttype-${Date.now()}`
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 16384,
-  });
+  }, meter);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -1398,8 +1399,7 @@ export async function processAIThinkingRequest(
   const stateContext = getCurrentStateContext(currentState);
   const systemPrompt = getSystemPrompt(mode, language);
   
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
+  const response = await meteredChat("siteThinking", {
     messages: [
       { role: "system", content: systemPrompt },
       { 
@@ -1425,7 +1425,6 @@ Generate unique component IDs using: componenttype-${Date.now()}`
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 16384,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -1541,12 +1540,13 @@ Respond with a JSON object:
 }`;
 
 export async function analyzeDesign(
-  currentState: BuilderStateData
+  currentState: BuilderStateData,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<DesignAnalysis> {
   const stateContext = getCurrentStateContext(currentState);
   
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
+  const response = await meteredChat("designAnalysis", {
     messages: [
       { role: "system", content: DESIGN_ANALYSIS_PROMPT },
       { 
@@ -1559,8 +1559,7 @@ Provide a comprehensive design analysis with specific, actionable recommendation
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 8192,
-  });
+  }, meter);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {

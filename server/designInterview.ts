@@ -17,7 +17,8 @@ import type { PaletteProposal, FontPairProposal } from "@shared/aiBuilderSchema"
 import { readObjectImageAsDataUrl } from "./aiImages";
 import { contrastRatio } from "./selfCheck";
 
-import { getOpenAI } from "./openaiClient";
+import { meteredChat } from "./aiCall";
+import type { SpendMeter } from "./aiSpend";
 import {
   DEFAULT_SITE_LANGUAGE,
   LANGUAGE_NAME_EN,
@@ -112,12 +113,13 @@ function enforceReadableText(colors: PaletteProposal["colors"]): PaletteProposal
 export async function proposePalettes(
   feeling: string,
   state: BuilderStateData,
-  language: SiteLanguage = DEFAULT_SITE_LANGUAGE
+  language: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<PaletteProposal[]> {
   const lang = normalizeSiteLanguage(language);
   const langName = LANGUAGE_NAME_EN[lang];
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
+  const response = await meteredChat("designInterview", {
     messages: [
       {
         role: "system",
@@ -142,9 +144,11 @@ Respond with JSON: { "palettes": [ { "name", "description", "colors": { "primary
         ),
       },
     ],
-    response_format: { type: "json_object" },
-    max_completion_tokens: 4096,
-  });
+      response_format: { type: "json_object" },
+      max_completion_tokens: 4096,
+    },
+    meter
+  );
 
   const parsed = PaletteResponseSchema.parse(parseJsonContent(response.choices[0]?.message?.content));
   return parsed.palettes.slice(0, 4).map((p, i) => ({
@@ -159,12 +163,13 @@ export async function proposeFontPairs(
   feeling: string,
   palette: PaletteProposal,
   state: BuilderStateData,
-  language: SiteLanguage = DEFAULT_SITE_LANGUAGE
+  language: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<FontPairProposal[]> {
   const lang = normalizeSiteLanguage(language);
   const langName = LANGUAGE_NAME_EN[lang];
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
+  const response = await meteredChat("designInterview", {
     messages: [
       {
         role: "system",
@@ -189,9 +194,11 @@ Respond with JSON: { "fontPairs": [ { "name", "heading", "body", "scale", "descr
         ),
       },
     ],
-    response_format: { type: "json_object" },
-    max_completion_tokens: 2048,
-  });
+      response_format: { type: "json_object" },
+      max_completion_tokens: 2048,
+    },
+    meter
+  );
 
   const parsed = FontPairResponseSchema.parse(parseJsonContent(response.choices[0]?.message?.content));
   return parsed.fontPairs.slice(0, 3).map((f, i) => ({
@@ -217,7 +224,9 @@ export type FinalizeInput = {
 
 export async function finalizeBrandGuide(
   input: FinalizeInput,
-  state: BuilderStateData
+  state: BuilderStateData,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<{ guide: BrandGuide; analyzedImages: number; summary?: string }> {
   const lang = normalizeSiteLanguage(input.language);
   const langName = LANGUAGE_NAME_EN[lang];
@@ -248,9 +257,10 @@ ${imageParts.length > 0 ? `Der er vedhæftet ${imageParts.length} inspirationsbi
 
 ${siteContext(state, lang)}`;
 
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
-    messages: [
+  const response = await meteredChat(
+    "designInterview",
+    {
+      messages: [
       {
         role: "system",
         content: `You are an experienced brand strategist. Based on the chosen palette, typography, the requested feeling, the user's notes and any inspiration images, define the remaining brand-guide attributes.
@@ -274,10 +284,12 @@ Respond with JSON containing exactly those fields.`,
             ? ([{ type: "text", text: brief }, ...imageParts] as any)
             : brief,
       },
-    ],
-    response_format: { type: "json_object" },
-    max_completion_tokens: 2048,
-  });
+      ],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 2048,
+    },
+    meter
+  );
 
   const raw = parseJsonContent(response.choices[0]?.message?.content);
   const parsed = FinalizeResponseSchema.safeParse(raw);

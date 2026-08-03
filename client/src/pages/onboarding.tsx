@@ -111,6 +111,8 @@ type GenStatus = {
   report?: BuildReport;
   summary?: string;
   error?: string;
+  /** The build stopped at its cost ceiling rather than failing. */
+  spendLimited?: boolean;
 };
 
 /** Pipeline phase ids, in order. The labels live in ONBOARDING_UI_COPY. */
@@ -1417,10 +1419,10 @@ export default function OnboardingPage() {
                 )}
               </div>
 
-              {genStatus?.fallback && (
+              {(genStatus?.fallback || genStatus?.spendLimited) && (
                 <div className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                  <span>{t.fallbackNotice}</span>
+                  <span>{genStatus?.spendLimited ? t.spendLimitNotice : t.fallbackNotice}</span>
                 </div>
               )}
 

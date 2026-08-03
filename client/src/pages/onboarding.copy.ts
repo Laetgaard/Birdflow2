@@ -70,6 +70,8 @@ export type OnboardingUiCopy = {
   previewSubhead: string;
   awaitingWebhook: string;
   fallbackNotice: string;
+  /** The build stopped because it reached its cost ceiling. */
+  spendLimitNotice: string;
   reportEmpty: string;
   adjustTitle: string;
   adjustHint: string;
@@ -176,6 +178,8 @@ export const ONBOARDING_UI_COPY: Record<SiteLanguage, OnboardingUiCopy> = {
     awaitingWebhook: "Vi bekræfter din betaling hos Stripe…",
     fallbackNotice:
       "AI'en kunne ikke nå hele vejen denne gang, så vi har bygget en solid startside ud fra dine svar. AI-assistenten i editoren kender din brandguide og kan bygge videre.",
+    spendLimitNotice:
+      "Opbygningen nåede sit omkostningsloft, så AI'en stoppede undervejs. Det, der nåede at blive bygget, er gemt — kontakt os, hvis resten skal bygges færdigt.",
     reportEmpty: "Dit website er bygget og gemt. Du finder alle detaljer i editoren.",
     adjustTitle: "Skal vi justere noget med det samme?",
     adjustHint: 'Fx "gør forsiden mere rolig", "tilføj et afsnit om priser" eller "flyt kontakt op".',
@@ -284,6 +288,8 @@ export const ONBOARDING_UI_COPY: Record<SiteLanguage, OnboardingUiCopy> = {
     awaitingWebhook: "We're confirming your payment with Stripe…",
     fallbackNotice:
       "The AI couldn't make it all the way this time, so we've built a solid starting page from your answers. The AI assistant in the editor knows your brand guide and can carry on from here.",
+    spendLimitNotice:
+      "The build reached its cost limit, so the AI stopped part way through. Everything it managed to build is saved — get in touch if you want the rest finished.",
     reportEmpty: "Your website is built and saved. You'll find all the details in the editor.",
     adjustTitle: "Anything you want adjusted right away?",
     adjustHint: 'For example "make the front page calmer", "add a pricing section" or "move contact up".',

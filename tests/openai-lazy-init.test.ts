@@ -43,9 +43,11 @@ describe("OpenAI client is constructed lazily", () => {
 
   it("every AI module routes through the shared accessor", () => {
     for (const name of AI_MODULES) {
-      expect(read(name), `${name}.ts should import getOpenAI`).toContain(
-        'from "./openaiClient"'
-      );
+      // Directly, or through the metered wrapper that owns the accessor —
+      // what must never come back is a module holding its own client.
+      const src = read(name);
+      const routed = src.includes('from "./openaiClient"') || src.includes('from "./aiCall"');
+      expect(routed, `${name}.ts should reach OpenAI through openaiClient or aiCall`).toBe(true);
     }
   });
 });

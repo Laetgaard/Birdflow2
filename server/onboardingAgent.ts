@@ -4,7 +4,8 @@ import { z } from "zod";
 import type { BuilderStateData, OnboardingAnswers, OnboardingChatMessage } from "@shared/schema";
 import type { PaletteProposal, FontPairProposal } from "@shared/aiBuilderSchema";
 import { storage } from "./storage";
-import { getOpenAI } from "./openaiClient";
+import { meteredChat, SpendLimitError } from "./aiCall";
+import { runMeterFor, releaseRunMeter, type SpendMeter } from "./aiSpend";
 import { proposePalettes, proposeFontPairs } from "./designInterview";
 import { readObjectImageAsDataUrl, generateLogo } from "./aiImages";
 import { analyzeAndPlanWebsite } from "./websiteArchitect";
@@ -41,15 +42,19 @@ import {
    conversation.
    ───────────────────────────────────────────────────────────── */
 
-const MODEL = "gpt-5.1";
 export const ONBOARDING_MAX_STEPS = 8;
-const MAX_COMPLETION_TOKENS = 2048;
 const MAX_TOTAL_COMPLETION_TOKENS = 16000;
 /** Model context carries at most this many trailing transcript turns. */
 const TRANSCRIPT_WINDOW = 30;
 
 export type OnboardingAgentOutcome = {
-  status: "completed" | "failed";
+  /**
+   * `spend_limit` is its own ending: the turn stopped because the
+   * conversation has spent its budget, which no amount of retrying fixes.
+   * Reporting it as `failed` would read as "the AI service is down" and
+   * invite the customer to try again forever.
+   */
+  status: "completed" | "failed" | "spend_limit";
   /** Assistant text for the turn (already streamed as events too). */
   reply: string;
   /** Display cards produced this turn, in order. */
@@ -74,6 +79,12 @@ type OnboardingTool = {
 
 export type OnboardingAgentContext = {
   userId: string;
+  /**
+   * The conversation's money ceiling. Everything a tool sets in motion —
+   * palettes, fonts, a logo, a plan preview — charges this, so the walkthrough
+   * cannot spend past its ceiling by moving the work into tools.
+   */
+  spendMeter?: SpendMeter;
   websiteId: string | null;
   answers: OnboardingAnswers;
   /** Builder state of the draft website (brand-guide-aware proposals). */
@@ -131,6 +142,7 @@ type AgentStrings = {
   unknownTool: (name: string) => string;
   toolError: (why: string) => string;
   serviceSilent: (why: string) => string;
+  spendLimit: string;
   emptyResponse: string;
   keepGoing: string;
 };
@@ -174,6 +186,9 @@ const AGENT_STRINGS: Record<SiteLanguage, AgentStrings> = {
     unknownTool: (name) => `Ukendt værktøj "${name}"`,
     toolError: (why) => `Værktøjsfejl: ${why}`,
     serviceSilent: (why) => `AI-tjenesten svarede ikke: ${why}`,
+    spendLimit:
+      "Samtalen har brugt sit omkostningsloft for denne opsætning. " +
+      "Kontakt os, så åbner vi for resten af din opsætning.",
     emptyResponse: "Tomt svar fra AI-tjenesten.",
     keepGoing: "Lad os fortsætte — hvad vil du gerne fortælle mig?",
   },
@@ -215,6 +230,9 @@ const AGENT_STRINGS: Record<SiteLanguage, AgentStrings> = {
     unknownTool: (name) => `Unknown tool "${name}"`,
     toolError: (why) => `Tool error: ${why}`,
     serviceSilent: (why) => `The AI service did not answer: ${why}`,
+    spendLimit:
+      "This setup conversation has reached its cost limit. " +
+      "Get in touch and we will open up the rest of your setup.",
     emptyResponse: "Empty response from the AI service.",
     keepGoing: "Let's carry on — what would you like to tell me?",
   },
@@ -356,7 +374,12 @@ export function buildOnboardingTools(): OnboardingTool[] {
     parameters: z.object({ feeling: z.string().min(2).max(300) }),
     run: async ({ feeling }, ctx) => {
       try {
-        const palettes = await proposePalettes(feeling, ctx.state ?? emptyState(), ctx.lang);
+        const palettes = await proposePalettes(
+          feeling,
+          ctx.state ?? emptyState(),
+          ctx.lang,
+          ctx.spendMeter
+        );
         return {
           ok: true,
           summary: say(ctx).proposedPalettes(palettes.length),
@@ -385,7 +408,8 @@ export function buildOnboardingTools(): OnboardingTool[] {
           feeling,
           palette as PaletteProposal,
           ctx.state ?? emptyState(),
-          ctx.lang
+          ctx.lang,
+          ctx.spendMeter
         );
         return {
           ok: true,
@@ -438,32 +462,35 @@ export function buildOnboardingTools(): OnboardingTool[] {
         if (images.length === 0) {
           return { ok: false, error: say(ctx).imagesUnreadable };
         }
-        const completion = await getOpenAI().chat.completions.create({
-          model: MODEL,
-          messages: [
-            {
-              role: "system",
-              content:
-                `You are a design analyst. In 2-3 sentences written in ${LANGUAGE_NAME_EN[ctx.lang]}, describe ` +
-                "the shared design direction of these inspiration images: colours, mood, typography feel. " +
-                "Plain text only.",
-            },
-            {
-              role: "user",
-              content: [
-                ...images,
-                {
-                  type: "text",
-                  text:
-                    ctx.lang === "en"
-                      ? "What do these images say about the style?"
-                      : "Hvad siger disse billeder om stilen?",
-                },
-              ],
-            },
-          ],
-          max_completion_tokens: 400,
-        });
+        const completion = await meteredChat(
+          "referenceVision",
+          {
+            messages: [
+              {
+                role: "system",
+                content:
+                  `You are a design analyst. In 2-3 sentences written in ${LANGUAGE_NAME_EN[ctx.lang]}, describe ` +
+                  "the shared design direction of these inspiration images: colours, mood, typography feel. " +
+                  "Plain text only.",
+              },
+              {
+                role: "user",
+                content: [
+                  ...images,
+                  {
+                    type: "text",
+                    text:
+                      ctx.lang === "en"
+                        ? "What do these images say about the style?"
+                        : "Hvad siger disse billeder om stilen?",
+                  },
+                ],
+              },
+            ],
+            max_completion_tokens: 400,
+          },
+          ctx.spendMeter
+        );
         const analysis = completion.choices[0]?.message?.content?.trim() || say(ctx).analysisUnreadable;
         return { ok: true, summary: say(ctx).analyzedInspiration, data: { analysis } };
       } catch (err: any) {
@@ -488,12 +515,17 @@ export function buildOnboardingTools(): OnboardingTool[] {
         return { ok: false, error: say(ctx).missingBusinessName };
       }
       try {
-        const { url, mediaId } = await generateLogo(ctx.websiteId, ctx.answers.businessName, {
-          feeling: ctx.answers.feeling,
-          primaryColor: ctx.answers.palette?.colors?.primary,
-          accentColor: ctx.answers.palette?.colors?.accent,
-          notes,
-        });
+        const { url, mediaId } = await generateLogo(
+          ctx.websiteId,
+          ctx.answers.businessName,
+          {
+            feeling: ctx.answers.feeling,
+            primaryColor: ctx.answers.palette?.colors?.primary,
+            accentColor: ctx.answers.palette?.colors?.accent,
+            notes,
+          },
+          ctx.spendMeter
+        );
         // The URL comes from OUR server, not the model — safe to persist.
         const patch = { logoUrl: url, logoMediaId: mediaId, logoGenerated: true };
         ctx.answers = { ...ctx.answers, ...patch };
@@ -549,7 +581,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
         )
           .filter(Boolean)
           .join("\n");
-        const result = await analyzeAndPlanWebsite(prompt);
+        const result = await analyzeAndPlanWebsite(prompt, undefined, undefined, ctx.spendMeter);
         if (!result.success || !result.plan) {
           return { ok: false, error: result.error ?? say(ctx).planCouldNotBeMade };
         }
@@ -618,6 +650,8 @@ export function buildOnboardingTools(): OnboardingTool[] {
       };
       startOnboardingGeneration(ctx.websiteId!, input);
       ctx.buildStarted = true;
+      // The conversation ended in a build; its budget is done with it.
+      releaseOnboardingMeter(ctx.userId);
       return {
         ok: true,
         summary: s.startedBuild,
@@ -642,6 +676,24 @@ function emptyState(): BuilderStateData {
 }
 
 /* ─────────── the loop ─────────── */
+
+/**
+ * One onboarding conversation is one thing the customer asked for, but it
+ * arrives as many HTTP turns, so its meter lives in the shared run registry
+ * rather than inside a single request.
+ *
+ * The key is the CUSTOMER, never the website: the draft website is created
+ * part-way through the walkthrough, so keying on it would hand the same
+ * conversation a second ceiling the moment the site appeared.
+ */
+export function onboardingMeterFor(key: string, now?: number): SpendMeter {
+  return runMeterFor("onboarding", key, now === undefined ? undefined : { now });
+}
+
+/** Called when a conversation is genuinely over (the build has started). */
+export function releaseOnboardingMeter(key: string): void {
+  releaseRunMeter("onboarding", key);
+}
 
 export async function runOnboardingAgent(args: {
   userId: string;
@@ -678,12 +730,18 @@ export async function runOnboardingAgent(args: {
     state = (builderData?.state as BuilderStateData) ?? null;
   }
 
+  // One onboarding conversation is one thing the customer asked for, so its
+  // turns — and everything its tools set in motion — share one ceiling, from
+  // the first message to the one that starts the build.
+  const spendMeter = onboardingMeterFor(args.userId);
+
   const ctx: OnboardingAgentContext = {
     userId: args.userId,
     websiteId: args.websiteId,
     answers: { ...args.answers },
     state,
     buildStarted: false,
+    spendMeter,
     lang: normalizeSiteLanguage(args.language ?? args.answers.language),
   };
   const s = AGENT_STRINGS[ctx.lang];
@@ -710,14 +768,26 @@ export async function runOnboardingAgent(args: {
 
     let completion: OpenAI.Chat.ChatCompletion;
     try {
-      completion = await getOpenAI().chat.completions.create({
-        model: MODEL,
-        messages,
-        tools: openAITools,
-        tool_choice: "auto",
-        max_completion_tokens: MAX_COMPLETION_TOKENS,
-      });
+      completion = await meteredChat(
+        "onboarding",
+        { messages, tools: openAITools, tool_choice: "auto" },
+        spendMeter
+      );
     } catch (err: any) {
+      // Out of money is not "the service did not answer" — it is a terminal,
+      // non-retryable ending with its own message.
+      if (err instanceof SpendLimitError) {
+        const message = spendMeter.message() ?? s.spendLimit;
+        emit({ type: "error", message });
+        return {
+          status: "spend_limit",
+          reply: "",
+          displays,
+          answers: ctx.answers,
+          buildStarted: ctx.buildStarted,
+          message,
+        };
+      }
       const message = s.serviceSilent(err?.message ?? err);
       emit({ type: "error", message });
       return {

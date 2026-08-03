@@ -31,6 +31,8 @@ import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
 import { buildReport } from "./aiReport";
 import { enrichBrandGuide } from "./brandGuideEnrichment";
+import { createSpendMeter, type SpendMeter } from "./aiSpend";
+import { isSpendLimitError } from "./aiCall";
 import {
   markGenerationComplete,
   markGenerationFailed,
@@ -107,6 +109,12 @@ export type OnboardingGenStatus = {
   summary?: string;
   /** Danish error — only set when even the fallback could not be saved. */
   error?: string;
+  /**
+   * The generation stopped because it reached its cost ceiling. Set on top of
+   * whatever was saved: the customer is never stranded, but they are told the
+   * reason rather than being left thinking the AI simply did less.
+   */
+  spendLimited?: boolean;
 };
 
 const jobs = new Map<string, OnboardingGenStatus>();
@@ -235,6 +243,8 @@ type GenStrings = {
   phaseCheck: string;
   phaseFallback: string;
   fallbackNote: string;
+  /** The whole generation stopped because it reached its cost ceiling. */
+  spendLimitNote: string;
   guideCreated: string;
   pageBuilt: (name: string, sections: number) => string;
   pageCreated: (name: string, sections: number) => string;
@@ -298,6 +308,8 @@ const GEN_STRINGS: Record<SiteLanguage, GenStrings> = {
     phaseFallback: "Bygger en solid startside ud fra dine svar…",
     fallbackNote:
       "AI'en kunne ikke færdiggøre hele opbygningen, så vi har bygget en solid startside ud fra dine svar. Brug AI-assistenten i editoren til at bygge videre — den kender allerede din brand guide.",
+    spendLimitNote:
+      "Opbygningen nåede sit omkostningsloft, så AI'en stoppede undervejs. Det, der nåede at blive bygget, er gemt — kontakt os, hvis resten skal bygges færdigt.",
     guideCreated: "Brand guide oprettet ud fra dine valg.",
     pageBuilt: (name, sections) => `Side "${name}" bygget med ${sections} sektioner.`,
     pageCreated: (name, sections) => `Side "${name}" oprettet med ${sections} sektioner.`,
@@ -360,6 +372,8 @@ const GEN_STRINGS: Record<SiteLanguage, GenStrings> = {
     phaseFallback: "Building a solid starting page from your answers…",
     fallbackNote:
       "The AI could not finish the whole build, so we have built a solid starting page from your answers. Use the AI assistant in the editor to carry on — it already knows your brand guide.",
+    spendLimitNote:
+      "The build reached its cost limit, so the AI stopped part way through. Everything it managed to build is saved — get in touch if you want the rest finished.",
     guideCreated: "Brand guide created from your choices.",
     pageBuilt: (name, sections) => `Page "${name}" built with ${sections} sections.`,
     pageCreated: (name, sections) => `Page "${name}" created with ${sections} sections.`,
@@ -422,6 +436,15 @@ async function runPipeline(
   const lang = normalizeSiteLanguage(input.language);
   const t = GEN_STRINGS[lang];
 
+  // Building one website is one thing the customer asked for: the brand pass,
+  // the plan, the build, the enhancement and its images share one ceiling.
+  const spendMeter = createSpendMeter("siteGeneration");
+
+  // Set the moment any phase is refused for cost. Everything already saved
+  // stays saved — the customer is never stranded — but the remaining AI
+  // phases are skipped and the status says why.
+  let spendLimited = false;
+
   // ---- Phase 1: brand guide (deterministic fallback seeded from picks) ----
   let guide: BrandGuide;
   const guideNotes: string[] = [];
@@ -439,7 +462,8 @@ async function runPipeline(
         notes: buildBrandNotes(input),
         language: lang,
       },
-      initialState
+      initialState,
+      spendMeter
     );
     guide = finalized.guide;
     status.summary = finalized.summary;
@@ -447,6 +471,10 @@ async function runPipeline(
       guideNotes.push(t.analyzedImages(finalized.analyzedImages));
     }
   } catch (error) {
+    // Out of money is not "the AI had a bad day": the phases after this one
+    // would each fail the same way, so the run stops here with a reason
+    // instead of quietly delivering less than it looks like it tried for.
+    if (isSpendLimitError(error)) spendLimited = true;
     console.error(`[OnboardingGen] Brand guide AI failed for ${websiteId}, using picks directly:`, error);
     guide = deterministicGuide(input);
     guideNotes.push(t.guideFromPicks);
@@ -477,14 +505,20 @@ async function runPipeline(
     // The user approved this exact plan in the walkthrough preview.
     plan = structuredClone(input.plan);
     status.detail = t.usingApprovedPlan(plan.pages.length);
-  } else {
+  } else if (!spendLimited) {
     try {
-      const planResult = await analyzeAndPlanWebsite(buildPlanPrompt(input));
+      const planResult = await analyzeAndPlanWebsite(
+        buildPlanPrompt(input),
+        undefined,
+        undefined,
+        spendMeter
+      );
       if (planResult.success && planResult.plan) {
         plan = planResult.plan;
         status.detail = t.pagesPlanned(plan.pages.length);
       }
     } catch (error) {
+      if (isSpendLimitError(error)) spendLimited = true;
       console.error(`[OnboardingGen] Plan failed for ${websiteId}:`, error);
     }
   }
@@ -495,21 +529,22 @@ async function runPipeline(
 
   // ---- Phase 3: build ----
   let builtState: BuilderStateData | undefined;
-  if (plan) {
+  if (plan && !spendLimited) {
     setPhase(status, "build", t.phaseBuild);
     try {
-      const buildResult = await buildFromPlan(plan);
+      const buildResult = await buildFromPlan(plan, spendMeter);
       if (buildResult.success && buildResult.builderState && buildResult.builderState.pages.length > 0) {
         builtState = buildResult.builderState;
       }
     } catch (error) {
+      if (isSpendLimitError(error)) spendLimited = true;
       console.error(`[OnboardingGen] Build failed for ${websiteId}:`, error);
     }
   }
 
   if (!builtState) {
     // AI plan/build failed → deterministic starter site, still branded.
-    await applyFallback(websiteId, input, guide, guideNotes, status);
+    await applyFallback(websiteId, input, guide, guideNotes, status, spendLimited);
     return;
   }
 
@@ -525,17 +560,25 @@ async function runPipeline(
   let imageNotes: string[] = [];
   let imageCreated: string[] = [];
   try {
-    const aiResponse = await processAIBuildRequest(buildEnhancePrompt(input), builtState, "creative", lang);
-    const resolved = await resolveAiImageMarkers(websiteId, aiResponse.mutations, guide);
+    if (spendLimited) throw new Error("spend limit reached earlier in this generation");
+    const aiResponse = await processAIBuildRequest(
+      buildEnhancePrompt(input),
+      builtState,
+      "creative",
+      lang,
+      spendMeter
+    );
+    const resolved = await resolveAiImageMarkers(websiteId, aiResponse.mutations, guide, spendMeter);
     finalState = applyMutations(builtState, resolved.mutations);
     enhanceMutations = resolved.mutations;
     imageNotes = resolved.notes;
     imageCreated = resolved.created;
   } catch (error) {
+    if (isSpendLimitError(error)) spendLimited = true;
     console.error(`[OnboardingGen] Enhancement pass failed for ${websiteId} (keeping base build):`, error);
     finalState = builtState;
     enhanceMutations = [];
-    imageNotes = [t.enhanceFailed];
+    imageNotes = spendLimited ? [t.spendLimitNote] : [t.enhanceFailed];
   }
 
   // ---- Phase 5: self-check + save ----
@@ -549,7 +592,7 @@ async function runPipeline(
   // Runs on the finished site so the guide can show the customer's own
   // imagery. Purely additive: it never rebuilds pages, and a failure leaves
   // the mechanical guide exactly as it was saved in phase 1.
-  await enrichSavedBrandGuide(websiteId, input, finalState, guide);
+  await enrichSavedBrandGuide(websiteId, input, finalState, guide, spendMeter);
 
   const pageLines = finalState.pages.map((p) => t.pageBuilt(p.name, p.components.length));
   status.report = buildReport(
@@ -558,6 +601,7 @@ async function runPipeline(
     [...guideNotes, ...imageNotes, ...check.notes],
     [t.guideCreated, ...pageLines, ...imageCreated]
   );
+  if (spendLimited) status.spendLimited = true;
   setPhase(status, "done");
   status.done = true;
   persistStatus(status);
@@ -570,7 +614,8 @@ async function applyFallback(
   input: OnboardingGenInput,
   guide: BrandGuide,
   guideNotes: string[],
-  status: OnboardingGenStatus
+  status: OnboardingGenStatus,
+  spendLimited = false
 ): Promise<void> {
   const t = GEN_STRINGS[normalizeSiteLanguage(input.language)];
   setPhase(status, "check", t.phaseFallback);
@@ -589,12 +634,13 @@ async function applyFallback(
     state,
     [
       ...guideNotes,
-      t.fallbackNote,
+      spendLimited ? t.spendLimitNote : t.fallbackNote,
       ...check.notes,
     ],
     [t.guideCreated, ...state.pages.map((p) => t.pageCreated(p.name, p.components.length))]
   );
   status.fallback = true;
+  if (spendLimited) status.spendLimited = true;
   setPhase(status, "done");
   status.done = true;
   persistStatus(status);
@@ -609,7 +655,8 @@ async function enrichSavedBrandGuide(
   websiteId: string,
   input: OnboardingGenInput,
   state: BuilderStateData,
-  guide: BrandGuide
+  guide: BrandGuide,
+  meter?: SpendMeter
 ): Promise<void> {
   try {
     const enriched = await enrichBrandGuide(
@@ -622,7 +669,8 @@ async function enrichSavedBrandGuide(
         goals: input.wishes.goals,
         notes: input.wishes.notes,
       },
-      state
+      state,
+      meter
     );
     const current = await storage.getBuilderState(websiteId);
     const latest = (current?.state as BuilderStateData | undefined) ?? state;

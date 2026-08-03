@@ -37,6 +37,8 @@ import {
   type PlanStepResult,
 } from "@shared/assistantPlan";
 import { runAgentLoop, type AgentEvent } from "./aiAgent";
+import { assumedCallCostUsd, createSpendMeter, type SpendMeter } from "./aiSpend";
+import { aiConfig } from "./aiConfig";
 import {
   buildToolCatalogue,
   type AgentContext,
@@ -291,6 +293,41 @@ function summarize(
  * Never throws: a failure becomes a paused build with a Danish reason, so
  * the customer always has something to resume, skip or undo.
  */
+/**
+ * Spend meters for builds that are running or paused, keyed by build id.
+ * A restart empties this map, so a resumed build rebuilds its meter from what
+ * the build row already records — see resumedSpendUsd.
+ */
+const buildMeters = new Map<number, SpendMeter>();
+
+/**
+ * What a build that survived a restart has already spent.
+ *
+ * Each step writes the build's running total onto its own result, and that
+ * result is saved with the build's progress — so the figure here is the real
+ * one, not a share of the ceiling divided by the plan's length. A single step
+ * can legitimately eat almost the whole budget, and reconstructing it as
+ * "one tenth of a ten-step plan" would hand the restart most of the ceiling
+ * back.
+ *
+ * A step that ran without recording a total (a build started before this was
+ * written) is treated as having spent everything. Erring the other way is the
+ * runaway this ceiling exists to stop; the customer can start a fresh build.
+ */
+export function resumedSpendUsd(args: {
+  ceilingUsd: number;
+  results: PlanStepResult[];
+}): number {
+  const alreadyRun = args.results.filter((r) => r.status !== "pending");
+  if (alreadyRun.length === 0) return 0;
+
+  const unrecorded = alreadyRun.some((r) => typeof r.spentUsd !== "number");
+  if (unrecorded) return args.ceilingUsd;
+
+  // The totals are cumulative, so the largest is what the build had spent.
+  return alreadyRun.reduce((most, r) => Math.max(most, r.spentUsd ?? 0), 0);
+}
+
 export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> {
   const { websiteId, plan, build, emit } = options;
 
@@ -310,6 +347,28 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
   // placeholders that only occupy budget and can never be hit as a key.
   const imageCache = new Map<string, string>();
   for (let i = 0; i < imagesUsed; i++) imageCache.set(`__forbrugt-${i}`, "");
+
+  // One money ceiling for the whole build, for the same reason as the image
+  // budget: a ten-step plan is one request from the customer, not ten. A
+  // resume continues the same build, so it continues the same meter —
+  // otherwise pausing and resuming would hand out a fresh budget each time.
+  let spendMeter = buildMeters.get(build.id);
+  if (!spendMeter) {
+    spendMeter = createSpendMeter("buildStep");
+    // Nothing in memory means either a brand-new build or one that outlived a
+    // restart. A build with work behind it is the second case, and it pays for
+    // that work before it may buy anything more.
+    // Read from what the build row actually stores, not from the normalised
+    // list: a row whose results no longer line up with the plan is rebuilt
+    // from scratch above, and paying the meter from that rebuilt list would
+    // hand the whole ceiling back to a build that has already spent it.
+    const already = resumedSpendUsd({
+      ceilingUsd: aiConfig("buildStep").maxRunCostUsd,
+      results: build.stepResults.length > 0 ? build.stepResults : results,
+    });
+    if (already > 0) spendMeter.recordFlat(already);
+    buildMeters.set(build.id, spendMeter);
+  }
 
   emit({
     type: "build_started",
@@ -342,6 +401,18 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
       break;
     }
 
+    // Including the first step after a resume, whose meter was rebuilt from
+    // what the build had already spent before the restart. A sliver of budget
+    // left is not a budget: a step that cannot pay for one worst-case call
+    // would only burn the customer's time before stopping anyway.
+    const worstCaseCall = assumedCallCostUsd("buildStep");
+    const roomLeft = spendMeter.limitUsd - spendMeter.spentUsd;
+    if (spendMeter.exceeded() || roomLeft < worstCaseCall) {
+      finalStatus = "paused";
+      pauseReason = ceilingPause(spendMeter, worstCaseCall);
+      break;
+    }
+
     const step = plan.steps[index];
     emit({
       type: "step_started",
@@ -359,6 +430,7 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
       index,
       results,
       imageCache,
+      spendMeter,
       approvedLargeChanges: options.approvedLargeChanges,
       language,
       emit,
@@ -371,6 +443,9 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
       ...outcome.result,
       attempts: attemptsAlready + 1,
       imagesUsed,
+      // The build's running total, saved with the step, so a restart can
+      // pick the meter back up where it really was.
+      spentUsd: spendMeter.spentUsd,
     };
 
     if (outcome.pause) {
@@ -412,6 +487,10 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
     error: pauseReason,
   });
 
+  // A paused build keeps its meter: it is the same customer request, and
+  // resuming must not restart the budget. Anything else is over.
+  if (summary.status !== "paused") buildMeters.delete(build.id);
+
   if (summary.status === "completed") {
     await markPlanBuilt(websiteId, plan.id).catch(() => {});
     emit({ type: "build_finished", summary });
@@ -425,6 +504,20 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
 }
 
 /* ─────────────────────── one step ─────────────────────── */
+
+/** What the customer is told when a build hits its cost ceiling. */
+/**
+ * The reason a build stops for money. `requiredUsd` is what the next call
+ * would have cost, when the build is stopping before making it — without it
+ * the meter would say "there is still room" and the customer would get a
+ * pause with no explanation.
+ */
+export function ceilingPause(meter: SpendMeter, requiredUsd = 0): string {
+  return (
+    meter.message(requiredUsd) ??
+    "Bygningen nåede sit omkostningsloft. Del planen op i mindre dele, og kør resten bagefter."
+  );
+}
 
 type StepOutcome = {
   result: Partial<PlanStepResult> & Pick<PlanStepResult, "status" | "summary" | "mutationCount" | "notes" | "rejections">;
@@ -440,6 +533,8 @@ async function runStep(args: {
   index: number;
   results: PlanStepResult[];
   imageCache: Map<string, string>;
+  /** Shared across the build's steps, like the image cache. */
+  spendMeter: SpendMeter;
   approvedLargeChanges: boolean;
   language: SiteLanguage;
   emit: (event: BuildStreamEvent) => void;
@@ -465,6 +560,7 @@ async function runStep(args: {
     notes: [],
     createdImages: [],
     imageCache: args.imageCache,
+    spendMeter: args.spendMeter,
     approvedLargeChanges: args.approvedLargeChanges,
     guard: makeStepGuard(step),
   };
@@ -491,6 +587,8 @@ async function runStep(args: {
       userMessage: buildStepUserMessage(plan, step, index, ctx.state, args.results),
       ctx,
       emit: onAgentEvent,
+      role: "buildStep",
+      spendMeter: args.spendMeter,
       maxSteps: MAX_TURNS_PER_STEP,
       firstStepLabel: "Læser siden",
     });
@@ -516,6 +614,28 @@ async function runStep(args: {
     return {
       result: { status: "failed", summary: "", mutationCount: 0, notes: ctx.notes, rejections },
       pause: `Trinnet ville lave en større ændring (${loop.reason}), som kræver din godkendelse.`,
+      retryable: false,
+    };
+  }
+
+  // A loop that stopped because the money ran out has not decided that the
+  // step needed nothing — it never got to look. Saying "no changes" here
+  // would tick off the rest of the plan without doing any of it, which is
+  // the worst possible way for a cost ceiling to behave.
+  if (loop.stopReason === "spend_limit" || args.spendMeter.exceeded()) {
+    return {
+      result: {
+        status: "failed",
+        summary: "",
+        mutationCount: 0,
+        notes: ctx.notes,
+        rejections,
+      },
+      // Same question as the pre-step check: the loop may have stopped
+      // because the next call was unaffordable, not because the meter is
+      // empty, and the customer gets the same clear reason either way.
+      pause: ceilingPause(args.spendMeter, assumedCallCostUsd("buildStep")),
+      // Retrying cannot help: the meter is empty and stays empty.
       retryable: false,
     };
   }

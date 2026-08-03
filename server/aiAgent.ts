@@ -30,7 +30,10 @@ import {
    (self-check → sanitize → save → report) exactly once, in order.
    ───────────────────────────────────────────────────────────── */
 
-import { getOpenAI } from "./openaiClient";
+import { meteredChat, SpendLimitError } from "./aiCall";
+import { type AiRole } from "./aiConfig";
+import { createSpendMeter, type SpendMeter } from "./aiSpend";
+import { parsePartialJson } from "./partialJson";
 import {
   DEFAULT_SITE_LANGUAGE,
   LANGUAGE_NAME_EN,
@@ -38,11 +41,9 @@ import {
   type SiteLanguage,
 } from "@shared/siteLanguage";
 
-const MODEL = "gpt-5.1";
 export const MAX_STEPS = 12;
-const MAX_COMPLETION_TOKENS = 4096;
 /** Whole-run ceiling; stops a runaway loop from burning the budget. */
-const MAX_TOTAL_COMPLETION_TOKENS = 40000;
+const MAX_TOTAL_COMPLETION_TOKENS = 120000;
 
 export type AgentEvent =
   | { type: "step"; step: number; label: string }
@@ -185,10 +186,25 @@ function summarizeForApproval(mutations: BuilderMutation[]): string[] {
 
 /* ─────────── the loop ─────────── */
 
+/** Why the loop stopped. Only "finished" means the model said it was done. */
+export type AgentStopReason =
+  | "finished"
+  | "turn_limit"
+  | "token_budget"
+  | "spend_limit"
+  | "truncated";
+
 export type AgentLoopResult =
-  | { status: "finished"; summary: string; steps: number }
+  | {
+      status: "finished";
+      summary: string;
+      steps: number;
+      stopReason: AgentStopReason;
+      /** True when at least one model answer was cut off mid-write. */
+      truncated: boolean;
+    }
   | { status: "needs_approval"; reason: string; steps: number }
-  | { status: "failed"; message: string; steps: number };
+  | { status: "failed"; message: string; steps: number; truncated?: boolean };
 
 /**
  * The tool-calling loop itself, with nothing decided for you.
@@ -208,10 +224,25 @@ export async function runAgentLoop(args: {
   emit?: (event: AgentEvent) => void;
   maxSteps?: number;
   firstStepLabel?: string;
+  /** Which budget table this loop spends from. */
+  role?: AiRole;
+  /**
+   * Money ceiling for the run. Pass an existing meter to share one ceiling
+   * across several loops — Build mode gives every step the build's meter.
+   */
+  spendMeter?: SpendMeter;
+  /**
+   * A tool the run must not end without. On the final allowed turn the model
+   * is reminded and the call is forced, so a loop can never run out of turns
+   * having produced nothing.
+   */
+  finalTurn?: { toolName: string; reminder: string; satisfied: () => boolean };
 }): Promise<AgentLoopResult> {
   const { tools, ctx } = args;
   const emit = args.emit ?? (() => {});
   const maxSteps = args.maxSteps ?? MAX_STEPS;
+  const role: AiRole = args.role ?? "assistant";
+  const meter = args.spendMeter ?? createSpendMeter(role);
 
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
   const openAITools = toOpenAITools(tools);
@@ -224,6 +255,8 @@ export async function runAgentLoop(args: {
   let steps = 0;
   let totalCompletionTokens = 0;
   let finalSummary = "";
+  let truncated = false;
+  let stopReason: AgentStopReason = "finished";
 
   while (steps < maxSteps) {
     steps += 1;
@@ -233,28 +266,79 @@ export async function runAgentLoop(args: {
       label: steps === 1 ? (args.firstStepLabel ?? "Læser hjemmesiden") : "Arbejder",
     });
 
-    let completion: OpenAI.Chat.ChatCompletion;
-    try {
-      completion = await getOpenAI().chat.completions.create({
-        model: MODEL,
-        messages,
-        tools: openAITools,
-        tool_choice: "auto",
-        max_completion_tokens: MAX_COMPLETION_TOKENS,
-      });
-    } catch (err: any) {
-      const message = `AI-tjenesten svarede ikke: ${err?.message ?? err}`;
-      emit({ type: "error", message });
-      return { status: "failed", message, steps };
+    // Last allowed turn: stop letting the model read and make it deliver.
+    const forceFinal =
+      args.finalTurn !== undefined && steps === maxSteps && !args.finalTurn.satisfied();
+    if (forceFinal && args.finalTurn) {
+      messages.push({ role: "user", content: args.finalTurn.reminder });
     }
 
+    // Preflight, not just postflight: a meter that is already over its
+    // ceiling — because an earlier step of the same build spent it — must
+    // not be allowed to buy one more completion first.
+    if (meter.exceeded()) {
+      const spendMessage = meter.message();
+      if (spendMessage && !ctx.notes.includes(spendMessage)) ctx.notes.push(spendMessage);
+      finalSummary = "Stoppede ved omkostningsloftet.";
+      stopReason = "spend_limit";
+      steps -= 1;
+      break;
+    }
+
+    let completion: OpenAI.Chat.ChatCompletion;
+    try {
+      completion = await meteredChat(
+        role,
+        {
+          messages,
+          tools: openAITools,
+          tool_choice:
+            forceFinal && args.finalTurn
+              ? { type: "function", function: { name: args.finalTurn.toolName } }
+              : "auto",
+        },
+        meter
+      );
+    } catch (err: any) {
+      // A call the wrapper refused because the run cannot afford it is not a
+      // service failure: retrying cannot help, and calling it "AI-tjenesten
+      // svarede ikke" would send the build into its retry path. It is the
+      // same ending as running out mid-loop, so it ends the same way.
+      if (err instanceof SpendLimitError) {
+        const spendMessage = meter.message() ?? err.message;
+        if (!ctx.notes.includes(spendMessage)) ctx.notes.push(spendMessage);
+        emit({ type: "error", message: spendMessage });
+        return {
+          status: "finished",
+          summary: "Stoppede ved omkostningsloftet.",
+          steps,
+          stopReason: "spend_limit",
+          truncated,
+        };
+      }
+      const message = `AI-tjenesten svarede ikke: ${err?.message ?? err}`;
+      emit({ type: "error", message });
+      return { status: "failed", message, steps, truncated };
+    }
+
+    // meteredChat has already charged this call to the run's meter.
     totalCompletionTokens += completion.usage?.completion_tokens ?? 0;
+    const withinSpend = !meter.exceeded();
     const choice = completion.choices[0];
     const message = choice?.message;
     if (!message) {
       const msg = "Tomt svar fra AI-tjenesten.";
       emit({ type: "error", message: msg });
-      return { status: "failed", message: msg, steps };
+      return { status: "failed", message: msg, steps, truncated };
+    }
+
+    // A "length" finish means the answer was cut off mid-write. The loop used
+    // to be blind to this, so a truncated tool call looked exactly like the
+    // model choosing to stop — and the run ended with nothing, unexplained.
+    const cutOff = choice?.finish_reason === "length";
+    if (cutOff) {
+      truncated = true;
+      stopReason = "truncated";
     }
 
     messages.push(message as OpenAI.Chat.ChatCompletionMessageParam);
@@ -275,12 +359,32 @@ export async function runAgentLoop(args: {
       if (!tool) {
         result = { ok: false, error: `Ukendt værktøj "${call.function.name}"` };
       } else {
+        // A cut-off call arrives as valid JSON with the end missing. Recover
+        // the part that did arrive rather than discarding the whole turn; the
+        // tool decides what is usable, and `truncated` makes the loss visible.
         let parsedArgs: unknown = {};
-        try {
-          parsedArgs = call.function.arguments ? JSON.parse(call.function.arguments) : {};
-        } catch {
-          result = { ok: false, error: "Argumenterne var ikke gyldig JSON." };
-          parsedArgs = null;
+        const rawArgs = call.function.arguments?.trim();
+        if (!rawArgs) {
+          parsedArgs = {};
+        } else {
+          const parse = parsePartialJson(rawArgs);
+          if (!parse.ok) {
+            result = { ok: false, error: "Argumenterne var ikke gyldig JSON." };
+            parsedArgs = null;
+          } else if (parse.recovered && tool.mutates) {
+            // Half of a change is not a smaller change — it is a different
+            // one. Recovery is for reading and for delivering a plan; a
+            // write must arrive whole or not at all.
+            result = {
+              ok: false,
+              error: "Kaldet blev afkortet. Send hele ændringen igen — en halv ændring udføres ikke.",
+            };
+            parsedArgs = null;
+            truncated = true;
+          } else {
+            parsedArgs = parse.value;
+            if (parse.recovered) truncated = true;
+          }
         }
         if (parsedArgs !== null) {
           try {
@@ -323,9 +427,26 @@ export async function runAgentLoop(args: {
 
     if (stop) break;
 
+    // The forced final call has happened; there are no turns left to use.
+    // It delivered, so this is not the "ran out of turns" ending — say so,
+    // or the run would carry a note contradicting the result it produced.
+    if (forceFinal) {
+      finalSummary = finalSummary || "Afsluttede på sidste tur.";
+      break;
+    }
+
+    if (!withinSpend) {
+      const message = meter.message();
+      if (message) ctx.notes.push(message);
+      finalSummary = "Stoppede ved omkostningsloftet.";
+      stopReason = "spend_limit";
+      break;
+    }
+
     if (totalCompletionTokens > MAX_TOTAL_COMPLETION_TOKENS) {
       ctx.notes.push("Agenten nåede sit token-budget og stoppede her.");
       finalSummary = "Stoppede ved token-budgettet.";
+      stopReason = "token_budget";
       break;
     }
   }
@@ -333,9 +454,10 @@ export async function runAgentLoop(args: {
   if (steps >= maxSteps && !finalSummary) {
     ctx.notes.push(`Agenten nåede grænsen på ${maxSteps} trin og stoppede her.`);
     finalSummary = "Stoppede ved trin-grænsen.";
+    if (stopReason === "finished") stopReason = "turn_limit";
   }
 
-  return { status: "finished", summary: finalSummary, steps };
+  return { status: "finished", summary: finalSummary, steps, stopReason, truncated };
 }
 
 /**
@@ -360,6 +482,10 @@ export async function runBuilderAgent(args: {
   } = args;
   const emit = args.onEvent ?? (() => {});
 
+  // One meter for the message and everything its tools do — an image the
+  // assistant generates is part of what this message cost, not a free extra.
+  const spendMeter = createSpendMeter("assistant");
+
   const ctx: AgentContext = {
     websiteId,
     state: structuredClone(state),
@@ -367,6 +493,7 @@ export async function runBuilderAgent(args: {
     notes: [],
     createdImages: [],
     imageCache: new Map(),
+    spendMeter,
     approvedLargeChanges,
   };
 
@@ -376,6 +503,7 @@ export async function runBuilderAgent(args: {
     userMessage: `${buildStateSummary(ctx.state)}\n\nOpgave: ${prompt}`,
     ctx,
     emit,
+    spendMeter,
   });
 
   if (outcome.status === "failed") {
@@ -397,6 +525,27 @@ export async function runBuilderAgent(args: {
       summary,
       steps: outcome.steps,
     };
+  }
+
+  // A run that stopped at its ceiling has NOT decided the site needed
+  // nothing. With no changes to show, saying so is the only honest answer —
+  // "ingen ændringer" would read as "your request was already satisfied".
+  if (outcome.stopReason === "spend_limit" && ctx.applied.length === 0) {
+    return {
+      status: "failed",
+      message:
+        spendMeter.message() ??
+        "Forespørgslen nåede sit omkostningsloft, før der blev lavet ændringer. " +
+          "Prøv igen med en mindre opgave.",
+      steps: outcome.steps,
+    };
+  }
+
+  // It did manage some of the work. That gets saved, but the customer is
+  // told the run stopped early rather than finished.
+  if (outcome.stopReason === "spend_limit") {
+    const stopped = spendMeter.message();
+    if (stopped && !ctx.notes.includes(stopped)) ctx.notes.push(stopped);
   }
 
   emit({ type: "done", summary: outcome.summary });

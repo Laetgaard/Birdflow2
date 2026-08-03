@@ -24,6 +24,9 @@ import {
   PlanApproveSchema,
   PlanEditSchema,
   PlanRequestSchema,
+  PLAN_PROMPT_HARD_LIMIT,
+  capNotes,
+  preparePlanPrompt,
   renumberSteps,
   type BuildStreamEvent,
 } from "@shared/assistantPlan";
@@ -132,6 +135,17 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
       const budget = consumeAgentRun(userId);
       if (!budget.ok) return res.status(429).json({ message: budget.message });
 
+      // Too long is a real answer, not a validation code: say how much to cut.
+      const rawPrompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+      if (rawPrompt.length > PLAN_PROMPT_HARD_LIMIT) {
+        return res.status(400).json({
+          message:
+            `Beskrivelsen fylder ${rawPrompt.length} tegn. Kort den ned med cirka ` +
+            `${rawPrompt.length - PLAN_PROMPT_HARD_LIMIT} tegn — eller del ønsket op i flere planer, ` +
+            `én side eller ét emne ad gangen.`,
+        });
+      }
+
       const parsed = PlanRequestSchema.safeParse(req.body ?? {});
       if (!parsed.success) {
         return res
@@ -142,17 +156,28 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
       const builderData = await storage.getBuilderState(req.params.id);
       if (!builderData) return res.status(404).json({ message: "Builder state not found" });
 
+      // A long brief is condensed rather than refused; what was left out
+      // travels with the plan as a note the customer can read.
+      const prepared = preparePlanPrompt(parsed.data.prompt);
+
       const send = openStream(res);
       try {
         const outcome = await runPlanAgent({
           websiteId: req.params.id,
-          prompt: parsed.data.prompt,
+          prompt: prepared.prompt,
           state: builderData.state as BuilderStateData,
           onEvent: send,
         });
 
         if (outcome.status === "failed") {
-          send({ type: "error", message: outcome.message });
+          send({
+            type: "error",
+            message: outcome.message,
+            reason: outcome.reason,
+            // Every planning failure is worth one more attempt with the same
+            // words — except the one caused by spending too much on this run.
+            canRetry: outcome.reason !== "spend_limit",
+          });
           return res.end();
         }
 
@@ -165,7 +190,9 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
           intent: parsed.data.prompt,
           rationale: outcome.plan.rationale,
           steps: outcome.plan.steps,
-          notes: outcome.plan.notes,
+          // "We shortened your description" outranks anything optional the
+          // model wrote, so it is passed as a must-say note, not appended.
+          notes: capNotes(prepared.notes, outcome.plan.notes),
           baseRevision: builderData.revision,
         });
 

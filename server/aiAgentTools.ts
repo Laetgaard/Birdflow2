@@ -24,7 +24,8 @@ import { generateAndStoreImage, readObjectImageAsDataUrl, type ImageAspect } fro
 import { proposePalettes, proposeFontPairs } from "./designInterview";
 import { analyzeAndPlanWebsite } from "./websiteArchitect";
 import { captureWebsiteScreenshot } from "./screenshotService";
-import { getOpenAI } from "./openaiClient";
+import { meteredChat } from "./aiCall";
+import type { SpendMeter } from "./aiSpend";
 import { storage } from "./storage";
 import { classifyChange, type LargeChangeVerdict } from "./largeChange";
 
@@ -61,6 +62,12 @@ export type AgentContext = {
    * cannot generate thirty images.
    */
   imageCache: Map<string, string>;
+  /**
+   * The money ceiling for this run. Nested calls a tool makes — generating
+   * an image, reading an inspiration image — charge THIS meter, or a run
+   * could stay under its ceiling while its tools spent freely beside it.
+   */
+  spendMeter?: SpendMeter;
   /** True once the caller has approved large changes for this run. */
   approvedLargeChanges: boolean;
   /**
@@ -253,6 +260,56 @@ export function buildReadTools(): AgentTool[] {
   });
 
   tools.push({
+    name: "read_pages",
+    description:
+      "Read SEVERAL pages at once, each with its sections in order. Prefer this over calling get_page " +
+      "repeatedly — it costs one turn instead of one per page. Omit pageIds to read the whole site.",
+    parameters: z.object({
+      pageIds: z
+        .array(z.string())
+        .optional()
+        .describe("Page ids to read. Leave empty to read every page."),
+    }),
+    mutates: false,
+    run: ({ pageIds }, ctx) => {
+      const wanted: string[] =
+        pageIds && pageIds.length > 0 ? pageIds : ctx.state.pages.map((p) => p.id);
+      const unknown: string[] = [];
+      const pages = wanted
+        .map((id: string) => {
+          const page = ctx.state.pages.find((p) => p.id === id);
+          if (!page) {
+            unknown.push(id);
+            return null;
+          }
+          return {
+            id: page.id,
+            name: page.name,
+            path: page.path,
+            hidden: page.hidden ?? false,
+            components: page.components.map(compactComponent),
+          };
+        })
+        .filter((p): p is NonNullable<typeof p> => p !== null);
+
+      if (pages.length === 0) {
+        return {
+          ok: false,
+          error: `Ingen af siderne blev fundet. Kendte sider: ${ctx.state.pages
+            .map((p) => p.id)
+            .join(", ")}`,
+        };
+      }
+
+      return {
+        ok: true,
+        summary: `Læste ${pages.length} side${pages.length === 1 ? "" : "r"}`,
+        data: unknown.length > 0 ? { pages, unknownPageIds: unknown } : { pages },
+      };
+    },
+  });
+
+  tools.push({
     name: "get_component",
     description: "Read one section's full props and styles.",
     parameters: z.object({ pageId: z.string(), componentId: z.string() }),
@@ -306,7 +363,7 @@ export function buildReadTools(): AgentTool[] {
     mutates: false,
     run: async (_args, ctx) => {
       try {
-        const analysis = await analyzeDesign(ctx.state);
+        const analysis = await analyzeDesign(ctx.state, ctx.spendMeter);
         return { ok: true, summary: "Analyserede designet", data: analysis };
       } catch (err: any) {
         return { ok: false, error: `Analysen fejlede: ${err?.message ?? err}` };
@@ -504,7 +561,8 @@ export function buildToolCatalogue(): AgentTool[] {
           ctx.websiteId,
           description,
           ctx.state.brandGuide as BrandGuide | undefined,
-          aspect as ImageAspect
+          aspect as ImageAspect,
+          ctx.spendMeter
         );
         ctx.imageCache.set(key, url);
         ctx.createdImages.push(description);
@@ -543,7 +601,12 @@ export function buildToolCatalogue(): AgentTool[] {
     mutates: false,
     run: async ({ feeling }, ctx) => {
       try {
-        const palettes = await proposePalettes(feeling, ctx.state);
+        const palettes = await proposePalettes(
+          feeling,
+          ctx.state,
+          undefined,
+          ctx.spendMeter
+        );
         return {
           ok: true,
           summary: `Foreslog ${palettes.length} farvepaletter`,
@@ -566,7 +629,13 @@ export function buildToolCatalogue(): AgentTool[] {
     mutates: false,
     run: async ({ feeling, palette }, ctx) => {
       try {
-        const fontPairs = await proposeFontPairs(feeling, palette, ctx.state);
+        const fontPairs = await proposeFontPairs(
+          feeling,
+          palette,
+          ctx.state,
+          undefined,
+          ctx.spendMeter
+        );
         return {
           ok: true,
           summary: `Foreslog ${fontPairs.length} skrifttype-par`,
@@ -598,7 +667,12 @@ export function buildToolCatalogue(): AgentTool[] {
           const shot = await captureWebsiteScreenshot(sourceUrl);
           if (shot.success) imageBase64 = shot.imageBase64;
         }
-        const result = await analyzeAndPlanWebsite(prompt, imageBase64, sourceUrl);
+        const result = await analyzeAndPlanWebsite(
+          prompt,
+          imageBase64,
+          sourceUrl,
+          ctx.spendMeter
+        );
         if (!result.success || !result.plan) {
           return { ok: false, error: result.error ?? "Kunne ikke lave en plan" };
         }
@@ -641,28 +715,30 @@ export function buildToolCatalogue(): AgentTool[] {
         if (!dataUrl) {
           return { ok: false, error: "Billedet kunne ikke læses." };
         }
-        const completion = await getOpenAI().chat.completions.create({
-          model: "gpt-5.1",
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a Danish design analyst. Describe the design of the image as JSON with keys: " +
-                '{"colors": {"primary","secondary","accent","background","text"} (hex), ' +
-                '"typographyFeel": string, "mood": string, "notes": string}. ' +
-                "All prose in Danish. Respond with JSON only.",
-            },
-            {
-              role: "user",
-              content: [
-                { type: "image_url", image_url: { url: dataUrl, detail: "low" } },
-                { type: "text", text: "Beskriv designet i dette inspirationsbillede." },
-              ],
-            },
-          ],
-          response_format: { type: "json_object" },
-          max_completion_tokens: 700,
-        });
+        const completion = await meteredChat(
+          "referenceVision",
+          {
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a Danish design analyst. Describe the design of the image as JSON with keys: " +
+                  '{"colors": {"primary","secondary","accent","background","text"} (hex), ' +
+                  '"typographyFeel": string, "mood": string, "notes": string}. ' +
+                  "All prose in Danish. Respond with JSON only.",
+              },
+              {
+                role: "user",
+                content: [
+                  { type: "image_url", image_url: { url: dataUrl, detail: "low" } },
+                  { type: "text", text: "Beskriv designet i dette inspirationsbillede." },
+                ],
+              },
+            ],
+            response_format: { type: "json_object" },
+          },
+          ctx.spendMeter
+        );
         const raw = completion.choices[0]?.message?.content ?? "{}";
         const tokens = JSON.parse(raw);
         return {

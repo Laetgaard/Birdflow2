@@ -213,7 +213,9 @@ describe("everything the AI writes", () => {
   it("states the target language in the generation prompts", () => {
     const generator = read("server/onboardingGenerator.ts");
     expect(generator).toContain("copyLanguageInstruction(lang)");
-    expect(generator).toContain('processAIBuildRequest(buildEnhancePrompt(input), builtState, "creative", lang)');
+    expect(generator).toMatch(
+      /processAIBuildRequest\(\s*buildEnhancePrompt\(input\),\s*builtState,\s*"creative",\s*lang,/
+    );
   });
 
   it("keeps later builder edits in the same language", () => {

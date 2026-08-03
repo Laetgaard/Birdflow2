@@ -23,7 +23,8 @@ import { storage } from "./storage";
 import type { BuilderMutation, AIPrimitiveNode } from "@shared/aiBuilderSchema";
 import type { BrandGuide } from "@shared/schema";
 
-import { getOpenAI } from "./openaiClient";
+import { meteredImage } from "./aiCall";
+import type { SpendMeter } from "./aiSpend";
 
 export const AI_IMAGE_MARKER = "ai://";
 export const MAX_AI_IMAGES_PER_REQUEST = 3;
@@ -80,14 +81,18 @@ export async function generateAndStoreImage(
   websiteId: string,
   description: string,
   brandGuide?: BrandGuide,
-  aspect: ImageAspect = "landscape"
+  aspect: ImageAspect = "landscape",
+  /** The run's meter, when this image belongs to a larger run. */
+  meter?: SpendMeter
 ): Promise<{ url: string; mediaId: string }> {
-  const result = await getOpenAI().images.generate({
-    model: "gpt-image-1",
-    prompt: buildImagePrompt(description, brandGuide),
-    size: ASPECT_SIZE[aspect],
-    quality: "medium",
-  });
+  const result = await meteredImage(
+    {
+      prompt: buildImagePrompt(description, brandGuide),
+      size: ASPECT_SIZE[aspect],
+      quality: "medium",
+    },
+    meter
+  );
 
   const b64 = result.data?.[0]?.b64_json;
   if (!b64) throw new Error("Ingen billeddata modtaget fra billedgeneratoren");
@@ -130,7 +135,9 @@ export async function generateAndStoreImage(
 export async function generateLogo(
   websiteId: string,
   businessName: string,
-  options?: { feeling?: string; primaryColor?: string; accentColor?: string; notes?: string }
+  options?: { feeling?: string; primaryColor?: string; accentColor?: string; notes?: string },
+  /** The run's meter, when this logo belongs to a larger run. */
+  meter?: SpendMeter
 ): Promise<{ url: string; mediaId: string }> {
   const parts = [
     `Minimalist vector-style logo for the business "${businessName.trim()}".`,
@@ -146,12 +153,14 @@ export async function generateLogo(
   if (options?.notes) parts.push(`Direction: ${truncate(options.notes, 300)}`);
   parts.push("No photograph, no 3D, no gradients heavier than subtle, no watermark.");
 
-  const result = await getOpenAI().images.generate({
-    model: "gpt-image-1",
-    prompt: parts.join(" "),
-    size: "1024x1024",
-    quality: "medium",
-  });
+  const result = await meteredImage(
+    {
+      prompt: parts.join(" "),
+      size: "1024x1024",
+      quality: "medium",
+    },
+    meter
+  );
 
   const b64 = result.data?.[0]?.b64_json;
   if (!b64) throw new Error("Ingen billeddata modtaget fra billedgeneratoren");
@@ -333,7 +342,9 @@ export function planImageJobs(
 export async function resolveAiImageMarkers(
   websiteId: string,
   mutations: BuilderMutation[],
-  brandGuide?: BrandGuide
+  brandGuide?: BrandGuide,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<ResolvedImages> {
   const cloned = structuredClone(mutations);
   const slots: MarkerSlot[] = [];
@@ -365,7 +376,13 @@ export async function resolveAiImageMarkers(
   await Promise.all(
     Array.from(jobs.values()).map(async (job) => {
       try {
-        const { url } = await generateAndStoreImage(websiteId, job.description, brandGuide, job.aspect);
+        const { url } = await generateAndStoreImage(
+          websiteId,
+          job.description,
+          brandGuide,
+          job.aspect,
+          meter
+        );
         job.url = url;
       } catch (error) {
         console.error("AI image generation failed:", error);

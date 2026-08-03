@@ -12,7 +12,8 @@ import {
   getTypographyScale 
 } from "@shared/designPresets";
 
-import { getOpenAI } from "./openaiClient";
+import { meteredChat } from "./aiCall";
+import type { SpendMeter } from "./aiSpend";
 
 export interface ArchitectResult {
   success: boolean;
@@ -196,7 +197,9 @@ Remember: NO HARDCODED COLORS, SPACING, OR FONTS. Everything comes from the desi
 export async function analyzeAndPlanWebsite(
   prompt: string,
   imageBase64?: string,
-  sourceUrl?: string
+  sourceUrl?: string,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<ArchitectResult> {
   try {
     const messages: any[] = [
@@ -250,12 +253,11 @@ You MUST include:
       });
     }
 
-    const response = await getOpenAI().chat.completions.create({
-      model: "gpt-4o",
-      messages,
-      max_tokens: 4096,
-      response_format: { type: "json_object" },
-    });
+    const response = await meteredChat(
+      "architectPlan",
+      { messages, response_format: { type: "json_object" } },
+      meter
+    );
 
     const content = response.choices[0]?.message?.content;
     if (!content) {
@@ -361,11 +363,12 @@ You MUST include:
   }
 }
 
-export async function buildFromPlan(plan: WebsitePlan): Promise<BuildResult> {
+export async function buildFromPlan(plan: WebsitePlan, meter?: SpendMeter): Promise<BuildResult> {
   try {
-    const response = await getOpenAI().chat.completions.create({
-      model: "gpt-4o",
-      messages: [
+    const response = await meteredChat(
+      "architectBuild",
+      {
+        messages: [
         {
           role: "system",
           content: BUILD_SYSTEM_PROMPT,
@@ -388,9 +391,10 @@ CRITICAL REMINDERS:
 Create ALL pages with ALL sections. Make it look professional and cohesive.`,
         },
       ],
-      max_tokens: 8192,
-      response_format: { type: "json_object" },
-    });
+        response_format: { type: "json_object" },
+      },
+      meter
+    );
 
     const content = response.choices[0]?.message?.content;
     if (!content) {

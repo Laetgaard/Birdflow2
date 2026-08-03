@@ -205,6 +205,12 @@ export type PlanStepResult = {
   rejections: string[];
   imagesUsed: number;
   attempts: number;
+  /**
+   * What the whole build had spent, in USD, when this step finished. Written
+   * with the build's progress so a build that outlives a restart can rebuild
+   * its meter from what it really cost rather than from a guess.
+   */
+  spentUsd?: number;
 };
 
 export type BuildSummary = {
@@ -247,9 +253,114 @@ export type BuildStreamEvent =
 
 /* ─────────────────────── request payloads ─────────────────────── */
 
+/**
+ * How much of a description the planner is asked to think about at once.
+ * Above this the text is condensed rather than refused — see preparePlanPrompt.
+ */
+/**
+ * How many notes a plan carries. Notes are what the customer reads before
+ * approving, so the cap exists to keep the card readable — never to decide
+ * WHICH notes matter. `capNotes` makes that ordering explicit.
+ */
+export const PLAN_NOTE_LIMIT = 12;
+
+/**
+ * Keep every note that must be said (a dropped step, a truncated answer, a
+ * shortened description) and fill the rest of the cap with the optional
+ * ones. A model that writes twelve stylistic remarks can no longer push out
+ * the sentence telling the customer the plan is incomplete.
+ */
+export function capNotes(
+  mustSay: string[],
+  optional: string[],
+  limit = PLAN_NOTE_LIMIT
+): string[] {
+  const kept: string[] = [];
+  for (const note of [...mustSay, ...optional]) {
+    if (kept.length >= limit) break;
+    if (!kept.includes(note)) kept.push(note);
+  }
+  return kept;
+}
+
+export const PLAN_PROMPT_SOFT_LIMIT = 4000;
+
+/**
+ * The point where no amount of condensing helps and the customer has to be
+ * told, specifically, how much to cut.
+ */
+export const PLAN_PROMPT_HARD_LIMIT = 20000;
+
 export const PlanRequestSchema = z.object({
-  prompt: z.string().trim().min(1).max(4000),
+  prompt: z.string().trim().min(1).max(PLAN_PROMPT_HARD_LIMIT),
 });
+
+export type PreparedPlanPrompt = {
+  prompt: string;
+  /** Danish notes about anything that was left out. Empty when nothing was. */
+  notes: string[];
+};
+
+/** Collapse the whitespace a pasted brief is full of, without losing structure. */
+function normalizeWhitespace(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Cut at the nearest paragraph or sentence break, so a fragment reads whole. */
+function cutAt(text: string, limit: number, fromEnd: boolean): string {
+  if (text.length <= limit) return text;
+  if (fromEnd) {
+    const tail = text.slice(text.length - limit);
+    const breakAt = tail.search(/\n\n|(?<=[.!?])\s/);
+    return breakAt > 0 && breakAt < limit / 3 ? tail.slice(breakAt).trim() : tail.trim();
+  }
+  const head = text.slice(0, limit);
+  const paragraph = head.lastIndexOf("\n\n");
+  const sentence = Math.max(head.lastIndexOf(". "), head.lastIndexOf("!\n"), head.lastIndexOf("?\n"));
+  const breakAt = paragraph > limit / 2 ? paragraph : sentence > limit / 2 ? sentence + 1 : -1;
+  return (breakAt > 0 ? head.slice(0, breakAt) : head).trim();
+}
+
+/**
+ * Make a long description usable instead of rejecting it at the door.
+ *
+ * A customer who writes six hundred words about their practice has told us
+ * more than one who writes six, and answering that with a bare 400 is the
+ * rudest possible reply. Whitespace is collapsed first — pasted briefs are
+ * mostly blank lines — and only if it is still too long is the middle
+ * dropped, with the beginning and the end kept because that is where people
+ * put what they actually want. What was left out is always said out loud.
+ */
+export function preparePlanPrompt(raw: string): PreparedPlanPrompt {
+  const normalized = normalizeWhitespace(raw);
+  if (normalized.length <= PLAN_PROMPT_SOFT_LIMIT) {
+    return { prompt: normalized, notes: [] };
+  }
+
+  const marker = "\n\n[…midten af beskrivelsen er udeladt…]\n\n";
+  const headLimit = Math.floor((PLAN_PROMPT_SOFT_LIMIT - marker.length) * 0.65);
+  const tailLimit = PLAN_PROMPT_SOFT_LIMIT - marker.length - headLimit;
+
+  const head = cutAt(normalized, headLimit, false);
+  const tail = cutAt(normalized, tailLimit, true);
+  const prompt = `${head}${marker}${tail}`;
+  const omitted = Math.max(0, normalized.length - head.length - tail.length);
+
+  return {
+    prompt,
+    notes: [
+      `Din beskrivelse var ${normalized.length} tegn — for lang til at planlægge på én gang. ` +
+        `Jeg har brugt begyndelsen og slutningen og udeladt ca. ${omitted} tegn i midten. ` +
+        `Var noget vigtigt i den del, så bed om det som en ny plan bagefter.`,
+    ],
+  };
+}
 
 export const PlanEditSchema = z.object({
   /** Optimistic concurrency: the version the customer was editing. */
