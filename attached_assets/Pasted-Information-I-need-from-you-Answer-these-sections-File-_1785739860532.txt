@@ -1,0 +1,637 @@
+Information I need from you
+
+Answer these sections. File excerpts are useful where requested, but short explanations are enough initially.
+
+1. Website and page data model
+Are all website pages stored inside builder_state.state, or is there also a separate pages table?
+What does one page object look like?
+Where are these stored?
+Page name
+Slug
+Navigation label
+SEO title and description
+Section order
+Header/footer visibility
+Is navigation stored globally or derived from the pages?
+Can pages currently have different headers and footers, or are those global?
+Can users already create, rename, duplicate, reorder and delete pages manually?
+Can the AI currently perform all those page operations?
+
+A reduced example of the current state would help:
+
+{
+  pages: [...],
+  navigation: ...,
+  globalStyles: ...,
+  customComponents: ...
+}
+2. Current AI tool coverage
+
+Please list which of these operations already have AI tools:
+
+Operation	Exists?
+Read all pages	
+Read one page	
+Create page	
+Rename page	
+Delete page	
+Reorder pages	
+Edit navigation	
+Create section	
+Update section props	
+Update section styles	
+Reorder sections	
+Delete section	
+Create custom component	
+Update custom component	
+Save component to library	
+Generate image	
+Generate SVG	
+Update global colours	
+Update page colours	
+Update typography	
+Add motion	
+Update SEO	
+Run self-check	
+
+The relevant tool names or the tool registry portion of server/aiAgentTools.ts would be ideal.
+
+3. Premade-component editing system
+
+I need to understand how Birdflow makes premade components editable.
+
+Are editable controls defined in componentRegistry.ts?
+What types of controls exist?
+Text
+Rich text
+Image
+Link
+Colour
+Font
+Spacing
+Alignment
+Repeater/list
+Toggle
+Select
+Does the Properties panel render controls dynamically from a schema?
+Does inline editing use the same schema?
+Can individual nested items be selected and edited?
+Are editable props separate from editable styles?
+Can an existing premade component expose repeatable content such as cards, FAQ items or testimonials?
+
+Please provide one representative registry entry containing:
+
+defaultProps
+defaultStyles
+editableFields
+responsive data
+4. Custom-component editing
+
+This is one of the most important missing pieces.
+
+When the AI creates a primitive-tree custom component today:
+
+Can the customer select it in the canvas?
+Can the customer edit text directly?
+Can they replace images?
+Can they edit button labels and links?
+Can they edit colours?
+Can they edit spacing?
+Can they edit typography?
+Can they add or remove repeated items?
+Can they select nested nodes?
+Does the custom component have an editable-field schema, or only the primitive tree itself?
+Can the AI update an existing custom component instance without recreating it?
+Does changing the library component update all inserted instances, or is each insertion copied?
+
+A future AI-created component will probably need both:
+
+{
+  tree: PrimitiveNode[];
+  editableSchema: EditableFieldDefinition[];
+}
+
+Tell me whether something like editableSchema already exists.
+
+5. Component instances versus component definitions
+
+How does Birdflow currently distinguish between:
+
+A reusable component definition in the library.
+An inserted component instance on a page.
+Content overrides for that instance.
+Design overrides for that instance.
+
+Which behaviour do you want?
+
+Option A — copied instance
+
+Inserting a library component copies its tree. Future library updates do not affect existing sections.
+
+Option B — linked instance
+
+The section references a component definition and stores only local overrides. Updating the definition can update every linked instance.
+
+Option C — hybrid
+
+A component starts linked but can be detached into a local copy.
+
+For AI-generated design systems, hybrid is usually strongest, but it is also significantly more work.
+
+6. Preview and publish pipeline
+
+This must be exact, because “works in preview but not after publishing” is unacceptable.
+
+Does the builder preview use ComponentRenderer.tsx directly?
+What renders custom components in the preview?
+What generates the published Next.js website?
+Does publishing serialize the primitive tree?
+Does the published site use the same style resolver as the builder?
+Are tabletStyles and mobileStyles already emitted correctly after publishing?
+Are custom SVGs published correctly?
+Are motion properties published?
+Are Google Fonts or custom fonts included automatically?
+Are there currently any component types that work in preview but fail after publishing?
+Is publishing based on:
+Generated React source
+A runtime renderer
+Serialized JSON plus a shared renderer
+Another approach
+
+Please provide the main files/functions for:
+
+Preview custom-component rendering
+Published custom-component rendering
+Responsive style generation
+Motion rendering
+7. Global design system and per-section styling
+
+Where does Birdflow currently store:
+
+Brand colours
+Semantic colour roles
+Heading font
+Body font
+Type scale
+Spacing scale
+Border radius
+Shadows
+Button style
+Container width
+Motion preference
+
+Can styles currently exist at these levels?
+
+Website global style
+Page-level style
+Section-level style
+Primitive-node style
+
+Which level wins when values conflict?
+
+For example:
+
+Primitive override
+→ section style
+→ page style
+→ global brand style
+→ component default
+
+A clear cascade is essential before giving the AI full design power.
+
+8. Typography editing
+Can users currently change fonts globally?
+Can they change a font on one section?
+Can they change a font on one text node?
+How are fonts loaded in the builder preview?
+How are fonts included during publishing?
+Are fonts limited to an allowlist?
+Can the AI propose and install a Google Font automatically?
+Is there currently a type scale, or are sizes entered individually?
+Can the AI control:
+Font family
+Weight
+Size
+Line height
+Letter spacing
+Text transform
+Maximum text width
+Responsive typography
+
+Tell me whether you want the AI to use only approved fonts or any Google Font.
+
+9. Colour editing
+Is the brand guide currently the source of truth for global colours?
+Are colours semantic, for example:
+{
+  primary,
+  secondary,
+  accent,
+  background,
+  surface,
+  heading,
+  body,
+  border
+}
+
+or are they just a flat palette?
+3. Can a component reference a semantic token such as var(--brand-primary)?
+4. Or does each component store literal hex values?
+5. Should AI changes to global colour roles update the complete site?
+6. Should it be allowed to override colours locally?
+7. Should changing the whole palette require explicit approval?
+8. Should the AI be able to generate and compare several palette proposals before applying one?
+
+Semantic tokens are much stronger than scattering hex codes through every section.
+
+10. Motion system
+
+Please provide the supported animation schema.
+
+I need to know whether it currently includes things like:
+
+{
+  animationType,
+  trigger,
+  duration,
+  delay,
+  easing,
+  distance,
+  direction,
+  stagger,
+  repeat
+}
+
+Also:
+
+Is motion attached to sections, components or individual primitive nodes?
+Does preview support it?
+Does publishing support it?
+Is scroll-based reveal supported?
+Is hover motion supported?
+Is entrance motion supported?
+Are looping decorative animations supported?
+Is prefers-reduced-motion respected?
+Can child elements stagger?
+Are unsupported animation values currently rejected?
+11. SVG illustration capability
+Does the AI generate complete SVG markup or a structured SVG model?
+Where are generated SVGs stored?
+Are they saved as assets or embedded inside primitive nodes?
+Can SVG colours reference brand tokens?
+Can an SVG be edited later?
+Can the user edit:
+Main colours
+Stroke width
+Icon details
+Text inside the SVG
+Can motion be applied to the entire SVG?
+Can individual SVG paths be animated?
+What sanitizer restrictions exist?
+What maximum SVG size or complexity is allowed?
+
+My recommendation will probably be:
+
+Sanitised SVG markup.
+No scripts.
+No external references.
+No event handlers.
+Controlled colour tokens.
+Motion applied through the supported outer component properties, not arbitrary SVG JavaScript.
+12. Images and media
+Which model/service generates images?
+Are generated images stored in Cloudflare R2, Supabase Storage or somewhere else?
+Can the AI crop images for different breakpoints?
+Can it generate mobile-specific image variants?
+Can users replace generated images afterwards?
+Is alt text stored separately?
+Does image generation receive the brand guide?
+Can the AI reuse an existing image across pages?
+Can it inspect existing website images before generating more?
+Should a complex build remain capped at three unique generated images?
+
+The current three-image cap may be too restrictive for full multi-page website creation. It does not need to be removed in this task, but the planner must understand and allocate that budget intentionally.
+
+13. Content and copywriting
+How is the website’s language stored?
+How is tone of voice stored in the brand guide?
+Does the AI currently receive:
+Business description
+Audience
+Services
+Location
+Conversion goal
+Tone
+Existing page copy
+Should the AI be allowed to rewrite the whole site?
+Should it preserve factual claims unless explicitly asked to change them?
+Should it be prohibited from inventing:
+Testimonials
+Qualifications
+Statistics
+Prices
+Treatment results
+Should content be SEO-aware?
+Should the plan include one copy goal per section?
+Should the AI create meta titles and descriptions?
+Should it also create image alt text?
+
+For psychology websites, fabricated credentials, testimonials and treatment claims need explicit safeguards.
+
+14. Whole-site editing behaviour
+
+When the customer asks:
+
+Redesign my complete website.
+
+Should the AI be allowed to change:
+
+Every page?
+Navigation?
+Global colour system?
+Typography?
+Header?
+Footer?
+Page slugs?
+SEO metadata?
+Existing booking sections?
+Contact forms?
+Legal links?
+Hidden pages?
+Unpublished drafts?
+
+Should some areas always require explicit inclusion in the plan?
+
+My recommendation:
+
+Ordinary content and design edits:
+Approved through plan scope
+
+Navigation restructuring:
+Explicitly listed
+
+Page deletion:
+Destructive confirmation
+
+Brand-guide overwrite:
+Destructive confirmation
+
+Booking/form logic:
+Content and styling can change,
+but functional bindings cannot be replaced without explicit scope
+
+Legal pages:
+Never rewrite automatically
+
+Confirm whether this matches your goal.
+
+15. Functional components
+
+Complex website components may include behaviour rather than only presentation.
+
+Which functional component types exist?
+
+Booking widget
+Contact form
+Newsletter form
+Product list
+Checkout button
+FAQ accordion
+Tabs
+Carousel
+Modal
+Map
+Video
+Calendar
+Pricing calculator
+
+Can custom primitive components contain behaviour, or are they visual only?
+
+A primitive tree of box, text, image, button and svg cannot safely invent a new booking calendar or interactive carousel without either:
+
+Referencing an existing functional primitive, or
+Introducing a controlled behaviour/action system.
+
+Do you want the AI to:
+
+Create only visual custom components, while inserting existing functional components when behaviour is needed?
+Or eventually create controlled interactive components too?
+
+I strongly recommend using existing trusted functional components rather than letting the AI invent runtime logic.
+
+16. AI self-review
+
+What should self-review inspect?
+
+My recommended categories are:
+
+Architecture
+Content quality
+Brand consistency
+Responsive layout
+Accessibility
+Navigation and links
+Functional bindings
+Performance risks
+Motion safety
+Preview/publish parity
+SEO basics
+
+Should self-review:
+
+A. Automatically repair everything safe
+
+Examples:
+
+Broken internal links
+Missing alt text
+Weak contrast
+Unsafe widths
+Missing mobile stacking
+B. Suggest, but not automatically change subjective issues
+
+Examples:
+
+“The homepage has too many competing CTAs”
+“This headline feels generic”
+“The page could use stronger visual rhythm”
+C. Require approval for broad design revisions
+
+Examples:
+
+Replacing the entire colour palette
+Reordering several pages
+Removing many sections
+
+Confirm whether this three-level model is right.
+
+17. Design quality and originality
+
+How free should the AI be?
+
+Conservative
+
+Prefer premade components and only create custom ones when absolutely necessary.
+
+Balanced
+
+Reuse existing components when they fit, but create custom components when the design would otherwise feel generic.
+
+Highly creative
+
+Treat premade components as optional building blocks and frequently create new compositions.
+
+From your description, Balanced moving toward Highly creative sounds right.
+
+Also confirm:
+
+Should each website visibly differ from the others?
+Should the AI avoid reusing the same page structure repeatedly?
+Should it be allowed to create asymmetrical layouts?
+Can it use overlapping elements?
+Can it create decorative background shapes?
+Can it combine SVG illustrations with photographs?
+How bold can motion be?
+Should it always prioritise conversion clarity over visual experimentation?
+18. Component-library organisation
+
+When AI creates a component, what should the library show?
+
+Recommended metadata:
+
+{
+  id,
+  websiteId,
+  name,
+  description,
+  category,
+  tags,
+  source: "ai" | "user",
+  thumbnail,
+  createdAt,
+  updatedAt,
+  version
+}
+
+Questions:
+
+What categories exist today?
+Should AI components appear under:
+[Website name]s egne komponenter
+Should the AI generate a thumbnail?
+Should components have versions?
+Can users rename and delete them?
+What happens to inserted instances when the library definition is deleted?
+Should duplicate or near-duplicate components be detected?
+19. Existing custom-component failures
+
+Please describe what happens today when the AI creates a custom component.
+
+For example:
+
+It appears in the current page but not the library.
+It appears in preview but not publish.
+It cannot be edited.
+Text editing works but colours do not.
+Responsive styles disappear.
+It publishes with incorrect spacing.
+The renderer cannot handle nested elements.
+It creates a component but cannot reuse it.
+The AI can create only one instance.
+
+Concrete failures will determine the implementation order.
+
+20. Models and limits
+Which model currently handles planning?
+Which model handles building?
+Can different models be used for:
+Planning
+Copywriting
+Image prompting
+Self-review
+What are the current:
+Planning completion-token limit
+Build completion-token limit
+Planning turn limit
+Build turn limit
+Request character limit
+Is model reasoning configurable?
+Is tool-result context kept across all build steps?
+Is there a server-side cost ceiling beyond the request rate limit?
+How large can builder_state.state become before requests become slow?
+Files that would give the clearest answer
+
+The most useful excerpts are:
+
+shared/schema.ts
+
+The builder_state, website and page-related sections.
+
+shared/customComponents.ts
+
+Especially:
+
+PrimitiveNode
+Style keys
+CustomComponentEntry
+Responsive resolution
+Serialization
+shared/componentRegistry.ts
+
+One simple premade section and one complex/repeating section.
+
+shared/aiBuilderSchema.ts
+
+The complete mutation union.
+
+client/src/components/builder/ComponentRenderer.tsx
+
+Premade and custom-component branches.
+
+client/src/components/builder/BrandGuidePanel.tsx
+
+Current brand data and editing.
+
+client/src/components/AIBuilderPanel.tsx
+
+Current Plan/Build UI and action paths.
+
+server/aiAgentTools.ts
+
+Tool definitions and mutation application.
+
+server/planAgent.ts
+
+Plan production loop.
+
+server/selfCheck.ts
+
+Current deterministic checks.
+
+Publishing-related renderer or generator files
+
+Especially where custom components, responsive styles, fonts and animations are emitted.
+
+Likely final task structure
+
+This should not be implemented as one giant #93 task. It will be safer as a coordinated programme:
+
+Plan reliability for large requests
+Compact whole-site context reader
+Whole-site architecture planning
+Cross-page scoped build executor
+Canonical custom-component format
+AI-generated editable-field schemas
+Custom-component preview and publish parity
+Responsive-design validator and repairer
+Typography and semantic colour tools
+Motion-design system
+SVG illustration pipeline
+Professional copy and factual-safety rules
+Structured self-review and repair
+Component-library integration
+End-to-end complex website build tests
+
+Trying to combine all of that into “make Plan mode survive longer requests” will produce a plan that technically succeeds while the AI remains unable to build the designs you actually want.
+
+Send the answers in sections, even if some are simply “I don’t know yet,” along with the most relevant code excerpts. The next plan should be built around the real renderer, editing schema and publishing pipeline rather than assumptions.
