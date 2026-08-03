@@ -510,7 +510,9 @@ export function buildToolCatalogue(): AgentTool[] {
       "create_custom_component",
       "Build a brand new component from primitive nodes (box/text/image/button/svg) when no standard section fits. " +
         "Supply base styles plus tabletStyles and mobileStyles so it is responsive. SVG nodes may contain SMIL " +
-        "(animate, animateTransform, animateMotion) for real motion graphics.",
+        "(animate, animateTransform, animateMotion) for real motion graphics. ALWAYS include \"schema\" declaring " +
+        "the editable fields (Danish labels, node-id bindings, repeaters for lists) — give referenced nodes explicit ids. " +
+        "Custom components are visual-only: never imitate booking/forms/checkout; insert the trusted section types instead.",
       AddCustomComponentMutation,
       (m) => `Byggede komponenten "${m.name}"`
     )
@@ -518,7 +520,8 @@ export function buildToolCatalogue(): AgentTool[] {
   tools.push(
     writeTool(
       "update_custom_component",
-      "Replace the tree or styles of an existing custom component.",
+      "Replace the tree or styles of an existing custom component. Keep node ids and schema keys stable where " +
+        "possible, and include \"schema\" again whenever the structure changed.",
       UpdateCustomComponentMutation,
       () => "Opdaterede en egen komponent"
     )

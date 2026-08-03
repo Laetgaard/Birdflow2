@@ -30,6 +30,12 @@ import {
   MAX_CUSTOM_TREE_NODES,
   MAX_CUSTOM_TREE_DEPTH,
   PRIMITIVE_STYLE_KEYS,
+  sanitizeEditableSchema,
+  validateEditableSchema,
+  inferEditableSchema,
+  findFunctionalBindings,
+  cloneLibrarySource,
+  type EditableSchema,
   type PrimitiveNode,
   type CustomComponentEntry,
 } from "@shared/customComponents";
@@ -687,7 +693,24 @@ Responsive rules (MANDATORY):
 - fontSize ≥ 48px needs a smaller mobileStyles.fontSize (roughly 60%)
 
 "update_custom_component" edits an existing component of type "custom". "tree" REPLACES the whole tree — always return the COMPLETE tree with your changes merged in, keeping existing node ids where possible:
-{ "action": "update_custom_component", "pageId": "...", "componentId": "...", "tree": {...}, "styles": {...} }
+{ "action": "update_custom_component", "pageId": "...", "componentId": "...", "tree": {...}, "schema": {...}, "styles": {...} }
+
+## EDITABLE FIELDS ("schema" — ALWAYS include it with a custom component)
+Customers edit custom components through named fields ("Overskrift", "Knap – link"), never through raw nodes. Every add_custom_component MUST include a "schema" that declares what is editable:
+- Give an explicit "id" (e.g. "n1", "n2") to EVERY node the schema references — the server rejects fields that do not resolve to a real node.
+- "schema": { "fields": [ { "key": "headline", "label": "Overskrift", "type": "text", "nodeId": "n1" }, ... ] }
+- Field types:
+  - "text" → binds a text node (edits its text) or a button (edits its label)
+  - "link" → binds a button (edits its href); "image" → binds an image node
+  - "color" → any node, plus "styleKey": "backgroundColor" | "color"
+  - "styleGroup" → any node, plus "keys": [allowed style keys] for advanced styling
+  - "repeater" → a LIST (cards, steps, USP'er): "nodeId" points at the box whose children are the item boxes (every item the SAME structure). Describe each item's editable parts with "itemFields": [{ "key": "t0", "label": "Titel", "type": "text", "nodeType": "text", "nth": 0 }] where "nth" = index among that node type INSIDE one item, document order. Repeaters let the customer add/remove/reorder items — always model lists this way instead of flat one-off fields.
+- "label" is what the customer sees: short, Danish, concrete ("Overskrift", "Knap – link", "Pris 2").
+- Cover everything a customer will want to change: headings, body text, button labels + links, images, list items, the section background colour. Skip purely decorative nodes.
+- On update_custom_component: keep node ids and schema keys stable where you can; include "schema" again whenever the structure changed.
+
+## VISUAL-ONLY (hard rule)
+Custom components are static visuals. They cannot run code, submit forms, take bookings, collect payments, log users in or fetch data — the server REJECTS trees with functional bindings (scripts, form markup, javascript:/data: links). NEVER imitate a booking flow, contact form, price checkout, login or search with primitives: the result looks real but does nothing, which is worse than nothing. When the user wants functionality, insert the trusted section type (booking, contact-form, pricing-table, newsletter) and build custom visuals AROUND it as separate sections.
 
 ## INLINE SVG (decorative graphics)
 svg nodes let you draw on-brand decoration: section dividers, organic blobs, abstract patterns, simple icons, underline strokes.
@@ -1391,10 +1414,10 @@ function simulateMutation(state: BuilderStateData, mutation: any): BuilderStateD
         const component = page.components.find(c => c.id === mutation.componentId);
         if (component) {
           const index = page.components.findIndex(c => c.id === mutation.componentId);
-          const duplicate = {
-            ...structuredClone(component),
-            id: `${component.type}-${Date.now()}`,
-          };
+          // Fresh component id, fresh primitive node ids and a remapped
+          // editable schema — duplicates must never share node ids
+          // (published per-node CSS classes would collide).
+          const duplicate = cloneLibrarySource(component);
           page.components.splice(index + 1, 0, duplicate);
         }
       }
@@ -1653,10 +1676,10 @@ export function applyMutation(
         const component = page.components.find(c => c.id === mutation.componentId);
         if (component) {
           const index = page.components.findIndex(c => c.id === mutation.componentId);
-          const duplicate: BuilderComponent = {
-            ...structuredClone(component),
-            id: `${component.type}-${Date.now()}`,
-          };
+          // Fresh component id, fresh primitive node ids and a remapped
+          // editable schema — duplicates must never share node ids
+          // (published per-node CSS classes would collide).
+          const duplicate: BuilderComponent = cloneLibrarySource(component);
           page.components.splice(index + 1, 0, duplicate);
         }
       }
@@ -1738,7 +1761,13 @@ export function applyMutation(
         const component: BuilderComponent = {
           id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           type: 'custom',
-          props: { customTree: tree } as BuilderComponent['props'],
+          props: {
+            customTree: tree,
+            // Every AI-built component ships with an editable schema: the
+            // emitted one when it survives sanitization, otherwise a
+            // best-effort inferred one — never none.
+            ...(tree ? { customSchema: resolveCustomSchema(mutation.schema, tree) } : {}),
+          } as BuilderComponent['props'],
           styles: { backgroundColor: 'transparent', padding: '0px', ...(mutation.styles ?? {}) } as BuilderComponent['styles'],
         };
         const position = mutation.position ?? page.components.length;
@@ -1761,9 +1790,18 @@ export function applyMutation(
       const page = newState.pages.find(p => p.id === mutation.pageId);
       const component = page?.components.find(c => c.id === mutation.componentId);
       if (component && component.type === 'custom') {
+        const props = component.props as { customTree?: PrimitiveNode; customSchema?: unknown };
         if (mutation.tree) {
-          (component.props as { customTree?: PrimitiveNode }).customTree =
-            sanitizePrimitiveTree(normalizeAiTree(mutation.tree));
+          const tree = sanitizePrimitiveTree(normalizeAiTree(mutation.tree));
+          props.customTree = tree;
+          if (tree) {
+            // A replaced tree needs its schema re-anchored: prefer a freshly
+            // emitted schema, else keep the surviving parts of the stored one
+            // (ids are kept where possible), else infer from scratch.
+            props.customSchema = resolveCustomSchema(mutation.schema ?? props.customSchema, tree);
+          }
+        } else if (mutation.schema && props.customTree) {
+          props.customSchema = resolveCustomSchema(mutation.schema, props.customTree);
         }
         if (mutation.styles) {
           component.styles = { ...component.styles, ...mutation.styles } as BuilderComponent['styles'];
@@ -1813,6 +1851,20 @@ export function applyMutation(
  * The result still goes through sanitizePrimitiveTree (style allowlist, SVG
  * sanitizing, href checks, depth/node caps).
  */
+/**
+ * The schema stored on a custom component: the AI-emitted one when it
+ * survives sanitization against the (sanitized) tree, otherwise a
+ * best-effort inferred one. Components therefore ALWAYS carry a schema
+ * after an AI write.
+ */
+function resolveCustomSchema(emitted: unknown, tree: PrimitiveNode): EditableSchema {
+  if (emitted) {
+    const sanitized = sanitizeEditableSchema(tree, emitted);
+    if (sanitized) return sanitized;
+  }
+  return inferEditableSchema(tree);
+}
+
 function normalizeAiTree(tree: AIPrimitiveNode): PrimitiveNode {
   const seen = new Set<string>();
   const normalize = (node: AIPrimitiveNode): PrimitiveNode => {
@@ -1989,6 +2041,24 @@ export function validateMutation(
     if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
       return { valid: false, error: `Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels` };
     }
+    // Visual-only enforcement: reject (don't silently strip) functional
+    // bindings so the model learns to use trusted components instead.
+    const functional = findFunctionalBindings(mutation.tree);
+    if (functional.length > 0) {
+      return {
+        valid: false,
+        error: `Custom components are visual-only. ${functional.join(' ')} For real functionality (booking, forms, payments) insert the trusted section types (booking, contact-form, pricing-table) instead of imitating them.`,
+      };
+    }
+    if (mutation.schema) {
+      const check = validateEditableSchema(normalizeAiTree(mutation.tree), { version: 1, fields: mutation.schema.fields });
+      if (!check.ok) {
+        return {
+          valid: false,
+          error: `Editable schema does not match the tree: ${check.errors.join(' ')} Give every node the schema references an explicit "id" in the tree.`,
+        };
+      }
+    }
   }
   
   if (action === 'update_custom_component') {
@@ -2010,6 +2080,27 @@ export function validateMutation(
       }
       if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
         return { valid: false, error: `Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels` };
+      }
+      const functional = findFunctionalBindings(mutation.tree);
+      if (functional.length > 0) {
+        return {
+          valid: false,
+          error: `Custom components are visual-only. ${functional.join(' ')} For real functionality (booking, forms, payments) insert the trusted section types (booking, contact-form, pricing-table) instead of imitating them.`,
+        };
+      }
+    }
+    if (mutation.schema) {
+      const targetTree = mutation.tree
+        ? normalizeAiTree(mutation.tree)
+        : (component.props as { customTree?: PrimitiveNode } | undefined)?.customTree;
+      if (targetTree) {
+        const check = validateEditableSchema(targetTree, { version: 1, fields: mutation.schema.fields });
+        if (!check.ok) {
+          return {
+            valid: false,
+            error: `Editable schema does not match the tree: ${check.errors.join(' ')} Give every node the schema references an explicit "id" in the tree.`,
+          };
+        }
       }
     }
   }

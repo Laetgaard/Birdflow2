@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import type React from "react";
 import { ImageIcon } from "lucide-react";
 import type { BuilderComponentData, ComponentStyles } from "@shared/componentRegistry";
@@ -6,6 +6,8 @@ import {
   resolvePrimitiveStyles,
   sanitizeLinkHref,
   PRIMITIVE_TEXT_TAGS,
+  effectiveEditableSchema,
+  fieldBindingForNode,
   type PrimitiveNode,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
@@ -190,6 +192,12 @@ type NodeRendererProps = {
   editingField?: string | null;
   onEditField?: (field: string | null) => void;
   globalStyles?: GlobalStylesLike;
+  /**
+   * When present (component has a STORED editable schema), inline editing is
+   * limited to nodes bound to a text field — the same contract the panel
+   * enforces. Absent for legacy components: everything stays editable.
+   */
+  canInlineEdit?: (nodeId: string) => boolean;
   depth: number;
 };
 
@@ -203,6 +211,7 @@ function NodeRenderer({
   editingField,
   onEditField,
   globalStyles,
+  canInlineEdit,
   depth,
 }: NodeRendererProps) {
   // Hover is a real style layer, not an editor nicety: the published site
@@ -259,6 +268,7 @@ function NodeRenderer({
               editingField={editingField}
               onEditField={onEditField}
               globalStyles={globalStyles}
+              canInlineEdit={canInlineEdit}
               depth={depth + 1}
             />
           ))}
@@ -287,13 +297,14 @@ function NodeRenderer({
         (isHeading ? globalStyles?.fontPair?.heading : globalStyles?.fontPair?.body) ||
         undefined;
       const field = `node:${node.id}:text`;
+      const inlineEditable = !canInlineEdit || canInlineEdit(node.id);
       return (
         <div {...dataAttrs} style={{ ...selectionStyles }} onClick={handleNodeClick}>
           <NodeEditableText
             value={node.text ?? ""}
             field={field}
             isEditing={editingField === field}
-            onEdit={onEditField}
+            onEdit={inlineEditable ? onEditField : undefined}
             onChange={onTextChange}
             style={{ ...resolved, fontFamily }}
             tag={node.tag || "p"}
@@ -370,13 +381,14 @@ function NodeRenderer({
           </a>
         );
       }
+      const inlineEditable = !canInlineEdit || canInlineEdit(node.id);
       return (
         <span
           {...dataAttrs}
           style={style}
           onClick={handleNodeClick}
           onDoubleClick={
-            onEditField
+            onEditField && inlineEditable
               ? (e) => {
                   e.stopPropagation();
                   onEditField(field);
@@ -459,6 +471,23 @@ export default function CustomComponentRenderer({
   const tree = component.props.customTree;
   const sectionStyles: ComponentStyles = component.styles || {};
 
+  // Only a STORED schema gates inline editing: legacy components without one
+  // keep every text node editable exactly as before.
+  const canInlineEdit = useMemo(() => {
+    if (isPreview || !tree) return undefined;
+    const effective = effectiveEditableSchema(component.props);
+    if (!effective || effective.source !== "stored") return undefined;
+    const cache = new Map<string, boolean>();
+    return (nodeId: string) => {
+      const cached = cache.get(nodeId);
+      if (cached !== undefined) return cached;
+      const binding = fieldBindingForNode(tree, effective.schema, nodeId);
+      const editable = !!binding && (binding.itemField?.type ?? binding.field.type) === "text";
+      cache.set(nodeId, editable);
+      return editable;
+    };
+  }, [component.props, tree, isPreview]);
+
   const wrapperStyle: React.CSSProperties = {
     backgroundColor: sectionStyles.backgroundColor || "transparent",
     padding: sectionStyles.padding || "0px",
@@ -509,6 +538,7 @@ export default function CustomComponentRenderer({
         editingField={editingField}
         onEditField={onEditField}
         globalStyles={globalStyles}
+        canInlineEdit={canInlineEdit}
         depth={0}
       />
     </section>

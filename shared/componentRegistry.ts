@@ -1,6 +1,6 @@
 export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container' | 'custom';
 
-import type { PrimitiveNode } from './customComponents';
+import type { PrimitiveNode, EditableSchema } from './customComponents';
 import { createDefaultCustomTree } from './customComponents';
 import { APPROVED_FONTS } from './fonts';
 
@@ -406,6 +406,10 @@ export type ComponentProps = {
   // Custom component: tree of primitive nodes (data, never code).
   // See shared/customComponents.ts
   customTree?: PrimitiveNode;
+  // Custom component: semantic editing schema — names what a customer can
+  // edit ("Overskrift", "Knap – link") and binds each field to a tree node.
+  // Panel-only metadata; the publisher ignores it. See shared/customComponents.ts
+  customSchema?: EditableSchema;
   // Product detail props
   showReviews?: boolean;
   showRelated?: boolean;

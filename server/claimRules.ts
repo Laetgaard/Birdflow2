@@ -96,7 +96,12 @@ function backed(pool: EvidencePool, phrase: string): boolean {
  * rows…), and a drifted allowlist is a hole in the gate — so instead EVERY
  * string is visited except technical values (urls, colours, ids, styling).
  */
-const SKIP_SUBTREE_RE = /^(styles?|css|customCss|globalStyles|animations?|motion|transition|easing|svg)$/i;
+// customSchema holds panel field labels ("Overskrift"), not site copy —
+// it must neither feed the evidence pool nor get scrubbed.
+// `customSchema` (stored) and `schema` (the AI mutation key it arrives
+// under) are panel metadata — field labels name what a customer can edit,
+// they are not site copy and must not be claim-judged.
+const SKIP_SUBTREE_RE = /^(styles?|css|customCss|globalStyles|animations?|motion|transition|easing|svg|customSchema|schema)$/i;
 const SKIP_STRING_RE =
   /(id|ids|url|href|src|link|icon|logo|image|img|photo|avatar|color|colour|background|font|family|slug|path|anchor|variant|align|alignment|size|width|height|class|className|target|media|video|audio|poster|embed|format|layout|position|direction|shape|fit|mode|theme|level|tag|key|ref|testid|token|preset|gradient|shadow|radius|spacing|weight)$/i;
 

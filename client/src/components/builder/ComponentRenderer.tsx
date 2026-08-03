@@ -409,6 +409,11 @@ type RenderProps = {
   /** Node selection inside custom components (primitive node trees). */
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
+  /**
+   * Clicking a list item (pricing plan, FAQ entry, timeline step) on the
+   * canvas focuses that item's card in the properties panel.
+   */
+  onItemFocus?: (index: number) => void;
 };
 
 type EditableTextProps = {
@@ -616,6 +621,8 @@ type ComponentRenderProps = {
   onStyleChange?: (styles: Partial<ComponentStyles>) => void;
   deviceMode?: DeviceMode;
   globalStyles?: GlobalStyles;
+  /** Clicking a list item on the canvas focuses its card in the panel. */
+  onItemFocus?: (index: number) => void;
 };
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
@@ -2319,7 +2326,7 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
   );
 }
 
-function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
+function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles, onItemFocus }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   // Older templates keep their plans under `plans` rather than `items`.
   const items = props.items || props.plans || [];
@@ -2392,7 +2399,7 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
             const cta = item.ctaText || props.buttonText || 'Get started';
             const ctaLink = item.ctaLink || props.buttonLink || '#';
             return (
-              <div key={item.id || index} style={{
+              <div key={item.id || index} onClick={!isPreview && onItemFocus ? () => onItemFocus(index) : undefined} data-testid={`pricing-item-${index}`} style={{
                 padding: '36px 32px',
                 borderRadius: '24px',
                 position: 'relative',
@@ -2478,7 +2485,7 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
   );
 }
 
-function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
+function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles, onItemFocus }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const items = props.items || [];
   const canEdit = !isPreview && onTextChange && onEditField;
@@ -2518,7 +2525,7 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
           {items.map((item, index) => {
             const isOpen = canEdit ? true : openIndex === index;
             return (
-              <div key={item.id || index} style={{ borderBottom: `1px solid ${hexToRgba(accentColor, 0.1)}` }}>
+              <div key={item.id || index} onClick={!isPreview && onItemFocus ? () => onItemFocus(index) : undefined} data-testid={`faq-item-${index}`} style={{ borderBottom: `1px solid ${hexToRgba(accentColor, 0.1)}` }}>
                 {/* Question row */}
                 <button
                   onClick={canEdit ? undefined : (e) => { e.stopPropagation(); setOpenIndex(isOpen ? null : index); }}
@@ -3788,7 +3795,7 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalSt
   );
 }
 
-function TimelineComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function TimelineComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField, onItemFocus }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const fontFamily = resolveFontFamily(styles, globalStyles);
@@ -3831,6 +3838,7 @@ function TimelineComponent({ props, styles, isSelected, onClick, isPreview, glob
           {items.map((item, index) => (
             <div
               key={item.id || index}
+              onClick={!isPreview && onItemFocus ? () => onItemFocus(index) : undefined}
               style={{ display: 'flex', gap: '32px', marginBottom: '48px', position: 'relative', ...getItemStyle(index) }}
               data-testid={`timeline-item-${index}`}
             >
@@ -4060,7 +4068,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
   );
 }
 
-export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, navItems, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect }: RenderProps) {
+export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, navItems, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect, onItemFocus }: RenderProps) {
   // What is stored may point at the brand ("{color.primary}") rather than
   // repeat its value. Resolve once, here, so every section below draws real
   // values and no section has to know that tokens exist. The publisher does
@@ -4104,6 +4112,7 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
     onStyleChange,
     deviceMode,
     globalStyles,
+    onItemFocus,
   };
 
   const headerProps = {

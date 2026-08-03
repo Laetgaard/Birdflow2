@@ -549,3 +549,78 @@ describe("generated page files carry their own SEO", () => {
     expect(source).not.toContain("export const metadata");
   });
 });
+
+/* ─────────── premade prop consolidation (Phase 6) ─────────── */
+
+describe("migrateSiteStructure — consolidates duplicate premade props", () => {
+  const pricing = (props: Record<string, unknown>): BuilderComponentData =>
+    ({ id: "price-1", type: "pricing-table", props, styles: {} }) as BuilderComponentData;
+
+  const stateWith = (components: BuilderComponentData[]): BuilderStateData =>
+    ({
+      pages: [
+        {
+          id: "home",
+          name: "Forside",
+          path: "/",
+          components: [header("h-1"), ...components, footer("f-1")],
+        },
+      ],
+    }) as unknown as BuilderStateData;
+
+  const find = (state: BuilderStateData, id: string) =>
+    state.pages.flatMap((p) => p.components ?? []).find((c) => c.id === id)!;
+
+  it("folds legacy pricing `plans` into `items` when items is empty", () => {
+    const migrated = migrateSiteStructure(
+      stateWith([pricing({ title: "Priser", plans: [{ id: "a", name: "Basis", price: "500 kr." }] })])
+    );
+    const props = find(migrated, "price-1").props as Record<string, unknown>;
+    expect(props.plans).toBeUndefined();
+    expect(props.items).toHaveLength(1);
+    expect((props.items as any[])[0].name).toBe("Basis");
+    expect((props.items as any[])[0].price).toBe("500 kr.");
+  });
+
+  it("keeps existing `items` and still deletes `plans` — no second list fighting the panel", () => {
+    const migrated = migrateSiteStructure(
+      stateWith([
+        pricing({
+          items: [{ id: "new", name: "Ny" }],
+          plans: [{ id: "old", name: "Gammel" }],
+        }),
+      ])
+    );
+    const props = find(migrated, "price-1").props as Record<string, unknown>;
+    expect(props.plans).toBeUndefined();
+    expect((props.items as any[]).map((i) => i.name)).toEqual(["Ny"]);
+  });
+
+  it("renames item `label` to `name` only when `name` is missing, keeping other fields", () => {
+    const migrated = migrateSiteStructure(
+      stateWith([
+        {
+          id: "tl-1",
+          type: "timeline",
+          props: {
+            items: [
+              { id: "a", label: "Første samtale", description: "Vi lærer hinanden at kende" },
+              { id: "b", label: "Ignoreret", name: "Forløb", description: "Samtaler" },
+            ],
+          },
+          styles: {},
+        } as BuilderComponentData,
+      ])
+    );
+    const items = (find(migrated, "tl-1").props as Record<string, unknown>).items as any[];
+    expect(items[0]).toEqual({ id: "a", name: "Første samtale", description: "Vi lærer hinanden at kende" });
+    expect(items[1]).toEqual({ id: "b", name: "Forløb", description: "Samtaler" });
+  });
+
+  it("is idempotent — a consolidated state passes through untouched", () => {
+    const once = migrateSiteStructure(
+      stateWith([pricing({ plans: [{ id: "a", name: "Basis" }] })])
+    );
+    expect(migrateSiteStructure(once)).toBe(once);
+  });
+});

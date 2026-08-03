@@ -841,3 +841,38 @@ describe("wiring — every AI path carries the facts and the gate", () => {
     expect(builder).toContain("Opdater forretningsfakta");
   });
 });
+
+/* ─────────── editable schema labels are panel metadata ─────────── */
+
+describe("editable schema labels are not site copy", () => {
+  it("does not claim-judge schema field labels at mutation time", () => {
+    const state = makeState(DA_CTX);
+    const findings = checkMutationClaims(
+      {
+        action: "add_custom_component",
+        pageId: "home",
+        name: "Sektion",
+        tree: { id: "n0", type: "box", children: [{ id: "n1", type: "text", text: "Ro og nærvær" }] },
+        // A label is what the PANEL calls the field — even a weird label
+        // mentioning a price is not rendered on the site.
+        schema: { fields: [{ type: "text", key: "t", label: "Kun 495 kr. i introduktionspris", nodeId: "n1" }] },
+      },
+      state
+    );
+    expect(findings).toEqual([]);
+  });
+
+  it("still judges the tree's visible text", () => {
+    const state = makeState(DA_CTX);
+    const findings = checkMutationClaims(
+      {
+        action: "add_custom_component",
+        pageId: "home",
+        name: "Sektion",
+        tree: { id: "n0", type: "box", children: [{ id: "n1", type: "text", text: "Kun 495 kr. i introduktionspris" }] },
+      },
+      state
+    );
+    expect(findings.map((f) => f.category)).toContain("price");
+  });
+});

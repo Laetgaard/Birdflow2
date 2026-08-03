@@ -345,11 +345,39 @@ export const AIPrimitiveNodeSchema: z.ZodType<AIPrimitiveNode> = z.lazy(() =>
   })
 );
 
+// Editable-fields schema emitted WITH a custom component tree: names what
+// the customer can edit and binds each field to a node id in that tree.
+// Validated server-side against the tree (every field must resolve).
+export const AIEditableItemFieldSchema = z.object({
+  key: z.string().min(1).max(48),
+  label: z.string().min(1).max(60),
+  type: z.enum(['text', 'image', 'link', 'color']),
+  nodeType: z.enum(['text', 'image', 'button']),
+  nth: z.number().int().min(0).max(400),
+  styleKey: z.enum(['backgroundColor', 'color']).optional(),
+});
+
+export const AIEditableFieldSchema = z.object({
+  key: z.string().min(1).max(48),
+  label: z.string().min(1).max(60),
+  type: z.enum(['text', 'image', 'link', 'color', 'styleGroup', 'repeater']),
+  nodeId: z.string().min(1).max(80),
+  styleKey: z.enum(['backgroundColor', 'color']).optional(),
+  keys: z.array(z.string().max(40)).max(12).optional(),
+  itemLabel: z.string().max(40).optional(),
+  itemFields: z.array(AIEditableItemFieldSchema).max(12).optional(),
+});
+
+export const AIEditableSchemaSchema = z.object({
+  fields: z.array(AIEditableFieldSchema).min(1).max(30),
+});
+
 export const AddCustomComponentMutation = z.object({
   action: z.literal('add_custom_component'),
   pageId: z.string(),
   name: z.string(),
   tree: AIPrimitiveNodeSchema,
+  schema: AIEditableSchemaSchema.optional(),
   position: z.number().optional(),
   saveToLibrary: z.boolean().optional(),
   styles: ComponentStylesSchema.optional(),
@@ -361,6 +389,7 @@ export const UpdateCustomComponentMutation = z.object({
   componentId: z.string(),
   name: z.string().optional(),
   tree: AIPrimitiveNodeSchema.optional(),
+  schema: AIEditableSchemaSchema.optional(),
   styles: ComponentStylesSchema.optional(),
 });
 

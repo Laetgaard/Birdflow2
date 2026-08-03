@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -99,12 +99,15 @@ type Props = {
   /** Node selection inside custom components (primitive node trees). */
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
+  /** Item clicked on the canvas: scroll to and highlight its card. */
+  focusItemIndex?: number | null;
+  onFocusItemHandled?: () => void;
 };
 
 type TabId = 'content' | 'design' | 'animation';
 
 
-export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, globalStyles, selectedNodeId, onNodeSelect }: Props) {
+export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, globalStyles, selectedNodeId, onNodeSelect, focusItemIndex, onFocusItemHandled }: Props) {
   const definition = componentRegistry[component.type];
   const resolvedTokens = useMemo<ResolvedTokens>(() => resolveDesignTokens(globalStyles), [globalStyles]);
   const [activeTab, setActiveTab] = useState<TabId>('content');
@@ -115,6 +118,23 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
   const [initialCrop, setInitialCrop] = useState<CropData | undefined>();
   const [showAdvancedSpacing, setShowAdvancedSpacing] = useState(false);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const focusItemCardRef = useRef<HTMLDivElement | null>(null);
+
+  // An item clicked on the canvas: bring its card into view, hold the
+  // highlight long enough to register, then release.
+  useEffect(() => {
+    if (focusItemIndex === null || focusItemIndex === undefined) return;
+    setActiveTab('content');
+    const raf = requestAnimationFrame(() => {
+      focusItemCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    const timer = setTimeout(() => onFocusItemHandled?.(), 1600);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusItemIndex, component.id]);
 
   if (!definition) {
     return <div className="p-4 text-muted-foreground">Unknown component type</div>;
@@ -549,7 +569,12 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
             {items.map((item, i) => (
-              <div key={item.id} className="border rounded-md p-2 space-y-2 bg-muted/50">
+              <div
+                key={item.id}
+                ref={focusItemIndex === i ? focusItemCardRef : undefined}
+                className={`border rounded-md p-2 space-y-2 bg-muted/50 ${focusItemIndex === i ? 'ring-2 ring-primary border-primary/60' : ''}`}
+                data-testid={`item-card-${i}`}
+              >
                 <div className="flex items-center gap-1">
                   <GripVertical className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs font-medium flex-1">Item {i + 1}</span>
@@ -1505,6 +1530,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               accessToken={accessToken}
               selectedNodeId={selectedNodeId}
               onNodeSelect={onNodeSelect}
+              globalStyles={globalStyles}
             />
           ) : (
             renderContentTab()

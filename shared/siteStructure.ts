@@ -244,6 +244,50 @@ export function pageSeo(
 /* ───────────────────────── migration ───────────────────────── */
 
 /**
+ * Fold legacy duplicate props into their canonical successors:
+ * - `plans` → `items` (renderers read `items || plans`; keeping both lets
+ *   the panel edit a list the canvas ignores)
+ * - item `label` → item `name` (nothing renders `label` anymore)
+ *
+ * Returns the consolidated component, or null when nothing needed doing.
+ */
+function consolidateLegacyProps(component: BuilderComponentData): BuilderComponentData | null {
+  const props = component.props as Record<string, unknown> | undefined;
+  if (!props) return null;
+
+  let touched = false;
+  const next: Record<string, unknown> = { ...props };
+
+  if (Array.isArray(next.plans)) {
+    const items = Array.isArray(next.items) ? next.items : [];
+    if (items.length === 0) next.items = next.plans;
+    delete next.plans;
+    touched = true;
+  }
+
+  if (Array.isArray(next.items)) {
+    let itemsTouched = false;
+    const items = (next.items as unknown[]).map((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+      const item = raw as Record<string, unknown>;
+      if (!('label' in item)) return raw;
+      itemsTouched = true;
+      const { label, ...rest } = item;
+      if ((typeof rest.name !== 'string' || !rest.name) && typeof label === 'string' && label) {
+        return { ...rest, name: label };
+      }
+      return rest;
+    });
+    if (itemsTouched) {
+      next.items = items;
+      touched = true;
+    }
+  }
+
+  return touched ? ({ ...component, props: next } as BuilderComponentData) : null;
+}
+
+/**
  * Give an existing website the structure it never had, without changing
  * what a visitor sees.
  *
@@ -267,9 +311,39 @@ export function migrateSiteStructure(state: BuilderStateData): BuilderStateData 
     return { ...page, role: inferPageRole(page) };
   });
 
+  // ---- legacy prop consolidation ----
+  // Old components accumulated duplicate fields ("plans" vs "items",
+  // item "label" vs "name"). Renderers already prefer the canonical field,
+  // so folding the legacy one in changes nothing visually — but the panel
+  // stops showing two lists that fight over the same section. Runs before
+  // the chrome pass so shared-vs-page copies are compared in the same shape.
+  nextPages = nextPages.map((page) => {
+    let pageTouched = false;
+    const components = (page.components ?? []).map((component) => {
+      const merged = consolidateLegacyProps(component);
+      if (merged) pageTouched = true;
+      return merged ?? component;
+    });
+    if (!pageTouched) return page;
+    changed = true;
+    return { ...page, components };
+  });
+
   // ---- shared header and footer ----
   let chrome: SiteChrome | undefined = state.siteChrome;
   let justCreatedChrome = false;
+  if (chrome) {
+    const header = chrome.header ? consolidateLegacyProps(chrome.header) : null;
+    const footer = chrome.footer ? consolidateLegacyProps(chrome.footer) : null;
+    if (header || footer) {
+      chrome = {
+        ...chrome,
+        ...(header ? { header } : {}),
+        ...(footer ? { footer } : {}),
+      };
+      changed = true;
+    }
+  }
   if (!chrome) {
     const home = nextPages.find((page) => page.path === '/') ?? nextPages[0];
     const header = firstHeader(home);

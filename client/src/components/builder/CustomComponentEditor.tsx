@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +33,8 @@ import {
   movePrimitiveNode,
   removePrimitiveNode,
   updatePrimitiveNode,
+  effectiveEditableSchema,
+  isInsideBoundRepeater,
   type PrimitiveNode,
   type PrimitiveNodeType,
   type PrimitiveStyleKey,
@@ -41,6 +43,8 @@ import {
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
 import { uploadImage } from "@/lib/builderUpload";
+import SemanticFieldsPanel from "./SemanticFieldsPanel";
+import type { DesignTokens } from "@shared/schema";
 
 /**
  * Which style bucket the panel is editing. Hover sits alongside the device
@@ -56,6 +60,8 @@ type Props = {
   accessToken: string;
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
+  /** Design tokens so semantic colour fields can offer brand swatches. */
+  globalStyles?: DesignTokens;
 };
 
 const NODE_TYPE_META: Record<PrimitiveNodeType, { label: string; icon: typeof BoxIcon }> = {
@@ -150,6 +156,7 @@ export default function CustomComponentEditor({
   accessToken,
   selectedNodeId,
   onNodeSelect,
+  globalStyles,
 }: Props) {
   const tree = component.props.customTree;
   const [deviceTab, setDeviceTab] = useState<DeviceKey>("styles");
@@ -157,13 +164,22 @@ export default function CustomComponentEditor({
   const [svgError, setSvgError] = useState<string | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+
+  // Named fields ("Overskrift", "Knap – link") are the default editing
+  // surface; the raw node editor stays available as "Avanceret".
+  const effective = useMemo(() => effectiveEditableSchema(component.props), [component.props]);
 
   useEffect(() => {
     setSvgDraft(null);
     setSvgError(null);
     setEditorError(null);
   }, [selectedNodeId]);
+
+  useEffect(() => {
+    setShowAdvanced(false);
+  }, [component.id]);
 
   const setTree = (next: PrimitiveNode) => {
     onUpdate({ props: { customTree: next } });
@@ -176,6 +192,53 @@ export default function CustomComponentEditor({
         <Button size="sm" className="w-full" onClick={() => setTree(createDefaultCustomTree())} data-testid="button-create-custom-tree">
           Opret indhold
         </Button>
+      </div>
+    );
+  }
+
+  const semanticAvailable = Boolean(effective && effective.schema.fields.length > 0);
+
+  const modeToggle = semanticAvailable ? (
+    <div className="flex border rounded-md overflow-hidden">
+      <button
+        type="button"
+        className={`flex-1 py-1.5 text-xs font-medium transition-colors ${!showAdvanced ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+        onClick={() => setShowAdvanced(false)}
+        data-testid="custom-mode-fields"
+      >
+        Felter
+      </button>
+      <button
+        type="button"
+        className={`flex-1 py-1.5 text-xs font-medium transition-colors ${showAdvanced ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+        onClick={() => setShowAdvanced(true)}
+        data-testid="custom-mode-advanced"
+      >
+        Avanceret
+      </button>
+    </div>
+  ) : null;
+
+  if (semanticAvailable && !showAdvanced && effective) {
+    return (
+      <div className="space-y-3">
+        {modeToggle}
+        {effective.source === "inferred" && (
+          <p className="text-[11px] text-muted-foreground">
+            Felterne er fundet automatisk ud fra komponentens indhold.
+          </p>
+        )}
+        <SemanticFieldsPanel
+          tree={tree}
+          schema={effective.schema}
+          onUpdate={onUpdate}
+          websiteId={websiteId}
+          accessToken={accessToken}
+          selectedNodeId={selectedNodeId}
+          onNodeSelect={onNodeSelect}
+          globalStyles={globalStyles}
+          onOpenAdvanced={() => setShowAdvanced(true)}
+        />
       </div>
     );
   }
@@ -203,12 +266,24 @@ export default function CustomComponentEditor({
     );
   };
 
+  // Structural changes inside a STORED repeater's subtree can silently
+  // re-target its positional (nodeType, nth) field bindings — the named
+  // fields would start editing the wrong nodes. Refuse and point at the
+  // repeater's own item controls in the Felter view.
+  const structuralLock = (nodeId: string): boolean => {
+    if (effective?.source !== "stored") return false;
+    if (!isInsideBoundRepeater(tree, effective.schema, nodeId)) return false;
+    setEditorError('Denne del af komponenten er en liste med navngivne felter. Tilføj, fjern eller flyt elementer under "Felter" i stedet.');
+    return true;
+  };
+
   const addChild = (type: PrimitiveNodeType) => {
     if (nodeCount >= MAX_CUSTOM_TREE_NODES) {
       setEditorError(`Komponenten kan højst indeholde ${MAX_CUSTOM_TREE_NODES} elementer.`);
       return;
     }
     const targetId = selected && selected.type === "box" ? selected.id : parentInfo?.parent.id ?? tree.id;
+    if (structuralLock(targetId)) return;
     const node = createPrimitiveNode(type);
     setTree(insertPrimitiveChild(tree, targetId, node));
     onNodeSelect?.(node.id);
@@ -221,13 +296,21 @@ export default function CustomComponentEditor({
       setEditorError(`Komponenten kan højst indeholde ${MAX_CUSTOM_TREE_NODES} elementer.`);
       return;
     }
+    if (structuralLock(selected.id)) return;
     setTree(duplicatePrimitiveNode(tree, selected.id));
   };
 
   const handleDelete = () => {
     if (!selected || isRootSelected) return;
+    if (structuralLock(selected.id)) return;
     setTree(removePrimitiveNode(tree, selected.id));
     onNodeSelect?.(null);
+  };
+
+  const handleMove = (direction: "up" | "down") => {
+    if (!selected || isRootSelected) return;
+    if (structuralLock(selected.id)) return;
+    setTree(movePrimitiveNode(tree, selected.id, direction));
   };
 
   const handleImageFile = async (file: File) => {
@@ -349,6 +432,8 @@ export default function CustomComponentEditor({
 
   return (
     <div className="space-y-4">
+      {modeToggle}
+
       {/* Layer tree */}
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Elementer</h4>
@@ -397,10 +482,10 @@ export default function CustomComponentEditor({
             <span className="text-xs font-medium flex-1 truncate">
               {selected.name || NODE_TYPE_META[selected.type].label}
             </span>
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={() => setTree(movePrimitiveNode(tree, selected.id, "up"))} title="Flyt op" data-testid="node-move-up">
+            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={() => handleMove("up")} title="Flyt op" data-testid="node-move-up">
               <ChevronUp className="w-3.5 h-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={() => setTree(movePrimitiveNode(tree, selected.id, "down"))} title="Flyt ned" data-testid="node-move-down">
+            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={() => handleMove("down")} title="Flyt ned" data-testid="node-move-down">
               <ChevronDown className="w-3.5 h-3.5" />
             </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={handleDuplicate} title="Dupliker" data-testid="node-duplicate">

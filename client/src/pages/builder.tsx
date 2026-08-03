@@ -59,6 +59,9 @@ import {
   brandGuideToDesignTokens,
   generateLibraryEntryId,
   updatePrimitiveNode,
+  applySemanticEdit,
+  effectiveEditableSchema,
+  fieldBindingForNode,
   type CustomComponentEntry,
   type PrimitiveNode,
 } from "@shared/customComponents";
@@ -151,6 +154,9 @@ export default function BuilderPage() {
   const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "structure" | "ai" | "brand">("components");
   // Node selection inside custom components (primitive node trees)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Clicking a list item (pricing plan, FAQ entry, timeline step) on the
+  // canvas focuses its card in the properties panel.
+  const [focusItemIndex, setFocusItemIndex] = useState<number | null>(null);
   // Custom component library dialogs
   const [saveComponentOpen, setSaveComponentOpen] = useState(false);
   const [saveComponentName, setSaveComponentName] = useState("");
@@ -443,22 +449,11 @@ export default function BuilderPage() {
     if (componentIndex === -1) return;
 
     const originalComponent = activePage.components[componentIndex];
-    const duplicatedComponent: BuilderComponentData = {
-      ...originalComponent,
-      id: `${originalComponent.type}-${Date.now()}`,
-      props: { ...originalComponent.props },
-      styles: { ...originalComponent.styles },
-    };
-
-    // Custom trees need fresh node ids — published sites emit per-node CSS
-    // classes, so shared ids across duplicates would make their styles collide.
-    const customTree = (duplicatedComponent.props as { customTree?: PrimitiveNode }).customTree;
-    if (customTree) {
-      duplicatedComponent.props = {
-        ...duplicatedComponent.props,
-        customTree: clonePrimitiveTree(customTree),
-      };
-    }
+    // cloneLibrarySource assigns a fresh component id AND fresh node ids
+    // (published per-node CSS classes must not collide across duplicates),
+    // and remaps the editable schema onto those new ids so the duplicate
+    // keeps its named fields.
+    const duplicatedComponent: BuilderComponentData = cloneLibrarySource(originalComponent);
 
     const newComponents = [...activePage.components];
     newComponents.splice(componentIndex + 1, 0, duplicatedComponent);
@@ -872,6 +867,28 @@ export default function BuilderPage() {
                     const tree = comp.props.customTree;
                     if (!tree || !nodeId) return comp;
                     const textValue = typeof value === 'string' ? value : ((value as any)?.text ?? '');
+                    // One editing path: when the node is bound to a schema
+                    // field, the inline canvas edit goes through the exact
+                    // same semantic edit the properties panel uses.
+                    const effective = effectiveEditableSchema(comp.props);
+                    if (effective) {
+                      const binding = fieldBindingForNode(tree, effective.schema, nodeId);
+                      const bindingType = binding ? (binding.itemField?.type ?? binding.field.type) : null;
+                      if (binding && bindingType === 'text') {
+                        const result = applySemanticEdit(tree, effective.schema, {
+                          kind: 'set-text',
+                          target: binding.target,
+                          value: textValue,
+                        });
+                        if (result.ok) {
+                          return { ...comp, props: { ...comp.props, customTree: result.tree } };
+                        }
+                      }
+                      // A STORED schema is the single source of truth for
+                      // what is editable: unbound nodes stay read-only.
+                      // Inferred schemas never remove editability.
+                      if (effective.source === 'stored') return comp;
+                    }
                     const key = nodeKey === 'label' ? 'label' : 'text';
                     return {
                       ...comp,
@@ -1560,6 +1577,11 @@ export default function BuilderPage() {
                           setSelectedComponentId(componentId);
                           setSidebarTab("properties");
                         }}
+                        onItemFocus={(index) => {
+                          setSelectedComponentId(comp.id);
+                          setFocusItemIndex(index);
+                          setSidebarTab("properties");
+                        }}
                         onTextChange={handleTextChange(comp.id)}
                         editingField={selectedComponentId === comp.id ? editingField : null}
                         onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
@@ -1810,6 +1832,8 @@ export default function BuilderPage() {
                         globalStyles={builderState?.globalStyles}
                         selectedNodeId={selectedNodeId}
                         onNodeSelect={setSelectedNodeId}
+                        focusItemIndex={focusItemIndex}
+                        onFocusItemHandled={() => setFocusItemIndex(null)}
                       />
                     </>
                   ) : (
