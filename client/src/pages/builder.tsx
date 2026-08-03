@@ -67,6 +67,7 @@ import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import { topLevelComponents } from "@shared/rendering/contract";
+import { migrateStateToTokens } from "@shared/designTokens";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
@@ -577,13 +578,22 @@ export default function BuilderPage() {
                 backgroundColor: '#ffffff',
               },
             };
-            setBuilderState(migratedState);
-            setHistory(createHistory(migratedState));
-            lastSavedStateRef.current = JSON.stringify(migratedState);
+            const tokenised = migrateStateToTokens(migratedState);
+            setBuilderState(tokenised);
+            setHistory(createHistory(tokenised));
+            lastSavedStateRef.current = JSON.stringify(tokenised);
           } else {
-            setBuilderState(state);
-            setHistory(createHistory(state));
-            lastSavedStateRef.current = JSON.stringify(state);
+            // Colours and fonts that already match the brand start pointing at
+            // it, so the next brand change reaches sections built before
+            // tokens existed. Nothing looks different: every reference
+            // resolves back to the literal it replaced. The migrated form is
+            // held in memory and saved with the customer's next real edit
+            // rather than autosaved here, which would bump the revision (and
+            // with it the approval state) just for opening the editor.
+            const tokenised = migrateStateToTokens(state);
+            setBuilderState(tokenised);
+            setHistory(createHistory(tokenised));
+            lastSavedStateRef.current = JSON.stringify(tokenised);
           }
           if (typeof builderData.revision === "number") {
             revisionRef.current = builderData.revision;
@@ -844,8 +854,11 @@ export default function BuilderPage() {
       activePage: template.builderState.activePage || template.builderState.pages[0]?.id || 'home',
       globalStyles: template.builderState.globalStyles,
     };
-    
-    updateStateWithHistory(newState, `Apply template: ${template.name}`);
+
+    // Templates are written with their colours typed out. Point them at the
+    // template's own brand as they land, so the customer's first colour
+    // change afterwards updates the whole template instead of one section.
+    updateStateWithHistory(migrateStateToTokens(newState), `Apply template: ${template.name}`);
     setSelectedComponentId(null);
 
     toast({
@@ -1651,6 +1664,7 @@ export default function BuilderPage() {
                         onMove={(dir) => moveComponent(selectedComponent.id, dir)}
                         websiteId={id || ''}
                         accessToken={session?.access_token || ''}
+                        globalStyles={builderState?.globalStyles}
                         selectedNodeId={selectedNodeId}
                         onNodeSelect={setSelectedNodeId}
                       />

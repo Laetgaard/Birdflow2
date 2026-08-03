@@ -1,6 +1,7 @@
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
 import { APPROVED_FONTS, DEFAULT_FONT_STACK, googleFontsHref, resolveApprovedFontStack } from '../../shared/fonts';
+import { resolveDesignTokens } from '../../shared/designTokens';
 import {
   CALENDAR_MONTHS,
   CALENDAR_WEEKDAYS,
@@ -3865,6 +3866,7 @@ function FooterSection({ props, styles }: { props: ComponentProps; styles: Compo
 
 function ProductGridSection({ props, styles, products }: { props: ComponentProps; styles: ComponentStyles; products: any[] }) {
   const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
   const columns = props.columns || 3;
   const limit = props.productLimit || 6;
   const displayProducts = products.slice(0, limit);
@@ -3988,7 +3990,7 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
   \`;
   
   return (
-    <section style={baseStyle}>
+    <section style={{ ...baseStyle, fontFamily }}>
       <style dangerouslySetInnerHTML={{ __html: responsiveCSS }} />
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
@@ -4209,6 +4211,7 @@ function StatsCounterSection({ props, styles }: { props: ComponentProps; styles:
 
 function VideoEmbedSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
   const videoUrl = (props as any).videoUrl || '';
   
   const getEmbedUrl = (url: string) => {
@@ -4228,7 +4231,7 @@ function VideoEmbedSection({ props, styles }: { props: ComponentProps; styles: C
   };
   
   return (
-    <section style={{ ...baseStyle, borderRadius: styles.borderRadius }}>
+    <section style={{ ...baseStyle, borderRadius: styles.borderRadius, fontFamily }}>
       <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
         {(() => { const st = getStyledText(props.styledTitle, props.title); return st.text ? <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', ...st.style }}>{st.text}</h2> : null; })()}
         {(() => { const st = getStyledText(props.styledDescription, props.description); return st.text ? <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.8, marginBottom: '32px', ...st.style }}>{st.text}</p> : null; })()}
@@ -5171,6 +5174,11 @@ function customButtonBaseStyles(variant?: string): Record<string, string> {
   const primary = theme.primaryColor || '#4f46e5';
   const secondary = (theme as any).secondaryColor || '#06b6d4';
   const radius = (theme as any).borderRadius || '8px';
+  // The readable label colour for each of them, decided by the brand rather
+  // than assumed to be white. The builder applies the same rule.
+  const tokens = ((theme as any).tokens || {}) as Record<string, string>;
+  const onPrimary = tokens['color.onPrimary'] || '#ffffff';
+  const onSecondary = tokens['color.onSecondary'] || '#ffffff';
   const base: Record<string, string> = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -5188,7 +5196,7 @@ function customButtonBaseStyles(variant?: string): Record<string, string> {
   };
   switch (variant) {
     case 'secondary':
-      return { ...base, backgroundColor: secondary, color: '#ffffff' };
+      return { ...base, backgroundColor: secondary, color: onSecondary };
     case 'outline':
       return { ...base, backgroundColor: 'transparent', color: primary, borderColor: primary };
     case 'ghost':
@@ -5196,7 +5204,7 @@ function customButtonBaseStyles(variant?: string): Record<string, string> {
     case 'link':
       return { ...base, backgroundColor: 'transparent', color: primary, padding: '0', textDecoration: 'underline' };
     default:
-      return { ...base, backgroundColor: primary, color: '#ffffff' };
+      return { ...base, backgroundColor: primary, color: onPrimary };
   }
 }
 
@@ -6936,13 +6944,52 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 export function generateGlobalsCss(theme?: ThemeConfig): string {
-  const fontFamily = resolveApprovedFontStack(theme?.fontFamily);
-  const primaryColor = theme?.primaryColor || '#4f46e5';
-  const secondaryColor = theme?.secondaryColor || '#22c55e';
-  const backgroundColor = theme?.backgroundColor || '#ffffff';
-  const textColor = theme?.textColor || '#1f2937';
-  const borderRadius = theme?.borderRadius || '8px';
-  
+  // The brand, resolved once. `theme.tokens` is what the publisher computed
+  // from the website's design tokens; deriving it here as well only matters
+  // for older callers that hand over a bare theme.
+  const tokens: Record<string, string> =
+    theme?.tokens ||
+    resolveDesignTokens({
+      primaryColor: theme?.primaryColor,
+      secondaryColor: theme?.secondaryColor,
+      accentColor: theme?.accentColor,
+      backgroundColor: theme?.backgroundColor,
+      surfaceColor: theme?.surfaceColor,
+      textColor: theme?.textColor,
+      fontFamily: theme?.fontFamily,
+      borderRadius: theme?.borderRadius,
+      spacingScale: theme?.spacingScale,
+      sectionGap: theme?.sectionGap,
+      containerWidth: theme?.containerWidth,
+    });
+
+  const fontFamily = resolveApprovedFontStack(theme?.fontFamily || tokens['font.body']);
+  // Sections set the body font on themselves and let their headings inherit
+  // it, so a website that pairs a heading font with a different body font
+  // needs a rule of its own. The builder preview emits the same rule, scoped
+  // to its section wrapper. Sites using one font get nothing extra.
+  const headingFont = resolveApprovedFontStack(tokens['font.heading']);
+  const headingFontRule =
+    headingFont && headingFont !== fontFamily
+      ? `
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--bf-font-heading);
+}
+`
+      : '';
+  const primaryColor = tokens['color.primary'];
+  const secondaryColor = tokens['color.secondary'];
+  const backgroundColor = tokens['color.background'];
+  const textColor = tokens['color.text'];
+  const borderRadius = tokens['radius.md'];
+
+  // Every role as a CSS variable, so the published site can restyle from the
+  // brand the same way the editor does instead of only through the handful
+  // of variables the first version of this file happened to emit.
+  const tokenVars = Object.entries(tokens)
+    .map(([path, value]) => `  --bf-${path.replace(/\./g, '-')}: ${value};`)
+    .join('\n');
+
   return `* {
   box-sizing: border-box;
   margin: 0;
@@ -6950,6 +6997,7 @@ export function generateGlobalsCss(theme?: ThemeConfig): string {
 }
 
 :root {
+${tokenVars}
   --primary-color: ${primaryColor};
   --secondary-color: ${secondaryColor};
   --background-color: ${backgroundColor};
@@ -6964,7 +7012,7 @@ body {
   background-color: var(--background-color);
   color: var(--text-color);
 }
-
+${headingFontRule}
 a {
   color: inherit;
   text-decoration: none;

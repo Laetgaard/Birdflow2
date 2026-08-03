@@ -17,6 +17,7 @@ import {
 import { componentRegistry } from "@shared/componentRegistry";
 import { sectionRegistry, type SectionType } from "@shared/sectionRegistry";
 import { stylePresets, getPresetTokens } from "@shared/stylePresets";
+import { migrateStateToTokens } from "@shared/designTokens";
 import type { BuilderStateData, BuilderComponent, StylePreset, DesignTokens } from "@shared/schema";
 import {
   sanitizePrimitiveTree,
@@ -466,21 +467,53 @@ When applying a theme like "luxury", update ALL components:
   "styles": { ... }
 }
 
-### update_global_styles (for custom design tokens)
+### update_global_styles (the brand itself - see DESIGN TOKENS below)
 {
   "action": "update_global_styles",
   "styles": {
     "primaryColor": "#hexcolor",
     "secondaryColor": "#hexcolor",
+    "accentColor": "#hexcolor",
     "backgroundColor": "#hexcolor",
+    "surfaceColor": "#hexcolor",
     "textColor": "#hexcolor",
+    "typeScale": "modern | editorial | classic | bold",
     "borderRadius": "8px",
     "spacingScale": "compact | comfortable | spacious",
     "sectionGap": "64px",
+    "shadowLevel": "none | subtle | elevated",
+    "containerWidth": "1200px",
     "buttonStyle": "solid | outline | ghost | gradient",
     "cardStyle": "flat | elevated | bordered | glass"
   }
 }
+This is the ONLY place a brand colour or font is written as a hex or a font
+stack. Changing more than one brand colour or the fonts at once replaces the
+palette, which requires the customer's approval first.
+
+## DESIGN TOKENS (how sections refer to the brand)
+
+Component styles must point at the brand instead of repeating it. Write the
+token reference, not the value:
+
+  "styles": { "backgroundColor": "{color.surface}", "textColor": "{color.text}" }
+
+Available references:
+- Colours: {color.primary} {color.secondary} {color.accent} {color.background}
+  {color.surface} {color.text} {color.muted} {color.border} {color.onPrimary}
+  {color.onSecondary} {color.onAccent}
+- Fonts: {font.heading} {font.body}
+- Type sizes (already responsive): {text.display} {text.h1} {text.h2} {text.h3}
+  {text.lead} {text.body} {text.small}
+- Spacing: {space.section} {space.block} {space.gap} {space.inline}
+- Radius: {radius.sm} {radius.md} {radius.lg} {radius.pill}
+- Shadow: {shadow.sm} {shadow.md} {shadow.lg}
+- Width: {size.container}
+
+Use {color.onPrimary} for text sitting on {color.primary} - it is already the
+readable one. Only write a literal hex in a component's styles when the
+customer asked for that exact one-off colour; a literal is an override that
+stops following the brand when the brand changes.
 
 ## COMPONENT PROPS REFERENCE
 
@@ -1740,8 +1773,15 @@ export function applyMutation(
       break;
     }
   }
-  
-  return newState;
+
+  // Whatever the assistant wrote, colours and fonts that match the brand end
+  // up pointing at it. Asking the model nicely to emit "{color.primary}" is
+  // not enough on its own - it will type a hex sooner or later, and a hex is
+  // a section that quietly stops following the brand. This is applied to the
+  // finished state rather than to the mutation, so sections expanded from
+  // add_section templates are covered too. It never changes how anything
+  // looks: a reference resolves back to the literal it replaced.
+  return migrateStateToTokens(newState);
 }
 
 /**

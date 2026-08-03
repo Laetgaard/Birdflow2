@@ -55,9 +55,20 @@ export const ComponentPropsSchema = z.object({
   })).optional(),
 });
 
+/**
+ * A style value may point at the brand instead of repeating it:
+ * `"{color.primary}"` rather than `"#4f46e5"`. The reference is resolved by
+ * `shared/designTokens.ts` when the site is drawn, so a section written this
+ * way follows the brand for the rest of its life. Literals are still allowed
+ * - they are how a deliberate one-off is expressed - and anything the model
+ * writes that already equals a brand value is turned into a reference as the
+ * mutation is applied.
+ */
+const TOKEN_HINT = 'Brug en token-reference som "{color.primary}" frem for en hex-værdi, medmindre kunden bad om præcis denne farve.';
+
 export const ComponentStylesSchema = z.object({
-  backgroundColor: z.string().optional(),
-  textColor: z.string().optional(),
+  backgroundColor: z.string().optional().describe(TOKEN_HINT),
+  textColor: z.string().optional().describe(TOKEN_HINT),
   padding: z.string().optional(),
   margin: z.string().optional(),
   borderRadius: z.string().optional(),
@@ -80,7 +91,7 @@ export const ComponentStylesSchema = z.object({
   maxWidth: z.string().optional(),
   minHeight: z.string().optional(),
   overflow: z.string().optional(),
-  accentColor: z.string().optional(),
+  accentColor: z.string().optional().describe(TOKEN_HINT),
   buttonStyle: z.enum(['solid', 'outline', 'ghost', 'gradient']).optional(),
   buttonRadius: z.string().optional(),
   cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass']).optional(),
@@ -98,15 +109,24 @@ export const ComponentSchema = z.object({
   styles: ComponentStylesSchema.optional().default({}),
 });
 
+/**
+ * The brand itself - the one place colours and fonts are written as values.
+ * Every section that points at a token here changes with it.
+ */
 export const GlobalStylesSchema = z.object({
   primaryColor: z.string(),
   secondaryColor: z.string(),
+  accentColor: z.string().optional(),
   fontFamily: z.string(),
   backgroundColor: z.string(),
+  surfaceColor: z.string().optional(),
   textColor: z.string().optional(),
+  typeScale: z.enum(['modern', 'editorial', 'classic', 'bold']).optional(),
   borderRadius: z.string().optional(),
   spacingScale: z.enum(['compact', 'comfortable', 'spacious']).optional(),
   sectionGap: z.string().optional(),
+  shadowLevel: z.enum(['none', 'subtle', 'elevated']).optional(),
+  containerWidth: z.string().optional(),
   buttonStyle: z.enum(['solid', 'outline', 'ghost', 'gradient']).optional(),
   cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass']).optional(),
   fontPair: z.object({

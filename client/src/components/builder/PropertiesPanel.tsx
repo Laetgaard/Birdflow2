@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,43 @@ import {
 import ImageCropper from "./ImageCropper";
 import CustomComponentEditor from "./CustomComponentEditor";
 import { uploadImage } from "@/lib/builderUpload";
+import type { DesignTokens } from "@shared/schema";
+import {
+  resolveDesignTokens,
+  tokenPathOf,
+  isTokenRef,
+  tokenRef,
+  type ResolvedTokens,
+  type TokenPath,
+} from "@shared/designTokens";
+
+/** Danish labels for the brand roles a value can point at, shown in badges. */
+const TOKEN_ROLE_LABELS: Record<string, string> = {
+  'color.primary': 'Primærfarve',
+  'color.secondary': 'Sekundærfarve',
+  'color.accent': 'Accentfarve',
+  'color.background': 'Baggrund',
+  'color.surface': 'Kortflade',
+  'color.text': 'Tekstfarve',
+  'font.heading': 'Overskriftsskrift',
+  'font.body': 'Brødtekstskrift',
+};
+
+function tokenRoleLabel(path: string): string {
+  return TOKEN_ROLE_LABELS[path] ?? path;
+}
+
+/** Small "Brand" badge naming the role a value follows. */
+function BrandBadge({ path, testId }: { path: string; testId?: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium"
+      data-testid={testId}
+    >
+      Brand · {tokenRoleLabel(path)}
+    </span>
+  );
+}
 
 type CropData = {
   x: number;
@@ -57,6 +94,8 @@ type Props = {
   onMove: (direction: 'up' | 'down') => void;
   websiteId: string;
   accessToken: string;
+  /** The website's design tokens, so the panel can show brand vs. override state. */
+  globalStyles?: DesignTokens;
   /** Node selection inside custom components (primitive node trees). */
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
@@ -65,8 +104,9 @@ type Props = {
 type TabId = 'content' | 'design' | 'animation';
 
 
-export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, selectedNodeId, onNodeSelect }: Props) {
+export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, globalStyles, selectedNodeId, onNodeSelect }: Props) {
   const definition = componentRegistry[component.type];
+  const resolvedTokens = useMemo<ResolvedTokens>(() => resolveDesignTokens(globalStyles), [globalStyles]);
   const [activeTab, setActiveTab] = useState<TabId>('content');
   const [uploadingField, setUploadingField] = useState<string | null>(null);
   const [cropperOpen, setCropperOpen] = useState(false);
@@ -96,6 +136,40 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
     } else {
       onUpdate({ props: { [field.key]: value } });
     }
+  };
+
+  /** The brand role a colour field with this key should reset to. */
+  const colorRoleForKey = (key: string): TokenPath => {
+    if (key === 'backgroundColor') return 'color.background';
+    if (key === 'textColor') return 'color.text';
+    if (key === 'buttonColor' || key === 'accentColor') return 'color.primary';
+    return 'color.primary';
+  };
+
+  /**
+   * Renders the shared brand/override affordance for a colour value: a "Brand"
+   * badge when it follows the brand, or a "Tilpasset" hint plus a reset button
+   * when it deliberately overrides one. Returns the resolved hex to preview.
+   */
+  const colorTokenState = (rawValue: string, role: TokenPath) => {
+    const path = tokenPathOf(rawValue);
+    if (path) {
+      return {
+        isToken: true as const,
+        path,
+        resolved: resolvedTokens[path] ?? rawValue,
+      };
+    }
+    const brandValue = resolvedTokens[role];
+    const literal = typeof rawValue === 'string' ? rawValue.trim() : '';
+    const isCustom = !!literal && !!brandValue &&
+      literal.toLowerCase() !== brandValue.trim().toLowerCase();
+    return {
+      isToken: false as const,
+      path: null,
+      resolved: rawValue,
+      isCustom,
+    };
   };
 
   const parseImageValue = (value: any): ImageValue => {
@@ -201,9 +275,30 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
       case 'color': {
         const colorPresets = field.key === 'backgroundColor' ? themeColors.backgrounds :
           field.key === 'buttonColor' ? themeColors.backgrounds : themeColors.text;
+        const role = colorRoleForKey(field.key);
+        const state = colorTokenState(value, role);
         return (
           <div key={field.key} className="space-y-2">
-            <Label className="text-xs">{field.label}</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">{field.label}</Label>
+              {state.isToken ? (
+                <BrandBadge path={state.path} testId={`token-badge-${field.key}`} />
+              ) : state.isCustom && (
+                <span className="text-[10px] text-muted-foreground" data-testid={`custom-hint-${field.key}`}>Tilpasset</span>
+              )}
+              {!state.isToken && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[10px] ml-auto"
+                  onClick={() => setValue(field, tokenRef(role))}
+                  data-testid={`reset-token-${field.key}`}
+                >
+                  Nulstil til brand
+                </Button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1">
               {colorPresets.map((color) => (
                 <button
@@ -220,13 +315,14 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             <div className="flex gap-1">
               <Input
                 type="color"
-                value={value || '#ffffff'}
+                value={state.resolved || '#ffffff'}
                 onChange={(e) => setValue(field, e.target.value)}
                 className="w-10 h-9 p-1 cursor-pointer"
                 data-testid={`color-${field.key}`}
               />
               <Input
-                value={value}
+                value={state.isToken ? tokenRoleLabel(state.path) : value}
+                readOnly={state.isToken}
                 onChange={(e) => setValue(field, e.target.value)}
                 placeholder="#ffffff"
                 className="flex-1"
@@ -603,6 +699,11 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           ? value as StyledText
           : { text: typeof value === 'string' ? value : '' };
 
+        const colorState = colorTokenState(styledValue.color || '', 'color.text');
+        // Descriptions/body copy resolve to the body font; titles to the heading font.
+        const fontRole: TokenPath = /description|body|text/i.test(field.key) ? 'font.body' : 'font.heading';
+        const fontTokenPath = tokenPathOf(styledValue.fontFamily);
+
         return (
           <div key={field.key} className="space-y-3 border rounded-lg p-3 bg-muted/30">
             <Label className="text-xs font-medium">{field.label}</Label>
@@ -616,15 +717,24 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Font</Label>
+                <div className="flex items-center gap-2">
+                  <Label className="text-[10px] text-muted-foreground">Font</Label>
+                  {fontTokenPath && (
+                    <BrandBadge path={fontTokenPath} testId={`token-badge-${field.key}-font`} />
+                  )}
+                </div>
                 <Select
-                  value={styledValue.fontFamily || 'inherit'}
-                  onValueChange={(v) => setValue(field, { ...styledValue, fontFamily: v === 'inherit' ? '' : v })}
+                  value={fontTokenPath ? '__brand__' : (styledValue.fontFamily || 'inherit')}
+                  onValueChange={(v) => setValue(field, {
+                    ...styledValue,
+                    fontFamily: v === 'inherit' ? '' : v === '__brand__' ? tokenRef(fontRole) : v,
+                  })}
                 >
-                  <SelectTrigger className="h-8 text-xs">
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-font-${field.key}`}>
                     <SelectValue placeholder="Inherit" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__brand__">Brand ({tokenRoleLabel(fontRole)})</SelectItem>
                     <SelectItem value="inherit">Inherit</SelectItem>
                     {fontFamilyPresets.map(font => (
                       <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
@@ -704,16 +814,36 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] text-muted-foreground">Color</Label>
+              <div className="flex items-center gap-2">
+                <Label className="text-[10px] text-muted-foreground">Color</Label>
+                {colorState.isToken ? (
+                  <BrandBadge path={colorState.path} testId={`token-badge-${field.key}-color`} />
+                ) : colorState.isCustom && (
+                  <span className="text-[10px] text-muted-foreground" data-testid={`custom-hint-${field.key}-color`}>Tilpasset</span>
+                )}
+                {!colorState.isToken && styledValue.color && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-1.5 text-[10px] ml-auto"
+                    onClick={() => setValue(field, { ...styledValue, color: tokenRef('color.text') })}
+                    data-testid={`reset-token-${field.key}-color`}
+                  >
+                    Nulstil til brand
+                  </Button>
+                )}
+              </div>
               <div className="flex gap-1">
                 <Input
                   type="color"
-                  value={styledValue.color || '#000000'}
+                  value={colorState.resolved || '#000000'}
                   onChange={(e) => setValue(field, { ...styledValue, color: e.target.value })}
                   className="w-10 h-8 p-1 cursor-pointer"
                 />
                 <Input
-                  value={styledValue.color || ''}
+                  value={colorState.isToken ? tokenRoleLabel(colorState.path) : (styledValue.color || '')}
+                  readOnly={colorState.isToken}
                   onChange={(e) => setValue(field, { ...styledValue, color: e.target.value })}
                   placeholder="Inherit"
                   className="flex-1 h-8 text-xs"
@@ -757,15 +887,22 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           </h4>
 
           <div className="space-y-2">
-            <Label className="text-xs">Skrifttype</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">Skrifttype</Label>
+              {(() => {
+                const fontPath = tokenPathOf(component.styles.fontFamily);
+                return fontPath ? <BrandBadge path={fontPath} testId="token-badge-fontFamily" /> : null;
+              })()}
+            </div>
             <Select
-              value={component.styles.fontFamily || 'Inter, system-ui, sans-serif'}
-              onValueChange={(value) => onUpdate({ styles: { fontFamily: value } })}
+              value={tokenPathOf(component.styles.fontFamily) ? '__brand__' : (component.styles.fontFamily || 'Inter, system-ui, sans-serif')}
+              onValueChange={(value) => onUpdate({ styles: { fontFamily: value === '__brand__' ? tokenRef('font.body') : value } })}
             >
               <SelectTrigger className="h-8" data-testid="select-font-family">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-[300px] overflow-y-auto">
+                <SelectItem value="__brand__">Brand ({tokenRoleLabel('font.body')})</SelectItem>
                 {fontFamilyPresets.map((font) => (
                   <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
                     {font.name}
@@ -1163,16 +1300,39 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs">Knapfarve</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">Knapfarve</Label>
+              {(() => {
+                const btnState = colorTokenState(component.styles.buttonColor || '', 'color.primary');
+                return btnState.isToken ? (
+                  <BrandBadge path={btnState.path} testId="token-badge-buttonColor" />
+                ) : btnState.isCustom ? (
+                  <span className="text-[10px] text-muted-foreground" data-testid="custom-hint-buttonColor">Tilpasset</span>
+                ) : null;
+              })()}
+              {!isTokenRef(component.styles.buttonColor) && component.styles.buttonColor && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[10px] ml-auto"
+                  onClick={() => onUpdate({ styles: { buttonColor: tokenRef('color.primary') } })}
+                  data-testid="reset-token-buttonColor"
+                >
+                  Nulstil til brand
+                </Button>
+              )}
+            </div>
             <div className="flex gap-1">
               <Input
                 type="color"
-                value={component.styles.buttonColor || component.styles.accentColor || '#3b82f6'}
+                value={colorTokenState(component.styles.buttonColor || component.styles.accentColor || '#3b82f6', 'color.primary').resolved || '#3b82f6'}
                 onChange={(e) => onUpdate({ styles: { buttonColor: e.target.value } })}
                 className="w-10 h-8 p-1 cursor-pointer"
               />
               <Input
-                value={component.styles.buttonColor || ''}
+                value={isTokenRef(component.styles.buttonColor) ? tokenRoleLabel(tokenPathOf(component.styles.buttonColor)!) : (component.styles.buttonColor || '')}
+                readOnly={isTokenRef(component.styles.buttonColor)}
                 onChange={(e) => onUpdate({ styles: { buttonColor: e.target.value } })}
                 placeholder="Accent farve"
                 className="flex-1 h-8 text-xs"

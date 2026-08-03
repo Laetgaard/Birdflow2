@@ -15,6 +15,7 @@ import * as esbuild from 'esbuild';
 import BuilderComponentRenderer from '../../client/src/components/builder/ComponentRenderer';
 import { generateComponentRenderer } from '../../server/publisher/templates';
 import type { BuilderComponentData } from '@shared/componentRegistry';
+import { resolveDesignTokens, resolveTokensDeep } from '@shared/designTokens';
 
 export type ThemeLike = {
   primaryColor: string;
@@ -117,23 +118,57 @@ export function renderPublished(
 /** Static HTML the builder preview would produce for the same components. */
 export function renderBuilder(
   component: BuilderComponentData,
-  allComponents: BuilderComponentData[] = [component]
+  allComponents: BuilderComponentData[] = [component],
+  globalStyles: Record<string, unknown> = {
+    primaryColor: TEST_THEME.primaryColor,
+    secondaryColor: TEST_THEME.secondaryColor,
+    fontFamily: TEST_THEME.fontFamily,
+    backgroundColor: TEST_THEME.backgroundColor,
+    textColor: TEST_THEME.textColor,
+    borderRadius: TEST_THEME.borderRadius,
+  }
 ): string {
   return renderToStaticMarkup(
     React.createElement(BuilderComponentRenderer as never, {
       component,
       isPreview: true,
       allComponents,
-      globalStyles: {
-        primaryColor: TEST_THEME.primaryColor,
-        secondaryColor: TEST_THEME.secondaryColor,
-        fontFamily: TEST_THEME.fontFamily,
-        backgroundColor: TEST_THEME.backgroundColor,
-        textColor: TEST_THEME.textColor,
-        borderRadius: TEST_THEME.borderRadius,
-      },
+      globalStyles,
     })
   );
+}
+
+/**
+ * The brand both renderers are given, resolved into token values.
+ *
+ * The builder resolves references while it draws; the publisher resolves them
+ * while it writes the project. Same shared function, same values.
+ */
+export const TEST_TOKENS = resolveDesignTokens({
+  primaryColor: TEST_THEME.primaryColor,
+  secondaryColor: TEST_THEME.secondaryColor,
+  fontFamily: TEST_THEME.fontFamily,
+  backgroundColor: TEST_THEME.backgroundColor,
+  textColor: TEST_THEME.textColor,
+  borderRadius: TEST_THEME.borderRadius,
+});
+
+/**
+ * The published site as the publisher really produces it.
+ *
+ * A generated Next.js project cannot import `@shared`, so it never sees a
+ * token reference: `server/publisher/generator.ts` substitutes them into the
+ * page data as it writes the project. This mirrors that step, so a component
+ * that points at the brand can be compared against the same component in the
+ * preview, which resolves the references itself.
+ */
+export function renderPublishedFromStored(
+  component: BuilderComponentData,
+  allComponents: BuilderComponentData[] = [component]
+): string {
+  const resolvedAll = resolveTokensDeep(allComponents, TEST_TOKENS);
+  const resolved = resolveTokensDeep(component, TEST_TOKENS);
+  return renderPublished(resolved, resolvedAll);
 }
 
 /** Visible words, with markup, entities and whitespace flattened away. */

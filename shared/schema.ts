@@ -475,16 +475,36 @@ export type ProductGridConfig = {
 
 export type StylePreset = 'modern' | 'luxury' | 'playful' | 'corporate' | 'minimal' | 'custom';
 
+/**
+ * The website's brand, as values rather than as decisions repeated in every
+ * section. `shared/designTokens.ts` turns this into the named roles
+ * (`color.primary`, `text.h1`, `space.section`, ...) that component styles
+ * point at, so changing one value here changes every place it is used.
+ *
+ * Everything past `fontFamily` is optional because states saved before a
+ * field existed must keep working: a missing value is derived from the ones
+ * that are there, never invented separately by each renderer.
+ */
 export type DesignTokens = {
   primaryColor: string;
   secondaryColor: string;
   backgroundColor: string;
   fontFamily: string;
   textColor?: string;
+  /** Third brand colour. Falls back to the secondary colour. */
+  accentColor?: string;
+  /** Card/panel colour. Derived from the background when unset. */
+  surfaceColor?: string;
   fontPair?: { heading: string; body: string };
+  /** How sharply heading sizes step up from body text. */
+  typeScale?: 'modern' | 'editorial' | 'classic' | 'bold';
   borderRadius?: string;
   spacingScale?: 'compact' | 'comfortable' | 'spacious';
   sectionGap?: string;
+  /** Depth of the card and button shadows. */
+  shadowLevel?: 'none' | 'subtle' | 'elevated';
+  /** Max width of centred page content. */
+  containerWidth?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
 };

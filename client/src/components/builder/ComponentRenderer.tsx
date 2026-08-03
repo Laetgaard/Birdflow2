@@ -7,6 +7,7 @@ import ImageResizer from './ImageResizer';
 import CustomComponentRenderer from './CustomComponentRenderer';
 import { resolveApprovedFontStack } from '@shared/fonts';
 import { prefersReducedMotion } from '@shared/rendering/contract';
+import { resolveDesignTokens, resolveTokensDeep } from '@shared/designTokens';
 
 function getStyledTextStyle(styledText: StyledText | undefined, defaultStyle?: React.CSSProperties): React.CSSProperties {
   if (!styledText) return defaultStyle || {};
@@ -102,7 +103,11 @@ function resolveButtonColor(styles: ComponentStyles, globalStyles?: GlobalStyles
 function resolveFontFamily(styles: ComponentStyles, globalStyles?: GlobalStyles): string {
   // Through the approved list, so the preview shows the font the published
   // site will actually load rather than one it silently falls back from.
-  return resolveApprovedFontStack(styles.fontFamily || globalStyles?.fontFamily);
+  // A website that has chosen a font pair keeps its body font here; headings
+  // pick up the heading font from the rule the wrapper below emits.
+  return resolveApprovedFontStack(
+    styles.fontFamily || globalStyles?.fontPair?.body || globalStyles?.fontFamily
+  );
 }
 
 const animationMap: Record<string, string> = {
@@ -1664,7 +1669,7 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   const columns = props.columns || 3;
   const limit = props.productLimit || 6;
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = resolveApprovedFontStack(styles.fontFamily);
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '36px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
@@ -2801,7 +2806,7 @@ function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, on
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const videoUrl = props.videoUrl || '';
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = resolveApprovedFontStack(styles.fontFamily);
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '32px';
   const bodyFontSize = styles.bodyFontSize || '16px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
@@ -4040,7 +4045,18 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect }: RenderProps) {
+export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect }: RenderProps) {
+  // What is stored may point at the brand ("{color.primary}") rather than
+  // repeat its value. Resolve once, here, so every section below draws real
+  // values and no section has to know that tokens exist. The publisher does
+  // the same substitution with the same shared functions as it writes the
+  // Next.js project.
+  const resolvedTokens = useMemo(() => resolveDesignTokens(globalStyles), [globalStyles]);
+  const component = useMemo(
+    () => resolveTokensDeep(storedComponent, resolvedTokens),
+    [storedComponent, resolvedTokens]
+  );
+
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -4080,7 +4096,19 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     pages,
   };
 
+  // A website may pair a heading font with a different body font. Sections set
+  // the body font on themselves and let their headings inherit it, so the
+  // heading font needs a rule of its own - the published site emits the same
+  // one into globals.css. Only sites that actually pair two fonts get it, so
+  // everything else renders exactly as before.
+  const headingFont = resolvedTokens['font.heading'];
+  const headingFontRule =
+    headingFont && headingFont !== resolvedTokens['font.body']
+      ? `.bf-section h1, .bf-section h2, .bf-section h3, .bf-section h4, .bf-section h5, .bf-section h6 { font-family: ${headingFont}; }`
+      : null;
+
   const wrapperProps: React.HTMLAttributes<HTMLDivElement> & { 'data-testid': string; 'data-component-type': string; 'data-element-id': string; 'data-component-id': string } = {
+    className: 'bf-section',
     'data-testid': `component-${component.id}`,
     'data-component-type': component.type,
     'data-element-id': component.id,
@@ -4182,6 +4210,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
 
   return (
     <div {...wrapperProps}>
+      {headingFontRule && <style>{headingFontRule}</style>}
       <AnimatedWrapper styles={component.styles} isPreview={isPreview}>
         {componentElement}
       </AnimatedWrapper>

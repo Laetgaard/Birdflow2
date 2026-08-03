@@ -27,14 +27,20 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ReadOnlySitePreview } from '../client/src/components/onboarding/ReadOnlySitePreview';
 import {
+  fontFamilies,
   imageSources,
   linkTargets,
   loadPublishedRenderer,
   renderBuilder,
   renderPublished,
+  renderPublishedFromStored,
+  rootStyle,
   TEST_THEME,
+  TEST_TOKENS,
   visibleText,
 } from './helpers/renderParity';
+import { migrateStateToTokens, resolveDesignTokens, tokenRef } from '@shared/designTokens';
+import { readFileSync } from 'node:fs';
 
 /**
  * Types whose content cannot be compared by rendering them side by side,
@@ -221,6 +227,325 @@ describe('custom components', () => {
   it('publishes hover styles as CSS rules', () => {
     const { source } = loadPublishedRenderer();
     expect(source).toContain(':hover');
+  });
+});
+
+describe('design tokens resolve to the same picture on both sides', () => {
+  const comparable = RENDERABLE_COMPONENT_TYPES.filter((type) => !(type in NOT_COMPARABLE_BY_DEFAULTS));
+
+  /** A default component with its brand colours and fonts turned into references. */
+  function tokenised(type: ComponentType): BuilderComponentData {
+    const migrated = migrateStateToTokens({
+      globalStyles: {
+        primaryColor: TEST_THEME.primaryColor,
+        secondaryColor: TEST_THEME.secondaryColor,
+        fontFamily: TEST_THEME.fontFamily,
+        backgroundColor: TEST_THEME.backgroundColor,
+        textColor: TEST_THEME.textColor,
+        borderRadius: TEST_THEME.borderRadius,
+      },
+      pages: [{ id: 'home', name: 'Forside', path: '/', components: [componentFor(type)] }],
+    });
+    return (migrated.pages as Array<{ components: BuilderComponentData[] }>)[0].components[0];
+  }
+
+  it.each(comparable)('%s: a section pointing at the brand draws the same words in both', (type) => {
+    const component = tokenised(type);
+    expect(visibleText(renderPublishedFromStored(component))).toBe(visibleText(renderBuilder(component)));
+  });
+
+  it.each(comparable)('%s: migrating it to tokens changes nothing about how it looks', (type) => {
+    // The migration's only promise. If a reference resolved to anything other
+    // than the literal it replaced, these two renders would differ.
+    expect(renderBuilder(tokenised(type))).toBe(renderBuilder(componentFor(type)));
+    expect(renderPublishedFromStored(tokenised(type))).toBe(renderPublished(componentFor(type)));
+  });
+
+  it('resolves a reference to the same value in the preview and on the published site', () => {
+    const component: BuilderComponentData = {
+      ...componentFor('cta'),
+      styles: {
+        ...componentRegistry.cta.defaultStyles,
+        backgroundColor: tokenRef('color.primary'),
+        textColor: tokenRef('color.onPrimary'),
+        borderRadius: tokenRef('radius.lg'),
+      },
+    } as BuilderComponentData;
+
+    const builder = renderBuilder(component);
+    const published = renderPublishedFromStored(component);
+
+    // The brand value reaches the markup on both sides...
+    expect(builder).toContain(`background-color:${TEST_TOKENS['color.primary']}`);
+    expect(published).toContain(`background-color:${TEST_TOKENS['color.primary']}`);
+    // ...and the reference itself never ships.
+    expect(builder).not.toContain('{color.primary}');
+    expect(published).not.toContain('{color.primary}');
+    expect(published).not.toContain('{radius.lg}');
+  });
+
+  it('a brand change reaches every section that points at it', () => {
+    const component = tokenised('hero');
+    const before = renderBuilder(component);
+    const after = renderToStaticMarkup(
+      React.createElement(
+        ReadOnlySitePreview as never,
+        {
+          pages: [{ id: 'home', name: 'Forside', path: '/', components: [component] }],
+          activePagePath: '/',
+          globalStyles: {
+            primaryColor: '#b91c1c',
+            secondaryColor: TEST_THEME.secondaryColor,
+            fontFamily: TEST_THEME.fontFamily,
+            backgroundColor: TEST_THEME.backgroundColor,
+            textColor: TEST_THEME.textColor,
+            borderRadius: TEST_THEME.borderRadius,
+          },
+          device: 'desktop',
+        }
+      )
+    );
+    expect(before).not.toContain('#b91c1c');
+    expect(after).toContain('#b91c1c');
+  });
+
+  it('the publisher resolves tokens before it writes the project', () => {
+    // A generated project cannot import @shared, so if this step is ever
+    // dropped the customer's live site ships "{color.primary}" as a CSS value
+    // and silently loses every brand colour. Nothing else would fail.
+    const source = readFileSync('server/publisher/generator.ts', 'utf8');
+    expect(source).toContain('resolveDesignTokens(globalStyles)');
+    expect(source).toContain('resolveTokensDeep(processedBuilderState.pages, resolvedTokens)');
+  });
+
+  it('publishes the brand as CSS variables as well', () => {
+    const css = generateGlobalsCss({
+      primaryColor: TEST_THEME.primaryColor,
+      secondaryColor: TEST_THEME.secondaryColor,
+      fontFamily: TEST_THEME.fontFamily,
+      backgroundColor: TEST_THEME.backgroundColor,
+      textColor: TEST_THEME.textColor,
+      borderRadius: TEST_THEME.borderRadius,
+      tokens: TEST_TOKENS,
+    });
+    expect(css).toContain(`--bf-color-primary: ${TEST_TOKENS['color.primary']};`);
+    expect(css).toContain(`--bf-color-onPrimary: ${TEST_TOKENS['color.onPrimary']};`);
+    expect(css).toContain(`--bf-size-container: ${TEST_TOKENS['size.container']};`);
+    expect(css).not.toContain('{color.');
+  });
+});
+
+describe('custom components follow the brand on the published site too', () => {
+  const BRAND = {
+    primaryColor: '#0f766e',
+    secondaryColor: '#f97316',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    backgroundColor: '#ffffff',
+    textColor: '#0f172a',
+    borderRadius: '12px',
+  };
+
+  /** A custom component whose every style points at the brand. */
+  function customComponent(): BuilderComponentData {
+    return {
+      id: 'custom-tokens',
+      type: 'custom',
+      props: {
+        customTree: {
+          id: 'node-root',
+          type: 'box',
+          styles: { backgroundColor: tokenRef('color.surface'), padding: tokenRef('space.block') },
+          tabletStyles: { backgroundColor: tokenRef('color.background') },
+          mobileStyles: { padding: tokenRef('space.inline') },
+          hoverStyles: { backgroundColor: tokenRef('color.primary') },
+          children: [
+            {
+              id: 'node-text',
+              type: 'text',
+              tag: 'h2',
+              text: 'Vores tilgang',
+              styles: { color: tokenRef('color.text'), fontFamily: tokenRef('font.heading') },
+              children: [],
+            },
+            { id: 'node-button', type: 'button', label: 'Book tid', variant: 'primary', children: [] },
+          ],
+        },
+      },
+      styles: {},
+    } as unknown as BuilderComponentData;
+  }
+
+  it('ships resolved values for base, tablet, mobile and hover styles', async () => {
+    const { generateNextJsProject } = await import('../server/publisher/generator');
+    const nodeFs = await import('node:fs/promises');
+    const nodePath = await import('node:path');
+
+    const tokens = resolveDesignTokens(BRAND);
+    const outputDir = await generateNextJsProject({
+      websiteId: 'parity-custom-tokens',
+      siteName: 'Brandtro Komponent',
+      supabaseUrl: 'https://example.supabase.co',
+      supabaseAnonKey: 'anon',
+      builderState: {
+        pages: [
+          { id: 'p1', name: 'Forside', path: '/', components: [customComponent()] },
+        ],
+        globalStyles: BRAND,
+      },
+    } as never);
+
+    const page = await nodeFs.readFile(nodePath.join(outputDir, 'app', 'page.tsx'), 'utf8');
+
+    // Every breakpoint and the hover state carry the brand's values...
+    expect(page).toContain(tokens['color.surface']);
+    expect(page).toContain(tokens['color.background']);
+    expect(page).toContain(tokens['space.block']);
+    expect(page).toContain(tokens['space.inline']);
+    expect(page).toContain(tokens['color.primary']);
+    expect(page).toContain(tokens['font.heading']);
+    // ...and no reference survives into the customer's live site.
+    expect(page).not.toMatch(/\{(color|font|space|radius|shadow|size|text)\./);
+  });
+
+  it('changes with the brand: the same component published twice differs', async () => {
+    const { generateNextJsProject } = await import('../server/publisher/generator');
+    const nodeFs = await import('node:fs/promises');
+    const nodePath = await import('node:path');
+
+    const publish = async (websiteId: string, globalStyles: Record<string, unknown>) => {
+      const outputDir = await generateNextJsProject({
+        websiteId,
+        siteName: 'Brandtro Komponent',
+        supabaseUrl: 'https://example.supabase.co',
+        supabaseAnonKey: 'anon',
+        builderState: {
+          pages: [{ id: 'p1', name: 'Forside', path: '/', components: [customComponent()] }],
+          globalStyles,
+        },
+      } as never);
+      return nodeFs.readFile(nodePath.join(outputDir, 'app', 'page.tsx'), 'utf8');
+    };
+
+    const before = await publish('parity-custom-brand-1', BRAND);
+    const after = await publish('parity-custom-brand-2', { ...BRAND, primaryColor: '#b91c1c' });
+
+    expect(before).toContain('#0f766e');
+    expect(after).toContain('#b91c1c');
+    expect(after).not.toContain('#0f766e');
+  });
+
+  it('gives a button a label colour the brand can actually be read against', () => {
+    const pale = renderPublished(
+      { ...componentFor('cta'), styles: { ...componentFor('cta').styles } } as BuilderComponentData
+    );
+    expect(pale).toBeTruthy();
+
+    // The shared rule both renderers use: dark text on a pale brand colour.
+    expect(resolveDesignTokens({ ...BRAND, primaryColor: '#fde047' })['color.onPrimary']).toBe('#0f172a');
+    expect(resolveDesignTokens(BRAND)['color.onPrimary']).toBe('#ffffff');
+  });
+});
+
+describe('a website that pairs a heading font with a body font', () => {
+  const PAIRED = {
+    primaryColor: TEST_THEME.primaryColor,
+    secondaryColor: TEST_THEME.secondaryColor,
+    fontFamily: 'Inter, system-ui, sans-serif',
+    fontPair: { heading: 'Playfair Display', body: 'Lato' },
+    backgroundColor: TEST_THEME.backgroundColor,
+    textColor: TEST_THEME.textColor,
+    borderRadius: TEST_THEME.borderRadius,
+  };
+  const pairedTokens = resolveDesignTokens(PAIRED);
+
+  it('uses the body font for what a section inherits, in both renderers', () => {
+    const builder = renderBuilder(componentFor('hero'), [componentFor('hero')], PAIRED);
+    expect(builder).toContain(`font-family:${pairedTokens['font.body']}`);
+    // The stored fontFamily is not what a paired site should inherit.
+    expect(pairedTokens['font.body']).not.toBe(PAIRED.fontFamily);
+    expect(builder).not.toContain(`font-family:${PAIRED.fontFamily}`);
+  });
+
+  it.each(RENDERABLE_COMPONENT_TYPES.filter((type) => !(type in NOT_COMPARABLE_BY_DEFAULTS)))(
+    '%s inherits the brand body font rather than a default, in both renderers',
+    (type) => {
+      // Every section has to read the font the same way. A section that reads
+      // only its own override renders the default stack in the preview while
+      // the published page inherits the body font from globals.css - two
+      // different fonts for the same site, and nothing else catches it.
+      const component = componentFor(type);
+      const builder = renderBuilder(component, [component], PAIRED);
+      const fonts = [...new Set(fontFamilies(builder))];
+
+      // A section either names one of the brand's two fonts or names none at
+      // all and inherits. Naming the default stack means it asked the font
+      // question without being told what the brand answered.
+      //
+      // The one exception is decoration rather than typography: the
+      // testimonial quote mark is drawn in a serif on purpose, on both sides.
+      const allowed = [pairedTokens['font.body'], pairedTokens['font.heading'], 'Georgia, &quot'];
+      for (const font of fonts) {
+        expect(allowed, `${type} preview`).toContain(font);
+      }
+      expect(fonts, `${type} preview`).not.toContain(DEFAULT_FONT_STACK);
+    }
+  );
+
+  it('gives headings the heading font in both renderers, through the same rule', () => {
+    const builder = renderBuilder(componentFor('hero'), [componentFor('hero')], PAIRED);
+    expect(builder).toContain(`.bf-section h1, .bf-section h2, .bf-section h3, .bf-section h4, .bf-section h5, .bf-section h6 { font-family: ${pairedTokens['font.heading']}; }`);
+
+    const css = generateGlobalsCss({ ...PAIRED, tokens: pairedTokens } as never);
+    expect(css).toContain('h1, h2, h3, h4, h5, h6 {');
+    expect(css).toContain('font-family: var(--bf-font-heading);');
+    expect(css).toContain(`--bf-font-heading: ${pairedTokens['font.heading']};`);
+  });
+
+  it('adds nothing extra for a website that uses one font', () => {
+    const builder = renderBuilder(componentFor('hero'));
+    expect(builder).not.toContain('.bf-section h1');
+    const css = generateGlobalsCss({ ...TEST_THEME, tokens: TEST_TOKENS } as never);
+    expect(css).not.toContain('h1, h2, h3, h4, h5, h6 {');
+  });
+
+  it('publishes a real project with both fonts and no leftover references', async () => {
+    const { generateNextJsProject } = await import('../server/publisher/generator');
+    const nodeFs = await import('node:fs/promises');
+    const nodePath = await import('node:path');
+
+    const hero = componentFor('hero');
+    const outputDir = await generateNextJsProject({
+      websiteId: 'parity-fontpair',
+      siteName: 'Parret Typografi',
+      supabaseUrl: 'https://example.supabase.co',
+      supabaseAnonKey: 'anon',
+      builderState: {
+        pages: [
+          {
+            id: 'p1',
+            name: 'Forside',
+            path: '/',
+            components: [
+              hero,
+              {
+                ...componentFor('cta'),
+                id: 'cta-token',
+                styles: { ...componentFor('cta').styles, fontFamily: tokenRef('font.heading') },
+              },
+            ],
+          },
+        ],
+        globalStyles: PAIRED,
+      },
+    } as never);
+
+    const css = await nodeFs.readFile(nodePath.join(outputDir, 'app', 'globals.css'), 'utf8');
+    expect(css).toContain(`--font-family: ${pairedTokens['font.body']};`);
+    expect(css).toContain('font-family: var(--bf-font-heading);');
+
+    const page = await nodeFs.readFile(nodePath.join(outputDir, 'app', 'page.tsx'), 'utf8');
+    expect(page).toContain(pairedTokens['font.heading']);
+    expect(page).not.toContain('{font.heading}');
   });
 });
 

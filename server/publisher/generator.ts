@@ -5,6 +5,11 @@ import type { BuilderStateData } from '../../shared/schema';
 import { sanitizeBuilderStateCustomContent } from '../../shared/customComponents';
 import type { ThemeConfig } from '../../shared/rendering/types';
 import { resolveApprovedFontStack } from '../../shared/fonts';
+import {
+  TOKEN_FALLBACKS,
+  resolveDesignTokens,
+  resolveTokensDeep,
+} from '../../shared/designTokens';
 import { missingRendererCases, unrenderableComponents, describeUnrenderable } from './coverage';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
@@ -222,22 +227,46 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     processedBuilderState = replaceObjectStorageUrls(builderState, urlMappings) as BuilderStateData;
   }
 
+  const globalStyles = processedBuilderState.globalStyles || {};
+
+  // A style may point at the brand ("{color.primary}") rather than repeat it.
+  // Generated projects cannot import from @shared, so rather than shipping a
+  // second copy of the resolver that could drift from the editor's, the
+  // references are resolved here — with the same shared function the builder
+  // preview uses — and the project receives finished values.
+  //
+  // This happens BEFORE sanitising, so a resolved brand value is subject to
+  // the same checks as anything else that reaches a generated stylesheet.
+  const resolvedTokens = resolveDesignTokens(globalStyles);
+  processedBuilderState = {
+    ...processedBuilderState,
+    pages: resolveTokensDeep(processedBuilderState.pages, resolvedTokens),
+  };
+
   // Defense in depth: strip unsafe SVG markup from custom components even if
   // an unsanitized tree made it into the stored state.
   processedBuilderState = sanitizeBuilderStateCustomContent(processedBuilderState);
 
-  const globalStyles = processedBuilderState.globalStyles || {};
   const theme: ThemeConfig = {
-    primaryColor: globalStyles.primaryColor || '#4f46e5',
-    secondaryColor: globalStyles.secondaryColor || '#22c55e',
-    fontFamily: resolveApprovedFontStack(globalStyles.fontFamily),
-    backgroundColor: globalStyles.backgroundColor || '#ffffff',
-    textColor: globalStyles.textColor || '#1f2937',
-    borderRadius: globalStyles.borderRadius || '8px',
+    primaryColor: resolvedTokens['color.primary'],
+    secondaryColor: resolvedTokens['color.secondary'],
+    accentColor: resolvedTokens['color.accent'],
+    // The body font a section inherits is the resolved token, not the raw
+    // stored value: a website that pairs two fonts keeps its body font here
+    // and its heading font in the rule globals.css emits, exactly as the
+    // builder preview does.
+    fontFamily: resolvedTokens['font.body'],
+    headingFontFamily: resolvedTokens['font.heading'],
+    backgroundColor: resolvedTokens['color.background'],
+    surfaceColor: resolvedTokens['color.surface'],
+    textColor: resolvedTokens['color.text'],
+    borderRadius: globalStyles.borderRadius || TOKEN_FALLBACKS.borderRadius,
+    containerWidth: resolvedTokens['size.container'],
     spacingScale: globalStyles.spacingScale || 'comfortable',
     sectionGap: globalStyles.sectionGap || '0',
     buttonStyle: globalStyles.buttonStyle || 'solid',
     cardStyle: globalStyles.cardStyle || 'elevated',
+    tokens: resolvedTokens,
   };
   
   // A component type the publisher cannot draw would come out as a blank

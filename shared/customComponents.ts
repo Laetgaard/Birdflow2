@@ -15,6 +15,7 @@
 
 import type { BuilderComponentData } from './componentRegistry';
 import { sanitizeSvg } from './svgSanitizer';
+import { isTokenRef } from './designTokens';
 
 // ============ Primitive nodes ============
 
@@ -292,22 +293,33 @@ const SPACING_TO_SCALE: Record<BrandGuide['spacing'], 'compact' | 'comfortable' 
 export function brandGuideToDesignTokens(guide: BrandGuide): {
   primaryColor: string;
   secondaryColor: string;
+  accentColor: string;
   backgroundColor: string;
+  surfaceColor: string;
   textColor: string;
   fontFamily: string;
   fontPair: { heading: string; body: string };
+  typeScale: BrandGuideTypographyScale;
   borderRadius: string;
   spacingScale: 'compact' | 'comfortable' | 'spacious';
+  shadowLevel: BrandGuide['shadow'];
 } {
   return {
     primaryColor: guide.colors.primary,
     secondaryColor: guide.colors.secondary,
+    // Accent and surface used to stop here: the guide showed six colours but
+    // only four of them could reach the website, so two of the customer's
+    // brand colours were decoration in a PDF.
+    accentColor: guide.colors.accent || guide.colors.secondary,
     backgroundColor: guide.colors.background,
+    surfaceColor: guide.colors.surface,
     textColor: guide.colors.text,
     fontFamily: guide.typography.bodyFont,
     fontPair: { heading: guide.typography.headingFont, body: guide.typography.bodyFont },
+    typeScale: guide.typography.scale || 'modern',
     borderRadius: RADIUS_TO_PX[guide.radius] ?? '8px',
     spacingScale: SPACING_TO_SCALE[guide.spacing] ?? 'comfortable',
+    shadowLevel: guide.shadow || 'subtle',
   };
 }
 
@@ -604,6 +616,17 @@ export function sanitizeStyleRecord(styles: unknown): PrimitiveStyles | undefine
     if (typeof value !== 'string' && typeof value !== 'number') continue;
     const str = String(value).trim();
     if (!str || str.length > MAX_STYLE_VALUE_LENGTH) continue;
+    // A value may be exactly one reference to a design token, e.g.
+    // "{color.primary}". The braces would otherwise be read as an attempt to
+    // break out of a CSS rule, so the reference has to be recognised here or
+    // a custom component silently loses the colour that follows the brand.
+    // Only whole-value references to a known role pass: the set of roles is
+    // closed, and each one resolves through the same sanitiser before it is
+    // ever written into a stylesheet.
+    if (isTokenRef(str)) {
+      out[key] = str;
+      continue;
+    }
     if (UNSAFE_STYLE_VALUE.test(str)) continue;
     if (/expression\s*\(|javascript:/i.test(str)) continue;
     out[key] = str;

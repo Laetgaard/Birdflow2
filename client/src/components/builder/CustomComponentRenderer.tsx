@@ -9,6 +9,7 @@ import {
   type PrimitiveNode,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
+import { TOKEN_FALLBACKS, readableTextOn } from "@shared/designTokens";
 
 type DeviceMode = "desktop" | "tablet" | "mobile";
 
@@ -53,9 +54,15 @@ function buttonVariantStyles(
   variant: PrimitiveNode["variant"],
   globalStyles?: GlobalStylesLike
 ): React.CSSProperties {
-  const primary = globalStyles?.primaryColor || "#4f46e5";
-  const secondary = globalStyles?.secondaryColor || "#06b6d4";
-  const radius = globalStyles?.borderRadius || "8px";
+  const primary = globalStyles?.primaryColor || TOKEN_FALLBACKS.primaryColor;
+  const secondary = globalStyles?.secondaryColor || TOKEN_FALLBACKS.secondaryColor;
+  const radius = globalStyles?.borderRadius || TOKEN_FALLBACKS.borderRadius;
+  // The label colour follows the button colour rather than being white for
+  // ever: a pale brand colour with white text on it is unreadable, and it is
+  // the customer's brand that decides, not this file. Same rule (the same
+  // shared function) on the published site.
+  const onPrimary = readableTextOn(primary);
+  const onSecondary = readableTextOn(secondary);
   const base: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -73,7 +80,7 @@ function buttonVariantStyles(
   };
   switch (variant) {
     case "secondary":
-      return { ...base, backgroundColor: secondary, color: "#ffffff" };
+      return { ...base, backgroundColor: secondary, color: onSecondary };
     case "outline":
       return { ...base, backgroundColor: "transparent", color: primary, borderColor: primary };
     case "ghost":
@@ -82,7 +89,7 @@ function buttonVariantStyles(
       return { ...base, backgroundColor: "transparent", color: primary, padding: "0", textDecoration: "underline" };
     case "primary":
     default:
-      return { ...base, backgroundColor: primary, color: "#ffffff" };
+      return { ...base, backgroundColor: primary, color: onPrimary };
   }
 }
 

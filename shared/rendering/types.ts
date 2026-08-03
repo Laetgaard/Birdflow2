@@ -29,14 +29,32 @@ import type { BuilderComponentData } from '../componentRegistry';
 export type ThemeConfig = {
   primaryColor: string;
   secondaryColor: string;
+  /** Third brand colour, resolved from the secondary when the site has none. */
+  accentColor?: string;
   fontFamily: string;
+  /** Heading font, which may differ from the body font. */
+  headingFontFamily?: string;
   backgroundColor: string;
+  /** Card/panel colour, derived from the background when the site has none. */
+  surfaceColor?: string;
   textColor?: string;
   borderRadius?: string;
+  /** Max width of centred page content. */
+  containerWidth?: string;
   spacingScale?: 'compact' | 'comfortable' | 'spacious';
   sectionGap?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
+  /**
+   * Every design token resolved to a value, as `"color.primary" -> "#4f46e5"`.
+   *
+   * The published site is written with token references already substituted,
+   * so this is not needed to draw it — it is carried into `theme.json` and
+   * `globals.css` so the generated project exposes the same brand as CSS
+   * variables, and so a published build can be compared against the brand it
+   * was built from.
+   */
+  tokens?: Record<string, string>;
 };
 
 export type PageData = {
