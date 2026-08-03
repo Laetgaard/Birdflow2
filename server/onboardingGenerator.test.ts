@@ -363,11 +363,12 @@ describe("the customer's language", () => {
     const paths = finalState.pages.map((p) => p.path);
     expect(paths).toContain("/about");
     expect(paths).toContain("/contact");
-    const home = finalState.pages.find((p) => p.path === "/")!;
-    const header = home.components.find((c) => c.type === "header")!;
-    expect(JSON.stringify(header.props)).toContain("Contact");
-    const footer = home.components.find((c) => c.type === "footer")!;
-    expect(JSON.stringify(footer.props)).toContain("All rights reserved");
+    // The fallback site is born migrated: one shared header/footer for the
+    // whole site rather than a copy on every page.
+    const header = finalState.siteChrome?.header;
+    expect(JSON.stringify(header?.props)).toContain("Contact");
+    const footer = finalState.siteChrome?.footer;
+    expect(JSON.stringify(footer?.props)).toContain("All rights reserved");
   });
 });
 

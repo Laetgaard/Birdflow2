@@ -8,6 +8,7 @@ import CustomComponentRenderer from './CustomComponentRenderer';
 import { resolveApprovedFontStack } from '@shared/fonts';
 import { prefersReducedMotion } from '@shared/rendering/contract';
 import { resolveDesignTokens, resolveTokensDeep } from '@shared/designTokens';
+import { resolveNavItems, type NavItem } from '@shared/siteStructure';
 
 function getStyledTextStyle(styledText: StyledText | undefined, defaultStyle?: React.CSSProperties): React.CSSProperties {
   if (!styledText) return defaultStyle || {};
@@ -389,6 +390,12 @@ type RenderProps = {
   isPreview?: boolean;
   websiteId?: string;
   pages?: BuilderPage[];
+  /**
+   * The site navigation, already resolved from the stored navigation. When
+   * absent (older callers, tests) the header falls back to deriving it from
+   * `pages`, which is what both renderers did before navigation was stored.
+   */
+  navItems?: NavItem[];
   allComponents?: BuilderComponentData[];
   onTextChange?: (field: string, value: string | StyledText) => void;
   editingField?: string | null;
@@ -1270,7 +1277,7 @@ function BurgerButton({ isOpen, textColor, hoverColor, onClick }: {
   );
 }
 
-function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, onTextChange, editingField, onEditField, deviceMode, globalStyles }: ComponentRenderProps & { pages?: BuilderPage[] }) {
+function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, navItems: providedNavItems, onTextChange, editingField, onEditField, deviceMode, globalStyles }: ComponentRenderProps & { pages?: BuilderPage[]; navItems?: NavItem[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [windowIsMobile, setWindowIsMobile] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1337,9 +1344,15 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   // Use deviceMode from builder preview if provided, otherwise use window width
   const isMobile = deviceMode ? (deviceMode === 'mobile' || deviceMode === 'tablet') : windowIsMobile;
 
-  const navItems = pages && pages.length > 0
-    ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
-    : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
+  // Stored navigation wins - even when it is empty, because a customer who
+  // removed every link meant it. Only when NO menu was handed in (a website
+  // that has not been migrated yet, or a header dropped on a page with no
+  // site around it, like the component gallery) does the old fallback run.
+  const navItems: NavItem[] = providedNavItems !== undefined
+    ? providedNavItems
+    : pages && pages.length > 0
+      ? resolveNavItems({ pages: pages.map(page => ({ ...page, components: [] })) })
+      : props.items?.map(item => ({ id: item.id, title: item.title ?? '', href: item.description || '#' })) || [];
 
   const handleNavClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -3970,9 +3983,10 @@ type ContainerComponentProps = ComponentRenderProps & {
   onComponentClick?: (componentId: string) => void;
   websiteId?: string;
   pages?: BuilderPage[];
+  navItems?: NavItem[];
 };
 
-function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, deviceMode, onClick, globalStyles }: ContainerComponentProps) {
+function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, navItems, deviceMode, onClick, globalStyles }: ContainerComponentProps) {
   const children = props.children || [];
   const layout = props.layout || 'vertical';
   const gap = props.gap || '24px';
@@ -4031,6 +4045,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
             isPreview={isPreview}
             websiteId={websiteId}
             pages={pages}
+            navItems={navItems}
             allComponents={allComponents}
             deviceMode={deviceMode}
             globalStyles={globalStyles}
@@ -4045,7 +4060,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
   );
 }
 
-export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect }: RenderProps) {
+export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, navItems, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect }: RenderProps) {
   // What is stored may point at the brand ("{color.primary}") rather than
   // repeat its value. Resolve once, here, so every section below draws real
   // values and no section has to know that tokens exist. The publisher does
@@ -4094,6 +4109,7 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
   const headerProps = {
     ...commonProps,
     pages,
+    navItems,
   };
 
   // A website may pair a heading font with a different body font. Sections set

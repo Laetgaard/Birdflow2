@@ -92,7 +92,20 @@ export function runSelfCheck(inputState: BuilderStateData): SelfCheckResult {
   const componentLabel = (type: string): string =>
     (componentRegistry as Record<string, { name?: string } | undefined>)[type]?.name ?? type;
 
-  for (const page of state.pages) {
+  // The shared header and footer are not on any page, but they are on every
+  // page: a broken link or a failed contrast there is the worst kind, so
+  // they are checked as if they were one more page.
+  const chromeComponents = [state.siteChrome?.header, state.siteChrome?.footer].filter(
+    Boolean
+  ) as BuilderStateData["pages"][number]["components"];
+  const scanTargets: Array<{ name: string; components: typeof chromeComponents }> = [
+    ...state.pages.map((page) => ({ name: page.name, components: page.components })),
+    ...(chromeComponents.length
+      ? [{ name: "Delt header og footer", components: chromeComponents }]
+      : []),
+  ];
+
+  for (const page of scanTargets) {
     for (const component of page.components) {
       const label = `${componentLabel(component.type)} (${page.name})`;
       const props = (component.props ?? {}) as Record<string, any>;

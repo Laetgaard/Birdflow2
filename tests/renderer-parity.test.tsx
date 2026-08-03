@@ -40,6 +40,7 @@ import {
   visibleText,
 } from './helpers/renderParity';
 import { migrateStateToTokens, resolveDesignTokens, tokenRef } from '@shared/designTokens';
+import { composePageComponents, migrateSiteStructure, resolveNavItems } from '@shared/siteStructure';
 import { readFileSync } from 'node:fs';
 
 /**
@@ -187,8 +188,10 @@ describe('the read-only preview customers actually see', () => {
     // in the builder while published sites keep drawing their children.
     const fs = await import('node:fs/promises');
     const builderPage = await fs.readFile('client/src/pages/builder.tsx', 'utf8');
-    expect(builderPage).toContain('topLevelComponents(activePage?.components || [])');
-    expect(builderPage).toContain('allComponents={activePage?.components}');
+    // canvasComponents = the page with the shared header/footer folded in;
+    // the same filter and the same full list still have to reach the renderer.
+    expect(builderPage).toContain('topLevelComponents(canvasComponents)');
+    expect(builderPage).toContain('allComponents={canvasComponents}');
   });
 });
 
@@ -735,5 +738,138 @@ describe('the generated project compiles', () => {
     expect(broken).toEqual([]);
 
     await fs.rm(outputDir, { recursive: true, force: true });
+  });
+});
+
+describe('navigation and shared chrome parity', () => {
+  const navItems = [
+    { id: 'n1', title: 'Hjem', href: '/' },
+    { id: 'n2', title: 'Behandlinger', href: '/behandlinger' },
+    { id: 'n3', title: 'Find os', href: 'https://maps.example.dk' },
+  ];
+
+  const hrefsIn = (html: string) =>
+    [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+
+  it('draws the same stored menu in the preview and on the published site', () => {
+    const headerComponent = componentFor('header');
+
+    const builderHtml = renderBuilder(headerComponent, [headerComponent], undefined, navItems);
+    const publishedHtml = renderPublished(headerComponent, [headerComponent], navItems);
+
+    for (const item of navItems) {
+      expect(visibleText(builderHtml)).toContain(item.title);
+      expect(visibleText(publishedHtml)).toContain(item.title);
+      expect(hrefsIn(builderHtml)).toContain(item.href);
+      expect(hrefsIn(publishedHtml)).toContain(item.href);
+    }
+  });
+
+  it('lets the stored menu win over the header\'s own legacy items on both sides', () => {
+    const headerComponent = {
+      ...componentFor('header'),
+      props: {
+        ...componentRegistry.header.defaultProps,
+        items: [{ id: 'legacy', title: 'Gammelt punkt', description: '/gammel' }],
+      },
+    } as BuilderComponentData;
+
+    const builderHtml = renderBuilder(headerComponent, [headerComponent], undefined, navItems);
+    const publishedHtml = renderPublished(headerComponent, [headerComponent], navItems);
+
+    for (const html of [builderHtml, publishedHtml]) {
+      expect(visibleText(html)).toContain('Behandlinger');
+      expect(visibleText(html)).not.toContain('Gammelt punkt');
+    }
+  });
+
+  it('keeps an emptied menu empty on both sides - removed means removed', () => {
+    const headerComponent = componentFor('header');
+
+    // With no menu handed in at all, both sides fall back (legacy behavior).
+    const fallbackBuilder = renderBuilder(headerComponent, [headerComponent]);
+    const fallbackPublished = renderPublished(headerComponent, [headerComponent]);
+    const defaultItems = (componentRegistry.header.defaultProps.items ?? []) as Array<{ title?: string }>;
+    expect(defaultItems.length).toBeGreaterThan(0);
+    for (const item of defaultItems) {
+      expect(visibleText(fallbackBuilder)).toContain(item.title ?? '');
+      expect(visibleText(fallbackPublished)).toContain(item.title ?? '');
+    }
+
+    // With an explicitly empty stored menu, neither side resurrects links.
+    const emptyBuilder = renderBuilder(headerComponent, [headerComponent], undefined, []);
+    const emptyPublished = renderPublished(headerComponent, [headerComponent], []);
+    for (const item of defaultItems) {
+      expect(visibleText(emptyBuilder)).not.toContain(item.title ?? '');
+      expect(visibleText(emptyPublished)).not.toContain(item.title ?? '');
+    }
+  });
+
+  it('resolves the menu once, from the same shared function both sides use', () => {
+    const state = migrateSiteStructure({
+      pages: [
+        {
+          id: 'home',
+          name: 'Forside',
+          path: '/',
+          components: [componentFor('header'), componentFor('hero'), componentFor('footer')],
+        },
+        { id: 'prices', name: 'Priser', path: '/priser', components: [] },
+      ],
+      activePage: 'home',
+      globalStyles: {
+        primaryColor: TEST_THEME.primaryColor,
+        secondaryColor: TEST_THEME.secondaryColor,
+        backgroundColor: TEST_THEME.backgroundColor,
+        fontFamily: TEST_THEME.fontFamily,
+      },
+    } as never);
+
+    const resolved = resolveNavItems(state);
+    expect(resolved.map((item) => item.href)).toEqual(['/', '/priser']);
+
+    const chromeHeader = state.siteChrome!.header!;
+    const builderHtml = renderBuilder(chromeHeader, [chromeHeader], undefined, resolved);
+    const publishedHtml = renderPublished(chromeHeader, [chromeHeader], resolved);
+    expect(hrefsIn(builderHtml)).toEqual(expect.arrayContaining(['/', '/priser']));
+    expect(hrefsIn(publishedHtml)).toEqual(expect.arrayContaining(['/', '/priser']));
+  });
+
+  it('composes the shared chrome identically for the canvas and the generated page', () => {
+    const state = migrateSiteStructure({
+      pages: [
+        {
+          id: 'home',
+          name: 'Forside',
+          path: '/',
+          components: [componentFor('header'), componentFor('hero'), componentFor('footer')],
+        },
+        { id: 'about', name: 'Om os', path: '/om-os', components: [componentFor('cta')] },
+      ],
+      activePage: 'home',
+      globalStyles: {
+        primaryColor: TEST_THEME.primaryColor,
+        secondaryColor: TEST_THEME.secondaryColor,
+        backgroundColor: TEST_THEME.backgroundColor,
+        fontFamily: TEST_THEME.fontFamily,
+      },
+    } as never);
+
+    // The about page never had a footer of its own; migration opted it out,
+    // so composing draws exactly what it drew before: just its own section.
+    const about = state.pages.find((p) => p.id === 'about')!;
+    const composedAbout = composePageComponents(about, state.siteChrome);
+    expect(composedAbout.map((c) => c.type)).toEqual(['cta']);
+
+    // The home page renders header + hero + footer on both sides.
+    const home = state.pages.find((p) => p.id === 'home')!;
+    const composedHome = composePageComponents(home, state.siteChrome);
+    expect(composedHome.map((c) => c.type)).toEqual(['header', 'hero', 'footer']);
+
+    for (const component of composedHome) {
+      const builderHtml = renderBuilder(component, composedHome);
+      const publishedHtml = renderPublishedFromStored(component, composedHome);
+      expect(visibleText(publishedHtml)).toBe(visibleText(builderHtml));
+    }
   });
 });

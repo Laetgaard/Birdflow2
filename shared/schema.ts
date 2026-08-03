@@ -418,11 +418,56 @@ export type {
   ComponentItem,
 } from './componentRegistry';
 
+/**
+ * What a page is for. Drives the builder's badges and the AI's judgement
+ * about what belongs where; enforcement (e.g. never delete a legal page)
+ * lands with the self-review phase.
+ */
+export type PageRole = 'home' | 'service' | 'legal' | 'booking' | 'landing' | 'draft';
+
+/** What the published page tells Google and social previews about itself. */
+export type PageSeo = {
+  title?: string;
+  description?: string;
+};
+
+/**
+ * One entry in the site navigation.
+ *
+ * The label is deliberately separate from the page name: "Om os" in the
+ * menu can point at a page called "Om klinikken". A link without a
+ * `pageId` points somewhere external and is left alone when pages change.
+ */
+export type NavLink = {
+  id: string;
+  label: string;
+  target: string;
+  pageId?: string;
+  /** Kept in the list, not drawn. Lets a link be parked without losing it. */
+  hidden?: boolean;
+};
+
+export type SiteNavigation = {
+  items: NavLink[];
+};
+
+/** The header and footer every page shares, stored once. */
+export type SiteChrome = {
+  header?: import('./componentRegistry').BuilderComponentData;
+  footer?: import('./componentRegistry').BuilderComponentData;
+};
+
 export type BuilderPage = {
   id: string;
   name: string;
   path: string;
   hidden?: boolean; // Hidden pages are not shown in navigation but still published
+  /** What the page is for. Absent means "never set"; see inferPageRole. */
+  role?: PageRole;
+  seo?: PageSeo;
+  /** Explicit false opts this page out of the site-wide header/footer. */
+  useSharedHeader?: boolean;
+  useSharedFooter?: boolean;
   components: import('./componentRegistry').BuilderComponentData[];
 };
 
@@ -513,6 +558,15 @@ export type BuilderStateData = {
   pages: BuilderPage[];
   activePage: string;
   globalStyles: DesignTokens;
+  /**
+   * The site navigation, stored rather than derived from the page list, so
+   * a menu label can differ from a page name and a link can be added,
+   * removed or reordered on its own. Absent means "not migrated yet"; both
+   * renderers then fall back to the old derivation.
+   */
+  navigation?: SiteNavigation;
+  /** The one header and footer every page shares, unless it opts out. */
+  siteChrome?: SiteChrome;
   stylePreset?: StylePreset;
   media?: MediaReference[];
   bookingConfig?: BookingConfig;

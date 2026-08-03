@@ -4,6 +4,8 @@ import { isSpendLimitError } from "./aiCall";
 import { respondSpendLimit } from "./spendLimitResponse";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
+import { saveBuilderStateGuarded } from "./builderStateWriter";
+import { migrateSiteStructure } from "@shared/siteStructure";
 import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { getPlatformCalendar } from "./platformCalendar";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
@@ -1315,12 +1317,27 @@ export async function registerRoutes(
         });
       }
 
-      // Migrate legacy element-based state to component-based state
-      const migratedState = migrateBuilderState(builderState.state);
+      // Migrate legacy element-based state to component-based state, then
+      // bring the structure up to date (stored navigation, shared chrome,
+      // page roles). Server-side readers - the agent, /ai/apply, the
+      // architect build - work on exactly what this route persisted, so a
+      // website must never leave here in the pre-structure shape.
+      const migratedState = migrateSiteStructure(migrateBuilderState(builderState.state));
 
-      // If migration changed the state, persist it
+      // If migration changed the state, persist it. Guarded on the revision
+      // we just read: opening the editor must never roll back a save that
+      // landed in between. The migration is a pure function of the stored
+      // state, so on a collision the response below still serves the
+      // migrated copy and the next reader persists it.
       if (JSON.stringify(migratedState) !== JSON.stringify(builderState.state)) {
-        builderState = await storage.updateBuilderState(req.params.id, migratedState);
+        const savedMigration = await saveBuilderStateGuarded(
+          req.params.id,
+          migratedState,
+          builderState.revision
+        );
+        if (savedMigration.ok) {
+          builderState = { ...builderState, state: migratedState, revision: savedMigration.revision };
+        }
         // Also a write triggered merely by opening the builder.
         await recordAdminAudit(access, {
           action: "builder.migrate-legacy-state",
@@ -5210,7 +5227,26 @@ export async function registerRoutes(
       const check = runSelfCheck(newState);
       newState = check.state;
       sanitizeBuilderStateCustomContent(newState);
-      await storage.updateBuilderState(req.params.id, newState);
+      // An agent run takes minutes; the canvas autosaves every two seconds.
+      // The run started from the state read at `builderData.revision`, so
+      // writing it back unconditionally would undo everything the customer
+      // did while it was thinking - including a page reorder or a menu edit,
+      // which leaves no visible trace on the section they were looking at.
+      const savedAgent = await saveBuilderStateGuarded(
+        req.params.id,
+        newState,
+        builderData.revision
+      );
+      if (!savedAgent.ok) {
+        send({
+          type: "error",
+          message: savedAgent.message,
+          conflict: true,
+          revision: savedAgent.revision,
+          state: savedAgent.state,
+        });
+        return res.end();
+      }
       // The site the customer is deciding about just changed - new revision,
       // and any approval that has not been paid for is void.
       await bumpSiteRevision(req.params.id).catch(() => {});
@@ -5229,6 +5265,8 @@ export async function registerRoutes(
         steps: outcome.steps,
         newState,
         report,
+        // The client adopts this so its next autosave is not judged stale.
+        revision: savedAgent.revision,
       });
       res.end();
     } catch (error: any) {
@@ -5280,7 +5318,22 @@ export async function registerRoutes(
       newState = check.state;
       sanitizeBuilderStateCustomContent(newState);
 
-      await storage.updateBuilderState(req.params.id, newState);
+      // The mutations were applied to the state read above. If anything else
+      // has written since - an autosave, a build step - they were applied to
+      // a site that no longer exists, so the write is refused rather than
+      // silently rolling the other writer back.
+      const savedApply = await saveBuilderStateGuarded(
+        req.params.id,
+        newState,
+        builderData.revision
+      );
+      if (!savedApply.ok) {
+        return res.status(409).json({
+          message: savedApply.message,
+          revision: savedApply.revision,
+          state: savedApply.state,
+        });
+      }
       await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
@@ -5294,6 +5347,7 @@ export async function registerRoutes(
         success: true,
         newState,
         report,
+        revision: savedApply.revision,
       });
     } catch (error: any) {
       if (isSpendLimitError(error)) return respondSpendLimit(res, error);
@@ -5430,7 +5484,20 @@ export async function registerRoutes(
       if (body.applyToGlobalStyles !== false) {
         newState.globalStyles = { ...newState.globalStyles, ...brandGuideToDesignTokens(guide) };
       }
-      await storage.updateBuilderState(req.params.id, newState);
+      // The interview took several model calls on a copy of the site; write
+      // it back only if that copy is still current.
+      const savedGuide = await saveBuilderStateGuarded(
+        req.params.id,
+        newState,
+        builderData.revision
+      );
+      if (!savedGuide.ok) {
+        return res.status(409).json({
+          message: savedGuide.message,
+          revision: savedGuide.revision,
+          state: savedGuide.state,
+        });
+      }
 
       const report = {
         oprettet: ["Brand guide oprettet ud fra design-interviewet."],
@@ -5442,7 +5509,7 @@ export async function registerRoutes(
           : ["Ingen inspirationsbilleder — brand guiden bygger på dine valg i interviewet."],
       };
 
-      return res.json({ success: true, brandGuide: guide, newState, report, summary });
+      return res.json({ success: true, brandGuide: guide, newState, report, summary, revision: savedGuide.revision });
     } catch (error: any) {
       if (isSpendLimitError(error)) return respondSpendLimit(res, error);
       console.error("Design interview error:", error);
@@ -5587,6 +5654,10 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Plan is required" });
       }
 
+      // Read first: the build replaces the whole site, so it must not land
+      // on top of edits made while the plan was being executed.
+      const existingBuilderState = await storage.getBuilderState(req.params.id);
+
       const { buildFromPlan } = await import("./websiteArchitect");
       const result = await buildFromPlan(
         plan,
@@ -5605,7 +5676,18 @@ export async function registerRoutes(
       sanitizeBuilderStateCustomContent(newState);
 
       // Save the new builder state
-      await storage.updateBuilderState(req.params.id, newState);
+      const savedBuild = await saveBuilderStateGuarded(
+        req.params.id,
+        newState,
+        existingBuilderState?.revision
+      );
+      if (!savedBuild.ok) {
+        return res.status(409).json({
+          message: savedBuild.message,
+          revision: savedBuild.revision,
+          state: savedBuild.state,
+        });
+      }
       await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
@@ -5620,6 +5702,7 @@ export async function registerRoutes(
         newState,
         phasesCompleted: result.phasesCompleted,
         report,
+        revision: savedBuild.revision,
       });
     } catch (error: any) {
       if (isSpendLimitError(error)) return respondSpendLimit(res, error);

@@ -40,6 +40,7 @@ type PublishedRenderer = (props: {
   products?: unknown[];
   pages?: unknown[];
   allComponents?: unknown[];
+  navItems?: Array<{ id: string; title: string; href: string }>;
 }) => React.ReactElement | null;
 
 let cached: { source: string; renderer: PublishedRenderer } | null = null;
@@ -102,7 +103,8 @@ export function loadPublishedRenderer(): { source: string; renderer: PublishedRe
 /** Static HTML the published site would produce for these components. */
 export function renderPublished(
   component: BuilderComponentData,
-  allComponents: BuilderComponentData[] = [component]
+  allComponents: BuilderComponentData[] = [component],
+  navItems?: Array<{ id: string; title: string; href: string }>
 ): string {
   const { renderer } = loadPublishedRenderer();
   return renderToStaticMarkup(
@@ -111,6 +113,7 @@ export function renderPublished(
       products: [],
       pages: [],
       allComponents,
+      ...(navItems ? { navItems } : {}),
     })
   );
 }
@@ -127,6 +130,8 @@ export function renderBuilder(
     textColor: TEST_THEME.textColor,
     borderRadius: TEST_THEME.borderRadius,
   }
+  ,
+  navItems?: Array<{ id: string; title: string; href: string }>
 ): string {
   return renderToStaticMarkup(
     React.createElement(BuilderComponentRenderer as never, {
@@ -134,6 +139,7 @@ export function renderBuilder(
       isPreview: true,
       allComponents,
       globalStyles,
+      ...(navItems ? { navItems } : {}),
     })
   );
 }

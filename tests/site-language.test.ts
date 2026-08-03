@@ -134,7 +134,7 @@ describe("published sites", () => {
       "generateCookieBanner(language)",
       "generateProductDetailPage(language, productPageDesign)",
       "generateCheckoutPage(language)",
-      "generateRootLayout(siteName, websiteId, language)",
+      "generateRootLayout(siteName, websiteId, language, homeDescription)",
     ]) {
       expect(generator).toContain(call);
     }

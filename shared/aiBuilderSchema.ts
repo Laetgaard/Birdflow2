@@ -203,11 +203,68 @@ export const RemovePageMutation = z.object({
   pageId: z.string(),
 });
 
+/** What a page is for. Mirrors PageRole in the schema. */
+export const PageRoleSchema = z.enum(['home', 'service', 'legal', 'booking', 'landing', 'draft']);
+
+export const PageSeoSchema = z.object({
+  title: z.string().max(70).optional(),
+  description: z.string().max(200).optional(),
+});
+
 export const UpdatePageMutation = z.object({
   action: z.literal('update_page'),
   pageId: z.string(),
   name: z.string().optional(),
   path: z.string().optional(),
+  /** What the page is for. Drives badges now, protections later. */
+  role: PageRoleSchema.optional(),
+  /** The page's own title and description on the published site. */
+  seo: PageSeoSchema.optional(),
+  /** Hidden pages are published but left out of the derived menu. */
+  hidden: z.boolean().optional(),
+  /** False means this page draws its own header/footer instead of the shared one. */
+  useSharedHeader: z.boolean().optional(),
+  useSharedFooter: z.boolean().optional(),
+});
+
+/**
+ * Page order, which is also the order of the derived menu.
+ *
+ * The whole order is given at once rather than "move page X up": two
+ * concurrent moves would otherwise interleave into an order nobody asked
+ * for. Ids left out keep their relative position at the end.
+ */
+export const ReorderPagesMutation = z.object({
+  action: z.literal('reorder_pages'),
+  pageIds: z.array(z.string()).min(1),
+});
+
+export const NavLinkSchema = z.object({
+  id: z.string(),
+  /** What the visitor reads. Independent of the page's own name. */
+  label: z.string().min(1),
+  /** Where it goes: "/ydelser" for a page, or a full URL. */
+  target: z.string().min(1),
+  /** Set when the link points at a page, so it follows that page's path. */
+  pageId: z.string().optional(),
+  hidden: z.boolean().optional(),
+});
+
+/** Replace the whole navigation. Order in the array is order in the menu. */
+export const UpdateNavigationMutation = z.object({
+  action: z.literal('update_navigation'),
+  items: z.array(NavLinkSchema),
+});
+
+/**
+ * The header and footer every page shares.
+ *
+ * `null` removes the shared one entirely; leaving a field out keeps it.
+ */
+export const UpdateSiteChromeMutation = z.object({
+  action: z.literal('update_site_chrome'),
+  header: ComponentSchema.nullable().optional(),
+  footer: ComponentSchema.nullable().optional(),
 });
 
 export const UpdateGlobalStylesMutation = z.object({
@@ -350,6 +407,9 @@ export const BuilderMutationSchema = z.discriminatedUnion('action', [
   AddPageMutation,
   RemovePageMutation,
   UpdatePageMutation,
+  ReorderPagesMutation,
+  UpdateNavigationMutation,
+  UpdateSiteChromeMutation,
   UpdateGlobalStylesMutation,
   ApplyPresetMutation,
   AddSectionMutation,

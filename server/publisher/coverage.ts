@@ -92,14 +92,21 @@ const KNOWN_TYPES = new Set<string>(RENDERABLE_COMPONENT_TYPES);
  */
 export function unrenderableComponents(state: BuilderStateData): UnrenderableComponent[] {
   const found: UnrenderableComponent[] = [];
-  for (const page of state.pages ?? []) {
-    for (const component of page.components ?? []) {
-      const type = String((component as { type?: string }).type ?? '');
-      if (!KNOWN_TYPES.has(type)) {
-        found.push({ pageName: page.name, componentId: String((component as { id?: string }).id ?? '?'), type });
-      }
+  const check = (pageName: string, component: unknown) => {
+    const type = String((component as { type?: string }).type ?? '');
+    if (!KNOWN_TYPES.has(type)) {
+      found.push({ pageName, componentId: String((component as { id?: string }).id ?? '?'), type });
     }
+  };
+
+  for (const page of state.pages ?? []) {
+    for (const component of page.components ?? []) check(page.name, component);
   }
+  // The shared header and footer live outside the page list but are drawn on
+  // every page, so a hole in one of them is a hole on the whole website.
+  if (state.siteChrome?.header) check('Delt header', state.siteChrome.header);
+  if (state.siteChrome?.footer) check('Delt footer', state.siteChrome.footer);
+
   return found;
 }
 

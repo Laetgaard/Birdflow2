@@ -268,7 +268,7 @@ export default function AIBuilderPanel({
       }));
 
       // One history entry for the whole run, so a single undo reverts it.
-      onStateChange(result.newState, `AI: ${userInput.slice(0, 30)}...`);
+      onStateChange(result.newState, `AI: ${userInput.slice(0, 30)}...`, result.revision);
     } catch (error: any) {
       patchMessage(messageId, (m) => ({
         ...m,
@@ -499,7 +499,7 @@ export default function AIBuilderPanel({
         accessToken: session.access_token,
         buildId: buildView.buildId,
       });
-      onStateChange(result.newState as BuilderStateData, "Fortryd AI-bygning");
+      onStateChange(result.newState as BuilderStateData, "Fortryd AI-bygning", result.revision);
       setBuildView((prev) => (prev ? { ...prev, status: "undone", canUndo: false } : prev));
       toast({ title: "Bygningen er fortrudt", description: "Websitet er tilbage som før." });
     } catch (error: any) {
@@ -525,7 +525,7 @@ export default function AIBuilderPanel({
         content: data.explanation || "Ændringerne er gennemført!",
         report: data.report as BuildReport | undefined,
       }));
-      onStateChange(data.newState, "AI: godkendt ændring");
+      onStateChange(data.newState, "AI: godkendt ændring", data.revision);
     } catch (error: any) {
       toast({ title: "Fejl", description: error.message, variant: "destructive" });
     } finally {
@@ -559,7 +559,7 @@ export default function AIBuilderPanel({
       }
       const data = await response.json();
       if (data.newState) {
-        onStateChange(data.newState, `AI: Byggede ${plan.siteName}`);
+        onStateChange(data.newState, `AI: Byggede ${plan.siteName}`, data.revision);
       }
       patchMessage(messageId, (m) => ({
         ...m,

@@ -14,6 +14,7 @@ import type { BuilderStateData } from "@shared/schema";
 import { createDefaultBrandGuide, type BrandGuide } from "@shared/customComponents";
 import { ONBOARDING_COPY, onboardingCopy } from "@shared/onboardingDecision";
 import { normalizeSiteLanguage } from "@shared/siteLanguage";
+import { migrateSiteStructure, resolveNavItems } from "@shared/siteStructure";
 import { storage } from "./storage";
 import { getAuthedUser } from "./websiteAccess";
 import {
@@ -148,14 +149,21 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         return res.status(404).json({ message: "Der er ikke bygget en hjemmeside endnu." });
       }
 
+      // The preview renders through the builder's renderer, so it needs the
+      // same structure the builder works with: shared header and footer and
+      // the resolved navigation, not just the raw page list.
+      const structured = migrateSiteStructure(state);
+
       res.json({
         websiteId: owned.websiteId,
         websiteName: website?.name ?? "",
         revision: owned.snapshot.siteRevision,
-        pages: state.pages ?? [],
-        globalStyles: state.globalStyles ?? {},
-        customComponents: state.customComponents ?? [],
-        brandGuide: state.brandGuide ?? null,
+        pages: structured.pages ?? [],
+        siteChrome: structured.siteChrome ?? null,
+        navItems: resolveNavItems(structured),
+        globalStyles: structured.globalStyles ?? {},
+        customComponents: structured.customComponents ?? [],
+        brandGuide: structured.brandGuide ?? null,
       });
     } catch (error: any) {
       console.error("[Onboarding] preview data failed:", error);

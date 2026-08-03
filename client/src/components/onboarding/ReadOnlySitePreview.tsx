@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BuilderComponentData } from "@shared/componentRegistry";
-import type { DesignTokens } from "@shared/schema";
+import type { DesignTokens, SiteChrome } from "@shared/schema";
+import { composePageComponents, type NavItem } from "@shared/siteStructure";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
 import { topLevelComponents } from "@shared/rendering/contract";
@@ -20,6 +21,10 @@ export type PreviewPage = {
   id: string;
   name: string;
   path: string;
+  hidden?: boolean;
+  /** Explicit false means this page draws its own header/footer. */
+  useSharedHeader?: boolean;
+  useSharedFooter?: boolean;
   components: BuilderComponentData[];
 };
 
@@ -121,6 +126,8 @@ export function ReadOnlySitePreview({
   pages,
   activePageId,
   globalStyles,
+  chrome,
+  navItems,
   device = "desktop",
   onNavigate,
   neutralise = true,
@@ -128,6 +135,10 @@ export function ReadOnlySitePreview({
   pages: PreviewPage[];
   activePageId?: string;
   globalStyles?: DesignTokens;
+  /** The site-wide header and footer, drawn around every page that uses them. */
+  chrome?: SiteChrome;
+  /** The resolved site navigation, so the preview's menu matches the real one. */
+  navItems?: NavItem[];
   device?: PreviewDevice;
   /** Called when a link inside the site points at another generated page. */
   onNavigate?: (pageId: string) => void;
@@ -136,6 +147,13 @@ export function ReadOnlySitePreview({
   const activePage = useMemo(
     () => pages.find((page) => page.id === activePageId) ?? pages[0],
     [pages, activePageId]
+  );
+
+  // The same composition the builder canvas and the publisher use: shared
+  // header, the page's own sections, shared footer.
+  const composed = useMemo(
+    () => (activePage ? composePageComponents(activePage, chrome) : []),
+    [activePage, chrome]
   );
 
   useGoogleFonts([
@@ -179,7 +197,7 @@ export function ReadOnlySitePreview({
       isBuilderMode={false}
       selectedId={null}
       hoveredId={null}
-      components={activePage.components}
+      components={composed}
       onUpdateComponent={noop}
       onDeleteComponent={noop}
       onDuplicateComponent={noop}
@@ -192,13 +210,14 @@ export function ReadOnlySitePreview({
         style={{ width: PREVIEW_WIDTHS[device], maxWidth: "100%" }}
         data-testid="readonly-site-preview"
       >
-        {topLevelComponents(activePage.components).map((component) => (
+        {topLevelComponents(composed).map((component) => (
           <ComponentRenderer
             key={component.id}
             component={component}
             isPreview
             pages={pages}
-            allComponents={activePage.components}
+            navItems={navItems}
+            allComponents={composed}
             deviceMode={device}
             globalStyles={globalStyles}
           />
@@ -213,6 +232,8 @@ export function usePreviewData(websiteId: string | null, token: string | null) {
   const [data, setData] = useState<{
     pages: PreviewPage[];
     globalStyles: DesignTokens;
+    chrome?: SiteChrome;
+    navItems: NavItem[];
     websiteName: string;
     revision: number;
   } | null>(null);
@@ -236,6 +257,8 @@ export function usePreviewData(websiteId: string | null, token: string | null) {
         setData({
           pages: body.pages ?? [],
           globalStyles: body.globalStyles ?? {},
+          chrome: body.siteChrome ?? undefined,
+          navItems: body.navItems ?? [],
           websiteName: body.websiteName ?? "",
           revision: body.revision ?? 0,
         });

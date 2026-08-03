@@ -32,6 +32,23 @@ export function classifyChange(
   if (next.action === "apply_preset") {
     return { large: true, reason: "Et helt designtema skiftes" };
   }
+  // The header and footer are stored once and drawn on every page, so one
+  // write here changes the whole website at once — the same class of change
+  // as a preset, and it needs the same approval.
+  if (next.action === "update_site_chrome") {
+    return { large: true, reason: "Den delte header/footer ændres på alle sider" };
+  }
+  // Losing menu items is how a website quietly becomes unreachable. Adding
+  // or renaming one stays unattended; dropping links does not.
+  if (next.action === "update_navigation") {
+    const current = state.navigation?.items?.length ?? state.pages.filter((p) => !p.hidden).length;
+    if (current > 0 && next.items.length < current) {
+      return {
+        large: true,
+        reason: `${current - next.items.length} menupunkt(er) fjernes fra navigationen`,
+      };
+    }
+  }
   // Design tokens mean one write to the brand now repaints every section, so
   // "change the colours" is no longer a small edit. One colour or one setting
   // stays unattended; replacing the palette or the fonts is the same kind of

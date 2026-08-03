@@ -68,6 +68,12 @@ import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import { topLevelComponents } from "@shared/rendering/contract";
 import { migrateStateToTokens } from "@shared/designTokens";
+import {
+  composePageComponents,
+  migrateSiteStructure,
+  resolveNavItems,
+  syncNavigationWithPages,
+} from "@shared/siteStructure";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
@@ -79,6 +85,7 @@ import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
 import DragDropLayer from "@/components/builder/DragDropLayer";
 import MobileBottomSheet from "@/components/builder/MobileBottomSheet";
 import GlobalStylesPanel from "@/components/builder/GlobalStylesPanel";
+import { SiteStructurePanel } from "@/components/builder/SiteStructurePanel";
 import SpacingIndicators from "@/components/builder/SpacingIndicators";
 import { ElementSelectionProvider } from "@/components/builder/ElementSelectionContext";
 import ElementOverlay from "@/components/builder/ElementOverlay";
@@ -140,7 +147,7 @@ export default function BuilderPage() {
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
   const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai" | "brand">("components");
+  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "structure" | "ai" | "brand">("components");
   // Node selection inside custom components (primitive node trees)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   // Custom component library dialogs
@@ -347,8 +354,45 @@ export default function BuilderPage() {
     });
   }, [flushPendingHistory, scheduleAutoSave]);
 
+  /**
+   * Is this the shared header or footer rather than a section on the page?
+   *
+   * The chrome is drawn on every page but stored once, so an edit to it has
+   * to be written to `siteChrome` — writing it into the active page would
+   * change one page and lose the edit everywhere else.
+   */
+  const chromeSlotOf = useCallback((componentId: string, state = builderState): 'header' | 'footer' | null => {
+    if (!state?.siteChrome) return null;
+    if (state.siteChrome.header?.id === componentId) return 'header';
+    if (state.siteChrome.footer?.id === componentId) return 'footer';
+    return null;
+  }, [builderState]);
+
   const deleteComponent = useCallback((componentId: string) => {
     if (!builderState) return;
+
+    // Deleting the shared header on one page means "this page does not use
+    // it", not "delete it everywhere" - the other pages keep theirs.
+    const slot = chromeSlotOf(componentId);
+    if (slot) {
+      const flag = slot === 'header' ? 'useSharedHeader' : 'useSharedFooter';
+      const newState: BuilderStateData = {
+        ...builderState,
+        pages: builderState.pages.map(page =>
+          page.id === builderState.activePage ? { ...page, [flag]: false } : page
+        ),
+      };
+      updateStateWithHistory(
+        newState,
+        slot === 'header' ? 'Fjern delt header fra siden' : 'Fjern delt footer fra siden'
+      );
+      setSelectedComponentId(null);
+      toast({
+        title: slot === 'header' ? "Header fjernet fra siden" : "Footer fjernet fra siden",
+        description: "De øvrige sider bruger den stadig. Slå den til igen under sideindstillinger.",
+      });
+      return;
+    }
 
     const newState: BuilderStateData = {
       ...builderState,
@@ -361,7 +405,7 @@ export default function BuilderPage() {
 
     updateStateWithHistory(newState, 'Delete component');
     setSelectedComponentId(null);
-  }, [builderState, updateStateWithHistory]);
+  }, [builderState, updateStateWithHistory, chromeSlotOf, toast]);
 
   const moveComponent = useCallback((componentId: string, direction: 'up' | 'down') => {
     if (!builderState) return;
@@ -578,7 +622,7 @@ export default function BuilderPage() {
                 backgroundColor: '#ffffff',
               },
             };
-            const tokenised = migrateStateToTokens(migratedState);
+            const tokenised = migrateSiteStructure(migrateStateToTokens(migratedState));
             setBuilderState(tokenised);
             setHistory(createHistory(tokenised));
             lastSavedStateRef.current = JSON.stringify(tokenised);
@@ -590,7 +634,10 @@ export default function BuilderPage() {
             // held in memory and saved with the customer's next real edit
             // rather than autosaved here, which would bump the revision (and
             // with it the approval state) just for opening the editor.
-            const tokenised = migrateStateToTokens(state);
+            // Pages, navigation and shared chrome are brought up to date in
+            // memory too. The migration is value-preserving, so the editor
+            // looks the same; it is saved with the customer's next real edit.
+            const tokenised = migrateSiteStructure(migrateStateToTokens(state));
             setBuilderState(tokenised);
             setHistory(createHistory(tokenised));
             lastSavedStateRef.current = JSON.stringify(tokenised);
@@ -743,6 +790,25 @@ export default function BuilderPage() {
     updateComponentRef.current = (componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
       if (!builderState) return;
 
+      const slot = chromeSlotOf(componentId);
+      if (slot) {
+        const current = builderState.siteChrome?.[slot];
+        if (!current) return;
+        const newState: BuilderStateData = {
+          ...builderState,
+          siteChrome: {
+            ...builderState.siteChrome,
+            [slot]: {
+              ...current,
+              props: { ...current.props, ...updates.props },
+              styles: { ...current.styles, ...updates.styles },
+            },
+          },
+        };
+        debouncedHistoryPush(newState, 'Update shared chrome');
+        return;
+      }
+
       const newState: BuilderStateData = {
         ...builderState,
         pages: builderState.pages.map(page =>
@@ -765,7 +831,7 @@ export default function BuilderPage() {
 
       debouncedHistoryPush(newState, 'Update component properties');
     };
-  }, [builderState, debouncedHistoryPush]);
+  }, [builderState, debouncedHistoryPush, chromeSlotOf]);
 
   const handleTextChange = useCallback((componentId: string) => (field: string, value: string | { text?: string; [key: string]: any }) => {
     setBuilderState(prev => {
@@ -795,14 +861,9 @@ export default function BuilderPage() {
         return { ...props, [first]: updateNested(props[first] || {}, restPath, val) };
       };
       
-      const newState = {
-        ...prev,
-        pages: prev.pages.map(page =>
-          page.id === prev.activePage
-            ? {
-                ...page,
-                components: page.components.map(comp => {
-                  if (comp.id !== componentId) return comp;
+      // One editor for a section's text, whether that section is on the page
+      // or is the header every page shares.
+      const editComponent = (comp: BuilderComponentData): BuilderComponentData => {
                   // Inline edits inside custom components address primitive
                   // nodes by id: field format "node:<nodeId>:<text|label>"
                   if (field.startsWith('node:')) {
@@ -820,6 +881,31 @@ export default function BuilderPage() {
                     };
                   }
                   return { ...comp, props: updateNested(comp.props, field, value) };
+      };
+
+      const chromeSlot = prev.siteChrome?.header?.id === componentId
+        ? 'header' as const
+        : prev.siteChrome?.footer?.id === componentId
+          ? 'footer' as const
+          : null;
+
+      const newState = chromeSlot
+        ? {
+            ...prev,
+            siteChrome: {
+              ...prev.siteChrome,
+              [chromeSlot]: editComponent(prev.siteChrome![chromeSlot]!),
+            },
+          }
+        : {
+        ...prev,
+        pages: prev.pages.map(page =>
+          page.id === prev.activePage
+            ? {
+                ...page,
+                components: page.components.map(comp => {
+                  if (comp.id !== componentId) return comp;
+                  return editComponent(comp);
                 }),
               }
             : page
@@ -874,7 +960,12 @@ export default function BuilderPage() {
   const selectedComponent = (() => {
     if (!builderState || !selectedComponentId) return null;
     const activePage = builderState.pages.find(p => p.id === builderState.activePage);
-    return activePage?.components.find(c => c.id === selectedComponentId) || null;
+    const onPage = activePage?.components.find(c => c.id === selectedComponentId);
+    if (onPage) return onPage;
+    // The shared header and footer are not in the page's list, but they are
+    // selectable on the canvas and edited through the same panel.
+    const slot = chromeSlotOf(selectedComponentId);
+    return slot ? builderState.siteChrome?.[slot] ?? null : null;
   })();
 
   // Clear node selection whenever the selected component changes
@@ -1013,9 +1104,16 @@ export default function BuilderPage() {
       components: [],
     };
 
+    const pages = [...builderState.pages, newPage];
     const newState: BuilderStateData = {
       ...builderState,
-      pages: [...builderState.pages, newPage],
+      pages,
+      // A new page appears in the menu, the way it did when the menu was
+      // derived. Removing it again is a navigation edit, not a page edit.
+      navigation: syncNavigationWithPages(
+        builderState.navigation ?? { items: [] },
+        pages
+      ),
       activePage: newPage.id,
     };
 
@@ -1033,13 +1131,19 @@ export default function BuilderPage() {
       ? '/' 
       : `/${generateUniqueSlug(newPageName, existingPaths, editingPage.path)}`;
     
+    const pages = builderState.pages.map(page =>
+      page.id === editingPage.id
+        ? { ...page, name: newPageName.trim(), path: newPath }
+        : page
+    );
     const newState: BuilderStateData = {
       ...builderState,
-      pages: builderState.pages.map(page =>
-        page.id === editingPage.id
-          ? { ...page, name: newPageName.trim(), path: newPath }
-          : page
-      ),
+      pages,
+      // The menu label is the customer's to edit, so renaming a page moves
+      // its link but leaves the label alone.
+      navigation: builderState.navigation
+        ? syncNavigationWithPages(builderState.navigation, pages)
+        : undefined,
     };
 
     updateStateWithHistory(newState, `Rename page: ${newPageName.trim()}`);
@@ -1059,6 +1163,9 @@ export default function BuilderPage() {
     const newState: BuilderStateData = {
       ...builderState,
       pages: remainingPages,
+      navigation: builderState.navigation
+        ? syncNavigationWithPages(builderState.navigation, remainingPages)
+        : undefined,
       activePage: newActivePage,
     };
 
@@ -1086,6 +1193,25 @@ export default function BuilderPage() {
   if (!website || !builderState) return null;
 
   const activePage = builderState.pages.find(p => p.id === builderState.activePage);
+  // What the page actually shows: the shared header, its own sections, the
+  // shared footer. The publisher folds them together the same way, which is
+  // what keeps the canvas and the live site the same picture.
+  const canvasComponents = activePage
+    ? composePageComponents(activePage, builderState.siteChrome)
+    : [];
+  const canvasNavItems = resolveNavItems(builderState);
+  // The canvas draws the shared header above the page's own sections, so a
+  // position on screen is one further along than the same position in the
+  // page. Insert points translate back before anything is added, or "add a
+  // section at the top" would land under the footer.
+  const chromeOffset = canvasComponents.length - (activePage?.components.length ?? 0) > 0
+    && canvasComponents[0] && canvasComponents[0].id === builderState.siteChrome?.header?.id
+      ? 1
+      : 0;
+  const addSectionAtCanvasIndex = (type: ComponentType, canvasIndex: number) => {
+    const own = activePage?.components.length ?? 0;
+    addComponentAtIndex(type, Math.max(0, Math.min(own, canvasIndex - chromeOffset)));
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -1351,7 +1477,7 @@ export default function BuilderPage() {
           }}
           hoveredId={hoveredComponentId}
           onHoverChange={setHoveredComponentId}
-          components={activePage?.components}
+          components={canvasComponents}
           onUpdateComponent={handleSelectionUpdate}
           onDeleteComponent={deleteComponent}
           onDuplicateComponent={duplicateComponent}
@@ -1394,7 +1520,7 @@ export default function BuilderPage() {
                 borderRadius: device === 'mobile' ? '24px' : '8px',
               }}
             >
-              {activePage?.components.length === 0 ? (
+              {canvasComponents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-12">
                   <div className="w-20 h-20 rounded-3xl bg-muted/80 flex items-center justify-center mb-6">
                     <Layout className="w-10 h-10 opacity-30" />
@@ -1415,8 +1541,8 @@ export default function BuilderPage() {
               ) : (
                 <>
                   {/* Insert point before first component */}
-                  <SectionInsertPoint index={0} onAddComponent={addComponentAtIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
-                  {topLevelComponents(activePage?.components || []).map((comp, idx) => (
+                  <SectionInsertPoint index={0} onAddComponent={addSectionAtCanvasIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
+                  {topLevelComponents(canvasComponents).map((comp, idx) => (
                     <div key={comp.id}>
                       <ComponentRenderer
                         component={comp}
@@ -1427,7 +1553,8 @@ export default function BuilderPage() {
                         }}
                         websiteId={id}
                         pages={builderState?.pages}
-                        allComponents={activePage?.components}
+                        navItems={canvasNavItems}
+                        allComponents={canvasComponents}
                         onComponentClick={(componentId) => {
                           setSelectedComponentId(componentId);
                           setSidebarTab("properties");
@@ -1448,7 +1575,7 @@ export default function BuilderPage() {
                         }}
                       />
                       {/* Insert point after each component */}
-                      <SectionInsertPoint index={idx + 1} onAddComponent={addComponentAtIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
+                      <SectionInsertPoint index={idx + 1} onAddComponent={addSectionAtCanvasIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
                     </div>
                   ))}
                 </>
@@ -1507,7 +1634,7 @@ export default function BuilderPage() {
               </Button>
             </div>
           <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid w-full grid-cols-4 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
+            <TabsList className="grid w-full grid-cols-5 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
               <TabsTrigger value="components" data-testid="tab-components" className="px-1">
                 <Plus className="w-4 h-4 mr-1" />
                 Add
@@ -1515,6 +1642,10 @@ export default function BuilderPage() {
               <TabsTrigger value="properties" data-testid="tab-properties" className="px-1">
                 <Settings className="w-4 h-4 mr-1" />
                 Edit
+              </TabsTrigger>
+              <TabsTrigger value="structure" data-testid="tab-structure" className="px-1">
+                <FileText className="w-4 h-4 mr-1" />
+                Sider
               </TabsTrigger>
               <TabsTrigger value="ai" data-testid="tab-ai" className="px-1">
                 <Sparkles className="w-4 h-4 mr-1" />
@@ -1525,6 +1656,17 @@ export default function BuilderPage() {
                 Brand
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="structure" className="flex-1 p-4 pt-2 overflow-auto">
+              {builderState && (
+                <SiteStructurePanel
+                  state={builderState}
+                  onChange={(next, description) => updateStateWithHistory(next, description)}
+                  activePageId={builderState.activePage}
+                  onSelectPage={switchPage}
+                />
+              )}
+            </TabsContent>
 
             <TabsContent value="components" className="flex-1 p-4 pt-2 overflow-auto">
               <div className="space-y-3">

@@ -44,6 +44,7 @@ import {
   pickLang,
   type SiteLanguage,
 } from "@shared/siteLanguage";
+import { migrateSiteStructure } from "@shared/siteStructure";
 
 // ============ Input ============
 
@@ -586,6 +587,10 @@ async function runPipeline(
   const check = runSelfCheck(finalState);
   finalState = check.state;
   sanitizeBuilderStateCustomContent(finalState);
+  // A freshly generated site is born with the shared structure — stored
+  // navigation, one header/footer, page roles — instead of waiting for the
+  // first editor load to migrate the copies it was built with.
+  finalState = migrateSiteStructure(finalState);
   await storage.updateBuilderState(websiteId, finalState);
 
   // ---- Phase 6: brand-guide enrichment ----
@@ -623,6 +628,8 @@ async function applyFallback(
   const check = runSelfCheck(state);
   state = check.state;
   sanitizeBuilderStateCustomContent(state);
+  // Fallback sites get the same structure a generated site is born with.
+  state = migrateSiteStructure(state);
   await storage.updateBuilderState(websiteId, state);
 
   // A fallback site still gets a full brand guide - it is half of what the

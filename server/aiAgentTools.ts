@@ -10,6 +10,9 @@ import {
   AddPageMutation,
   RemovePageMutation,
   UpdatePageMutation,
+  ReorderPagesMutation,
+  UpdateNavigationMutation,
+  UpdateSiteChromeMutation,
   UpdateGlobalStylesMutation,
   ApplyPresetMutation,
   AddSectionMutation,
@@ -441,7 +444,42 @@ export function buildToolCatalogue(): AgentTool[] {
   );
   tools.push(writeTool("remove_page", "Delete a page.", RemovePageMutation, () => "Slettede en side"));
   tools.push(
-    writeTool("update_page", "Rename a page or change its path.", UpdatePageMutation, () => "Opdaterede en side")
+    writeTool(
+      "update_page",
+      "Change a page: its name, path, role (home/service/legal/booking/landing/draft), its SEO title and " +
+        "description, whether it is hidden, and whether it uses the shared header/footer. Every page should " +
+        "have its own SEO title and description - never the same pair on two pages.",
+      UpdatePageMutation,
+      () => "Opdaterede en side"
+    )
+  );
+  tools.push(
+    writeTool(
+      "reorder_pages",
+      "Put the pages in a new order, given as the full list of page ids. The order of the pages is the order " +
+        "visitors meet them, and the order of the derived menu.",
+      ReorderPagesMutation,
+      (m) => `Ændrede siderækkefølgen (${m.pageIds.length} sider)`
+    )
+  );
+  tools.push(
+    writeTool(
+      "update_navigation",
+      "Replace the site navigation. Each link has a label the visitor reads (independent of the page name), a " +
+        "target ('/ydelser' or a full URL) and, for links to pages, that page's id. Array order is menu order.",
+      UpdateNavigationMutation,
+      (m) => `Opdaterede menuen (${m.items.length} punkter)`
+    )
+  );
+  tools.push(
+    writeTool(
+      "update_site_chrome",
+      "Change the header and/or footer that every page shares. This is one edit for the whole website - never " +
+        "edit a header section page by page. Pass null to remove the shared header or footer entirely. " +
+        "This is a large change and needs approval.",
+      UpdateSiteChromeMutation,
+      () => "Opdaterede den delte header/footer"
+    )
   );
   tools.push(
     writeTool(

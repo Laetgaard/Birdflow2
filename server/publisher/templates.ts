@@ -2562,6 +2562,13 @@ type BuilderPage = {
   hidden?: boolean;
 };
 
+/** One resolved navigation link, baked into the page by the publisher. */
+type NavItem = {
+  id: string;
+  title: string;
+  href: string;
+};
+
 type ImageValue = string | { url: string; mediaId?: string; crop?: { x: number; y: number; width: number; height: number } };
 
 type ComponentItem = {
@@ -3519,7 +3526,7 @@ function BurgerMenuButton({ isOpen, textColor, hoverColor, onClick }: {
   );
 }
 
-function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles: ComponentStyles; pages?: BuilderPage[] }) {
+function HeaderSection({ props, styles, pages, navItems: providedNavItems }: { props: ComponentProps; styles: ComponentStyles; pages?: BuilderPage[]; navItems?: NavItem[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -3572,9 +3579,16 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
     return () => window.removeEventListener('scroll', handleScroll);
   }, [scrollBehavior]);
 
-  const navItems = pages && pages.length > 0
-    ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
-    : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
+  // The site navigation is resolved by the publisher at generation time, the
+  // same way design tokens are, and handed in - and an empty menu stays
+  // empty, because a customer who removed every link meant it. Deriving from
+  // the page list is the pre-navigation fallback for pages generated before
+  // navigation was stored, which hand in no menu at all.
+  const navItems: NavItem[] = providedNavItems !== undefined
+    ? providedNavItems
+    : pages && pages.length > 0
+      ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
+      : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
   
   const getHeaderStyle = (): React.CSSProperties => {
     const shouldBeTransparent = isTransparent && !isScrolled;
@@ -5084,12 +5098,14 @@ function ContainerSection({
   allComponents = [],
   products = [],
   pages = [],
+  navItems,
 }: {
   props: ComponentProps;
   styles: ComponentStyles;
   allComponents?: ComponentData[];
   products?: any[];
   pages?: BuilderPage[];
+  navItems?: NavItem[];
 }) {
   const layout = props.layout || 'vertical';
   const gap = props.gap || '24px';
@@ -5131,6 +5147,7 @@ function ContainerSection({
           component={child}
           products={products}
           pages={pages}
+          navItems={navItems}
           allComponents={allComponents}
         />
       ))}
@@ -5357,11 +5374,15 @@ export default function ComponentRenderer({
   component,
   products = [],
   pages = [],
+  // No default: undefined means "no stored menu", [] means "empty on purpose".
+  navItems,
   allComponents = [],
 }: {
   component: ComponentData;
   products?: any[];
   pages?: BuilderPage[];
+  /** The site navigation, resolved by the publisher and baked into the page. */
+  navItems?: NavItem[];
   /** Every component on the page, so containers can find their children. */
   allComponents?: ComponentData[];
 }) {
@@ -5380,7 +5401,7 @@ export default function ComponentRenderer({
       case 'testimonials':
         return <TestimonialsSection props={component.props} styles={component.styles} />;
       case 'header':
-        return <HeaderSection props={component.props} styles={component.styles} pages={pages} />;
+        return <HeaderSection props={component.props} styles={component.styles} pages={pages} navItems={navItems} />;
       case 'footer':
         return <FooterSection props={component.props} styles={component.styles} />;
       case 'product-grid':
@@ -5431,6 +5452,7 @@ export default function ComponentRenderer({
             allComponents={allComponents}
             products={products}
             pages={pages}
+            navItems={navItems}
           />
         );
       case 'custom':
@@ -6904,7 +6926,9 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
 export function generateRootLayout(
   siteName: string,
   websiteId: string,
-  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE
+  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+  /** Site-wide fallback description; pages with their own SEO override it. */
+  description?: string
 ): string {
   return `import type { Metadata } from 'next';
 import './globals.css';
@@ -6916,7 +6940,7 @@ import CookieBanner from '@/components/CookieBanner';
 
 export const metadata: Metadata = {
   title: ${lit(siteName)},
-  description: 'Built with SaaSify',
+  description: ${lit(description?.trim() || siteName)},
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -7124,8 +7148,29 @@ function decodeHtmlEntities(obj: any): any {
   return obj;
 }
 
-export function generatePageFile(page: PageData, websiteId: string, allPages?: NavPage[]): string {
-  const componentsImport = `import ComponentRenderer from '@/components/ComponentRenderer';
+/** What the published page tells search engines and social previews. */
+export type PageMetadata = {
+  title: string;
+  description?: string;
+};
+
+export function generatePageFile(
+  page: PageData,
+  websiteId: string,
+  allPages?: NavPage[],
+  options?: {
+    /**
+     * The site navigation, already resolved from the stored navigation.
+     * Resolved here rather than in the generated project for the same
+     * reason design tokens are: a Next.js project cannot import `@shared`.
+     */
+    navItems?: Array<{ id: string; title: string; href: string }>;
+    /** This page's own title and description. */
+    metadata?: PageMetadata;
+  }
+): string {
+  const componentsImport = `import type { Metadata } from 'next';
+import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';`;
@@ -7138,12 +7183,32 @@ import ProductGrid from '@/components/ProductGrid';`;
     null,
     2
   );
-  
+  const navJson = JSON.stringify(options?.navItems ?? [], null, 2);
+
+  // Every page carries its own title and description. Before this they all
+  // inherited one site-wide pair, which is what made a six-page website look
+  // like one page to a search engine.
+  const meta = options?.metadata;
+  const metadataBlock = meta
+    ? `
+export const metadata: Metadata = {
+  title: ${lit(meta.title)},${meta.description ? `
+  description: ${lit(meta.description)},` : ''}
+  openGraph: {
+    title: ${lit(meta.title)},${meta.description ? `
+    description: ${lit(meta.description)},` : ''}
+    type: 'website',
+  },
+};
+`
+    : '';
+
   return `${componentsImport}
 
 const pageComponents = ${componentsJson};
 const sitePages = ${pagesJson};
-
+const siteNav = ${navJson};
+${metadataBlock}
 // Components sitting inside a container are drawn by that container, not by
 // the page. Without this they appeared twice over: once loose at the top
 // level and once (never, in fact) inside an empty container box.
@@ -7172,6 +7237,7 @@ export default function Page() {
                 key={component.id}
                 component={component}
                 pages={sitePages}
+                navItems={siteNav}
                 allComponents={pageComponents}
               />
             );

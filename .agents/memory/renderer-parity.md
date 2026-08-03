@@ -64,3 +64,8 @@ that every component type in the state is renderable and that the generated
 renderer really contains a branch for each type the publisher claims to
 support. Make the coverage map exhaustive over the registry union so a new
 component type is a compile error, not a silent gap.
+
+## Navigation prop contract (both renderers)
+- `navItems === undefined` → legacy fallback chain (derive from pages, then the header's own `props.items`). `navItems: []` → a deliberately emptied menu: render no links.
+- **Why:** with a length>0 check, a customer who removed every menu link got the derived menu resurrected on the published site.
+- **How to apply:** keep the prop defaultless (no `= []`) in the builder renderer, the publisher template's generated renderer, and any preview wrapper; pass the resolved array wherever a real site is being drawn, and nothing when there is no site around the component (galleries, previews).

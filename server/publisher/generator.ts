@@ -10,6 +10,12 @@ import {
   resolveDesignTokens,
   resolveTokensDeep,
 } from '../../shared/designTokens';
+import {
+  composePageComponents,
+  migrateSiteStructure,
+  pageSeo,
+  resolveNavItems,
+} from '../../shared/siteStructure';
 import { missingRendererCases, unrenderableComponents, describeUnrenderable } from './coverage';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
@@ -217,14 +223,18 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   const objectStorageUrls = extractObjectStorageUrls(builderState);
   console.log(`[Publisher] Found ${objectStorageUrls.size} Object Storage URLs`);
   
-  let processedBuilderState = builderState;
+  // Pages, navigation and shared chrome, brought up to date before anything
+  // reads them. A website last saved by an older editor has no stored
+  // navigation and a header copied onto every page; the migration is
+  // value-preserving, so publishing it produces the same site either way.
+  let processedBuilderState = migrateSiteStructure(builderState);
   if (objectStorageUrls.size > 0) {
     console.log('[Publisher] Downloading images from Object Storage...');
     const urlMappings = await downloadAndSaveImages(objectStorageUrls, outputDir);
     console.log(`[Publisher] Downloaded ${urlMappings.size} images`);
     
     // Replace URLs in builder state
-    processedBuilderState = replaceObjectStorageUrls(builderState, urlMappings) as BuilderStateData;
+    processedBuilderState = replaceObjectStorageUrls(processedBuilderState, urlMappings) as BuilderStateData;
   }
 
   const globalStyles = processedBuilderState.globalStyles || {};
@@ -241,6 +251,11 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   processedBuilderState = {
     ...processedBuilderState,
     pages: resolveTokensDeep(processedBuilderState.pages, resolvedTokens),
+    // The shared header and footer are drawn on every page, so they go
+    // through the same resolution as the sections around them.
+    ...(processedBuilderState.siteChrome
+      ? { siteChrome: resolveTokensDeep(processedBuilderState.siteChrome, resolvedTokens) }
+      : {}),
   };
 
   // Defense in depth: strip unsafe SVG markup from custom components even if
@@ -287,6 +302,11 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
       ?.props as Record<string, unknown> | undefined
   );
 
+  // The home page's meta description doubles as the whole site's fallback.
+  const homePage =
+    processedBuilderState.pages.find((page) => page.path === '/') ?? processedBuilderState.pages[0];
+  const homeDescription = homePage ? pageSeo(homePage, siteName).description : undefined;
+
   const componentRendererSource = generateComponentRenderer(language);
   const uncovered = missingRendererCases(componentRendererSource);
   if (uncovered.length) {
@@ -314,7 +334,9 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/ProductGrid.tsx', content: generateProductGrid(language) },
     { path: 'components/AnalyticsTracker.tsx', content: generateAnalyticsTracker() },
     { path: 'components/CookieBanner.tsx', content: generateCookieBanner(language) },
-    { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId, language) },
+    // The home page's own description doubles as the site-wide fallback, so
+    // even a page with no SEO of its own never ships a vendor slogan.
+    { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId, language, homeDescription) },
     { path: 'app/globals.css', content: generateGlobalsCss(theme) },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
     { path: 'app/api/checkout/validate/route.ts', content: generateCheckoutValidateApiRoute(websiteId) },
@@ -333,16 +355,35 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'app/checkout/page.tsx', content: generateCheckoutPage(language) },
   ];
   
+  // One navigation for the whole site, resolved once from the stored
+  // navigation — the builder preview resolves the same list with the same
+  // function, which is what keeps the two menus identical.
+  const navItems = resolveNavItems(processedBuilderState);
+
   for (const page of processedBuilderState.pages) {
     const pagePath = page.path === '/' ? 'app/page.tsx' : `app${page.path}/page.tsx`;
     
     if (page.path !== '/') {
       await fs.promises.mkdir(path.join(outputDir, 'app', page.path.slice(1)), { recursive: true });
     }
-    
+
+    // The shared header and footer are folded into the page's sections here,
+    // exactly where the builder preview puts them, so the generated file
+    // needs no notion of chrome at all.
+    const composed = {
+      ...page,
+      components: composePageComponents(page, processedBuilderState.siteChrome),
+    };
+
     // Cast to any to avoid type mismatches between schema types and rendering types
     // The page data is serialized to JSON, so runtime types don't matter
-    files.push({ path: pagePath, content: generatePageFile(page as any, websiteId, processedBuilderState.pages as any) });
+    files.push({
+      path: pagePath,
+      content: generatePageFile(composed as any, websiteId, processedBuilderState.pages as any, {
+        navItems,
+        metadata: pageSeo(page, siteName),
+      }),
+    });
   }
   
   for (const file of files) {

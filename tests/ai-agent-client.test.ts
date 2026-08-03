@@ -220,7 +220,8 @@ describe("panel + route wiring (source tripwires)", () => {
     const handler = routes.slice(idx, idx + 5000);
     const selfCheck = handler.indexOf("runSelfCheck(newState)");
     const sanitize = handler.indexOf("sanitizeBuilderStateCustomContent(newState)");
-    const save = handler.indexOf("updateBuilderState");
+    // The save is guarded now: two writers cannot silently overwrite each other.
+    const save = handler.indexOf("saveBuilderStateGuarded");
     const report = handler.indexOf("buildReport(");
     expect(selfCheck).toBeGreaterThan(-1);
     expect(sanitize).toBeGreaterThan(selfCheck);
@@ -232,7 +233,7 @@ describe("panel + route wiring (source tripwires)", () => {
     const idx = routes.indexOf('app.post("/api/websites/:id/ai/agent"');
     const handler = routes.slice(idx, idx + 5000);
     const approvalBranch = handler.indexOf('outcome.status === "needs_approval"');
-    const saveCall = handler.indexOf("updateBuilderState");
+    const saveCall = handler.indexOf("saveBuilderStateGuarded");
     // The approval branch returns before reaching the save
     expect(approvalBranch).toBeGreaterThan(-1);
     expect(approvalBranch).toBeLessThan(saveCall);

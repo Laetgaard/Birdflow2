@@ -18,6 +18,7 @@ import { componentRegistry } from "@shared/componentRegistry";
 import { sectionRegistry, type SectionType } from "@shared/sectionRegistry";
 import { stylePresets, getPresetTokens } from "@shared/stylePresets";
 import { migrateStateToTokens } from "@shared/designTokens";
+import { pageRole, reorderPages, syncNavigationWithPages } from "@shared/siteStructure";
 import type { BuilderStateData, BuilderComponent, StylePreset, DesignTokens } from "@shared/schema";
 import {
   sanitizePrimitiveTree,
@@ -45,6 +46,9 @@ const VALID_ACTIONS = [
   'add_page',
   'remove_page',
   'update_page',
+  'reorder_pages',
+  'update_navigation',
+  'update_site_chrome',
   'update_global_styles',
   'apply_preset',
   'add_section',
@@ -349,7 +353,18 @@ When applying a theme like "luxury", update ALL components:
 - ALL text: appropriate text colors for dark backgrounds (#ffffff, #f5f5f5)
 
 ## AVAILABLE ACTIONS (use EXACTLY these strings)
-"add_component" | "update_component" | "remove_component" | "move_component" | "duplicate_component" | "add_page" | "remove_page" | "update_page" | "update_global_styles" | "apply_preset" | "add_section" | "add_custom_component" | "update_custom_component" | "update_brand_guide"
+"add_component" | "update_component" | "remove_component" | "move_component" | "duplicate_component" | "add_page" | "remove_page" | "update_page" | "reorder_pages" | "update_navigation" | "update_site_chrome" | "update_global_styles" | "apply_preset" | "add_section" | "add_custom_component" | "update_custom_component" | "update_brand_guide"
+
+## SITE STRUCTURE (pages, menu, shared header/footer, SEO)
+The order of the pages is the order they appear in; "reorder_pages" takes the full
+order at once. Every page has a role (home, service, legal, booking, landing,
+draft) and its own SEO title and description - set them with "update_page", and
+never leave two pages sharing one title. The menu is stored, not derived: edit it
+with "update_navigation", where a label is free text and only "pageId" ties a link
+to a page. The header and footer are stored ONCE in the shared chrome and drawn on
+every page - change them with "update_site_chrome", never by editing a header
+section on one page, and never by adding a header/footer section to a page that
+already gets the shared one.
 
 ## SECTION-BASED DESIGN (PREFERRED APPROACH)
 
@@ -1082,6 +1097,11 @@ function getCurrentStateContext(state: BuilderStateData): string {
     id: page.id,
     name: page.name,
     path: page.path,
+    role: pageRole(page),
+    hidden: page.hidden === true,
+    seo: page.seo ?? null,
+    usesSharedHeader: page.useSharedHeader !== false,
+    usesSharedFooter: page.useSharedFooter !== false,
     componentCount: page.components.length,
     components: page.components.map(c => {
       const props = c.props as Record<string, unknown>;
@@ -1097,8 +1117,18 @@ function getCurrentStateContext(state: BuilderStateData): string {
 
   const library = (state.customComponents ?? []).map(e => ({ id: e.id, name: e.name }));
 
+  const navigation = state.navigation
+    ? state.navigation.items.map(item => ({ label: item.label, target: item.target, pageId: item.pageId }))
+    : null;
+  const chrome = [
+    state.siteChrome?.header ? 'delt header' : null,
+    state.siteChrome?.footer ? 'delt footer' : null,
+  ].filter(Boolean);
+
   return `Current website state:
-- Pages: ${state.pages.length} (${state.pages.map(p => p.name).join(', ')})
+- Pages: ${state.pages.length} (${state.pages.map(p => p.name).join(', ')}), in menu order
+- Navigation: ${navigation ? JSON.stringify(navigation) : 'derived from the visible pages (not stored yet)'}
+- Shared chrome: ${chrome.length ? chrome.join(' + ') + ' (stored once, drawn on every page that has not opted out)' : 'none — each page has its own header/footer sections'}
 - Global styles: ${JSON.stringify(state.globalStyles)}
 - Brand guide:\n${state.brandGuide ? buildBrandContext(state.brandGuide) : 'none defined yet — follow the user request and general design principles'}
 - Component library ("Mine komponenter"): ${library.length > 0 ? JSON.stringify(library) : 'empty'}
@@ -1226,6 +1256,14 @@ function validateMutationsInternal(mutations: any[], initialState: BuilderStateD
     if (['remove_page', 'update_page'].includes(action)) {
       if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
         errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
+        continue;
+      }
+    }
+
+    if (['reorder_pages', 'update_navigation', 'update_site_chrome'].includes(action)) {
+      const verdict = validateMutation(mutation, currentState);
+      if (!verdict.valid) {
+        errors.push(`Step ${i + 1}: ${verdict.error}`);
         continue;
       }
     }
@@ -1698,7 +1736,43 @@ export function applyMutation(
       if (page) {
         if (mutation.name) page.name = mutation.name;
         if (mutation.path) page.path = mutation.path;
+        if (mutation.role) page.role = mutation.role;
+        if (mutation.seo) page.seo = { ...page.seo, ...mutation.seo };
+        if (mutation.hidden !== undefined) page.hidden = mutation.hidden;
+        if (mutation.useSharedHeader !== undefined) page.useSharedHeader = mutation.useSharedHeader;
+        if (mutation.useSharedFooter !== undefined) page.useSharedFooter = mutation.useSharedFooter;
+        // A renamed, re-pathed or newly hidden page must not leave a menu
+        // link pointing at nothing.
+        if (newState.navigation) {
+          newState.navigation = syncNavigationWithPages(newState.navigation, newState.pages);
+        }
       }
+      break;
+    }
+
+    case 'reorder_pages': {
+      newState.pages = reorderPages(newState.pages, mutation.pageIds);
+      break;
+    }
+
+    case 'update_navigation': {
+      // Stored as given: the order of the array is the order of the menu,
+      // and a label is whatever the customer (or the assistant) called it.
+      newState.navigation = { items: mutation.items };
+      break;
+    }
+
+    case 'update_site_chrome': {
+      const chrome = { ...(newState.siteChrome ?? {}) };
+      if (mutation.header !== undefined) {
+        if (mutation.header === null) delete chrome.header;
+        else chrome.header = mutation.header as BuilderComponent;
+      }
+      if (mutation.footer !== undefined) {
+        if (mutation.footer === null) delete chrome.footer;
+        else chrome.footer = mutation.footer as BuilderComponent;
+      }
+      newState.siteChrome = chrome;
       break;
     }
     
@@ -1871,6 +1945,57 @@ export function validateMutation(
     }
   }
   
+  if (action === 'reorder_pages') {
+    const ids: unknown = mutation.pageIds;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { valid: false, error: 'reorder_pages kræver mindst ét side-id' };
+    }
+    const known = new Set(state.pages.map(p => p.id));
+    const unknownIds = ids.filter(id => !known.has(id as string));
+    if (unknownIds.length) {
+      return {
+        valid: false,
+        error: `Ukendte sider: ${unknownIds.join(', ')}. Available pages: ${state.pages.map(p => p.id).join(', ')}`,
+      };
+    }
+  }
+
+  if (action === 'update_navigation') {
+    const items: any[] = Array.isArray(mutation.items) ? mutation.items : [];
+    const known = new Set(state.pages.map(p => p.id));
+    for (const item of items) {
+      // A link to a page that does not exist is a dead menu entry on every
+      // single page of the website, so it is refused rather than repaired.
+      if (item?.pageId && !known.has(item.pageId)) {
+        return {
+          valid: false,
+          error: `Menupunktet "${item.label}" peger på siden "${item.pageId}" som ikke findes`,
+        };
+      }
+      if (!item?.pageId && typeof item?.target === 'string' && item.target.startsWith('/')) {
+        const path = item.target.split('#')[0].split('?')[0];
+        if (path && path !== '/' && !state.pages.some(p => p.path === path)) {
+          return {
+            valid: false,
+            error: `Menupunktet "${item.label}" peger på "${item.target}" som ikke findes på websitet`,
+          };
+        }
+      }
+    }
+  }
+
+  if (action === 'update_site_chrome') {
+    for (const [slot, expected] of [['header', 'header'], ['footer', 'footer']] as const) {
+      const component = mutation[slot];
+      if (component && component.type !== expected) {
+        return {
+          valid: false,
+          error: `Den delte ${slot} skal være en ${expected}-sektion, ikke "${component.type}"`,
+        };
+      }
+    }
+  }
+
   if (action === 'add_section') {
     const pageExists = state.pages.some(p => p.id === mutation.pageId);
     if (!pageExists) {
