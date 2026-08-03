@@ -31,6 +31,8 @@ import VerifyEmailPage from "@/pages/verify-email";
 import ResetPasswordPage from "@/pages/reset-password";
 import PrivacyPage from "@/pages/privacy";
 import TermsPage from "@/pages/terms";
+import ProfessionPage from "@/pages/profession";
+import { SeoHead } from "@/lib/seoHead";
 
 function Router() {
   return (
@@ -43,6 +45,15 @@ function Router() {
       <Route path="/pricing" component={PricingPage} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/terms" component={TermsPage} />
+
+      {/* Profession landing pages — SEO entry points, one per audience.
+          Paths mirror shared/marketingSeo.ts (PROFESSION_ROUTES). */}
+      <Route path="/psykolog">{() => <ProfessionPage slug="psykolog" />}</Route>
+      <Route path="/psykoterapeut">{() => <ProfessionPage slug="psykoterapeut" />}</Route>
+      <Route path="/psykiater">{() => <ProfessionPage slug="psykiater" />}</Route>
+      <Route path="/terapeut">{() => <ProfessionPage slug="terapeut" />}</Route>
+      <Route path="/healer">{() => <ProfessionPage slug="healer" />}</Route>
+      <Route path="/klinik">{() => <ProfessionPage slug="klinik" />}</Route>
       <Route path="/auth" component={AuthPage} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/check-email" component={CheckEmail} />
@@ -99,6 +110,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <LocaleProvider>
+          {/* Keeps title/description/canonical/OG in sync on SPA navigation
+              (server/seo.ts handles the initial HTML response) */}
+          <SeoHead />
           <TooltipProvider>
             <Toaster />
             <Router />

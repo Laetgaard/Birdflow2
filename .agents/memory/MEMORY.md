@@ -23,3 +23,4 @@
 - [Preview vs published parity](renderer-parity.md) — render both sides from registry defaults; escape generated literals (comments too) and compile output; runtime checks are three-valued (unavailable ≠ failed).
 - [Builder motion system](builder-motion.md) — motion specs are data, resolvers stay stringifiable, done-phase = {} so hover wins, stagger is box-only, reduced-motion needs the baked CSS unhide rule.
 - [Invented-claims gate](invented-claims-gate.md) — mutations judge against facts+site copy, whole-state scrubs against facts only; forbidden ≠ evidence; scrub again after registry defaults.
+- [Marketing SEO head injection](marketing-seo-head-injection.md) — initial-response metadata on both servers; `index:false` doesn't stop GET /index.html; managed-tag list for SPA head sync; SSR tests need reactEscape.

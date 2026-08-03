@@ -13,6 +13,7 @@ import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
 import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
 import { startSvgAssetSchema } from "./svgAssetSchema";
+import { registerSeoRoutes } from "./seo";
 
 const app = express();
 const httpServer = createServer(app);
@@ -139,6 +140,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Sitemap + robots for BirdFlow's own marketing pages. Registered before
+  // everything else so the SPA catch-alls can never shadow them.
+  registerSeoRoutes(app);
+
   await registerRoutes(httpServer, app);
 
   // Poll-based booking reminder/follow-up emails (published sites write

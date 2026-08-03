@@ -24,6 +24,9 @@ import {
   useInView, RevealOnView, BirdDefs, Bird, BandWave, EdgeWave, WaveB, ScaleToFit,
 } from "@/components/bf2/primitives";
 import { Nav, NavLink, SIGNUP_HREF, useNavLinks, useSignupLabel } from "@/components/bf2/Nav";
+import {
+  Professions, SoloClinic, DiyDfy, PricingTeaser, ProfessionFooterLinks,
+} from "@/components/bf2/AudienceSections";
 import { useLocale, pick, type Lang } from "@/lib/locale";
 
 /* ─────────────────────────────────────────────────────────────
@@ -235,7 +238,7 @@ const COPY: Record<Lang, LandingCopy> = {
       role: "Psykolog",
       navItems: ["Samtaleterapi", "Forløb", "Priser", "Kontakt"],
       bookConversation: "Book en samtale",
-      eyebrow: "AUTORISERET PSYKOLOG · KØBENHAVN & ONLINE",
+      eyebrow: "PSYKOLOG · KØBENHAVN & ONLINE",
       heroTitle: "Et roligt sted til det, der fylder.",
       heroBody: "Samtaleterapi til dig, der oplever stress, angst eller står midt i en forandring i livet.",
       heroBodyAlt: "Samtaleterapi til dig, der oplever stress, uro eller står midt i en forandring i livet.",
@@ -252,7 +255,7 @@ const COPY: Record<Lang, LandingCopy> = {
       seeWebsite: "Se hjemmeside",
     },
     hero: {
-      eyebrow: "TIL PSYKOLOGER & PRIVATE PRAKSISSER",
+      eyebrow: "TIL BEHANDLERE & KLINIKKER",
       titleLead: "Din praksis online.",
       titleEm: "Uden at blive webdesigner.",
       bodyMobile: "Hjemmeside, booking, henvendelser og automatiske mails — samlet ét sted og sat op omkring din praksis.",
@@ -371,7 +374,7 @@ const COPY: Record<Lang, LandingCopy> = {
         role: "Psykolog",
         navItems: ["Terapi", "Om mig", "Priser", "Kontakt"],
         bookConversation: "Book en samtale",
-        eyebrow: "AUTORISERET PSYKOLOG · ROSKILDE",
+        eyebrow: "PSYKOLOG · ROSKILDE",
         heroTitle: "Ro til at finde fodfæste igen.",
         heroBody: "Samtaleterapi for voksne — ved stress, angst, sorg og livets overgange. I trygge rammer i Roskilde eller online.",
         bookInitial: "Book en indledende samtale",
@@ -412,7 +415,7 @@ const COPY: Record<Lang, LandingCopy> = {
         role: "Psykolog",
         navItems: ["Samtaleterapi", "Forløb", "Priser"],
         bookConversation: "Book en samtale",
-        eyebrow: "AUTORISERET PSYKOLOG · KØBENHAVN & ONLINE",
+        eyebrow: "PSYKOLOG · KØBENHAVN & ONLINE",
         heroTitle: "Et roligt sted til det, der fylder.",
         heroBody: "Samtaleterapi til dig, der oplever stress, uro eller står midt i en forandring i livet.",
         bookInitial: "Book en indledende samtale",
@@ -485,7 +488,7 @@ const COPY: Record<Lang, LandingCopy> = {
       heading: "Lad os tage udgangspunkt i din praksis.",
       body: "Fortæl kort om, hvordan din praksis arbejder i dag — så bygger Birdflow det første udkast til din hjemmeside.",
       reassurance: "Ingen teknisk forberedelse · Du godkender, før den går live",
-      footerTagline: "Den digitale platform for private psykologpraksisser.",
+      footerTagline: "Den digitale platform til behandlere og klinikker — mental sundhed, terapi og trivsel.",
       login: "Log ind",
       copyright: "© 2026 Birdflow",
     },
@@ -501,7 +504,7 @@ const COPY: Record<Lang, LandingCopy> = {
       role: "Psychologist",
       navItems: ["Talking therapy", "Programmes", "Pricing", "Contact"],
       bookConversation: "Book a session",
-      eyebrow: "REGISTERED PSYCHOLOGIST · COPENHAGEN & ONLINE",
+      eyebrow: "PSYCHOLOGIST · COPENHAGEN & ONLINE",
       heroTitle: "A calm space for what weighs on you.",
       heroBody: "Talking therapy for you if you're facing stress, anxiety or a big change in life.",
       heroBodyAlt: "Talking therapy for you if you're facing stress, unease or a big change in life.",
@@ -518,7 +521,7 @@ const COPY: Record<Lang, LandingCopy> = {
       seeWebsite: "See website",
     },
     hero: {
-      eyebrow: "FOR PSYCHOLOGISTS & PRIVATE PRACTICES",
+      eyebrow: "FOR PRACTITIONERS & CLINICS",
       titleLead: "Your practice online.",
       titleEm: "Without becoming a web designer.",
       bodyMobile: "Website, booking, enquiries and automatic emails — in one place and set up around your practice.",
@@ -637,7 +640,7 @@ const COPY: Record<Lang, LandingCopy> = {
         role: "Psychologist",
         navItems: ["Therapy", "About me", "Pricing", "Contact"],
         bookConversation: "Book a session",
-        eyebrow: "REGISTERED PSYCHOLOGIST · ROSKILDE",
+        eyebrow: "PSYCHOLOGIST · ROSKILDE",
         heroTitle: "Room to find your feet again.",
         heroBody: "Talking therapy for adults — for stress, anxiety, grief and life's transitions. In a safe setting in Roskilde or online.",
         bookInitial: "Book an initial consultation",
@@ -678,7 +681,7 @@ const COPY: Record<Lang, LandingCopy> = {
         role: "Psychologist",
         navItems: ["Talking therapy", "Programmes", "Pricing"],
         bookConversation: "Book a session",
-        eyebrow: "REGISTERED PSYCHOLOGIST · COPENHAGEN & ONLINE",
+        eyebrow: "PSYCHOLOGIST · COPENHAGEN & ONLINE",
         heroTitle: "A calm space for what weighs on you.",
         heroBody: "Talking therapy for you if you're facing stress, unease or a big change in life.",
         bookInitial: "Book an initial consultation",
@@ -751,7 +754,7 @@ const COPY: Record<Lang, LandingCopy> = {
       heading: "Let's start from your practice.",
       body: "Tell us briefly how your practice works today — and Birdflow builds the first draft of your website.",
       reassurance: "No technical preparation · You approve it before it goes live",
-      footerTagline: "The digital platform for private psychology practices.",
+      footerTagline: "The digital platform for practitioners and clinics — mental health, therapy and wellbeing.",
       login: "Log in",
       copyright: "© 2026 Birdflow",
     },
@@ -3110,6 +3113,8 @@ function FinalCta() {
             {fc.copyright}
           </p>
         </div>
+        {/* crawlable links to the six profession pages */}
+        <ProfessionFooterLinks />
       </div>
     </section>
   );
@@ -3229,16 +3234,28 @@ export default function BirdflowLandingPage() {
         <StickyStory />
         {/* lime → blush */}
         <WaveB compact />
+        <SoloClinic />
+        {/* blush → lime */}
+        <BandWave top={BLUSH} bottom={LIME} compact />
+        <Professions />
+        {/* lime → blush (mirrored) */}
+        <BandWave top={LIME} bottom={BLUSH} flip compact />
         <CaseStudy />
         {/* blush → lime */}
         <BandWave top={BLUSH} bottom={LIME} compact />
-        <Faq />
+        <DiyDfy />
         {/* lime → blush (mirrored) */}
         <BandWave top={LIME} bottom={BLUSH} flip compact />
         <ClientJourney />
         {/* blush → lime (mirrored) */}
         <BandWave top={BLUSH} bottom={LIME} flip compact />
         <Process />
+        {/* lime → blush */}
+        <BandWave top={LIME} bottom={BLUSH} compact />
+        <PricingTeaser />
+        {/* blush → lime */}
+        <BandWave top={BLUSH} bottom={LIME} compact />
+        <Faq />
         {/* lime → purple, into the final CTA */}
         <EdgeWave other={LIME} flip="x" compact />
         <FinalCta />

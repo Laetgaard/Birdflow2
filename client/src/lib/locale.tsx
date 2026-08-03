@@ -33,7 +33,21 @@ const STORAGE_KEY = "bf-lang";
  * Danish. Adding a public marketing page means adding it here, or its
  * copy object will never switch.
  */
-const PUBLIC_MARKETING_PATHS = new Set(["/", "/dfy", "/diy", "/services", "/pricing"]);
+const PUBLIC_MARKETING_PATHS = new Set([
+  "/",
+  "/dfy",
+  "/diy",
+  "/services",
+  "/pricing",
+  // Profession landing pages (bilingual, same lang toggle as the rest of
+  // the marketing site). Keep in sync with shared/marketingSeo.ts.
+  "/psykolog",
+  "/psykoterapeut",
+  "/psykiater",
+  "/terapeut",
+  "/healer",
+  "/klinik",
+]);
 
 export function isPublicMarketingPath(path: string): boolean {
   const clean = (path.split("?")[0] ?? "/").replace(/\/+$/, "");
