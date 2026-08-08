@@ -2613,10 +2613,13 @@ type StyledText = {
   fontSize?: string;
   fontWeight?: string;
   color?: string;
-  textAlign?: 'left' | 'center' | 'right';
+  // Widened to string so baked-in JSON literals don't widen to a type that
+  // clashes with the strict union in the builder. The renderer only reads
+  // these values at runtime (e.g. style.textAlign = styledProp.textAlign).
+  textAlign?: string;
   letterSpacing?: string;
   lineHeight?: string;
-  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  textTransform?: string;
 };
 
 type ComponentProps = {
@@ -2630,8 +2633,11 @@ type ComponentProps = {
   items?: ComponentItem[];
   stats?: StatItem[];
   formFields?: FormField[];
-  alignment?: 'left' | 'center' | 'right';
-  imageSide?: 'left' | 'right';
+  // Widened to string: the renderer reads these at runtime only. Using strict
+  // literal unions here ("left"|"center"|"right") would cause TypeScript to
+  // reject baked-in JSON literals whose inferred type is widened to string.
+  alignment?: string;
+  imageSide?: string;
   columns?: number;
   productLimit?: number;
   autoPlay?: boolean;
@@ -2974,7 +2980,10 @@ type ComponentStyles = {
   [key: string]: any;
 };
 
-type ComponentData = {
+// Exported so generated page files can import this type and annotate their
+// baked-in component arrays, giving TypeScript a contextual type to check
+// the data against without needing @ts-nocheck.
+export type ComponentData = {
   id: string;
   type: string;
   props: ComponentProps;
@@ -7230,7 +7239,10 @@ export function generatePageFile(
   }
 ): string {
   const componentsImport = `import type { Metadata } from 'next';
-import ComponentRenderer from '@/components/ComponentRenderer';
+// ComponentData is exported by the generated renderer so pages can annotate
+// their baked-in component arrays and get compile-time type-checking without
+// needing @ts-nocheck on every page file.
+import ComponentRenderer, { type ComponentData } from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';`;
@@ -7263,10 +7275,14 @@ export const metadata: Metadata = {
 `
     : '';
 
-  return `// @ts-nocheck
-${componentsImport}
+  return `${componentsImport}
 
-const pageComponents = ${componentsJson};
+// ComponentData is imported from the renderer so TypeScript can check the
+// baked-in JSON against the published site's component contract. Literal-union
+// props (alignment, imageSide) are widened to string in ComponentProps so that
+// "center" (inferred as string by TypeScript) satisfies the annotation without
+// needing @ts-nocheck on every generated page file.
+const pageComponents: ComponentData[] = ${componentsJson};
 const sitePages = ${pagesJson};
 const siteNav = ${navJson};
 ${metadataBlock}

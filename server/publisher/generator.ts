@@ -17,6 +17,7 @@ import {
   resolveNavItems,
 } from '../../shared/siteStructure';
 import { missingRendererCases, unrenderableComponents, describeUnrenderable } from './coverage';
+import { validateBuilderStateForPublish } from './validate';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
   generatePackageJson,
@@ -291,6 +292,14 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   if (unrenderable.length) {
     throw new Error(describeUnrenderable(unrenderable));
   }
+
+  // Validate component data before generating the project. This catches
+  // invalid prop values (e.g. alignment = "middle") before they reach Vercel,
+  // producing a clear Birdflow error instead of a TypeScript build failure.
+  validateBuilderStateForPublish(processedBuilderState.pages as Array<{
+    name?: string;
+    components?: unknown[];
+  }>);
 
   // The builder's "Product Page Design" section configures the generated
   // product pages rather than the page it sits on, so its settings are read

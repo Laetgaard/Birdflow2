@@ -286,60 +286,65 @@ describe('ComponentRenderer.tsx TypeScript safety', () => {
   });
 });
 
-// ── Regression guard: generated page files must carry @ts-nocheck ────────────
-// ── Without it, literal-union props (alignment, layout, variant, etc.) widen  ──
-// ── to `string` in baked-in JSON literals and TypeScript rejects the build.   ──
+// ── Generated page files: type-safe without @ts-nocheck ─────────────────────
+// ── Task #125: literal-union props (alignment, imageSide) are widened to     ──
+// ── `string` in the generated ComponentProps so baked-in JSON literals are   ──
+// ── accepted by TypeScript without suppressing the whole file.                ──
 describe('generated page files TypeScript safety', () => {
   function firstMeaningfulLine(content: string): string {
     return content.split('\n').find((l) => l.trim().length > 0)?.trim() ?? '';
   }
 
-  it('home page (minimal) starts with // @ts-nocheck', () => {
+  // Page files must NOT suppress TypeScript — the whole point of task #125.
+  it('home page (minimal) does NOT start with @ts-nocheck', () => {
     const content = fs.readFileSync(path.join(minimalDir, 'app', 'page.tsx'), 'utf-8');
-    expect(firstMeaningfulLine(content)).toBe('// @ts-nocheck');
+    expect(firstMeaningfulLine(content)).not.toBe('// @ts-nocheck');
   });
 
-  it('@ts-nocheck appears before any import statement (minimal home)', () => {
+  it('home page starts with an import statement', () => {
     const content = fs.readFileSync(path.join(minimalDir, 'app', 'page.tsx'), 'utf-8');
-    const lines = content.split('\n');
-    const checkIdx = lines.findIndex((l) => l.trim() === '// @ts-nocheck');
-    const importIdx = lines.findIndex((l) => l.trim().startsWith('import '));
-    expect(checkIdx).toBeGreaterThanOrEqual(0);
-    expect(checkIdx).toBeLessThan(importIdx);
+    expect(firstMeaningfulLine(content)).toMatch(/^import /);
   });
 
-  it('rich home page starts with // @ts-nocheck', () => {
-    const content = fs.readFileSync(path.join(richDir, 'app', 'page.tsx'), 'utf-8');
-    expect(firstMeaningfulLine(content)).toBe('// @ts-nocheck');
+  it('page file imports ComponentData type from the renderer', () => {
+    const content = fs.readFileSync(path.join(minimalDir, 'app', 'page.tsx'), 'utf-8');
+    // The page must import the type so TypeScript can check the baked-in data.
+    expect(content).toContain('type ComponentData');
+    expect(content).toContain('ComponentRenderer');
   });
 
-  it('rich services page starts with // @ts-nocheck', () => {
-    const servicesPage = path.join(richDir, 'app', 'services', 'page.tsx');
-    expect(fs.existsSync(servicesPage)).toBe(true);
-    const content = fs.readFileSync(servicesPage, 'utf-8');
-    expect(firstMeaningfulLine(content)).toBe('// @ts-nocheck');
+  it('page file annotates baked-in data as ComponentData[]', () => {
+    const content = fs.readFileSync(path.join(minimalDir, 'app', 'page.tsx'), 'utf-8');
+    expect(content).toContain('ComponentData[]');
   });
 
-  it('rich contact page starts with // @ts-nocheck', () => {
-    const contactPage = path.join(richDir, 'app', 'contact', 'page.tsx');
-    expect(fs.existsSync(contactPage)).toBe(true);
-    const content = fs.readFileSync(contactPage, 'utf-8');
-    expect(firstMeaningfulLine(content)).toBe('// @ts-nocheck');
+  it('rich pages do not start with @ts-nocheck', () => {
+    for (const [label, filePath] of [
+      ['home', path.join(richDir, 'app', 'page.tsx')],
+      ['services', path.join(richDir, 'app', 'services', 'page.tsx')],
+      ['contact', path.join(richDir, 'app', 'contact', 'page.tsx')],
+    ] as const) {
+      expect(fs.existsSync(filePath), `${label} page exists`).toBe(true);
+      const content = fs.readFileSync(filePath, 'utf-8');
+      expect(firstMeaningfulLine(content), `${label} does not start with @ts-nocheck`).not.toBe('// @ts-nocheck');
+    }
   });
 
-  it('rich pages contain the literal-union props that previously caused failures', () => {
+  it('rich pages contain the literal-union props that previously caused Vercel build failures', () => {
     // Services page has alignment: "left" and alignment: "center" — the exact
-    // values that widened to `string` and crashed the Vercel build.
+    // values that previously widened to string and crashed the Vercel build.
     const servicesContent = fs.readFileSync(
       path.join(richDir, 'app', 'services', 'page.tsx'),
       'utf-8'
     );
     expect(servicesContent).toContain('"alignment"');
-    // Home page has all three alignment variants.
+    // Home page has all three alignment variants plus imageSide-adjacent props.
     const homeContent = fs.readFileSync(path.join(richDir, 'app', 'page.tsx'), 'utf-8');
     expect(homeContent).toContain('"center"');
     expect(homeContent).toContain('"left"');
     expect(homeContent).toContain('"right"');
+    // These pages must also carry the ComponentData annotation.
+    expect(homeContent).toContain('ComponentData[]');
   });
 });
 
