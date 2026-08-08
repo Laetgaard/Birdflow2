@@ -3008,6 +3008,7 @@ export async function registerRoutes(
         productionUrl: job.productionUrl,
         errorCode: job.errorCode,
         errorMessage: job.errorMessage,
+        failureDetails: job.failureDetails ?? null,
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
       });

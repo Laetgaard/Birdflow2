@@ -3,10 +3,12 @@
  *
  * These run without npm install or next build (too slow for CI). They verify:
  *  1. The generator produces a complete file tree for a minimal builder state.
- *  2. ComponentRenderer.tsx carries // @ts-nocheck so TypeScript's noImplicitAny
- *     never kills the Vercel build again (regression guard for the original bug).
- *  3. Generated page files carry // @ts-nocheck so literal-union props (alignment,
- *     layout, variant, etc.) never cause a type error during the Vercel build.
+ *  2. ComponentRenderer.tsx does NOT carry // @ts-nocheck — the motion functions
+ *     have explicit `any` type annotations so noImplicitAny is satisfied without
+ *     suppressing the entire file (regression guard: absence must stay absent).
+ *  3. Generated page files do NOT carry // @ts-nocheck — literal-union props
+ *     (alignment, layout, variant, etc.) are widened to `string` in PageComponentData
+ *     so baked JSON literals are accepted without whole-file suppression.
  *  4. Key generated files are non-empty and contain expected markers.
  *
  * For a full build test (npm install + next build), set real env vars and run:
@@ -268,13 +270,26 @@ describe('ComponentRenderer.tsx TypeScript safety', () => {
     );
   });
 
-  it('starts with // @ts-nocheck to suppress noImplicitAny on minified motion fns', () => {
-    // The first non-blank line must be // @ts-nocheck so TypeScript skips the
-    // entire file. Without this, strict: true kills the Vercel build.
+  it('does NOT start with // @ts-nocheck — motion functions carry explicit any annotations instead', () => {
+    // Phase 4 of the type-safety plan: the four motion functions baked via
+    // .toString() now have explicit `(param: any, ...) => any` annotations on
+    // their holding constants. That satisfies noImplicitAny without the
+    // whole-file suppressor. This assertion is the permanent regression guard
+    // that must stay inverted — any future change that re-adds @ts-nocheck
+    // as the first non-blank line will fail here.
     const firstMeaningfulLine = rendererSource
       .split('\n')
       .find((l) => l.trim().length > 0);
-    expect(firstMeaningfulLine?.trim()).toBe('// @ts-nocheck');
+    expect(firstMeaningfulLine?.trim()).not.toBe('// @ts-nocheck');
+  });
+
+  it('baked motion functions carry explicit any type annotations', () => {
+    // These annotations are what allow us to remove @ts-nocheck. They must
+    // remain intact whenever the generator template is edited.
+    expect(rendererSource).toContain('computeMotion: (tables: any');
+    expect(rendererSource).toContain('motionPhaseStyle: (resolved: any');
+    expect(rendererSource).toContain('sectionMotionSpec: (styles: any');
+    expect(rendererSource).toContain('staggerChildSpec: (parentSpec: any');
   });
 
   it('contains the motion tables constant', () => {

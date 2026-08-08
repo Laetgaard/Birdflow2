@@ -42,6 +42,28 @@ export const ACTIVE_STATUSES: PublishJobStatus[] = [
 
 export const TERMINAL_STATUSES: PublishJobStatus[] = ['published', 'failed'];
 
+/**
+ * Structured failure metadata stored in `publish_failure_details` (JSONB).
+ * All fields are optional so the object can be partial when only some context
+ * is available at failure time.
+ */
+export interface PublishFailureDetails {
+  /** Pipeline stage that failed: 'normalization'|'validation'|'type_check'|'upload'|'deployment'|'alias' */
+  stage?: string;
+  /** Name of the page that triggered the failure, when known. */
+  pageName?: string;
+  /** Component ID that triggered the failure, when known. */
+  componentId?: string;
+  /** Component type that triggered the failure, when known. */
+  componentType?: string;
+  /** Human-readable error message from the failing operation. */
+  errorMessage?: string;
+  /** Vercel deployment ID, if the failure occurred after a deployment was created. */
+  vercelDeploymentId?: string | null;
+  /** ISO timestamp of failure. */
+  timestamp?: string;
+}
+
 export interface PublishJob {
   id: string;
   websiteId: string;
@@ -55,6 +77,8 @@ export interface PublishJob {
   productionUrl: string | null;
   errorCode: string | null;
   errorMessage: string | null;
+  /** Structured failure details, populated when status = 'failed'. */
+  failureDetails: PublishFailureDetails | null;
   createdAt: Date;
   startedAt: Date | null;
   completedAt: Date | null;
@@ -77,6 +101,7 @@ function toJob(row: Record<string, unknown>): PublishJob {
     productionUrl: (row.production_url as string) ?? null,
     errorCode: (row.error_code as string) ?? null,
     errorMessage: (row.error_message as string) ?? null,
+    failureDetails: (row.publish_failure_details as PublishFailureDetails) ?? null,
     createdAt: new Date(row.created_at as string),
     startedAt: row.started_at ? new Date(row.started_at as string) : null,
     completedAt: row.completed_at ? new Date(row.completed_at as string) : null,
@@ -205,15 +230,22 @@ export async function completePublishJob(
 /** Mark the job as failed with a structured error. */
 export async function failPublishJob(
   jobId: string,
-  params: { errorCode: string; errorMessage: string }
+  params: {
+    errorCode: string;
+    errorMessage: string;
+    /** Optional structured failure metadata stored in publish_failure_details (JSONB). */
+    failureDetails?: PublishFailureDetails;
+  }
 ): Promise<void> {
+  const detailsJson = params.failureDetails ? JSON.stringify(params.failureDetails) : null;
   await db.execute(
     sql`UPDATE publish_jobs
-        SET status        = 'failed',
-            error_code    = ${params.errorCode},
-            error_message = ${params.errorMessage},
-            completed_at  = now(),
-            updated_at    = now()
+        SET status                  = 'failed',
+            error_code              = ${params.errorCode},
+            error_message           = ${params.errorMessage},
+            publish_failure_details = ${detailsJson}::jsonb,
+            completed_at            = now(),
+            updated_at              = now()
         WHERE id = ${jobId}`
   );
 }
@@ -274,13 +306,21 @@ export async function failStalePublishJobs(
   cutoffTime: Date = SERVER_START_TIME
 ): Promise<number> {
   const cutoff = cutoffTime.toISOString();
+  const staleDetails: PublishFailureDetails = {
+    stage: 'generating',
+    errorMessage:
+      'The server restarted while this publish was in progress. Click Publish to try again.',
+    timestamp: new Date().toISOString(),
+  };
+  const staleDetailsJson = JSON.stringify(staleDetails);
   const result = await db.execute(
     sql`UPDATE publish_jobs
-        SET status        = 'failed',
-            error_code    = 'SERVER_RESTART',
-            error_message = 'The server restarted while this publish was in progress. Click Publish to try again.',
-            completed_at  = now(),
-            updated_at    = now()
+        SET status                  = 'failed',
+            error_code              = 'SERVER_RESTART',
+            error_message           = 'The server restarted while this publish was in progress. Click Publish to try again.',
+            publish_failure_details = ${staleDetailsJson}::jsonb,
+            completed_at            = now(),
+            updated_at              = now()
         WHERE status NOT IN ('published', 'failed')
           AND created_at < ${cutoff}
         RETURNING id`

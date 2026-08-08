@@ -18,6 +18,7 @@ import {
 } from '../../shared/siteStructure';
 import { missingRendererCases, unrenderableComponents, describeUnrenderable } from './coverage';
 import { validateBuilderStateForPublish } from './validate';
+import { normalizePages } from './normalize';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
   generatePackageJson,
@@ -262,6 +263,16 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   // Defense in depth: strip unsafe SVG markup from custom components even if
   // an unsanitized tree made it into the stored state.
   processedBuilderState = sanitizeBuilderStateCustomContent(processedBuilderState);
+
+  // Normalise component props: coerce known enum drifts (e.g. alignment
+  // "middle" → "center") and apply legacy field renames so that old websites
+  // don't surface avoidable Zod validation errors.
+  processedBuilderState = {
+    ...processedBuilderState,
+    pages: normalizePages(
+      processedBuilderState.pages as Array<{ name?: string; components?: unknown[] }>,
+    ) as typeof processedBuilderState.pages,
+  };
 
   const theme: ThemeConfig = {
     primaryColor: resolvedTokens['color.primary'],

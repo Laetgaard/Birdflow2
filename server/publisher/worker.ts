@@ -23,8 +23,10 @@ import {
   updatePublishJobStatus,
   completePublishJobIfNewest,
   failPublishJob,
+  type PublishFailureDetails,
 } from './publishJobs';
 import { publishWebsite } from './index';
+import { PublishTypeError } from './tscGate';
 import type { SiteLanguage } from '../../shared/siteLanguage';
 import { DEFAULT_SITE_LANGUAGE } from '../../shared/siteLanguage';
 import { storage } from '../storage';
@@ -95,11 +97,13 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       await failPublishJob(jobId, {
         errorCode: 'PUBLISH_FAILED',
         errorMessage: result.error ?? 'Publisher returned no URL',
+        failureDetails: result.failureDetails,
       });
       console.error('[Publish] publish_failed', {
         websiteId,
         publishJobId: jobId,
         error: result.error,
+        stage: result.failureDetails?.stage,
       });
       return;
     }
@@ -169,8 +173,32 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
   } catch (err: any) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[Publish] publish_failed', { websiteId, publishJobId: jobId, error: msg });
+
+    // Build structured failure details from the raw exception so the builder
+    // can surface a specific error message rather than a generic "try again".
+    let failureDetails: PublishFailureDetails;
+    if (err instanceof PublishTypeError) {
+      const firstErr = err.tscErrors[0];
+      failureDetails = {
+        stage: 'type_check',
+        errorMessage: msg,
+        ...(firstErr && { componentType: firstErr.file }),
+        timestamp: new Date().toISOString(),
+      };
+    } else {
+      failureDetails = {
+        stage: 'generating',
+        errorMessage: msg,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     try {
-      await failPublishJob(jobId, { errorCode: 'WORKER_ERROR', errorMessage: msg });
+      await failPublishJob(jobId, {
+        errorCode: 'WORKER_ERROR',
+        errorMessage: msg,
+        failureDetails,
+      });
     } catch (updateErr) {
       console.error('[Publish] Failed to mark job as failed:', updateErr);
     }

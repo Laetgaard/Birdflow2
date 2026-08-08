@@ -67,6 +67,13 @@ export const PUBLISH_JOB_DDL: SchemaStatement[] = [
           WHERE status NOT IN ('published', 'failed')`,
   },
   {
+    // Structured error details: stage, page, component, message. Stored as
+    // JSONB so the schema can evolve without a table migration. The column is
+    // always nullable — it is only populated on failure.
+    label: 'publish_jobs_failure_details_col',
+    sql: `ALTER TABLE publish_jobs ADD COLUMN IF NOT EXISTS publish_failure_details jsonb`,
+  },
+  {
     label: 'website_versions',
     sql: `CREATE TABLE IF NOT EXISTS website_versions (
       id             uuid    PRIMARY KEY DEFAULT gen_random_uuid(),

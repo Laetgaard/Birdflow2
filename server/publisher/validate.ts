@@ -103,6 +103,80 @@ export function validatePageComponents(
         }),
       );
     }
+
+    // 3. Custom AI-generated component checks
+    if (type === 'custom') {
+      validateCustomComponent(id, props, pageName);
+    }
+  }
+}
+
+// ── Custom component validation ───────────────────────────────────────────────
+
+/**
+ * Validate the structure of a custom (AI-generated) component.
+ * Checks that customTree is a valid node tree and all imageUrl fields are
+ * either a string URL or { url: string }.
+ */
+function validateCustomComponent(
+  componentId: string,
+  props: Record<string, unknown>,
+  pageName: string,
+): void {
+  // customTree must be an object with a "type" string field when present
+  if (props.customTree !== undefined) {
+    if (typeof props.customTree !== 'object' || props.customTree === null) {
+      throw new Error(
+        `Cannot publish page "${pageName}".\n\n` +
+          `Component: ${componentId} (custom)\n` +
+          `customTree must be an object node, got ${typeof props.customTree}`,
+      );
+    }
+    const tree = props.customTree as Record<string, unknown>;
+    if (!tree.type || typeof tree.type !== 'string') {
+      throw new Error(
+        `Cannot publish page "${pageName}".\n\n` +
+          `Component: ${componentId} (custom)\n` +
+          `customTree root node must have a "type" string field`,
+      );
+    }
+    // Recursively check all imageUrl fields in the tree
+    validateImageUrlsInNode(props.customTree, componentId, pageName);
+  }
+}
+
+/**
+ * Walk a node tree recursively and validate every imageUrl field found.
+ * Valid values: a non-empty string URL, or { url: string }.
+ */
+function validateImageUrlsInNode(
+  node: unknown,
+  componentId: string,
+  pageName: string,
+): void {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) validateImageUrlsInNode(item, componentId, pageName);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  if ('imageUrl' in obj && obj.imageUrl !== undefined && obj.imageUrl !== null) {
+    const v = obj.imageUrl;
+    const isStringUrl = typeof v === 'string';
+    const isUrlObject =
+      typeof v === 'object' && v !== null && 'url' in v && typeof (v as Record<string, unknown>).url === 'string';
+    if (!isStringUrl && !isUrlObject) {
+      throw new Error(
+        `Cannot publish page "${pageName}".\n\n` +
+          `Component: ${componentId} (custom)\n` +
+          `imageUrl must be a string URL or { url: string }, got: ${JSON.stringify(v)}`,
+      );
+    }
+  }
+  for (const value of Object.values(obj)) {
+    if (typeof value === 'object' && value !== null) {
+      validateImageUrlsInNode(value, componentId, pageName);
+    }
   }
 }
 

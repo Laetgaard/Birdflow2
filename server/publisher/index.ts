@@ -1,11 +1,12 @@
 import { generateNextJsProject, cleanupProject } from './generator';
+import { runTscGate, PublishTypeError } from './tscGate';
 import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, getProductionAliasUrlWithRetry, type VercelConfig } from './vercel';
 import type { BuilderStateData } from '../../shared/schema';
 import { DEFAULT_SITE_LANGUAGE, type SiteLanguage } from '../../shared/siteLanguage';
 import { collectReferencedSvgAssetIds, resolveSvgAssetsInState, type SvgAssetLike } from '../../shared/svgAssets';
 import { resolveDesignTokens } from '../../shared/designTokens';
 import { storage } from '../storage';
-import type { PublishJobStatus } from './publishJobs';
+import type { PublishJobStatus, PublishFailureDetails } from './publishJobs';
 
 export type PublishConfig = {
   websiteId: string;
@@ -44,11 +45,21 @@ export type PublishResult = {
   deploymentId?: string;
   vercelProjectId?: string;
   error?: string;
+  /**
+   * Structured failure metadata — populated on every failure path so the
+   * worker can persist it to `publish_failure_details` and return it to the
+   * builder via the poll endpoint.
+   */
+  failureDetails?: PublishFailureDetails;
 };
 
 export async function publishWebsite(config: PublishConfig): Promise<PublishResult> {
   let projectDir: string | null = null;
-  
+  // Tracks the pipeline stage that is currently executing so that the catch
+  // block can populate `failureDetails.stage` without needing separate try/catch
+  // wrappers for every operation.
+  let currentStage: PublishFailureDetails['stage'] = 'generating';
+
   try {
     const projectName = `site-${config.websiteId}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 
@@ -100,6 +111,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       }
     }
 
+    currentStage = 'generating';
     projectDir = await generateNextJsProject({
       websiteId: config.websiteId,
       siteName: config.siteName,
@@ -108,7 +120,14 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       supabaseAnonKey: config.supabaseAnonKey,
       language: config.language ?? DEFAULT_SITE_LANGUAGE,
     });
-    
+
+    // Type-check the generated source before uploading to Vercel. This catches
+    // implicit-any and other real TypeScript errors that would otherwise surface
+    // as an opaque Vercel build failure minutes later.
+    currentStage = 'type_check';
+    await runTscGate(projectDir);
+
+    currentStage = 'upload';
     const vercelConfig: VercelConfig = {
       token: config.vercelToken,
       teamId: config.vercelTeamId,
@@ -152,6 +171,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       vercelProjectId: projectId,
     });
 
+    currentStage = 'deployment';
     await config.onStatusUpdate?.('deploying', {
       vercelProjectId: projectId,
       vercelDeploymentId: deployment.id,
@@ -198,6 +218,13 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
         rawDeploymentUrl: readyDeployment.url,
         deploymentId: readyDeployment.id,
         vercelProjectId: projectId,
+        failureDetails: {
+          stage: 'alias',
+          errorMessage:
+            'Vercel did not finish assigning the public URL after deployment completed.',
+          vercelDeploymentId: readyDeployment.id,
+          timestamp: new Date().toISOString(),
+        },
       };
     }
 
@@ -210,9 +237,36 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     };
   } catch (error) {
     console.error('Publish error:', error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+
+    // Build structured failure details so the worker can persist them and the
+    // builder can surface a more specific error to the customer.
+    let failureDetails: PublishFailureDetails;
+    if (error instanceof PublishTypeError) {
+      // Gate failure: at least one implicit-any or type error in ComponentRenderer.
+      const firstErr = error.tscErrors[0];
+      failureDetails = {
+        stage: 'type_check',
+        errorMessage: errMsg,
+        ...(firstErr && {
+          // file is relative (e.g. "components/ComponentRenderer.tsx:5")
+          componentType: firstErr.file,
+        }),
+        timestamp: new Date().toISOString(),
+      };
+    } else {
+      // Normalization / validation / SVG / Vercel error.
+      failureDetails = {
+        stage: currentStage,
+        errorMessage: errMsg,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errMsg,
+      failureDetails,
     };
   } finally {
     if (projectDir) {
