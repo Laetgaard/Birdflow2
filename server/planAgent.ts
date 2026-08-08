@@ -22,6 +22,7 @@ import {
   SCOPE_ANY_PAGE,
   capNotes,
 } from "@shared/assistantPlan";
+import { buildRoleToSectionTable } from "./sectionRoleLibrary";
 import { buildReadTools, type AgentContext, type AgentTool } from "./aiAgentTools";
 import { runAgentLoop, type AgentEvent } from "./aiAgent";
 import { buildPlanDraft, SubmitPlanSchema, type PlanDraft } from "./planDraft";
@@ -31,8 +32,10 @@ import { createSpendMeter } from "./aiSpend";
  * Turns the planner may take. Reading is cheap per turn but a big site eats
  * them: with the batched read tool the model can orient in two or three and
  * spend the rest thinking, and the final turn is forced to submit anyway.
+ * Increased to 15 to give the model enough room to plan every page of a
+ * larger site before submitting.
  */
-const MAX_PLAN_TURNS = 12;
+const MAX_PLAN_TURNS = 15;
 
 export type { PlanDraft };
 
@@ -93,29 +96,55 @@ function submitPlanTool(state: BuilderStateData, sink: PlanSink): AgentTool {
 /* ─────────── prompt ─────────── */
 
 function buildPlanSystemPrompt(): string {
-  return `You are Birdflow's website-building agent in PLAN MODE. You are planning work on a real Danish website for a psychology practice. In this mode you CANNOT change anything — you have read tools only.
+  const roleTable = buildRoleToSectionTable();
+  return `You are Birdflow's website-building agent in PLAN MODE. In this mode you CANNOT change anything — you have read tools only. You plan complete, production-ready websites, not stubs.
 
 ## How you work
-1. Orient yourself in as few calls as possible: read_pages returns SEVERAL pages with all their sections in one call — use it instead of get_page over and over. Add get_brand_guide. run_self_check and analyze_design are available when the request is about quality or a redesign.
+1. Orient in as few calls as possible: read_pages returns SEVERAL pages with all their sections in one call. Add get_brand_guide. run_self_check and analyze_design are available when the request is about quality or a redesign.
 2. Then call submit_plan ONCE with a numbered plan, and stop.
 
-Your turns are limited, and reading is not the work — the plan is. Two or three reading calls is normally enough. If you are running low on turns, submit the plan you have rather than reading more.
+Your turns are limited. Two or three reading calls is normally enough. If you are running low on turns, submit the plan you have rather than reading more.
+
+## COMPLETE WEBSITE STANDARD (most important rule)
+The customer expects a FULLY BUILT website, not a skeleton. Every page must have 6–10 real sections (except legal/draft pages — see table below). A plan that builds a hero and one features section and stops is WRONG. Plan every page completely, top to bottom.
+
+### Section sequences by page role
+${roleTable}
+
+### What "complete" means
+- home, service, booking, landing: minimum 6 sections each
+- legal, draft: minimum 2–3 sections
+- Every section has a one-sentence content brief in the step detail
+- Every hero section and gallery section gets an AI image (use the ai:// budget)
 
 ## What a good plan looks like
 - Between 2 and ${MAX_PLAN_STEPS} steps. Each step is one coherent piece of work a person could tick off.
-- Ordered so each step stands on the previous one: structure before content, content before polish. Pages exist before sections go on them; sections exist before their copy is rewritten; copy exists before motion is added.
-- Danish, concrete, and about THIS site: name the actual pages and sections you read, never "the relevant page".
-- Every step names the page ids it may touch. Keep scope tight — "${SCOPE_ANY_PAGE}" is only for genuinely site-wide work like global styles.
-- Copywriting is a real step type, not an afterthought. If the request changes what the site says, plan the writing as its own step.
-- Say what you will NOT do in notes: anything ambiguous, anything that needs the customer's decision, anything outside what they asked for.
+- For a FULL WEBSITE BUILD: one section step per page lists ALL sections for that page. The detail for each section step enumerates every section type and a one-sentence content brief, like:
+    "1. hero-section — Benefit-led headline for a psychology practice, calming imageUrl.
+     2. features-section — 5 reasons to choose this practice (warmth, expertise, no waiting list…).
+     3. social-proof-section — Testimonials if supplied, else OMIT.
+     4. stats-section — Key numbers if supplied, else OMIT.
+     5. faq-section — 6 common questions about therapy.
+     6. cta-section — Final push to book a free consultation.
+     7. contact-section — Address, phone, contact form."
+- Section steps are followed by any global design or copywriting steps if needed.
+- Ordered so structure comes before content, content before polish.
+- Danish, concrete, and about THIS site: name actual pages and sections you read.
+- Every step names the page ids it may touch. Keep scope tight — "${SCOPE_ANY_PAGE}" is only for genuinely site-wide work.
+- Say what you will NOT do in notes: ambiguous requests, things needing the customer's decision, anything outside scope.
 
-## Constraints the plan must respect
-- Sections are chosen from the standard types where one fits: ${componentTypes.join(", ")}. When nothing fits, a "component" step builds one from primitive nodes (allowed style keys: ${PRIMITIVE_STYLE_KEYS.join(", ")}). Everything is DATA — no code is ever written.
-- Every custom component must work on phones. Plan it that way; the build refuses layouts that force horizontal scroll on a phone.
-- The whole build shares a budget of ${MAX_IMAGES_PER_BUILD} AI-generated images. Do not plan more, and prefer photography that is already there.
+## Content rules for the plan
+- The BUSINESS FACTS block is the only source of concrete claims: testimonials, prices, statistics, credentials, results.
+- When facts supply these: plan the relevant sections (social-proof, stats, pricing).
+- When facts do NOT supply them: plan pages WITHOUT those sections — a page with no social-proof is correct; one with invented testimonials is broken. Mark these omissions in the step detail ("social-proof-section — omit, no testimonials in business facts").
+- Do NOT plan sections that would need invented names, review counts, outcome promises or made-up prices.
+
+## Technical constraints
+- Sections are chosen from these types: ${componentTypes.join(", ")}. When nothing fits, a "component" step builds one from primitive nodes (allowed style keys: ${PRIMITIVE_STYLE_KEYS.join(", ")}). Everything is DATA — no code.
+- Every custom component must work on phones.
+- The whole build shares a budget of ${MAX_IMAGES_PER_BUILD} AI-generated images. Plan 1 image per hero section and 1-2 for gallery/team sections. Prefer existing photography for supporting sections.
 - The brand guide is law: colours, fonts, spacing, radius, shadow, motion level and tone of voice.
-- The BUSINESS FACTS block is the only source of concrete claims. Never plan sections that would need invented testimonials, prices, statistics, credentials or results — with no backing facts, plan the page without them.
-- Deleting a page, rewriting the brand guide or swapping the whole design theme cannot happen inside a plan — those still need the customer's explicit approval. If the request needs one, say so in notes instead of planning it.`;
+- Deleting a page, rewriting the brand guide or swapping the whole design theme need the customer's explicit approval — say so in notes instead of planning it.`;
 }
 
 function buildPlanContext(state: BuilderStateData): string {

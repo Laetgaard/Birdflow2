@@ -44,7 +44,18 @@ import { classifyChange, type LargeChangeVerdict } from "./largeChange";
    the end, in that order.
    ───────────────────────────────────────────────────────────── */
 
-export const MAX_IMAGES_PER_RUN = 3;
+import { MAX_IMAGES_PER_BUILD } from "@shared/assistantPlan";
+
+/**
+ * Maximum unique (aspect, description) images the generate_image tool will
+ * produce in one agent run. Aliased to MAX_IMAGES_PER_BUILD so a multi-step
+ * build that shares one imageCache across all steps enforces the per-build
+ * ceiling consistently, regardless of how many steps are in the plan.
+ *
+ * The old hardcoded value was 3; it is now driven by the shared constant so
+ * raising the budget only requires changing it in one place.
+ */
+export const MAX_IMAGES_PER_RUN = MAX_IMAGES_PER_BUILD;
 
 /** Everything a tool may read or change during one agent run. */
 export type AgentContext = {
@@ -657,7 +668,11 @@ export function buildToolCatalogue(): AgentTool[] {
           description,
           ctx.state.brandGuide as BrandGuide | undefined,
           aspect as ImageAspect,
-          ctx.spendMeter
+          ctx.spendMeter,
+          {
+            name: (ctx.state.businessContext as any)?.businessName,
+            description: (ctx.state.businessContext as any)?.description,
+          }
         );
         ctx.imageCache.set(key, url);
         ctx.createdImages.push(description);

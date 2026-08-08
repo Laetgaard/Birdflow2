@@ -238,9 +238,11 @@ export type BuildSummary = {
 
 /**
  * Every image in a build shares one budget. Deliberately per BUILD and not
- * per step: a ten-step plan must not be able to generate thirty images.
+ * per step: a ten-step plan must not be able to generate unlimited images.
+ * Increased from 3 to 8 so full multi-page sites can get a hero image per
+ * page plus a couple of extras for team/gallery sections.
  */
-export const MAX_IMAGES_PER_BUILD = 3;
+export const MAX_IMAGES_PER_BUILD = 8;
 
 /** A step gets one automatic retry before the build pauses on it. */
 export const MAX_STEP_ATTEMPTS = 2;

@@ -36,7 +36,7 @@ export const PlanStepDraftSchema = z.object({
         "component = build a custom component. cleanup = remove or reorder what is no longer needed."
     ),
   title: z.string().trim().min(3).max(120).describe("Short Danish imperative."),
-  detail: z.string().trim().min(3).max(600).describe("Concretely what changes, in Danish."),
+  detail: z.string().trim().min(3).max(1500).describe("Concretely what changes, in Danish. For section steps: list every section type with a one-sentence content brief."),
   pageIds: z
     .array(z.string().min(1))
     .min(1)

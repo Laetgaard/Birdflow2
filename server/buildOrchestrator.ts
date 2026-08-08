@@ -50,6 +50,8 @@ import { guardResponsive } from "./responsiveGuard";
 import { checkCopy, pageHeadings } from "./copyRules";
 import { describeScope, validateStepScope } from "./planScope";
 import { SCOPE_ANY_PAGE } from "@shared/assistantPlan";
+import { buildRoleToSectionTable, sectionContentRequirements, minSectionsForRole, isPageComplete } from "./sectionRoleLibrary";
+import { pageRole } from "@shared/siteStructure";
 import { storage } from "./storage";
 import {
   DEFAULT_SITE_LANGUAGE,
@@ -173,6 +175,10 @@ function buildStepSystemPrompt(
   index: number,
   lang: SiteLanguage = DEFAULT_SITE_LANGUAGE,
 ): string {
+  const isSectionStep = step.type === "section" || step.type === "page";
+  const roleTable = isSectionStep ? buildRoleToSectionTable() : "";
+  const contentReqs = isSectionStep ? sectionContentRequirements() : "";
+
   return `You are Birdflow's website-building agent, executing ONE step of a plan the customer has already approved. You work by CALLING TOOLS on a real website — you never output website JSON, and you never write code.
 
 ## The plan
@@ -182,15 +188,48 @@ function buildStepSystemPrompt(
 ${index + 1}. [${step.type}] ${step.title}
 ${step.detail}
 
-## Rules for this step
+## Core rules for this step
 - Do THIS step and nothing else. Later steps belong to later runs; earlier steps are already done. The server enforces it: a mutation outside this step's scope is refused and you will have to correct yourself.
-- A "${step.type}" step may only use these actions: they are the ones the customer approved for it. If you think the plan is wrong, finish with a Danish note saying so rather than doing something else.
+- A "${step.type}" step may only use these actions: they are the ones the customer approved for it.
 - The brand guide is LAW: only its colours and fonts, its spacing, radius, shadow and motion levels, its tone of voice.
 - ${copyLanguageInstruction(lang)} All user-visible copy is specific and concrete. Never lorem ipsum, never placeholder text — those are rejected automatically and you will have to rewrite them.
 - Custom components must work on phones: always give tabletStyles and mobileStyles alongside base styles. Fixed widths and grids that cannot collapse are rejected automatically.
-- The image budget of ${MAX_IMAGES_PER_BUILD} is shared by the WHOLE build, not by this step. Prefer photography that is already on the site.
-- Orient before you write: get_page on the page you are about to change.
-- When the step is done, call finish with a one-sentence Danish summary of what you actually changed.`;
+- The image budget of ${MAX_IMAGES_PER_BUILD} is shared by the WHOLE build. Use ai:// markers for hero images and gallery/team images; use Unsplash URLs for generic supporting photography.
+- Orient before you write: call get_page on the page you are about to change.
+- When the step is done, call finish with a one-sentence Danish summary of what you actually changed.
+${isSectionStep ? `
+## COMPLETE SECTIONS — this is a section/page build step
+
+This step adds MULTIPLE sections. You MUST build EVERY section listed in "Your step" above, from top to bottom. Do NOT stop after the first section — a step that leaves sections unbuilt is a failed step.
+
+### Workflow
+1. Call get_page to read the current state of the page.
+2. For EACH section listed in the step detail, call add_section with real, complete Danish copy — never placeholders.
+3. After all sections are added, call finish.
+
+### Section content requirements
+For each section you add, the customContent MUST be fully written:
+  ${contentReqs}
+
+### Image rules for this step
+- Every hero-section: set imageUrl to "ai://[vivid 15-25 word Danish scene description matching the business and brand — specific subject, composition, mood, lighting]". Good: "ai://Roligt behandlingslokale med blødt naturlys, minimalistisk skandinavisk indretning, lys træ og planter, varm og tryg atmosfære". Bad: "ai://a room".
+- gallery-section, team-section: set each item imageUrl to "ai://[description]".
+- Other sections: use Unsplash URLs or omit imageUrl.
+
+### Role-to-section reference (for sections you add to each page type)
+${roleTable}
+
+### Social proof and numbers rule
+- ONLY add social-proof-section, stats-section, pricing-section, reviews-section when the business facts supply testimonials, statistics, or prices. If the step detail says "omit — no facts supplied", skip that section. A page without a social-proof section is correct; a page with invented testimonials is broken.
+
+### Copy quality for each section type
+- hero title: 6-10 words, benefit-led, specific to THIS business — not generic
+- features items: 4-6 items, each title 4-6 words + description 2-3 full sentences explaining the benefit
+- faq items: 5-8 real questions customers ask, each with a 2-4 sentence answer
+- cta: punchy 5-8 word title that creates desire, specific buttonText (not "Klik her")
+- services items: describe each service concretely, what it involves, who it is for
+- timeline items: numbered steps of a real process, written as what the customer experiences
+` : ""}`;
 }
 
 function buildStepUserMessage(
@@ -338,6 +377,34 @@ export function resumedSpendUsd(args: {
 
   // The totals are cumulative, so the largest is what the build had spent.
   return alreadyRun.reduce((most, r) => Math.max(most, r.spentUsd ?? 0), 0);
+}
+
+/**
+ * After a build completes, check each page's section count against the
+ * minimum for its role. Returns Danish notes for any thin page, so the
+ * customer knows which pages to improve in a follow-up plan.
+ *
+ * These are appended to the final step's notes — they surface naturally in
+ * the build summary card without needing a new field on the schema.
+ */
+function buildCompletenessNotes(state: BuilderStateData): string[] {
+  const notes: string[] = [];
+  for (const page of state.pages) {
+    // Use the authoritative pageRole() helper so untagged pages (home pages
+    // without an explicit .role field) get the correct inferred role instead
+    // of falling back to the permissive "draft" threshold.
+    const role = pageRole(page as any);
+    const sectionCount = (page.components ?? []).length;
+    if (!isPageComplete(role, sectionCount)) {
+      const min = minSectionsForRole(role);
+      notes.push(
+        `Siden "${page.name}" har ${sectionCount} sektion${sectionCount === 1 ? "" : "er"} ` +
+          `— anbefalet minimum for "${role}"-sider er ${min}. ` +
+          `Lav en ny plan for at tilføje de manglende sektioner.`
+      );
+    }
+  }
+  return notes;
 }
 
 export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> {
@@ -509,9 +576,13 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
         // The review's model call charged the build's meter, so the last
         // step's running total must include it — the numbers the customer
         // sees add up to what actually ran.
+        // Completeness check: flag pages with too few sections so the
+        // customer knows which pages need a follow-up plan.
+        const completenessNotes = buildCompletenessNotes(finalState);
         results[results.length - 1] = {
           ...results[results.length - 1],
           review,
+          notes: [...(results[results.length - 1].notes ?? []), ...completenessNotes],
           spentUsd: spendMeter.spentUsd,
         };
       }
@@ -608,6 +679,20 @@ async function runStep(args: {
     approvedLargeChanges: args.approvedLargeChanges,
     guard: makeStepGuard(step),
   };
+
+  // Emit a granular opening label so the panel shows the right verb for
+  // the step type before the first tool call fires.
+  const openingLabel =
+    step.type === "section" || step.type === "page"
+      ? "Bygger sektioner..."
+      : step.type === "copywriting"
+        ? "Skriver tekst..."
+        : step.type === "design"
+          ? "Opdaterer design..."
+          : step.type === "image"
+            ? "Genererer billeder..."
+            : "Arbejder...";
+  emit({ type: "step_progress", index, label: openingLabel });
 
   // Tool events become build events so the panel shows real work per step,
   // not a spinner. Refusals are recorded: the report must be able to say

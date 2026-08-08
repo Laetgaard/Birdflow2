@@ -27,7 +27,7 @@ import { meteredImage } from "./aiCall";
 import type { SpendMeter } from "./aiSpend";
 
 export const AI_IMAGE_MARKER = "ai://";
-export const MAX_AI_IMAGES_PER_REQUEST = 3;
+export const MAX_AI_IMAGES_PER_REQUEST = 5;
 
 export type ImageAspect = "square" | "landscape" | "portrait";
 
@@ -41,9 +41,26 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/** Ground the image prompt in the brand guide so visuals stay on-brand. */
-function buildImagePrompt(description: string, brandGuide?: BrandGuide): string {
+/**
+ * Ground the image prompt in the brand guide and optional business context
+ * so visuals stay on-brand and relevant to this specific business.
+ *
+ * `businessName` and `siteDescription` improve prompt relevance when the
+ * caller has them — neither is required, and both are ignored when blank.
+ */
+function buildImagePrompt(
+  description: string,
+  brandGuide?: BrandGuide,
+  businessName?: string,
+  siteDescription?: string
+): string {
   const parts = [description.trim()];
+
+  // Ground the image in the specific business so generic "people" become
+  // "clients of a psychology practice" instead of stock photo strangers.
+  if (businessName) parts.push(`Business: ${businessName}`);
+  if (siteDescription) parts.push(`Context: ${siteDescription.slice(0, 120)}`);
+
   if (brandGuide) {
     switch (brandGuide.imageryStyle) {
       case "illustration":
@@ -59,7 +76,7 @@ function buildImagePrompt(description: string, brandGuide?: BrandGuide): string 
         parts.push("Style: bold, high contrast, dramatic lighting");
         break;
       default:
-        parts.push("Style: professional photography, natural light");
+        parts.push("Style: professional photography, natural light, high quality");
     }
     const c = brandGuide.colors;
     if (c) {
@@ -67,6 +84,8 @@ function buildImagePrompt(description: string, brandGuide?: BrandGuide): string 
     }
     if (brandGuide.imageryNotes) parts.push(`Art direction: ${brandGuide.imageryNotes}`);
     if (brandGuide.keywords?.length) parts.push(`Brand keywords: ${brandGuide.keywords.join(", ")}`);
+  } else {
+    parts.push("Style: professional photography, natural light, high quality");
   }
   parts.push("No text, no words, no logos, no watermarks in the image");
   return parts.join(". ");
@@ -83,11 +102,13 @@ export async function generateAndStoreImage(
   brandGuide?: BrandGuide,
   aspect: ImageAspect = "landscape",
   /** The run's meter, when this image belongs to a larger run. */
-  meter?: SpendMeter
+  meter?: SpendMeter,
+  /** Optional business name and description to ground the image in the real business. */
+  businessContext?: { name?: string; description?: string }
 ): Promise<{ url: string; mediaId: string }> {
   const result = await meteredImage(
     {
-      prompt: buildImagePrompt(description, brandGuide),
+      prompt: buildImagePrompt(description, brandGuide, businessContext?.name, businessContext?.description),
       size: ASPECT_SIZE[aspect],
       quality: "medium",
     },
@@ -344,7 +365,9 @@ export async function resolveAiImageMarkers(
   mutations: BuilderMutation[],
   brandGuide?: BrandGuide,
   /** The meter of the run that asked, when this is part of a larger run. */
-  meter?: SpendMeter
+  meter?: SpendMeter,
+  /** Optional business context to ground images in the real business. */
+  businessContext?: { name?: string; description?: string }
 ): Promise<ResolvedImages> {
   const cloned = structuredClone(mutations);
   const slots: MarkerSlot[] = [];
@@ -381,7 +404,8 @@ export async function resolveAiImageMarkers(
           job.description,
           brandGuide,
           job.aspect,
-          meter
+          meter,
+          businessContext
         );
         job.url = url;
       } catch (error) {
