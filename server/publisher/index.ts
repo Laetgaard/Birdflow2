@@ -1,10 +1,11 @@
 import { generateNextJsProject, cleanupProject } from './generator';
-import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, getProductionAliasUrl, type VercelConfig } from './vercel';
+import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, getProductionAliasUrlWithRetry, type VercelConfig } from './vercel';
 import type { BuilderStateData } from '../../shared/schema';
 import { DEFAULT_SITE_LANGUAGE, type SiteLanguage } from '../../shared/siteLanguage';
 import { collectReferencedSvgAssetIds, resolveSvgAssetsInState, type SvgAssetLike } from '../../shared/svgAssets';
 import { resolveDesignTokens } from '../../shared/designTokens';
 import { storage } from '../storage';
+import type { PublishJobStatus } from './publishJobs';
 
 export type PublishConfig = {
   websiteId: string;
@@ -19,15 +20,29 @@ export type PublishConfig = {
   vercelToken: string;
   vercelTeamId?: string;
   customDomain?: string;
-  birdflowApiUrl: string; // Required: BirdFlow API URL for email callbacks
+  birdflowApiUrl: string; // Required: BirdFlow platform URL for email callbacks
   /** Language the site is written in - drives document lang and baked-in copy. */
   language?: SiteLanguage;
+  /**
+   * Called as the pipeline advances through stages so a job record can be
+   * kept in sync. Optional — callers that don't need status tracking can omit.
+   */
+  onStatusUpdate?: (
+    status: PublishJobStatus,
+    extra?: { vercelProjectId?: string; vercelDeploymentId?: string; deploymentUrl?: string }
+  ) => Promise<void>;
 };
 
 export type PublishResult = {
   success: boolean;
+  /** The stable public production alias (*.vercel.app) or custom domain URL.
+   *  NEVER the hashed per-deployment URL. */
   deploymentUrl?: string;
+  /** The raw hashed Vercel deployment URL — stored for internal reference only,
+   *  never shown to customers. */
+  rawDeploymentUrl?: string;
   deploymentId?: string;
+  vercelProjectId?: string;
   error?: string;
 };
 
@@ -125,24 +140,67 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     }
     
     await setProjectEnvVars(projectId, vercelConfig, envVars);
-    
+
+    // Signal: about to upload files to Vercel
+    await config.onStatusUpdate?.('uploading', { vercelProjectId: projectId });
+
+    // Upload files to Vercel and kick off the remote build
     const deployment = await deployProject(projectId, projectDir, projectName, vercelConfig);
+    console.log('[Publish] vercel_deployment_created', {
+      websiteId: config.websiteId,
+      deploymentId: deployment.id,
+      vercelProjectId: projectId,
+    });
+
+    await config.onStatusUpdate?.('deploying', {
+      vercelProjectId: projectId,
+      vercelDeploymentId: deployment.id,
+      deploymentUrl: deployment.url,
+    });
     
+    // Poll until Vercel reports READY (or throws on ERROR/timeout)
     const readyDeployment = await waitForDeployment(deployment.id, vercelConfig);
+    console.log('[Publish] vercel_deployment_ready', {
+      websiteId: config.websiteId,
+      deploymentId: readyDeployment.id,
+    });
+
+    await config.onStatusUpdate?.('waiting_for_alias', {
+      vercelProjectId: projectId,
+      vercelDeploymentId: readyDeployment.id,
+      deploymentUrl: readyDeployment.url,
+    });
     
     if (config.customDomain) {
       await addCustomDomain(projectId, config.customDomain, vercelConfig);
     }
     
-    // Store the stable public alias, not the per-deployment hashed URL
-    // (hashed URLs can sit behind Vercel SSO protection and also change on
-    // every publish, which breaks host-based website detection).
-    const stableUrl = await getProductionAliasUrl(projectId, vercelConfig);
+    // Resolve the stable public alias — with retry, because Vercel can take a
+    // few seconds to assign it after the deployment becomes READY.
+    //
+    // IMPORTANT: if the alias is not available after all retries we return
+    // success:false. We NEVER fall back to readyDeployment.url because that
+    // hashed per-deployment URL is SSO-protected and would make the customer
+    // site unreachable.
+    const stableUrl = await getProductionAliasUrlWithRetry(projectId, vercelConfig);
     
+    if (!stableUrl) {
+      return {
+        success: false,
+        error:
+          'Website deployed, but Vercel did not finish assigning its public URL. Try publishing again.',
+        rawDeploymentUrl: readyDeployment.url,
+        deploymentId: readyDeployment.id,
+        vercelProjectId: projectId,
+      };
+    }
+
     return {
       success: true,
-      deploymentUrl: stableUrl || readyDeployment.url,
+      deploymentUrl: stableUrl,
+      rawDeploymentUrl: readyDeployment.url,
       deploymentId: readyDeployment.id,
+      vercelProjectId: projectId,
     };
   } catch (error) {
     console.error('Publish error:', error);

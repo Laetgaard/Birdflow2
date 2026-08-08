@@ -13,6 +13,7 @@ import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
 import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
 import { startSvgAssetSchema } from "./svgAssetSchema";
+import { startPublishJobSchema } from "./publisher/publishJobSchema";
 import { registerSeoRoutes } from "./seo";
 
 const app = express();
@@ -185,6 +186,7 @@ app.use((req, res, next) => {
   // simply stays inline in the builder state, which both renderers render
   // exactly as before.
   void startSvgAssetSchema(db);
+  void startPublishJobSchema(db);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

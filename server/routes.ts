@@ -18,7 +18,19 @@ import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp } from "dri
 import { z, ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
-import { resolveBirdflowApiUrl } from "./publisher/platformUrl";
+import { resolvePlatformUrl } from "./publisher/platformUrl";
+import {
+  createPublishJob,
+  createWebsiteVersion,
+  getPublishJob,
+  getActivePublishJob,
+  getPublishJobByDeploymentId,
+  completePublishJob,
+  failPublishJob,
+} from "./publisher/publishJobs";
+import { isPublishJobSchemaReady } from "./publisher/publishJobSchema";
+import { runPublishJob } from "./publisher/worker";
+import type { WorkerConfig } from "./publisher/worker";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
 import { syncStripeConnectStatus, resolveAppOrigin } from "./stripeConnect";
 import { 
@@ -2839,143 +2851,241 @@ export async function registerRoutes(
   // ============ PUBLISH ROUTE ============
 
   // Publish a website to Vercel
+  // ── Publish (async) ──────────────────────────────────────────────────────
+  // Returns 202 immediately with a jobId; the real Vercel pipeline runs in a
+  // background worker. The builder polls GET /api/publish-jobs/:jobId for status.
+  //
+  // Publishing no longer depends on REPLIT_DEPLOYMENT or a live Replit
+  // production deployment — it works from the dev workspace, locally, and
+  // from any future host, as long as BIRDFLOW_PUBLIC_PLATFORM_URL is set.
   app.post("/api/websites/:id/publish", requireAuth, async (req, res) => {
     try {
       const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
+
+      if (!isPublishJobSchemaReady()) {
+        return res.status(503).json({ message: "Publish system is starting up. Please try again in a moment." });
       }
 
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
-      }
+      const website = await storage.getWebsite(req.params.id);
+      if (!website) return res.status(404).json({ message: "Website not found" });
+      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
 
       const builderState = await storage.getBuilderState(req.params.id);
-      if (!builderState) {
-        return res.status(400).json({ message: "No builder state found" });
-      }
+      if (!builderState) return res.status(400).json({ message: "No builder state found" });
 
       const vercelToken = process.env.VERCEL_TOKEN;
-      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
       if (!vercelToken) {
         return res.status(400).json({ message: "Vercel token not configured. Please add VERCEL_TOKEN to secrets." });
       }
-
       if (!supabaseUrl || !supabaseAnonKey) {
         return res.status(400).json({ message: "Supabase not configured" });
       }
 
-      // Fetch payment settings for this website (owner's own Stripe credentials)
+      // BIRDFLOW_PUBLIC_PLATFORM_URL (or legacy BIRDFLOW_API_URL) must be set so
+      // the published site's analytics tracker and email callbacks point at the
+      // correct platform — not a dev/preview domain that rotates or sleeps.
+      const platformUrl = resolvePlatformUrl();
+      if (!platformUrl) {
+        return res.status(500).json({
+          message:
+            "BirdFlow platform URL is not configured. Set BIRDFLOW_PUBLIC_PLATFORM_URL (e.g. https://bird-flow.app) so published sites can deliver analytics and emails.",
+        });
+      }
+
+      // Idempotency: reject if a publish is already running for this site.
+      // The client passes an optional idempotency_key so double-clicks / retries
+      // don't create duplicate jobs.
+      const idempotencyKey: string | undefined = req.body?.idempotencyKey;
+      const existingActive = await getActivePublishJob(req.params.id);
+      if (existingActive) {
+        // Same idempotency key → return the existing job (not an error)
+        if (idempotencyKey && existingActive.idempotencyKey === idempotencyKey) {
+          return res.status(202).json({ jobId: existingActive.id, status: existingActive.status });
+        }
+        return res.status(409).json({
+          message: "A publish is already in progress. Please wait for it to complete before publishing again.",
+          jobId: existingActive.id,
+        });
+      }
+
+      // Collect Stripe credentials (optional; warning only when absent)
       let stripeSecretKey: string | undefined;
       let stripePublishableKey: string | undefined;
       let stripeWebhookSecret: string | undefined;
       let stripeWarning: string | undefined;
-      
+
       const paymentSettings = await storage.getPaymentSettings(req.params.id);
       if (paymentSettings?.isConnected && paymentSettings.stripeSecretKey) {
         stripeSecretKey = paymentSettings.stripeSecretKey;
         stripePublishableKey = paymentSettings.stripePublishableKey || undefined;
         stripeWebhookSecret = paymentSettings.stripeWebhookSecret || undefined;
-        
         if (paymentSettings.testMode) {
-          stripeWarning = 'Your Stripe account is connected with test mode keys. Switch to live keys in Payment Settings to accept real payments.';
+          stripeWarning = 'Your Stripe account is connected with test mode keys.';
         }
       } else {
-        console.log('No Stripe payment settings configured for website', req.params.id);
-        stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Connect your Stripe account in Payment Settings to enable payments.';
+        stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site.';
       }
 
-      // The platform URL baked into the published site (analytics tracker +
-      // email callbacks). Strict resolution - a stale or dev-only URL here
-      // silently kills the site's analytics pipeline until the next
-      // republish (see resolveBirdflowApiUrl). Never fall back to the dev
-      // workspace domain or the request host.
-      const birdflowApiUrl = resolveBirdflowApiUrl();
-      if (!birdflowApiUrl) {
-        return res.status(500).json({
-          message:
-            "BirdFlow platform URL is not configured. Set the BIRDFLOW_API_URL environment variable (e.g. https://bird-flow.com) so published sites can deliver analytics and emails.",
-        });
-      }
-      console.log('[Publish] Using BirdFlow API URL:', birdflowApiUrl);
-
-      // Check for active custom domains to include in deployment
+      // Active custom domain (if any) — passed to the worker so it can attach it.
       let activeCustomDomain: string | undefined;
       try {
         const customDomains = await storage.getCustomDomains(req.params.id);
         const activeDomain = customDomains.find(d => d.status === 'active');
-        if (activeDomain) {
-          activeCustomDomain = activeDomain.domain;
-          console.log('[Publish] Including active custom domain:', activeCustomDomain);
-        }
+        if (activeDomain) activeCustomDomain = activeDomain.domain;
       } catch (domainErr) {
         console.error('[Publish] Failed to fetch custom domains:', domainErr);
       }
 
-      const result = await publishWebsite({
+      // Create the publish job row first, then snapshot the builder state.
+      const job = await createPublishJob({
+        websiteId: req.params.id,
+        requestedBy: user.id,
+        idempotencyKey,
+      });
+
+      // Immutable snapshot — the worker deploys exactly this version.
+      // The customer can keep editing after clicking Publish.
+      await createWebsiteVersion({
+        websiteId: req.params.id,
+        publishJobId: job.id,
+        content: builderState.state as BuilderStateData,
+      });
+
+      console.log('[Publish] snapshot_created', { websiteId: req.params.id, publishJobId: job.id });
+
+      // Return 202 immediately so the UI can start polling.
+      res.status(202).json({
+        jobId: job.id,
+        status: 'queued',
+        warning: stripeWarning,
+      });
+
+      // Fire-and-forget: the worker runs the full Vercel pipeline independently
+      // of this HTTP response. If the server restarts, the job stays in its
+      // last status and the customer can republish.
+      const workerCfg: WorkerConfig = {
+        jobId: job.id,
         websiteId: req.params.id,
         siteName: website.name,
-        builderState: builderState.state as BuilderStateData,
+        snapshotContent: builderState.state as BuilderStateData,
         supabaseUrl,
         supabaseAnonKey,
-        supabaseServiceRoleKey: supabaseServiceRoleKey || '',
+        supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
         stripeSecretKey,
         stripePublishableKey,
         stripeWebhookSecret,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
         customDomain: activeCustomDomain,
-        birdflowApiUrl,
+        platformUrl,
         language: normalizeSiteLanguage(website.language),
-      });
-
-      if (result.success) {
-        // If there's an active custom domain, preserve it as the deployment URL
-        const deploymentUrl = activeCustomDomain
-          ? `https://${activeCustomDomain}`
-          : result.deploymentUrl;
-
-        await storage.updateWebsite(req.params.id, user.id, {
-          status: 'published',
-          deploymentUrl,
-          deploymentId: result.deploymentId,
-        } as any);
-
-        // Send website published notification email
-        try {
-          const ownerProfile = await storage.getProfile(user.id);
-          if (ownerProfile?.email && deploymentUrl) {
-            await emailService.sendWebsitePublished(
-              ownerProfile.email,
-              req.params.id,
-              website.name,
-              deploymentUrl
-            );
-            console.log(`Website published email sent to ${ownerProfile.email}`);
-          }
-        } catch (emailErr) {
-          console.error(`Failed to send website published email:`, emailErr);
-        }
-
-        res.json({
-          success: true,
-          deploymentUrl,
-          message: stripeWarning ? `Website published successfully. Warning: ${stripeWarning}` : "Website published successfully",
-          warning: stripeWarning,
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          error: result.error,
-        });
-      }
+        requestedBy: user.id,
+      };
+      setImmediate(() => { void runPublishJob(workerCfg); });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
+
+  // ── Poll publish job status ───────────────────────────────────────────────
+  app.get("/api/publish-jobs/:jobId", requireAuth, async (req, res) => {
+    try {
+      if (!isPublishJobSchemaReady()) {
+        return res.status(503).json({ message: "Publish system is starting up." });
+      }
+      const user = (req as any).user;
+      const job = await getPublishJob(req.params.jobId);
+      if (!job) return res.status(404).json({ message: "Publish job not found" });
+      // Authorization: only the owner of the website may read this job
+      const website = await storage.getWebsite(job.websiteId);
+      if (!website || website.ownerId !== user.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      res.json({
+        jobId: job.id,
+        status: job.status,
+        productionUrl: job.productionUrl,
+        errorCode: job.errorCode,
+        errorMessage: job.errorMessage,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── Vercel deployment webhook ─────────────────────────────────────────────
+  // Receives deployment-ready / error events from Vercel so completion is
+  // event-driven rather than polling. The worker still polls as the primary
+  // path; this handler resolves any jobs that finish after the worker's
+  // polling window ends.
+  app.post(
+    "/api/webhooks/vercel",
+    express.raw({ type: 'application/json' }),
+    async (req, res) => {
+      try {
+        const webhookSecret = process.env.VERCEL_WEBHOOK_SECRET;
+        if (webhookSecret) {
+          const sig = req.headers['x-vercel-signature'] as string | undefined;
+          if (!sig) return res.status(400).json({ message: "Missing signature" });
+          const { createHmac } = await import('crypto');
+          const expected = createHmac('sha1', webhookSecret)
+            .update(req.body)
+            .digest('hex');
+          if (sig !== expected) return res.status(401).json({ message: "Invalid signature" });
+        }
+
+        const body = JSON.parse(req.body.toString('utf-8'));
+        const type: string = body.type ?? '';
+        const deploymentId: string = body.payload?.deployment?.id ?? '';
+
+        if (!deploymentId) return res.status(200).json({ ok: true }); // Not a deployment event
+
+        // Idempotent: skip events that don't change terminal state
+        if (!['deployment.succeeded', 'deployment.error'].includes(type)) {
+          return res.status(200).json({ ok: true });
+        }
+
+        const job = await getPublishJobByDeploymentId(deploymentId);
+        if (!job || job.status === 'published' || job.status === 'failed') {
+          // Already in terminal state — idempotent no-op
+          return res.status(200).json({ ok: true });
+        }
+
+        if (type === 'deployment.succeeded') {
+          const productionUrl: string | undefined =
+            body.payload?.links?.deployment ?? undefined;
+          if (productionUrl && !productionUrl.includes('-projects-')) {
+            await completePublishJob(job.id, {
+              productionUrl,
+              deploymentUrl: body.payload?.deployment?.url
+                ? `https://${body.payload.deployment.url}`
+                : productionUrl,
+              vercelProjectId: job.vercelProjectId ?? '',
+              vercelDeploymentId: deploymentId,
+            });
+            await storage.updateWebsite(job.websiteId, job.requestedBy, {
+              status: 'published',
+              deploymentUrl: productionUrl,
+              deploymentId,
+            } as any);
+          }
+        } else if (type === 'deployment.error') {
+          // Already guarded by the early return above (job.status is never 'published' here)
+          await failPublishJob(job.id, {
+            errorCode: 'VERCEL_DEPLOYMENT_ERROR',
+            errorMessage: body.payload?.deployment?.errorMessage ?? 'Vercel deployment failed',
+          });
+        }
+
+        res.status(200).json({ ok: true });
+      } catch (error: any) {
+        console.error('[Vercel webhook] error:', error.message);
+        res.status(200).json({ ok: true }); // Always 200 to Vercel
+      }
+    }
+  );
 
   // ============ MEDIA ASSETS ROUTES ============
 

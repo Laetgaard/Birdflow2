@@ -247,6 +247,40 @@ export async function getProductionAliasUrl(
   }
 }
 
+/**
+ * Retry-aware wrapper around getProductionAliasUrl.
+ *
+ * Vercel may take a few seconds after READY before the production alias
+ * appears in the project metadata. 4 attempts × 3 s gives 12 s of grace
+ * without blocking the deploy indefinitely.
+ *
+ * Returns null only when all attempts are exhausted — callers MUST treat
+ * null as a hard failure and NOT fall back to the hashed deployment URL
+ * (which is SSO-protected on this plan).
+ */
+export async function getProductionAliasUrlWithRetry(
+  projectId: string,
+  config: VercelConfig,
+  options: { maxAttempts?: number; delayMs?: number } = {}
+): Promise<string | null> {
+  const maxAttempts = options.maxAttempts ?? 4;
+  const delayMs = options.delayMs ?? 3_000;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`[Publish] alias_lookup_attempt ${attempt}/${maxAttempts}`, { projectId });
+    const alias = await getProductionAliasUrl(projectId, config);
+    if (alias) {
+      console.log('[Publish] production_alias_found', { projectId, alias });
+      return alias;
+    }
+    if (attempt < maxAttempts) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  console.warn('[Publish] alias_lookup_exhausted', { projectId, maxAttempts });
+  return null;
+}
+
 export async function waitForDeployment(
   deploymentId: string,
   config: VercelConfig,

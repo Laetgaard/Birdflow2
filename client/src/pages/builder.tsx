@@ -155,6 +155,8 @@ export default function BuilderPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishJobId, setPublishJobId] = useState<string | null>(null);
+  const [publishProgress, setPublishProgress] = useState('');
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
   const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null);
@@ -710,6 +712,60 @@ export default function BuilderPage() {
     }
   }, [isLoading, builderState]);
 
+  // Poll job status every 3 s until the publish succeeds or fails.
+  // The effect is activated by storing a jobId in publishJobId state after
+  // POST /api/websites/:id/publish returns 202.
+  useEffect(() => {
+    if (!publishJobId || !session) return;
+
+    const LABELS: Record<string, string> = {
+      queued: 'Queued…',
+      generating: 'Generating site…',
+      uploading: 'Uploading files…',
+      deploying: 'Deploying…',
+      waiting_for_alias: 'Finalising URL…',
+    };
+
+    const intervalId = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/publish-jobs/${publishJobId}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!r.ok) return; // transient error — keep polling
+
+        const job = await r.json();
+        if (LABELS[job.status]) setPublishProgress(LABELS[job.status]);
+
+        if (job.status === 'published') {
+          clearInterval(intervalId);
+          setPublishJobId(null);
+          setIsPublishing(false);
+          setPublishProgress('');
+          if (job.productionUrl) {
+            setWebsite(prev =>
+              prev ? { ...prev, status: 'published', deploymentUrl: job.productionUrl } : prev
+            );
+          }
+          toast({ title: 'Published!', description: `Your site is live at ${job.productionUrl}` });
+        } else if (job.status === 'failed') {
+          clearInterval(intervalId);
+          setPublishJobId(null);
+          setIsPublishing(false);
+          setPublishProgress('');
+          toast({
+            title: 'Publish failed',
+            description: job.errorMessage || 'An error occurred while publishing. Please try again.',
+            variant: 'destructive',
+          });
+        }
+      } catch {
+        // Transient network error — keep polling
+      }
+    }, 3_000);
+
+    return () => clearInterval(intervalId);
+  }, [publishJobId, session, toast]);
+
   const publishSite = useCallback(async () => {
     if (!session || !id || !builderState) return;
 
@@ -725,6 +781,7 @@ export default function BuilderPage() {
     }
 
     setIsPublishing(true);
+    setPublishProgress('Queued…');
     try {
       const response = await fetch(`/api/websites/${id}/publish`, {
         method: "POST",
@@ -732,26 +789,40 @@ export default function BuilderPage() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
+        body: JSON.stringify({
+          idempotencyKey: `${id}-${Date.now()}`,
+        }),
       });
 
       const data = await response.json();
+
+      if (response.status === 202) {
+        // Async publish: store the jobId so the polling effect kicks in
+        setPublishJobId(data.jobId);
+        if (data.warning) {
+          toast({ title: "Publishing…", description: data.warning });
+        }
+        // isPublishing stays true — the polling effect will clear it
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(data.error || data.message || "Failed to publish");
       }
 
+      // Synchronous success (should not happen with new backend, kept for safety)
       setWebsite(prev => prev ? { ...prev, status: 'published', deploymentUrl: data.deploymentUrl } : prev);
-      
-      toast({ 
-        title: "Published!", 
-        description: `Your site is live at ${data.deploymentUrl}`,
-      });
+      toast({ title: "Published!", description: `Your site is live at ${data.deploymentUrl}` });
     } catch (error: any) {
       toast({ title: "Publish failed", description: error.message, variant: "destructive" });
     } finally {
-      setIsPublishing(false);
+      // Only clear if we didn't hand off to the polling effect
+      if (!publishJobId) {
+        setIsPublishing(false);
+        setPublishProgress('');
+      }
     }
-  }, [session, id, builderState, saveState, toast]);
+  }, [session, id, builderState, saveState, toast, publishJobId]);
 
   const addComponent = (type: ComponentType) => {
     if (!builderState) return;
