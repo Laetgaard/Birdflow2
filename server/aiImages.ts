@@ -83,6 +83,10 @@ function buildImagePrompt(
       parts.push(`Color mood: primary ${c.primary}, accent ${c.accent}, background ${c.background}`);
     }
     if (brandGuide.imageryNotes) parts.push(`Art direction: ${brandGuide.imageryNotes}`);
+    // Illustration style overrides the generic imageryStyle hint for AI-generated images
+    if (brandGuide.illustrationStyle) {
+      parts.push(`Illustration direction: ${brandGuide.illustrationStyle.slice(0, 300)}`);
+    }
     if (brandGuide.keywords?.length) parts.push(`Brand keywords: ${brandGuide.keywords.join(", ")}`);
   } else {
     parts.push("Style: professional photography, natural light, high quality");
@@ -394,7 +398,31 @@ export async function resolveAiImageMarkers(
 
   if (slots.length === 0) return { mutations: cloned, created: [], notes: [] };
 
-  const { jobs, skippedSlots: skipped } = planImageJobs(slots);
+  const created: string[] = [];
+  const notes: string[] = [];
+
+  // ── Prefer brand photos over AI generation ──────────────────────────────
+  // Fill as many slots as possible from the customer's uploaded brand photos
+  // (round-robin). Only slots that exceed the photo pool go to AI generation.
+  const photoPool = (brandGuide?.brandPhotos ?? []).filter((p) => p.url);
+  const slotsNeedingAI: MarkerSlot[] = [];
+
+  if (photoPool.length > 0) {
+    slots.forEach((slot, idx) => {
+      const photo = photoPool[idx % photoPool.length];
+      slot.apply(photo.url);
+    });
+    // All slots satisfied by brand photos; no AI generation needed.
+    created.push(
+      `${slots.length} billedfelt(er) udfyldt med ${photoPool.length} brandfoto(s).`
+    );
+    return { mutations: cloned, created, notes };
+  }
+
+  // No brand photos — fall through to AI generation for all slots.
+  slotsNeedingAI.push(...slots);
+
+  const { jobs, skippedSlots: skipped } = planImageJobs(slotsNeedingAI);
 
   await Promise.all(
     Array.from(jobs.values()).map(async (job) => {
@@ -415,8 +443,6 @@ export async function resolveAiImageMarkers(
     })
   );
 
-  const created: string[] = [];
-  const notes: string[] = [];
   for (const job of Array.from(jobs.values())) {
     if (job.url) {
       created.push(`AI-billede genereret: "${truncate(job.description, 70)}".`);
@@ -430,7 +456,7 @@ export async function resolveAiImageMarkers(
     );
   }
 
-  for (const slot of slots) {
+  for (const slot of slotsNeedingAI) {
     const job = jobs.get(imageJobKey(slot));
     slot.apply(job?.url ?? "");
   }

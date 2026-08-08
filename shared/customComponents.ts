@@ -480,6 +480,30 @@ export type BrandGuide = {
   businessName?: string;
   /** When the enrichment pass last ran. */
   enrichedAt?: string;
+
+  // ---- Brand visual assets ------------------------------------------------
+  // Uploaded by the customer in the brand guide "Assetter" tab. These are
+  // preferred over AI-generated images during builds: the AI only generates
+  // images for slots where no brand photo is available.
+  /** Uploaded brand photos used as hero/section images in builds (up to 10). */
+  brandPhotos?: Array<{ url: string; mediaId: string; caption?: string }>;
+  /** Natural-language description of illustration style (e.g. "flat 2D cartoon in warm earth tones"). */
+  illustrationStyle?: string;
+  /** URL of an uploaded illustration reference image. */
+  illustrationReferenceUrl?: string;
+
+  // ---- Extended motion settings -------------------------------------------
+  /**
+   * Named motion personality applied to all new sections during AI builds.
+   * Supplements the existing `motion` (none/subtle/expressive) level toggle.
+   *   subtle   → soft fades and gentle lifts
+   *   standard → balanced slide-in and fade
+   *   bold     → dramatic entrance animations
+   *   playful  → spring, bounce, elastic
+   */
+  motionPreset?: 'subtle' | 'standard' | 'bold' | 'playful';
+  /** Free-text motion direction shown to the AI (e.g. "gentle fade, no bouncing"). */
+  motionDescription?: string;
 };
 
 export function createDefaultBrandGuide(seed?: {
@@ -1071,11 +1095,44 @@ export function buildBrandContext(guide: BrandGuide | null | undefined): string 
     `Motion: ${clean(guide.motion, 12)}${guide.motionSpeed ? ` (${clean(guide.motionSpeed, 12)})` : ""}`,
   ];
 
+  // Motion preset: more specific than the level toggle, drives animation personality
+  if (guide.motionPreset) {
+    const presetDesc: Record<NonNullable<BrandGuide['motionPreset']>, string> = {
+      subtle: 'subtle — soft fades and gentle lifts, almost invisible',
+      standard: 'standard — balanced slide-ins and fade-ons',
+      bold: 'bold — dramatic entrances, strong directional slides',
+      playful: 'playful — spring, bounce, elastic, staggered children',
+    };
+    lines.push(`Motion personality: ${presetDesc[guide.motionPreset]}`);
+  }
+  if (guide.motionDescription) {
+    lines.push(`Motion direction: ${clean(guide.motionDescription, 300)}`);
+  }
+
   if (guide.imageryStyle) {
     lines.push(
       `Imagery style: ${clean(guide.imageryStyle, 20)}${guide.imageryNotes ? ` - ${clean(guide.imageryNotes, 200)}` : ""}`
     );
   }
+
+  // Brand photos: the AI should use these for image slots rather than generating new ones
+  const photoCount = (guide.brandPhotos ?? []).length;
+  if (photoCount > 0) {
+    lines.push(
+      `Brand photos: ${photoCount} uploaded photo(s) available — PREFER these over AI-generated images for image slots. Do NOT use ai:// markers for image slots when brand photos exist.`
+    );
+  }
+
+  // Illustration style: applied to any AI-generated images; reference URL is
+  // informational context only — the AI cannot fetch it, but it anchors the
+  // direction described in illustrationStyle.
+  if (guide.illustrationStyle) {
+    const refHint = guide.illustrationReferenceUrl
+      ? ` (see reference: ${clean(guide.illustrationReferenceUrl, 200)})`
+      : "";
+    lines.push(`Illustration style: ${clean(guide.illustrationStyle, 300)}${refHint}`);
+  }
+
   if (guide.toneOfVoice) {
     lines.push(`Tone of voice: ${clean(guide.toneOfVoice, 300)}`);
   }
@@ -1093,6 +1150,33 @@ export function buildBrandContext(guide: BrandGuide | null | undefined): string 
     ...lines,
     "=== END BRAND GUIDE ===",
   ].join("\n");
+}
+
+/**
+ * How many of the 6 brand asset categories have been filled in.
+ *
+ * Used by the brand guide panel to show a completeness badge, and by
+ * the plan agent to encourage customers to complete the guide before
+ * running the build.
+ */
+export function brandGuideCompleteness(guide: BrandGuide | null | undefined): {
+  count: number;
+  total: number;
+  /** Which categories are still missing. */
+  missing: string[];
+} {
+  const total = 6;
+  const filled: boolean[] = [
+    Boolean(guide?.logoUrl),
+    (guide?.brandPhotos?.length ?? 0) > 0,
+    Boolean(guide?.illustrationStyle?.trim()),
+    Boolean(guide?.motionPreset),
+    Boolean(guide?.toneOfVoice?.trim()),
+    (guide?.keywords?.length ?? 0) > 0,
+  ];
+  const labels = ["Logo", "Brandfotos", "Illustrationsstil", "Bevægelsesprofil", "Tone of voice", "Nøgleord"];
+  const missing = labels.filter((_, i) => !filled[i]);
+  return { count: filled.filter(Boolean).length, total, missing };
 }
 
 // ============================================================
