@@ -161,6 +161,8 @@ export default function BuilderPage() {
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
   const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null);
   const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "structure" | "ai" | "brand">("components");
+  // True while a background AI build is running — badge shown on the AI tab.
+  const [isBuildRunning, setIsBuildRunning] = useState(false);
   // Node selection inside custom components (primitive node trees)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   // Clicking a list item (pricing plan, FAQ entry, timeline step) on the
@@ -1872,9 +1874,12 @@ export default function BuilderPage() {
                 <FileText className="w-4 h-4 mr-1" />
                 Sider
               </TabsTrigger>
-              <TabsTrigger value="ai" data-testid="tab-ai" className="px-1">
+              <TabsTrigger value="ai" data-testid="tab-ai" className="px-1 relative">
                 <Sparkles className="w-4 h-4 mr-1" />
                 AI
+                {isBuildRunning && (
+                  <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-primary animate-pulse" />
+                )}
               </TabsTrigger>
               <TabsTrigger value="brand" data-testid="tab-brand" className="px-1">
                 <Palette className="w-4 h-4 mr-1" />
@@ -2133,6 +2138,12 @@ export default function BuilderPage() {
                   hasPendingEdit={hasPendingEdit}
                   onUndo={handleUndo}
                   onRedo={handleRedo}
+                  onBuildStatusChange={(running) => {
+                    setIsBuildRunning(running);
+                    // Auto-switch to the AI tab when a background build finishes
+                    // so the customer sees the result without clicking.
+                    if (!running) setSidebarTab("ai");
+                  }}
                 />
               )}
             </TabsContent>

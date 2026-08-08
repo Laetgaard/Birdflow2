@@ -35,7 +35,8 @@ import { storage } from "./storage";
 import { consumeAgentRun } from "./aiRateLimit";
 import { runPlanAgent } from "./planAgent";
 import { revisePlanSteps } from "./planReviseAgent";
-import { initialStepResults, runBuild, summaryFor } from "./buildOrchestrator";
+import { initialStepResults, summaryFor } from "./buildOrchestrator";
+import { runBuildBackground } from "./buildWorker";
 import {
   approvePlan,
   consumeSnapshot,
@@ -451,25 +452,19 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
           return res.status(409).json({ message: claim.message, build: claim.build });
         }
 
-        const send = openStream(res);
-        await runBuild({
+        // Fire the build in the background — the client polls GET /ai/plan for
+        // progress. The HTTP connection is not needed: builds survive browser
+        // close and server restarts (orphan recovery runs on next boot).
+        void runBuildBackground({
           websiteId,
-          plan,
-          build: claim.build,
+          buildId: claim.build.id,
           approvedLargeChanges: parsed.data.approvedLargeChanges === true,
-          emit: (event: BuildStreamEvent) => send(event),
         });
-        res.end();
+
+        return res.status(202).json({ buildId: claim.build.id });
       } catch (error: any) {
         console.error("Build start error:", error);
-        if (res.headersSent) {
-          res.write(
-            `data: ${JSON.stringify({ type: "error", message: error?.message ?? "Bygningen fejlede" })}\n\n`
-          );
-          res.end();
-        } else {
-          res.status(500).json({ message: error?.message ?? "Bygningen fejlede" });
-        }
+        res.status(500).json({ message: error?.message ?? "Bygningen fejlede" });
       }
     }
   );
@@ -520,26 +515,19 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
 
         await updateBuildProgress(buildId, { status: "running", stepResults, error: null });
 
-        const send = openStream(res);
-        await runBuild({
+        // Same fire-and-forget pattern as POST /ai/build. The step-level
+        // state written above is picked up by runBuild when it loads the
+        // build from the DB inside runBuildBackground.
+        void runBuildBackground({
           websiteId,
-          plan,
-          build: { ...build, status: "running", stepResults },
-          approvedLargeChanges: false,
-          emit: (event: BuildStreamEvent) => send(event),
-          skipCurrent: action === "skip",
+          buildId,
+          skipCurrentStep: action === "skip",
         });
-        res.end();
+
+        return res.status(202).json({ buildId });
       } catch (error: any) {
         console.error("Build continue error:", error);
-        if (res.headersSent) {
-          res.write(
-            `data: ${JSON.stringify({ type: "error", message: error?.message ?? "Bygningen fejlede" })}\n\n`
-          );
-          res.end();
-        } else {
-          res.status(500).json({ message: error?.message ?? "Bygningen fejlede" });
-        }
+        res.status(500).json({ message: error?.message ?? "Bygningen fejlede" });
       }
     }
   );

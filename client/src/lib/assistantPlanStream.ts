@@ -4,6 +4,7 @@ import type {
   BuildSummary,
   PlanStep,
 } from "@shared/assistantPlan";
+import type { BuilderStateData } from "@shared/schema";
 import type { AgentStreamEvent } from "@/lib/aiAgentStream";
 import { readSseStream } from "@/lib/aiAgentStream";
 import { adminSessionHeaders } from "@/lib/adminSession";
@@ -275,4 +276,73 @@ export async function undoBuild(args: {
     headers: headers(args.websiteId, args.accessToken),
   });
   return json<{ newState: unknown; revision: number }>(response);
+}
+
+/* ─────────────────────── background-build transport ─────────────────────── */
+
+/**
+ * Start an approved plan as a background job.
+ *
+ * Returns immediately with the build id — progress is tracked by polling
+ * `fetchPlanState`. The build survives browser close and server restarts.
+ */
+export async function startBuildJob(args: {
+  websiteId: string;
+  accessToken: string;
+  planId: number;
+  version: number;
+  approvedLargeChanges?: boolean;
+}): Promise<{ buildId: number }> {
+  const response = await fetch(`/api/websites/${args.websiteId}/ai/build`, {
+    method: "POST",
+    headers: headers(args.websiteId, args.accessToken),
+    body: JSON.stringify({
+      planId: args.planId,
+      version: args.version,
+      ...(args.approvedLargeChanges ? { approvedLargeChanges: true } : {}),
+    }),
+  });
+  return json<{ buildId: number }>(response);
+}
+
+/**
+ * Resume, skip or retry a paused build as a background job.
+ *
+ * The server updates the step state and fires a background worker.
+ * Returns immediately — poll `fetchPlanState` for progress.
+ */
+export async function continueBuildJob(args: {
+  websiteId: string;
+  accessToken: string;
+  buildId: number;
+  action: "resume" | "skip" | "retry";
+}): Promise<{ buildId: number }> {
+  const response = await fetch(
+    `/api/websites/${args.websiteId}/ai/build/${args.buildId}/continue`,
+    {
+      method: "POST",
+      headers: headers(args.websiteId, args.accessToken),
+      body: JSON.stringify({ action: args.action }),
+    }
+  );
+  return json<{ buildId: number }>(response);
+}
+
+/**
+ * Fetch the current builder canvas state directly from the server.
+ *
+ * Used to refresh the canvas after polling detects a build has progressed
+ * or finished while the customer's browser was away or on another tab.
+ */
+export async function fetchBuilderState(args: {
+  websiteId: string;
+  accessToken: string;
+}): Promise<{ state: BuilderStateData; revision: number } | null> {
+  const response = await fetch(`/api/websites/${args.websiteId}/builder`, {
+    headers: { Authorization: `Bearer ${args.accessToken}` },
+  });
+  if (!response.ok) return null;
+  const body = await response.json().catch(() => null);
+  if (!body?.state) return null;
+  return { state: body.state as BuilderStateData, revision: Number(body.revision ?? 0) };
 }

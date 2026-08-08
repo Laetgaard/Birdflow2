@@ -15,6 +15,7 @@ import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
 import { startSvgAssetSchema } from "./svgAssetSchema";
 import { startPublishJobSchema } from "./publisher/publishJobSchema";
 import { failStalePublishJobs, getPublishJobByDeploymentId, completePublishJob, failPublishJob } from "./publisher/publishJobs";
+import { resumeOrphanedBuilds } from "./buildWorker";
 import { storage as appStorage } from "./storage";
 import { registerSeoRoutes } from "./seo";
 
@@ -262,7 +263,14 @@ app.use((req, res, next) => {
   // Plan mode / Build mode: builder_state.revision plus the assistant_plans
   // and assistant_builds tables. Same idempotent-DDL-at-boot pattern, and the
   // same readiness promise guards every read and write in server/planStore.ts.
-  void startAssistantPlanSchema(db);
+  startAssistantPlanSchema(db).then((ready) => {
+    if (ready) {
+      // Resume any builds that were interrupted by the previous server process.
+      void resumeOrphanedBuilds().catch((err) =>
+        console.error("[BuildWorker] Orphan recovery failed:", err)
+      );
+    }
+  });
 
   // The per-website language choice made in onboarding. Same idempotent-DDL
   // reasoning again; the column defaults to Danish so a database that has not

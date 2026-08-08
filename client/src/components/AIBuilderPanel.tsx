@@ -34,17 +34,16 @@ import { runAgent, applyApprovedMutations, type AgentStreamEvent } from "@/lib/a
 import { uploadImage } from "@/lib/builderUpload";
 import PlanChecklistCard from "@/components/builder/PlanChecklistCard";
 import { SelfReviewSection } from "@/components/builder/SelfReviewSection";
-import BuildProgressCard, {
-  reduceBuildEvent,
-  type BuildView,
-} from "@/components/builder/BuildProgressCard";
+import BuildProgressCard, { type BuildView } from "@/components/builder/BuildProgressCard";
 import type { AssistantPlan, PlanStep } from "@shared/assistantPlan";
+import { ACTIVE_BUILD_STATUSES } from "@shared/assistantPlan";
 import {
   approvePlanVersion,
-  continueBuildStream,
+  continueBuildJob,
+  fetchBuilderState,
   fetchPlanState,
   requestPlanRevision,
-  runBuildStream,
+  startBuildJob,
   runPlanMode,
   savePlanEdit,
   stopBuild,
@@ -121,6 +120,8 @@ type AIBuilderPanelProps = {
   hasPendingEdit?: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** Called when a build starts or finishes — lets the parent badge the AI tab. */
+  onBuildStatusChange?: (isRunning: boolean) => void;
 };
 
 export default function AIBuilderPanel({
@@ -131,7 +132,8 @@ export default function AIBuilderPanel({
   history,
   hasPendingEdit = false,
   onUndo,
-  onRedo
+  onRedo,
+  onBuildStatusChange,
 }: AIBuilderPanelProps) {
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -152,11 +154,109 @@ export default function AIBuilderPanel({
   const [buildView, setBuildView] = useState<BuildView | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
 
+  // Polling state — used while a build is running in the background so the
+  // customer sees progress even after closing and reopening the browser.
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastBuildStatusRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, plan, buildView]);
+
+  // ─── Polling helpers ─────────────────────────────────────────────────────
+
+  const stopBuildPolling = () => {
+    if (pollIntervalRef.current !== null) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
+
+  const pollBuildOnce = async () => {
+    if (!session?.access_token) return;
+    try {
+      const state = await fetchPlanState({ websiteId, accessToken: session.access_token });
+      if (!state.build || !state.plan) return;
+
+      const pollStatus = state.build.status;
+      const summary = state.build.summary;
+
+      // Rebuild the BuildView from the polled state.
+      setBuildView((prev) => ({
+        buildId: state.build!.id,
+        planTitle: summary?.planTitle ?? state.plan!.title,
+        steps: state.plan!.steps,
+        // Always use polled results so completed steps show ✓ in real time.
+        results: summary?.steps ?? prev?.results ?? [],
+        activeIndex: pollStatus === "running" ? state.build!.currentStep : -1,
+        activeLabel: pollStatus === "running" ? "Bygger…" : "",
+        status: pollStatus,
+        pauseReason: state.build!.error,
+        // Only show final summary when the build has stopped (not while running).
+        summary: pollStatus !== "running" ? (summary ?? null) : null,
+        canUndo: state.build!.canUndo && (summary?.canUndo ?? false),
+      }));
+
+      const wasRunning = lastBuildStatusRef.current === "running";
+      lastBuildStatusRef.current = pollStatus;
+
+      // When the build transitions out of "running", refresh the canvas with
+      // whatever the server has saved so far, then notify the parent.
+      const isTerminal = !ACTIVE_BUILD_STATUSES.includes(pollStatus as any);
+      if (isTerminal && wasRunning) {
+        onBuildStatusChange?.(false);
+        stopBuildPolling();
+
+        // Pull the latest builder state so the canvas reflects all steps.
+        fetchBuilderState({ websiteId, accessToken: session.access_token })
+          .then((bs) => {
+            if (bs) onStateChange(bs.state, "AI-bygning", bs.revision);
+          })
+          .catch(() => {});
+
+        if (pollStatus === "completed") {
+          toast({
+            title: "Hjemmesiden er klar! 🎉",
+            description: "AI-bygningen er fuldført. Klik på 'Udgiv' for at dele den.",
+          });
+        }
+      }
+
+      if (pollStatus === "paused") setMode("plan");
+    } catch {
+      // Silent — will retry on the next tick.
+    }
+  };
+
+  const startBuildPolling = () => {
+    stopBuildPolling();
+    lastBuildStatusRef.current = "running";
+    void pollBuildOnce(); // immediate first poll
+    pollIntervalRef.current = setInterval(() => void pollBuildOnce(), 3000);
+  };
+
+  // Stop polling on unmount.
+  useEffect(() => () => stopBuildPolling(), []);
+
+  // Restart polling when the page becomes visible again (tab switch / browser
+  // return) and a build is still in progress.
+  useEffect(() => {
+    const handleVisible = () => {
+      if (lastBuildStatusRef.current === "running" && pollIntervalRef.current === null) {
+        startBuildPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("focus", handleVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("focus", handleVisible);
+    };
+  }, [websiteId, session?.access_token]);
+
+  // ─── Load plan + build state from server on mount ────────────────────────
 
   // Reload whatever plan and build the server is holding for this website.
   useEffect(() => {
@@ -167,21 +267,37 @@ export default function AIBuilderPanel({
       .then((state) => {
         if (cancelled) return;
         setPlan(state.plan);
-        if (state.plan && state.build?.summary) {
+        if (state.plan && state.build) {
           const summary = state.build.summary;
+          const buildStatus = state.build.status;
           setBuildView({
             buildId: state.build.id,
-            planTitle: summary.planTitle,
+            planTitle: summary?.planTitle ?? state.plan.title,
             steps: state.plan.steps,
-            results: summary.steps,
-            activeIndex: -1,
-            activeLabel: "",
-            status: state.build.status,
+            results: summary?.steps ?? state.plan.steps.map((step, index) => ({
+              stepId: step.id,
+              index,
+              status: "pending" as const,
+              summary: "",
+              mutationCount: 0,
+              notes: [],
+              rejections: [],
+              imagesUsed: 0,
+              attempts: 0,
+            })),
+            activeIndex: buildStatus === "running" ? state.build.currentStep : -1,
+            activeLabel: buildStatus === "running" ? "Genoptager…" : "",
+            status: buildStatus,
             pauseReason: state.build.error,
-            summary,
-            canUndo: state.build.canUndo && summary.canUndo,
+            summary: buildStatus !== "running" ? (summary ?? null) : null,
+            canUndo: state.build.canUndo && (summary?.canUndo ?? false),
           });
-          if (state.build.status === "paused") setMode("plan");
+          if (buildStatus === "paused") setMode("plan");
+          if (buildStatus === "running") {
+            // A build is already running in the background — start polling.
+            onBuildStatusChange?.(true);
+            startBuildPolling();
+          }
         }
       })
       // The panel still works as a plain chat if plan mode is unavailable.
@@ -438,30 +554,11 @@ export default function AIBuilderPanel({
    * persists streams a `state` event, so the customer watches the site
    * being built instead of waiting for one jump at the end.
    */
-  const consumeBuild = async (run: (onEvent: (event: any) => void) => Promise<any>) => {
-    setIsLoading(true);
-    setPlanBusy(true);
-    try {
-      await run((event) => {
-        if (event.type === "state") {
-          onStateChange(event.newState, "AI-bygning", event.revision);
-          return;
-        }
-        setBuildView((prev) => (prev ? reduceBuildEvent(prev, event) : prev));
-      });
-    } catch (error: any) {
-      toast({ title: "Bygningen fejlede", description: error.message, variant: "destructive" });
-      setBuildView((prev) =>
-        prev ? { ...prev, status: "failed", activeIndex: -1, pauseReason: error.message } : prev
-      );
-    } finally {
-      setIsLoading(false);
-      setPlanBusy(false);
-    }
-  };
-
   const startBuildRun = async () => {
     if (!plan) return;
+
+    // Optimistic UI: show all steps as pending immediately so the customer
+    // sees the plan is in motion before the server responds.
     setBuildView({
       buildId: 0,
       planTitle: plan.title,
@@ -478,40 +575,52 @@ export default function AIBuilderPanel({
         attempts: 0,
       })),
       activeIndex: -1,
-      activeLabel: "",
+      activeLabel: "Starter bygning…",
       status: "running",
       pauseReason: null,
       summary: null,
       canUndo: false,
     });
 
-    await consumeBuild((onEvent) =>
-      runBuildStream({
+    setPlanBusy(true);
+    try {
+      const { buildId } = await startBuildJob({
         websiteId,
         accessToken: session.access_token,
         planId: plan.id,
         version: plan.version,
-        onEvent: (event) => {
-          if (event.type === "build_started") {
-            setBuildView((prev) => (prev ? { ...prev, buildId: event.buildId } : prev));
-          }
-          onEvent(event);
-        },
-      })
-    );
+      });
+      setBuildView((prev) => (prev ? { ...prev, buildId } : prev));
+      onBuildStatusChange?.(true);
+      startBuildPolling();
+    } catch (error: any) {
+      toast({ title: "Bygningen kunne ikke startes", description: error.message, variant: "destructive" });
+      setBuildView(null);
+    } finally {
+      setPlanBusy(false);
+    }
   };
 
   const continueBuild = async (action: "resume" | "skip" | "retry") => {
     if (!buildView?.buildId) return;
-    await consumeBuild((onEvent) =>
-      continueBuildStream({
+    setPlanBusy(true);
+    try {
+      await continueBuildJob({
         websiteId,
         accessToken: session.access_token,
         buildId: buildView.buildId,
         action,
-        onEvent,
-      })
-    );
+      });
+      setBuildView((prev) =>
+        prev ? { ...prev, status: "running", activeLabel: "Genoptager…" } : prev
+      );
+      onBuildStatusChange?.(true);
+      startBuildPolling();
+    } catch (error: any) {
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setPlanBusy(false);
+    }
   };
 
   const stopBuildRun = async () => {

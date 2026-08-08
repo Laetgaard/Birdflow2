@@ -421,6 +421,23 @@ export async function consumeSnapshot(websiteId: string, buildId: number): Promi
     .where(and(eq(assistantBuilds.websiteId, websiteId), eq(assistantBuilds.id, buildId)));
 }
 
+/**
+ * Every build currently in "running" state across all websites.
+ *
+ * Used by the build worker's orphan recovery: at server startup, any
+ * "running" build has no live worker (the previous process died) and must
+ * be resumed so the customer's build is not silently abandoned.
+ */
+export async function getRunningBuilds(): Promise<AssistantBuild[]> {
+  await ready();
+  const rows = await db
+    .select()
+    .from(assistantBuilds)
+    .where(eq(assistantBuilds.status, "running"))
+    .orderBy(desc(assistantBuilds.id));
+  return rows.map((row) => toBuild(row as AssistantBuildRow));
+}
+
 /** Test seam / diagnostics: how many builds a website has ever run. */
 export async function countBuilds(websiteId: string): Promise<number> {
   await ready();
