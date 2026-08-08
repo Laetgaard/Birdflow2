@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
@@ -141,7 +139,11 @@ export default function AIBuilderPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Set to true when the user manually scrolls up; cleared when they return to the bottom. */
+  const userScrolledUpRef = useRef(false);
 
   /* ─── Plan mode / Build mode ───
      Plan mode asks the assistant to think first and produce a checklist
@@ -159,10 +161,11 @@ export default function AIBuilderPanel({
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastBuildStatusRef = useRef<string | null>(null);
 
+  // Smart scroll anchor: auto-scroll to bottom only when the user hasn't
+  // manually scrolled up to read earlier messages.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (userScrolledUpRef.current) return;
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, plan, buildView]);
 
   // ─── Polling helpers ─────────────────────────────────────────────────────
@@ -778,136 +781,138 @@ export default function AIBuilderPanel({
   };
 
   return (
-    <div className="flex flex-col h-full bg-background" data-testid="ai-builder-panel">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-            <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
-          </div>
-          <h3 className="font-semibold text-sm leading-tight">AI-assistent</h3>
-        </div>
+    <div className="flex flex-col h-full" data-testid="ai-builder-panel">
+      {/* CSS keyframes — scoped to this panel via a unique animation name prefix */}
+      <style>{`
+        @keyframes ai-msg-in {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes ai-dot-pulse {
+          0%, 60%, 100% { transform: translateY(0);   opacity: 0.35; }
+          30%            { transform: translateY(-4px); opacity: 1; }
+        }
+      `}</style>
 
-        {/* Plan først, eller byg direkte */}
-        <div
-          className="flex items-center rounded-lg border bg-muted/50 p-0.5"
-          data-testid="assistant-mode-switch"
-        >
-          <button
-            type="button"
-            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-              mode === "plan"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => setMode("plan")}
-            disabled={isLoading}
-            data-testid="button-mode-plan"
-          >
-            <ListChecks className="h-3 w-3" />
-            Plan
-          </button>
-          <button
-            type="button"
-            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-              mode === "chat"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => setMode("chat")}
-            disabled={isLoading}
-            data-testid="button-mode-build"
-          >
-            <Hammer className="h-3 w-3" />
-            Byg
-          </button>
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 border-b px-3 py-2 shrink-0 bg-background">
+        <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center shadow-sm shrink-0">
+          <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
         </div>
+        <span className="font-semibold text-[13px] tracking-tight leading-none mr-1">AI</span>
 
-        <div className="flex items-center gap-0.5">
-          <TooltipProvider delayDuration={300}>
+        <ModeToggle mode={mode} onChange={setMode} disabled={isLoading} />
+
+        <div className="flex-1" />
+
+        <TooltipProvider delayDuration={400}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost" size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={onUndo}
+                disabled={!hasPendingEdit && (!history || !canUndo(history))}
+                data-testid="button-undo"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Fortryd (⌘Z)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost" size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={onRedo}
+                disabled={!history || !canRedo(history)}
+                data-testid="button-redo"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Annuller fortryd</TooltipContent>
+          </Tooltip>
+          {messages.length > 0 && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="ghost"
-                  size="icon"
+                  variant="ghost" size="icon"
                   className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={onUndo}
-                  disabled={!hasPendingEdit && (!history || !canUndo(history))}
-                  data-testid="button-undo"
+                  onClick={clearConversation}
+                  disabled={isLoading}
+                  data-testid="button-clear-chat"
                 >
-                  <Undo2 className="w-3.5 h-3.5" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">Fortryd</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs">Ryd chatten</TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={onRedo}
-                  disabled={!history || !canRedo(history)}
-                  data-testid="button-redo"
-                >
-                  <Redo2 className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">Annuller fortryd</TooltipContent>
-            </Tooltip>
-            {messages.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                    onClick={clearConversation}
-                    disabled={isLoading}
-                    data-testid="button-clear-chat"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">Ryd chatten</TooltipContent>
-              </Tooltip>
-            )}
-          </TooltipProvider>
-        </div>
+          )}
+        </TooltipProvider>
       </div>
 
-      {/* Thread */}
-      <ScrollArea className="flex-1 px-4" ref={scrollRef}>
-        <div className="space-y-4 py-4">
+      {/* ── Thread ─────────────────────────────────────────────────────────── */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto"
+        onScroll={() => {
+          const el = scrollRef.current;
+          if (!el) return;
+          userScrolledUpRef.current = (el.scrollHeight - el.scrollTop - el.clientHeight) > 80;
+        }}
+      >
+        <div className="px-3 py-4 space-y-4">
+          {/* Empty state */}
           {messages.length === 0 && (
-            <p className="text-center text-xs text-muted-foreground pt-10 max-w-[260px] mx-auto leading-relaxed">
-              {mode === "plan"
-                ? "Fortæl hvad du gerne vil have. Jeg læser hjemmesiden og laver en plan, du kan rette i og godkende — der bliver ikke ændret noget, før du siger til."
-                : "Beskriv hvad du vil bygge eller ændre — fx en hel hjemmeside, en ny sektion, nye farver eller tekst. Jeg spørger, hvis noget er en stor ændring."}
-            </p>
+            <div className="flex flex-col items-center text-center pt-8 pb-2">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
+                <Sparkles className="w-5 h-5 text-primary/70" />
+              </div>
+              <p className="text-[12px] text-muted-foreground max-w-[220px] leading-relaxed">
+                {mode === "plan"
+                  ? "Fortæl hvad du ønsker. Jeg laver en plan, du kan rette og godkende — intet ændres, før du siger til."
+                  : "Beskriv hvad du vil bygge eller ændre. Jeg spørger kun ved større ændringer."}
+              </p>
+            </div>
           )}
 
+          {/* Messages */}
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex items-end gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              style={{ animation: "ai-msg-in 180ms ease-out both" }}
             >
+              {/* AI avatar mark */}
+              {message.role === "assistant" && (
+                <div className="w-5 h-5 rounded-md bg-primary flex items-center justify-center shrink-0 mb-px shadow-sm">
+                  <Sparkles className="w-2.5 h-2.5 text-primary-foreground" />
+                </div>
+              )}
+
               <div
-                className={`max-w-[92%] ${
+                className={`min-w-0 ${
                   message.role === "user"
-                    ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md px-3.5 py-2.5 shadow-sm"
+                    ? "max-w-[84%] bg-primary text-primary-foreground rounded-[18px] rounded-br-[5px] px-3.5 py-2.5 shadow-sm"
                     : message.error
-                    ? "bg-destructive/10 border border-destructive/30 text-destructive rounded-2xl rounded-bl-md px-3.5 py-2.5"
-                    : "bg-muted/70 rounded-2xl rounded-bl-md px-3.5 py-2.5 w-full"
+                    ? "max-w-[88%] bg-rose-50 border border-rose-200 text-rose-800 rounded-[18px] rounded-bl-[5px] px-3.5 py-2.5"
+                    : "max-w-[88%] bg-muted/50 border border-border/40 rounded-[18px] rounded-bl-[5px] px-3.5 py-2.5 w-full"
                 }`}
               >
+                {/* Thinking dots: show when working and nothing has appeared yet */}
+                {message.working && !message.content && (message.steps?.length ?? 0) === 0 && (
+                  <ThinkingDots />
+                )}
+
                 {message.content && (
                   <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 )}
 
-                {/* Live agent activity: what it is actually doing, step by step */}
+                {/* Live agent steps */}
                 {(message.steps?.length ?? 0) > 0 && (
-                  <ol className="mt-1 space-y-1 list-none p-0 m-0" data-testid="agent-steps">
+                  <ol className="mt-1.5 space-y-1 list-none p-0 m-0" data-testid="agent-steps">
                     {message.steps!.map((step, i) => (
                       <li key={i} className="flex items-start gap-1.5 text-[11.5px] leading-snug">
                         {step.ok ? (
@@ -921,9 +926,8 @@ export default function AIBuilderPanel({
                       </li>
                     ))}
                     {message.working && (
-                      <li className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-                        <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                        Arbejder…
+                      <li className="flex items-center gap-1.5 mt-1">
+                        <ThinkingDots />
                       </li>
                     )}
                   </ol>
@@ -970,17 +974,17 @@ export default function AIBuilderPanel({
                   </div>
                 ))}
 
-                {/* Large change: nothing was saved until the user decides */}
+                {/* Large-change approval card */}
                 {message.approval && (
                   <div
-                    className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-900 dark:bg-amber-950/40"
+                    className="mt-2.5 rounded-xl border border-amber-200 bg-amber-50/80 p-3"
                     data-testid="agent-approval-card"
                   >
-                    <p className="text-[11.5px] font-semibold text-amber-900 dark:text-amber-200 m-0">
+                    <p className="text-[11.5px] font-semibold text-amber-800">
                       Kræver din godkendelse
                     </p>
                     {message.approval.summary.length > 0 && (
-                      <ul className="mt-1.5 mb-0 pl-4 text-[11.5px] text-amber-900/80 dark:text-amber-200/80">
+                      <ul className="mt-1.5 pl-3.5 text-[11.5px] text-amber-800/80 space-y-0.5">
                         {message.approval.summary.map((line) => (
                           <li key={line}>{line}</li>
                         ))}
@@ -989,7 +993,7 @@ export default function AIBuilderPanel({
                     <div className="mt-2.5 flex gap-1.5">
                       <Button
                         size="sm"
-                        className="h-7 text-[11.5px]"
+                        className="h-7 text-[11.5px] rounded-lg"
                         disabled={isLoading}
                         onClick={() => approveAgentRun(message.id, message.approval!.mutations)}
                         data-testid="button-approve-agent-run"
@@ -1010,14 +1014,13 @@ export default function AIBuilderPanel({
                   </div>
                 )}
 
-                {/* A failed planning round: the words are still here, so
-                    trying again is one click, not a retype. */}
+                {/* Retry failed plan */}
                 {message.retryPrompt && (
                   <div className="mt-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 text-[11.5px]"
+                      className="h-7 text-[11.5px] rounded-lg"
                       disabled={isLoading}
                       onClick={() => retryPlan(message.id, message.retryPrompt!)}
                       data-testid="button-retry-plan"
@@ -1027,6 +1030,7 @@ export default function AIBuilderPanel({
                   </div>
                 )}
 
+                {/* Build report + self-review */}
                 {message.role === "assistant" && message.report && (
                   <>
                     <BuildReportCard report={message.report} />
@@ -1040,11 +1044,13 @@ export default function AIBuilderPanel({
                   </>
                 )}
               </div>
+
+              {/* Spacer so user bubble doesn't hug the right edge */}
+              {message.role === "user" && <div className="w-1 shrink-0" />}
             </div>
           ))}
 
-          {/* The plan the customer approves, and the build running it. Kept
-              at the foot of the thread so they stay in view as work lands. */}
+          {/* Plan checklist at foot of thread */}
           {plan && !buildView && (
             <PlanChecklistCard
               plan={plan}
@@ -1056,6 +1062,7 @@ export default function AIBuilderPanel({
             />
           )}
 
+          {/* Build progress */}
           {buildView && (
             <>
               <BuildProgressCard
@@ -1081,10 +1088,13 @@ export default function AIBuilderPanel({
               )}
             </>
           )}
-        </div>
-      </ScrollArea>
 
-      {/* Hidden file input for inspiration uploads */}
+          {/* Scroll sentinel — always below the last message */}
+          <div ref={threadEndRef} />
+        </div>
+      </div>
+
+      {/* Hidden file input for inspiration image uploads */}
       <input
         ref={fileInputRef}
         type="file"
@@ -1093,16 +1103,16 @@ export default function AIBuilderPanel({
         onChange={(e) => uploadInspiration(e.target.files)}
       />
 
-      {/* Composer */}
-      <div className="p-3 border-t bg-background/95 backdrop-blur-sm">
-        <div className="flex gap-2 items-end">
-          <TooltipProvider delayDuration={300}>
+      {/* ── Composer ─────────────────────────────────────────────────────────── */}
+      <div className="shrink-0 border-t bg-background/95 backdrop-blur-sm">
+        <div className="flex items-end gap-2 px-3 pt-2.5 pb-2">
+          {/* Inspiration upload */}
+          <TooltipProvider delayDuration={400}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-[44px] w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                  variant="ghost" size="icon"
+                  className="h-9 w-9 rounded-full shrink-0 text-muted-foreground hover:text-foreground mb-0.5"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isLoading || isUploading}
                   data-testid="button-upload-inspiration"
@@ -1113,15 +1123,26 @@ export default function AIBuilderPanel({
               <TooltipContent side="top" className="text-xs">Vedhæft inspirationsbillede</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <Textarea
+
+          {/* Auto-growing textarea */}
+          <textarea
+            ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            rows={1}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // auto-resize
+              const el = e.currentTarget;
+              el.style.height = "auto";
+              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+            }}
             placeholder={
               mode === "plan"
-                ? "Beskriv hvad du vil have — så laver jeg en plan først…"
-                : "Beskriv hvad jeg skal bygge eller ændre…"
+                ? "Beskriv dit mål — jeg laver en plan…"
+                : "Beskriv hvad du vil bygge…"
             }
-            className="min-h-[44px] max-h-[100px] resize-none text-[13px] rounded-xl border-muted-foreground/20"
+            className="flex-1 resize-none rounded-2xl border border-border/60 bg-muted/30 px-3.5 py-2.5 text-[13px] leading-relaxed focus:outline-none focus:border-primary/40 focus:bg-background transition-colors placeholder:text-muted-foreground/60"
+            style={{ minHeight: "42px", maxHeight: "120px", overflowY: "auto" }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -1130,22 +1151,113 @@ export default function AIBuilderPanel({
             }}
             data-testid="input-ai-prompt"
           />
-          <Button
-            size="icon"
-            className="h-[44px] w-[44px] rounded-xl shrink-0 shadow-sm"
+
+          {/* Circular send button */}
+          <button
+            type="button"
             onClick={() => sendMessage(input)}
             disabled={!input.trim() || isLoading}
+            aria-label="Send"
+            className={`h-9 w-9 rounded-full shrink-0 flex items-center justify-center mb-0.5 shadow-sm transition-all duration-150 ${
+              !input.trim() || isLoading
+                ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
+                : "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95"
+            }`}
             data-testid="button-send-ai"
           >
             {isLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Send className="w-4 h-4" />
+              <Send className="w-3.5 h-3.5" />
             )}
-          </Button>
+          </button>
         </div>
+        {/* Keyboard hint */}
+        <p className="text-center text-[10px] text-muted-foreground/50 pb-2 leading-none select-none">
+          ↵ send · ⇧↵ linjeskift
+        </p>
       </div>
     </div>
+  );
+}
+
+/* ============ ThinkingDots — expressive thinking indicator ============ */
+
+function ThinkingDots() {
+  return (
+    <span className="inline-flex items-center gap-[3px] h-4" aria-label="AI tænker">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="w-[5px] h-[5px] rounded-full bg-current"
+          style={{ animation: `ai-dot-pulse 1.3s ease-in-out ${i * 0.18}s infinite` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/* ============ ModeToggle — mode badge with tooltips ============ */
+
+function ModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: "chat" | "plan";
+  onChange: (m: "chat" | "plan") => void;
+  disabled: boolean;
+}) {
+  return (
+    <TooltipProvider delayDuration={400}>
+      <div
+        className="flex items-center rounded-lg border bg-muted/40 p-0.5 gap-0.5"
+        data-testid="assistant-mode-switch"
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => onChange("plan")}
+              disabled={disabled}
+              data-testid="button-mode-plan"
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
+                mode === "plan"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ListChecks className="h-3 w-3" />
+              Plan
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs max-w-[180px] text-center">
+            Lav en plan, ret den og godkend — intet bygges, før du siger til
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => onChange("chat")}
+              disabled={disabled}
+              data-testid="button-mode-build"
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
+                mode === "chat"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Hammer className="h-3 w-3" />
+              Byg
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs max-w-[180px] text-center">
+            Byg direkte — AI'en spørger kun ved store ændringer
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
   );
 }
 

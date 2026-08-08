@@ -1850,15 +1850,18 @@ export default function BuilderPage() {
           <SpacingIndicators />
           <MobileBottomSheet />
 
-        {/* Right Sidebar */}
+        {/* Right Sidebar — on desktop: fixed-width panel; on mobile: bottom sheet */}
         {sidebarOpen && (
-          <aside className="w-full md:w-80 border-l bg-card flex flex-col shrink-0 overflow-hidden absolute md:relative right-0 top-0 h-full z-50 shadow-lg md:shadow-none">
-            {/* Mobile close button */}
-            <div className="md:hidden flex items-center justify-between p-3 border-b">
-              <span className="font-medium text-sm">Panel</span>
-              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)}>
-                <X className="h-4 w-4" />
-              </Button>
+          <aside className="
+            md:w-80 md:border-l md:relative md:h-full md:shadow-none md:rounded-none md:translate-y-0
+            fixed bottom-0 left-0 right-0 h-[88vh] z-50
+            bg-card flex flex-col shrink-0 overflow-hidden
+            rounded-t-2xl border-t shadow-[0_-8px_32px_rgba(0,0,0,0.14)]
+            transition-transform duration-300 ease-out translate-y-0
+          ">
+            {/* Mobile drag handle */}
+            <div className="md:hidden flex flex-col items-center pt-2.5 pb-1.5 cursor-grab touch-none shrink-0">
+              <div className="w-10 h-1 rounded-full bg-border" />
             </div>
           <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col overflow-hidden">
             <TabsList className="grid w-full grid-cols-5 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
