@@ -37,6 +37,20 @@ export const PlanStepDraftSchema = z.object({
     ),
   title: z.string().trim().min(3).max(120).describe("Short Danish imperative."),
   detail: z.string().trim().min(3).max(1500).describe("Concretely what changes, in Danish. For section steps: list every section type with a one-sentence content brief."),
+  sections: z
+    .array(
+      z.object({
+        type: z.string().min(1).max(80).describe("Section type, e.g. 'hero-section'."),
+        brief: z.string().min(1).max(300).describe("One-sentence Danish content brief for this section."),
+        hasImage: z.boolean().optional().describe("True if this section gets an AI-generated image."),
+      })
+    )
+    .max(20)
+    .optional()
+    .describe(
+      "For section/page steps: structured list of planned sections, one entry per section you will build. " +
+        "This lets the customer see what will be built per page before approving."
+    ),
   pageIds: z
     .array(z.string().min(1))
     .min(1)
@@ -144,6 +158,7 @@ export function buildPlanDraft(raw: unknown, state: BuilderStateData): PlanDraft
         { pageIds: step.pageIds, componentIds: step.componentIds },
         state
       ) as PlanStep["scope"],
+      ...(step.sections && step.sections.length > 0 ? { sections: step.sections } : {}),
     });
   });
 

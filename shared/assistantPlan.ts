@@ -125,14 +125,35 @@ export const PlanStepScopeSchema = z.object({
 
 export type PlanStepScope = z.infer<typeof PlanStepScopeSchema>;
 
+/**
+ * One planned section within a "section" or "page" build step.
+ * Populated by the plan agent; displayed in the expandable plan UI so the
+ * customer can see exactly what will be built per page before approving.
+ */
+export const PlanSectionSchema = z.object({
+  /** e.g. "hero-section", "features-section" */
+  type: z.string().min(1).max(80),
+  /** One-sentence Danish content brief shown in the plan card. */
+  brief: z.string().min(1).max(300),
+  /** True when this section will receive an AI-generated hero image. */
+  hasImage: z.boolean().optional(),
+});
+export type PlanSection = z.infer<typeof PlanSectionSchema>;
+
 export const PlanStepSchema = z.object({
   id: z.string().min(1).max(64),
   type: z.enum(PLAN_STEP_TYPES),
   /** Short Danish imperative, e.g. "Skriv ny forsidetekst". */
   title: z.string().trim().min(3).max(120),
   /** Concretely what changes, in Danish. Shown under the title. */
-  detail: z.string().trim().min(3).max(600),
+  detail: z.string().trim().min(3).max(1500),
   scope: PlanStepScopeSchema,
+  /**
+   * Structured section list for "section" and "page" steps.
+   * When present the plan card expands these individually so the customer
+   * can see exactly what will be built before approving.
+   */
+  sections: z.array(PlanSectionSchema).max(20).optional(),
 });
 
 export type PlanStep = z.infer<typeof PlanStepSchema>;

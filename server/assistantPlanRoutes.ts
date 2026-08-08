@@ -34,6 +34,7 @@ import { requireWebsitePermission } from "./websiteAccess";
 import { storage } from "./storage";
 import { consumeAgentRun } from "./aiRateLimit";
 import { runPlanAgent } from "./planAgent";
+import { revisePlanSteps } from "./planReviseAgent";
 import { initialStepResults, runBuild, summaryFor } from "./buildOrchestrator";
 import {
   approvePlan,
@@ -42,6 +43,7 @@ import {
   getActiveBuild,
   getBuild,
   getLatestBuild,
+  createPlanVersion,
   getLatestPlan,
   getPlan,
   requestStop,
@@ -264,6 +266,99 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
       } catch (error: any) {
         console.error("Plan edit error:", error);
         res.status(500).json({ message: "Planen kunne ikke gemmes." });
+      }
+    }
+  );
+
+  /**
+   * Targeted AI revision of specific plan steps.
+   *
+   * The customer may leave a comment on any step ("Make this shorter",
+   * "Replace gallery with team section") before approving. This route runs
+   * one focused LLM call to revise only the flagged steps, then saves the
+   * result as the next plan version. Steps without comments are preserved
+   * exactly.
+   *
+   * Charged as a planning run: the revision is editorial work, not a build.
+   */
+  app.post(
+    "/api/websites/:id/ai/plan/:planId/revise",
+    requireAuth,
+    requireWebsitePermission("updateBuilder"),
+    async (req, res) => {
+      const planId = parseId(req.params.planId);
+      if (planId === null) return res.status(400).json({ message: "Ugyldigt plan-id" });
+
+      const userId = (req as any).user?.id ?? req.params.id;
+      const budget = consumeAgentRun(userId, { charge: false });
+      if (!budget.ok) return res.status(429).json({ message: budget.message });
+
+      const annotations = req.body?.annotations;
+      const version = req.body?.version;
+      if (!Array.isArray(annotations) || typeof version !== "number") {
+        return res.status(400).json({ message: "Mangler annotations og version." });
+      }
+
+      // Validate each annotation entry
+      const cleanAnnotations = annotations
+        .filter(
+          (a): a is { index: number; stepId: string; comment: string } =>
+            typeof a?.index === "number" &&
+            typeof a?.stepId === "string" &&
+            typeof a?.comment === "string" &&
+            a.comment.trim().length > 0
+        )
+        .map((a) => ({
+          index: a.index,
+          stepId: a.stepId,
+          comment: a.comment.trim().slice(0, 400),
+        }));
+
+      if (cleanAnnotations.length === 0) {
+        return res.status(400).json({ message: "Ingen kommentarer at revidere med." });
+      }
+
+      try {
+        const current = await getPlan(req.params.id, planId);
+        if (!current) return res.status(404).json({ message: "Planen findes ikke." });
+        if (current.version !== version) {
+          return res.status(409).json({
+            message: "Planen er blevet ændret. Genindlæs den nyeste version.",
+            plan: current,
+          });
+        }
+        if (current.status === "built") {
+          return res.status(409).json({
+            message: "Planen er allerede bygget. Bed om en ny plan i stedet.",
+          });
+        }
+
+        const { steps: revisedSteps, revised } = await revisePlanSteps({
+          intent: current.intent,
+          steps: current.steps,
+          annotations: cleanAnnotations,
+        });
+
+        const { createPlanVersion } = await import("./planStore");
+        const plan = await createPlanVersion({
+          websiteId: req.params.id,
+          title: current.title,
+          intent: current.intent,
+          rationale: current.rationale,
+          steps: revisedSteps,
+          notes: [
+            ...current.notes,
+            revised > 0
+              ? `${revised} trin ${revised === 1 ? "er" : "er"} revideret baseret på dine kommentarer.`
+              : "Ingen trin blev ændret.",
+          ].slice(0, 12),
+          baseRevision: current.baseRevision,
+        });
+
+        res.json({ plan, revised });
+      } catch (error: any) {
+        console.error("Plan revise error:", error);
+        res.status(500).json({ message: "Planen kunne ikke revideres." });
       }
     }
   );

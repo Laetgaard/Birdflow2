@@ -43,6 +43,7 @@ import {
   approvePlanVersion,
   continueBuildStream,
   fetchPlanState,
+  requestPlanRevision,
   runBuildStream,
   runPlanMode,
   savePlanEdit,
@@ -373,6 +374,41 @@ export default function AIBuilderPanel({
       // leaving the customer editing a version that no longer exists.
       if (error.body?.plan) setPlan(error.body.plan as AssistantPlan);
       toast({ title: "Planen kunne ikke gemmes", description: error.message, variant: "destructive" });
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  /**
+   * Targeted AI revision of specific plan steps.
+   * The customer's per-step comments are sent to the server, which runs a
+   * focused LLM pass and saves the result as the next plan version.
+   */
+  const revisePlan = async (
+    annotations: Array<{ index: number; stepId: string; comment: string }>
+  ) => {
+    if (!plan) return;
+    setPlanBusy(true);
+    try {
+      const next = await requestPlanRevision({
+        websiteId,
+        accessToken: session.access_token,
+        planId: plan.id,
+        version: plan.version,
+        annotations,
+      });
+      setPlan(next);
+      toast({
+        title: "Planen er opdateret",
+        description: `Version ${next.version} — tjek ændringerne og godkend for at bygge.`,
+      });
+    } catch (error: any) {
+      if (error.body?.plan) setPlan(error.body.plan as AssistantPlan);
+      toast({
+        title: "Planen kunne ikke revideres",
+        description: error.message,
+        variant: "destructive",
+      });
     } finally {
       setPlanBusy(false);
     }
@@ -907,6 +943,7 @@ export default function AIBuilderPanel({
               onSave={savePlan}
               onApprove={approvePlan}
               onBuild={startBuildRun}
+              onRevise={revisePlan}
             />
           )}
 

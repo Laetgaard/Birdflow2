@@ -237,6 +237,33 @@ export async function stopBuild(args: {
   await json(response);
 }
 
+/**
+ * Send annotated steps (customer comments on specific steps) to the AI for
+ * a targeted revision pass. Returns the new plan version with revised steps.
+ */
+export async function requestPlanRevision(args: {
+  websiteId: string;
+  accessToken: string;
+  planId: number;
+  version: number;
+  /** { index, stepId, comment } for every step the customer annotated. */
+  annotations: Array<{ index: number; stepId: string; comment: string }>;
+}): Promise<AssistantPlan> {
+  const response = await fetch(
+    `/api/websites/${args.websiteId}/ai/plan/${args.planId}/revise`,
+    {
+      method: "POST",
+      headers: headers(args.websiteId, args.accessToken),
+      body: JSON.stringify({
+        version: args.version,
+        annotations: args.annotations,
+      }),
+    }
+  );
+  const body = await json<{ plan: AssistantPlan }>(response);
+  return body.plan;
+}
+
 /** Restore the pre-build snapshot: one build, one undo. */
 export async function undoBuild(args: {
   websiteId: string;

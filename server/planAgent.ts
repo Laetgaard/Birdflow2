@@ -119,6 +119,7 @@ ${roleTable}
 
 ## What a good plan looks like
 - Between 2 and ${MAX_PLAN_STEPS} steps. Each step is one coherent piece of work a person could tick off.
+- For "section" and "page" steps include a structured "sections" array with one entry per section you plan to build: { type: "hero-section", brief: "Benefit-led headline…", hasImage: true }. The "type" must be a valid section type from the list in Technical constraints. Set hasImage: true only for hero-section and gallery-section. This array powers the expandable plan UI the customer reviews before approving.
 - For a FULL WEBSITE BUILD: one section step per page lists ALL sections for that page. The detail for each section step enumerates every section type and a one-sentence content brief, like:
     "1. hero-section — Benefit-led headline for a psychology practice, calming imageUrl.
      2. features-section — 5 reasons to choose this practice (warmth, expertise, no waiting list…).

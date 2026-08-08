@@ -13,6 +13,7 @@ import {
   Undo2,
 } from "lucide-react";
 import type { BuildStreamEvent, BuildSummary, PlanStep, PlanStepResult } from "@shared/assistantPlan";
+import { MAX_IMAGES_PER_BUILD } from "@shared/assistantPlan";
 import type { ReviewProposal } from "@shared/selfReview";
 import { SelfReviewSection } from "@/components/builder/SelfReviewSection";
 
@@ -25,6 +26,10 @@ import { SelfReviewSection } from "@/components/builder/SelfReviewSection";
    and how do I get out of this. So every state here has a control —
    stop while it runs, skip or retry when it pauses, undo the whole
    thing when it is done.
+
+   New in task #126:
+   - Progress bar at the top showing overall build percentage.
+   - Image count uses the shared MAX_IMAGES_PER_BUILD constant.
    ───────────────────────────────────────────────────────────── */
 
 export type BuildView = {
@@ -136,21 +141,43 @@ export default function BuildProgressCard({
   const paused = view.status === "paused";
   const done = view.status === "completed" || view.status === "cancelled" || view.status === "failed";
 
+  /** Number of steps that have left the "pending" state. */
+  const completedCount = view.results.filter(
+    (r) => r.status !== "pending" && r.status !== "running"
+  ).length;
+  const totalCount = view.steps.length;
+  const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
   return (
     <div className="rounded-lg border bg-card p-3 text-[11.5px]" data-testid="build-progress-card">
       <div className="flex items-start justify-between gap-2">
         <p className="m-0 font-semibold text-[12.5px] leading-snug">
           {view.summary?.headline ?? `Bygger "${view.planTitle}"`}
         </p>
-        {running && (
+        {(running || paused) && (
           <Badge variant="secondary" className="shrink-0 text-[10px]">
-            {view.results.filter((r) => r.status !== "pending" && r.status !== "running").length}/
-            {view.steps.length}
+            {completedCount}/{totalCount}
           </Badge>
         )}
       </div>
 
-      <ol className="mt-2.5 mb-0 space-y-1 pl-0 list-none">
+      {/* Progress bar — visible while building or paused */}
+      {(running || paused) && totalCount > 0 && (
+        <div className="mt-2 mb-1">
+          <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-1 rounded-full transition-all duration-500 ${
+                paused ? "bg-amber-500" : "bg-primary"
+              }`}
+              style={{ width: `${pct}%` }}
+              data-testid="build-progress-bar"
+            />
+          </div>
+          <p className="m-0 mt-0.5 text-right text-[10px] text-muted-foreground">{pct}%</p>
+        </div>
+      )}
+
+      <ol className="mt-1.5 mb-0 space-y-1 pl-0 list-none">
         {view.steps.map((step, index) => {
           const result = view.results[index];
           const active = running && view.activeIndex === index;
@@ -268,7 +295,7 @@ export default function BuildProgressCard({
 
       {view.summary && view.summary.imagesUsed > 0 && (
         <p className="m-0 mt-2 text-[10.5px] text-muted-foreground">
-          {view.summary.imagesUsed} af 3 AI-billeder brugt i denne bygning.
+          {view.summary.imagesUsed} af {MAX_IMAGES_PER_BUILD} AI-billeder brugt i denne bygning.
         </p>
       )}
 
