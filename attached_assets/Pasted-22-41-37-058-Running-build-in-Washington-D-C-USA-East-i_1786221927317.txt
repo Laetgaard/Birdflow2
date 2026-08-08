@@ -1,0 +1,53 @@
+22:41:37.058 Running build in Washington, D.C., USA (East) – iad1
+22:41:37.059 Build machine configuration: 2 cores, 8 GB
+22:41:37.089 Retrieving list of deployment files...
+22:41:37.400 Downloading 41 deployment files...
+22:41:38.045 Restored build cache from previous deployment (Bg8E6a4VMLhAhWz6LnLEx34un6CQ)
+22:41:38.347 Running "vercel build"
+22:41:38.366 Vercel CLI 58.1.0
+22:41:38.543 Warning: Detected "engines": { "node": ">=18.0.0" } in your `package.json` that will automatically upgrade when a new major Node.js Version is released. Learn More: https://vercel.link/node-version
+22:41:38.552 Running "install" command: `npm install`...
+22:41:43.888 
+22:41:43.889 up to date, audited 57 packages in 5s
+22:41:43.890 
+22:41:43.890 14 packages are looking for funding
+22:41:43.890   run `npm fund` for details
+22:41:43.980 
+22:41:43.980 3 high severity vulnerabilities
+22:41:43.980 
+22:41:43.981 To address issues that do not require attention, run:
+22:41:43.981   npm audit fix
+22:41:43.981 
+22:41:43.981 To address all issues (including breaking changes), run:
+22:41:43.981   npm audit fix --force
+22:41:43.981 
+22:41:43.981 Run `npm audit` for details.
+22:41:44.024 Detected Next.js version: 14.2.35
+22:41:44.025 Running "npm run build"
+22:41:44.135 
+22:41:44.136 > love@1.0.0 build
+22:41:44.136 > next build
+22:41:44.136 
+22:41:44.835   ▲ Next.js 14.2.35
+22:41:44.836 
+22:41:44.853    Creating an optimized production build ...
+22:41:53.084  ✓ Compiled successfully
+22:41:53.085    Linting and checking validity of types ...
+22:41:58.703 Failed to compile.
+22:41:58.704 
+22:41:58.708 ./app/behandlinger/page.tsx:274:17
+22:41:58.709 Type error: Type '({ id: string; type: string; props: { items: { id: string; title: string; description: string; }[]; title: string; subtitle?: undefined; alignment?: undefined; description?: undefined; buttonLink?: undefined; buttonText?: undefined; }; styles: { ...; }; } | ... 4 more ... | { ...; })[]' is not assignable to type 'ComponentData[]'.
+22:41:58.709   Type '{ id: string; type: string; props: { items: { id: string; title: string; description: string; }[]; title: string; subtitle?: undefined; alignment?: undefined; description?: undefined; buttonLink?: undefined; buttonText?: undefined; }; styles: { ...; }; } | ... 4 more ... | { ...; }' is not assignable to type 'ComponentData'.
+22:41:58.710     Type '{ id: string; type: string; props: { title: string; subtitle: string; alignment: string; description: string; items?: undefined; buttonLink?: undefined; buttonText?: undefined; }; styles: { padding: string; ... 5 more ...; buttonStyle?: undefined; }; }' is not assignable to type 'ComponentData'.
+22:41:58.710       The types of 'props.alignment' are incompatible between these types.
+22:41:58.711         Type 'string' is not assignable to type '"center" | "left" | "right" | undefined'.
+22:41:58.711 
+22:41:58.711   272 |                 pages={sitePages}
+22:41:58.711   273 |                 navItems={siteNav}
+22:41:58.712 > 274 |                 allComponents={pageComponents}
+22:41:58.712       |                 ^
+22:41:58.712   275 |               />
+22:41:58.712   276 |             );
+22:41:58.712   277 |         }
+22:41:58.737 Next.js build worker exited with code: 1 and signal: null
+22:41:58.771 Error: Command "npm run build" exited with 1
