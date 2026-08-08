@@ -20,8 +20,7 @@ import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { resolvePlatformUrl } from "./publisher/platformUrl";
 import {
-  createPublishJob,
-  createWebsiteVersion,
+  createPublishJobWithSnapshot,
   getPublishJob,
   getActivePublishJob,
   getPublishJobByDeploymentId,
@@ -2892,9 +2891,10 @@ export async function registerRoutes(
         });
       }
 
-      // Idempotency: reject if a publish is already running for this site.
-      // The client passes an optional idempotency_key so double-clicks / retries
-      // don't create duplicate jobs.
+      // Idempotency: check for an already-running job before inserting.
+      // createPublishJob will still throw a unique-constraint error (23505) if
+      // two requests race through this check simultaneously — that is caught
+      // below and converted to 409.
       const idempotencyKey: string | undefined = req.body?.idempotencyKey;
       const existingActive = await getActivePublishJob(req.params.id);
       if (existingActive) {
@@ -2936,18 +2936,13 @@ export async function registerRoutes(
         console.error('[Publish] Failed to fetch custom domains:', domainErr);
       }
 
-      // Create the publish job row first, then snapshot the builder state.
-      const job = await createPublishJob({
+      // Create the publish job and its immutable content snapshot atomically.
+      // Both rows are created in a single transaction so a snapshot-insert failure
+      // never leaves an orphaned queued job that would block future publishes.
+      const { job } = await createPublishJobWithSnapshot({
         websiteId: req.params.id,
         requestedBy: user.id,
         idempotencyKey,
-      });
-
-      // Immutable snapshot — the worker deploys exactly this version.
-      // The customer can keep editing after clicking Publish.
-      await createWebsiteVersion({
-        websiteId: req.params.id,
-        publishJobId: job.id,
         content: builderState.state as BuilderStateData,
       });
 
@@ -2983,6 +2978,12 @@ export async function registerRoutes(
       };
       setImmediate(() => { void runPublishJob(workerCfg); });
     } catch (error: any) {
+      // Unique-constraint violation on the one-active-per-site index means two
+      // simultaneous requests raced through the pre-check and both tried to insert.
+      // The second insert loses with code 23505 → return 409 instead of 500.
+      if (error?.code === '23505' || /unique.*publish_jobs_one_active/i.test(error?.message ?? '')) {
+        return res.status(409).json({ message: "A publish is already in progress for this site." });
+      }
       res.status(500).json({ message: error.message });
     }
   });
@@ -3016,76 +3017,11 @@ export async function registerRoutes(
   });
 
   // ── Vercel deployment webhook ─────────────────────────────────────────────
-  // Receives deployment-ready / error events from Vercel so completion is
-  // event-driven rather than polling. The worker still polls as the primary
-  // path; this handler resolves any jobs that finish after the worker's
-  // polling window ends.
-  app.post(
-    "/api/webhooks/vercel",
-    express.raw({ type: 'application/json' }),
-    async (req, res) => {
-      try {
-        const webhookSecret = process.env.VERCEL_WEBHOOK_SECRET;
-        if (webhookSecret) {
-          const sig = req.headers['x-vercel-signature'] as string | undefined;
-          if (!sig) return res.status(400).json({ message: "Missing signature" });
-          const { createHmac } = await import('crypto');
-          const expected = createHmac('sha1', webhookSecret)
-            .update(req.body)
-            .digest('hex');
-          if (sig !== expected) return res.status(401).json({ message: "Invalid signature" });
-        }
-
-        const body = JSON.parse(req.body.toString('utf-8'));
-        const type: string = body.type ?? '';
-        const deploymentId: string = body.payload?.deployment?.id ?? '';
-
-        if (!deploymentId) return res.status(200).json({ ok: true }); // Not a deployment event
-
-        // Idempotent: skip events that don't change terminal state
-        if (!['deployment.succeeded', 'deployment.error'].includes(type)) {
-          return res.status(200).json({ ok: true });
-        }
-
-        const job = await getPublishJobByDeploymentId(deploymentId);
-        if (!job || job.status === 'published' || job.status === 'failed') {
-          // Already in terminal state — idempotent no-op
-          return res.status(200).json({ ok: true });
-        }
-
-        if (type === 'deployment.succeeded') {
-          const productionUrl: string | undefined =
-            body.payload?.links?.deployment ?? undefined;
-          if (productionUrl && !productionUrl.includes('-projects-')) {
-            await completePublishJob(job.id, {
-              productionUrl,
-              deploymentUrl: body.payload?.deployment?.url
-                ? `https://${body.payload.deployment.url}`
-                : productionUrl,
-              vercelProjectId: job.vercelProjectId ?? '',
-              vercelDeploymentId: deploymentId,
-            });
-            await storage.updateWebsite(job.websiteId, job.requestedBy, {
-              status: 'published',
-              deploymentUrl: productionUrl,
-              deploymentId,
-            } as any);
-          }
-        } else if (type === 'deployment.error') {
-          // Already guarded by the early return above (job.status is never 'published' here)
-          await failPublishJob(job.id, {
-            errorCode: 'VERCEL_DEPLOYMENT_ERROR',
-            errorMessage: body.payload?.deployment?.errorMessage ?? 'Vercel deployment failed',
-          });
-        }
-
-        res.status(200).json({ ok: true });
-      } catch (error: any) {
-        console.error('[Vercel webhook] error:', error.message);
-        res.status(200).json({ ok: true }); // Always 200 to Vercel
-      }
-    }
-  );
+  // Registered in server/index.ts BEFORE express.json() so it receives the
+  // raw body needed for HMAC-SHA1 signature verification. This stub satisfies
+  // any router-level discovery tools that scan registered routes, but the
+  // actual handler is in index.ts.
+  // (No route registered here — already live in index.ts)
 
   // ============ MEDIA ASSETS ROUTES ============
 

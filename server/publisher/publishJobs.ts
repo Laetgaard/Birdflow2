@@ -11,6 +11,16 @@ import { sql } from 'drizzle-orm';
 import { db } from '../storage';
 import type { BuilderStateData } from '../../shared/schema';
 
+/**
+ * Recorded when this module is first imported — i.e. when the server process
+ * starts. Used by failStalePublishJobs to identify jobs whose workers no
+ * longer exist (they were started by a previous process).
+ *
+ * A non-terminal job created before SERVER_START_TIME cannot have a live
+ * worker in this process: it is safe to fail immediately regardless of age.
+ */
+export const SERVER_START_TIME = new Date();
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type PublishJobStatus =
@@ -242,6 +252,90 @@ export async function completePublishJobIfNewest(
   }
   await completePublishJob(jobId, params);
   return { applied: true };
+}
+
+// ── Startup recovery ─────────────────────────────────────────────────────────
+
+/**
+ * At server startup, fail every non-terminal job that was created before this
+ * server process started. Those jobs cannot have a live worker — their workers
+ * died with the previous process. Without this recovery:
+ *
+ *   1. The one-active-per-site index blocks every new publish for the affected site.
+ *   2. The builder polls the job forever with no terminal state.
+ *
+ * The cutoff defaults to SERVER_START_TIME (module load time). Any job whose
+ * created_at is earlier than that timestamp was started by a previous process
+ * and is definitively stranded, regardless of its age.
+ *
+ * Pass an explicit cutoff in tests or to limit recovery scope.
+ */
+export async function failStalePublishJobs(
+  cutoffTime: Date = SERVER_START_TIME
+): Promise<number> {
+  const cutoff = cutoffTime.toISOString();
+  const result = await db.execute(
+    sql`UPDATE publish_jobs
+        SET status        = 'failed',
+            error_code    = 'SERVER_RESTART',
+            error_message = 'The server restarted while this publish was in progress. Click Publish to try again.',
+            completed_at  = now(),
+            updated_at    = now()
+        WHERE status NOT IN ('published', 'failed')
+          AND created_at < ${cutoff}
+        RETURNING id`
+  );
+  const rows = result.rows as unknown[];
+  if (rows.length > 0) {
+    console.log(`[PublishJobs] Stale job recovery: failed ${rows.length} stranded job(s) from before ${cutoff}.`);
+  }
+  return rows.length;
+}
+
+/**
+ * Create a publish job and its immutable content snapshot atomically.
+ *
+ * If the snapshot insert fails after the job insert, the transaction rolls
+ * back entirely — no orphaned queued job is left behind that would block
+ * future publishes. This is the only correct way to persist a new job.
+ */
+export async function createPublishJobWithSnapshot(params: {
+  websiteId: string;
+  requestedBy: string;
+  idempotencyKey?: string;
+  content: BuilderStateData;
+}): Promise<{ job: PublishJob; versionId: string }> {
+  return await db.transaction(async (tx) => {
+    const jobResult = await tx.execute(
+      sql`INSERT INTO publish_jobs (website_id, requested_by, status, idempotency_key)
+          VALUES (
+            ${params.websiteId},
+            ${params.requestedBy},
+            'queued',
+            ${params.idempotencyKey ?? null}
+          )
+          RETURNING *`
+    );
+    const job = toJob((jobResult.rows as Record<string, unknown>[])[0]);
+
+    const versionResult = await tx.execute(
+      sql`INSERT INTO website_versions (website_id, publish_job_id, version_number, content)
+          VALUES (
+            ${params.websiteId},
+            ${job.id},
+            (
+              SELECT COALESCE(MAX(version_number), 0) + 1
+              FROM website_versions
+              WHERE website_id = ${params.websiteId}
+            ),
+            ${JSON.stringify(params.content)}::jsonb
+          )
+          RETURNING id`
+    );
+    const versionId = (versionResult.rows as Array<{ id: string }>)[0].id;
+
+    return { job, versionId };
+  });
 }
 
 // ── Website versions ───────────────────────────────────────────────────────────

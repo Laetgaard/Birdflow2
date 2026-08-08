@@ -21,6 +21,7 @@
 - [Design tokens](design-tokens.md) — publisher resolves at generation time (resolve before sanitising), sanitiser must allow whole-value refs, migrate fonts via the approved-font resolver, enforce at the mutation choke point.
 - [Builder CAS writes](builder-cas-writes.md) — guarded saves pass the read revision, never retry; every save response must return its new revision and clients must adopt it, or autosave 409s.
 - [Preview vs published parity](renderer-parity.md) — render both sides from registry defaults; escape generated literals (comments too) and compile output; runtime checks are three-valued (unavailable ≠ failed).
+- [Async publish pipeline](async-publish-pipeline.md) — 202+jobId flow; BIRDFLOW_PUBLIC_PLATFORM_URL required (no REPLIT_DEPLOYMENT); alias retry; never store hashed URL; worker pattern.
 - [Builder motion system](builder-motion.md) — motion specs are data, resolvers stay stringifiable, done-phase = {} so hover wins, stagger is box-only, reduced-motion needs the baked CSS unhide rule.
 - [Invented-claims gate](invented-claims-gate.md) — mutations judge against facts+site copy, whole-state scrubs against facts only; forbidden ≠ evidence; scrub again after registry defaults.
 - [Marketing SEO head injection](marketing-seo-head-injection.md) — initial-response metadata on both servers; `index:false` doesn't stop GET /index.html; managed-tag list for SPA head sync; SSR tests need reactEscape.

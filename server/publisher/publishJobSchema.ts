@@ -58,6 +58,15 @@ export const PUBLISH_JOB_DDL: SchemaStatement[] = [
           WHERE vercel_deployment_id IS NOT NULL`,
   },
   {
+    // Prevents two simultaneous publish requests for the same site from both
+    // inserting a job when neither sees the other's row yet (race window).
+    // The CREATE is idempotent — the name makes the intent explicit.
+    label: 'publish_jobs_one_active_per_site_idx',
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS publish_jobs_one_active_per_site_idx
+          ON publish_jobs (website_id)
+          WHERE status NOT IN ('published', 'failed')`,
+  },
+  {
     label: 'website_versions',
     sql: `CREATE TABLE IF NOT EXISTS website_versions (
       id             uuid    PRIMARY KEY DEFAULT gen_random_uuid(),

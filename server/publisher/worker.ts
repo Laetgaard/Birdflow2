@@ -104,49 +104,54 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       return;
     }
 
-    // result.deploymentUrl is always the stable public alias (never the hashed URL)
-    const productionUrl = result.deploymentUrl;
-    const deploymentUrl = result.rawDeploymentUrl ?? result.deploymentUrl;
+    // result.deploymentUrl is the stable Vercel alias (*.vercel.app, never the hashed URL).
+    // customerFacingUrl is what the customer sees: their custom domain if configured,
+    // otherwise the alias. This is what the builder displays and what gets stored in
+    // publish_jobs.production_url so the polling endpoint returns the right URL.
+    const vercelAlias = result.deploymentUrl!;
+    const vercelRawUrl = result.rawDeploymentUrl ?? vercelAlias;
     const vercelProjectId = result.vercelProjectId ?? '';
     const vercelDeploymentId = result.deploymentId ?? '';
+    const customerFacingUrl = cfg.customDomain
+      ? `https://${cfg.customDomain}`
+      : vercelAlias;
 
     console.log('[Publish] production_alias_found', {
       websiteId,
       publishJobId: jobId,
-      productionUrl,
+      vercelAlias,
+      customerFacingUrl,
       deploymentId: vercelDeploymentId,
     });
 
     // Idempotency: only write if we are still the newest publish for this site.
     // An older slow deployment (A) that finishes after a newer deployment (B)
-    // must not overwrite B's production URL.
+    // must not overwrite B's URLs.
     const { applied } = await completePublishJobIfNewest(jobId, websiteId, {
-      productionUrl,
-      deploymentUrl,
+      // production_url = customer-facing URL (what the builder shows and the website stores)
+      productionUrl: customerFacingUrl,
+      // deployment_url = Vercel stable alias (internal reference, not shown to customer)
+      deploymentUrl: vercelAlias,
       vercelProjectId,
       vercelDeploymentId,
     });
 
     if (applied) {
-      const urlToStore = cfg.customDomain
-        ? `https://${cfg.customDomain}`
-        : productionUrl;
-
       await storage.updateWebsite(websiteId, cfg.requestedBy, {
         status: 'published',
-        deploymentUrl: urlToStore,
+        deploymentUrl: customerFacingUrl,
         deploymentId: vercelDeploymentId,
       } as any);
 
       // Notification email — best-effort; never blocks or throws to the caller
       try {
         const ownerProfile = await storage.getProfile(cfg.requestedBy);
-        if (ownerProfile?.email && urlToStore) {
+        if (ownerProfile?.email && customerFacingUrl) {
           await emailService.sendWebsitePublished(
             ownerProfile.email,
             websiteId,
             cfg.siteName,
-            urlToStore
+            customerFacingUrl
           );
         }
       } catch (emailErr) {
@@ -156,7 +161,8 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       console.log('[Publish] publish_completed', {
         websiteId,
         publishJobId: jobId,
-        productionUrl,
+        customerFacingUrl,
+        vercelAlias,
         deploymentId: vercelDeploymentId,
       });
     }

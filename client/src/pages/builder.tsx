@@ -782,6 +782,10 @@ export default function BuilderPage() {
 
     setIsPublishing(true);
     setPublishProgress('Queued…');
+    // Local flag — tracks whether this invocation handed off to the polling
+    // effect. Checked in `finally` instead of reading React state, which is
+    // stale inside closures (publishJobId is null at callback creation time).
+    let handedOff = false;
     try {
       const response = await fetch(`/api/websites/${id}/publish`, {
         method: "POST",
@@ -797,7 +801,10 @@ export default function BuilderPage() {
       const data = await response.json();
 
       if (response.status === 202) {
-        // Async publish: store the jobId so the polling effect kicks in
+        // Async publish: store the jobId so the polling effect kicks in.
+        // Set handedOff BEFORE setPublishJobId so the finally guard is correct
+        // even if React batches the state write.
+        handedOff = true;
         setPublishJobId(data.jobId);
         if (data.warning) {
           toast({ title: "Publishing…", description: data.warning });
@@ -816,13 +823,14 @@ export default function BuilderPage() {
     } catch (error: any) {
       toast({ title: "Publish failed", description: error.message, variant: "destructive" });
     } finally {
-      // Only clear if we didn't hand off to the polling effect
-      if (!publishJobId) {
+      // Only reset publishing state when this call owns it — not when the
+      // polling effect is running (it clears the state when the job resolves).
+      if (!handedOff) {
         setIsPublishing(false);
         setPublishProgress('');
       }
     }
-  }, [session, id, builderState, saveState, toast, publishJobId]);
+  }, [session, id, builderState, saveState, toast]);
 
   const addComponent = (type: ComponentType) => {
     if (!builderState) return;
@@ -1515,7 +1523,7 @@ export default function BuilderPage() {
           {!website.adminContext && (
             <Button size="sm" variant="secondary" className="gap-1 md:gap-2 px-2 md:px-3" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
               {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              <span className="hidden sm:inline">{isPublishing ? 'Publishing...' : 'Publish'}</span>
+              <span className="hidden sm:inline">{isPublishing ? (publishProgress || 'Publishing…') : 'Publish'}</span>
             </Button>
           )}
         </div>
