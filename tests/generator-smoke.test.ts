@@ -5,7 +5,9 @@
  *  1. The generator produces a complete file tree for a minimal builder state.
  *  2. ComponentRenderer.tsx carries // @ts-nocheck so TypeScript's noImplicitAny
  *     never kills the Vercel build again (regression guard for the original bug).
- *  3. Key generated files are non-empty and contain expected markers.
+ *  3. Generated page files carry // @ts-nocheck so literal-union props (alignment,
+ *     layout, variant, etc.) never cause a type error during the Vercel build.
+ *  4. Key generated files are non-empty and contain expected markers.
  *
  * For a full build test (npm install + next build), set real env vars and run:
  *   NEXT_PUBLIC_SUPABASE_URL=... NEXT_PUBLIC_SUPABASE_ANON_KEY=... \
@@ -20,6 +22,7 @@ import * as path from 'path';
 import { generateNextJsProject } from '../server/publisher/generator';
 import type { BuilderStateData } from '../shared/schema';
 
+// ── Minimal fixture (single page, basic hero) ────────────────────────────────
 const MINIMAL_STATE: BuilderStateData = {
   pages: [
     {
@@ -47,18 +50,151 @@ const MINIMAL_STATE: BuilderStateData = {
   globalStyles: {},
 } as unknown as BuilderStateData;
 
-let projectDir: string;
+// ── Rich multi-page fixture covering literal-union props ──────────────────────
+// This fixture deliberately includes props whose values must survive TypeScript
+// inference without widening to `string`. Any regression in generatePageFile()
+// that removes the @ts-nocheck guard will be caught by the page-header tests
+// below, while this fixture makes it easy to also add a compilation test later.
+const RICH_STATE: BuilderStateData = {
+  pages: [
+    {
+      id: 'home',
+      name: 'Home',
+      path: '/',
+      role: 'home' as const,
+      components: [
+        {
+          id: 'hero-home',
+          type: 'hero',
+          props: {
+            title: 'Welcome',
+            subtitle: 'Hero subtitle',
+            alignment: 'center',          // literal union: "center"|"left"|"right"
+            description: 'Hero body',
+            buttonText: 'Book now',
+            buttonLink: '/contact',
+          },
+          styles: {
+            padding: 'large',
+            buttonStyle: 'primary',
+          },
+        },
+        {
+          id: 'features-home',
+          type: 'features',
+          props: {
+            title: 'Our Services',
+            alignment: 'left',
+            layout: 'grid',              // literal union prop
+            items: [
+              { id: 'f1', title: 'Feature 1', description: 'Desc 1' },
+              { id: 'f2', title: 'Feature 2', description: 'Desc 2' },
+            ],
+          },
+          styles: {
+            backgroundColor: '#ffffff',
+            columns: '3',
+          },
+        },
+        {
+          id: 'cta-home',
+          type: 'cta',
+          props: {
+            title: 'Ready to start?',
+            alignment: 'right',
+            buttonText: 'Get in touch',
+            buttonLink: '/contact',
+            variant: 'filled',           // literal union prop
+          },
+          styles: {},
+        },
+      ],
+    },
+    {
+      id: 'services',
+      name: 'Services',
+      path: '/services',
+      role: 'custom' as const,
+      components: [
+        {
+          id: 'hero-services',
+          type: 'hero',
+          props: {
+            title: 'Services',
+            alignment: 'center',
+            description: 'What we offer',
+          },
+          styles: { padding: 'medium' },
+        },
+        {
+          id: 'services-list',
+          type: 'services',
+          props: {
+            title: 'Details',
+            subtitle: 'What we offer',
+            alignment: 'left',
+            layout: 'grid',
+          },
+          styles: { fontSize: 'base', fontWeight: 'normal' },
+        },
+      ],
+    },
+    {
+      id: 'contact',
+      name: 'Contact',
+      path: '/contact',
+      role: 'contact' as const,
+      components: [
+        {
+          id: 'hero-contact',
+          type: 'hero',
+          props: { title: 'Contact us', alignment: 'center' },
+          styles: {},
+        },
+        {
+          id: 'form-contact',
+          type: 'contact-form',
+          props: { title: 'Send a message' },
+          styles: {},
+        },
+      ],
+    },
+  ],
+  activePage: 'home',
+  globalStyles: {
+    primaryColor: '#1a56db',
+    fontFamily: 'Inter',
+  },
+} as unknown as BuilderStateData;
+
+let minimalDir: string;
+let richDir: string;
 
 beforeAll(async () => {
-  projectDir = await generateNextJsProject({
-    websiteId: 'smoke-test-id',
-    siteName: 'Smoke Test Site',
-    builderState: MINIMAL_STATE,
-    supabaseUrl: 'https://smoke.supabase.co',
-    supabaseAnonKey: 'smoke-anon-key',
-    language: 'da',
-  });
+  [minimalDir, richDir] = await Promise.all([
+    generateNextJsProject({
+      websiteId: 'smoke-test-id',
+      siteName: 'Smoke Test Site',
+      builderState: MINIMAL_STATE,
+      supabaseUrl: 'https://smoke.supabase.co',
+      supabaseAnonKey: 'smoke-anon-key',
+      language: 'da',
+    }),
+    generateNextJsProject({
+      websiteId: 'rich-test-id',
+      siteName: 'Rich Test Site',
+      builderState: RICH_STATE,
+      supabaseUrl: 'https://rich.supabase.co',
+      supabaseAnonKey: 'rich-anon-key',
+      language: 'da',
+    }),
+  ]);
 }, 30_000);
+
+// ── Backward compat: keep using minimalDir as "projectDir" ───────────────────
+// Tests written before the rich fixture was added reference projectDir.
+let projectDir: string;
+beforeAll(() => { projectDir = minimalDir; });
 
 describe('generated project structure', () => {
   it('produces a directory', () => {
@@ -147,6 +283,63 @@ describe('ComponentRenderer.tsx TypeScript safety', () => {
 
   it('contains the computeMotion function', () => {
     expect(rendererSource).toContain('computeMotion');
+  });
+});
+
+// ── Regression guard: generated page files must carry @ts-nocheck ────────────
+// ── Without it, literal-union props (alignment, layout, variant, etc.) widen  ──
+// ── to `string` in baked-in JSON literals and TypeScript rejects the build.   ──
+describe('generated page files TypeScript safety', () => {
+  function firstMeaningfulLine(content: string): string {
+    return content.split('\n').find((l) => l.trim().length > 0)?.trim() ?? '';
+  }
+
+  it('home page (minimal) starts with // @ts-nocheck', () => {
+    const content = fs.readFileSync(path.join(minimalDir, 'app', 'page.tsx'), 'utf-8');
+    expect(firstMeaningfulLine(content)).toBe('// @ts-nocheck');
+  });
+
+  it('@ts-nocheck appears before any import statement (minimal home)', () => {
+    const content = fs.readFileSync(path.join(minimalDir, 'app', 'page.tsx'), 'utf-8');
+    const lines = content.split('\n');
+    const checkIdx = lines.findIndex((l) => l.trim() === '// @ts-nocheck');
+    const importIdx = lines.findIndex((l) => l.trim().startsWith('import '));
+    expect(checkIdx).toBeGreaterThanOrEqual(0);
+    expect(checkIdx).toBeLessThan(importIdx);
+  });
+
+  it('rich home page starts with // @ts-nocheck', () => {
+    const content = fs.readFileSync(path.join(richDir, 'app', 'page.tsx'), 'utf-8');
+    expect(firstMeaningfulLine(content)).toBe('// @ts-nocheck');
+  });
+
+  it('rich services page starts with // @ts-nocheck', () => {
+    const servicesPage = path.join(richDir, 'app', 'services', 'page.tsx');
+    expect(fs.existsSync(servicesPage)).toBe(true);
+    const content = fs.readFileSync(servicesPage, 'utf-8');
+    expect(firstMeaningfulLine(content)).toBe('// @ts-nocheck');
+  });
+
+  it('rich contact page starts with // @ts-nocheck', () => {
+    const contactPage = path.join(richDir, 'app', 'contact', 'page.tsx');
+    expect(fs.existsSync(contactPage)).toBe(true);
+    const content = fs.readFileSync(contactPage, 'utf-8');
+    expect(firstMeaningfulLine(content)).toBe('// @ts-nocheck');
+  });
+
+  it('rich pages contain the literal-union props that previously caused failures', () => {
+    // Services page has alignment: "left" and alignment: "center" — the exact
+    // values that widened to `string` and crashed the Vercel build.
+    const servicesContent = fs.readFileSync(
+      path.join(richDir, 'app', 'services', 'page.tsx'),
+      'utf-8'
+    );
+    expect(servicesContent).toContain('"alignment"');
+    // Home page has all three alignment variants.
+    const homeContent = fs.readFileSync(path.join(richDir, 'app', 'page.tsx'), 'utf-8');
+    expect(homeContent).toContain('"center"');
+    expect(homeContent).toContain('"left"');
+    expect(homeContent).toContain('"right"');
   });
 });
 

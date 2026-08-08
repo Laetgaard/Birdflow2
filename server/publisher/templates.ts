@@ -7263,7 +7263,8 @@ export const metadata: Metadata = {
 `
     : '';
 
-  return `${componentsImport}
+  return `// @ts-nocheck
+${componentsImport}
 
 const pageComponents = ${componentsJson};
 const sitePages = ${pagesJson};
