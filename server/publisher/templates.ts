@@ -7239,10 +7239,7 @@ export function generatePageFile(
   }
 ): string {
   const componentsImport = `import type { Metadata } from 'next';
-// ComponentData is exported by the generated renderer so pages can annotate
-// their baked-in component arrays and get compile-time type-checking without
-// needing @ts-nocheck on every page file.
-import ComponentRenderer, { type ComponentData } from '@/components/ComponentRenderer';
+import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';`;
@@ -7277,12 +7274,12 @@ export const metadata: Metadata = {
 
   return `${componentsImport}
 
-// ComponentData is imported from the renderer so TypeScript can check the
-// baked-in JSON against the published site's component contract. Literal-union
-// props (alignment, imageSide) are widened to string in ComponentProps so that
-// "center" (inferred as string by TypeScript) satisfies the annotation without
-// needing @ts-nocheck on every generated page file.
-const pageComponents: ComponentData[] = ${componentsJson};
+// Local loose type so TypeScript accepts baked-in component JSON without
+// importing from ComponentRenderer (which carries @ts-nocheck and has edge
+// cases under Next.js isolatedModules). Props and styles are typed as
+// Record<string,any> so any valid builder data is accepted.
+type PageComponentData = { id: string; type: string; props: Record<string, any>; styles: Record<string, any> };
+const pageComponents: PageComponentData[] = ${componentsJson};
 const sitePages = ${pagesJson};
 const siteNav = ${navJson};
 ${metadataBlock}

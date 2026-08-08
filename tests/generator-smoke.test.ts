@@ -306,16 +306,17 @@ describe('generated page files TypeScript safety', () => {
     expect(firstMeaningfulLine(content)).toMatch(/^import /);
   });
 
-  it('page file imports ComponentData type from the renderer', () => {
+  it('page file defines a local loose component type for TypeScript safety', () => {
     const content = fs.readFileSync(path.join(minimalDir, 'app', 'page.tsx'), 'utf-8');
-    // The page must import the type so TypeScript can check the baked-in data.
-    expect(content).toContain('type ComponentData');
+    // Uses a local PageComponentData type (not imported from @ts-nocheck renderer)
+    // so isolatedModules and strict mode are both satisfied without @ts-nocheck.
+    expect(content).toContain('PageComponentData');
     expect(content).toContain('ComponentRenderer');
   });
 
-  it('page file annotates baked-in data as ComponentData[]', () => {
+  it('page file annotates baked-in data with the local component type', () => {
     const content = fs.readFileSync(path.join(minimalDir, 'app', 'page.tsx'), 'utf-8');
-    expect(content).toContain('ComponentData[]');
+    expect(content).toContain('PageComponentData[]');
   });
 
   it('rich pages do not start with @ts-nocheck', () => {
