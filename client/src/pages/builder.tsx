@@ -1454,6 +1454,21 @@ export default function BuilderPage() {
                 <ExternalLink className="w-3 h-3 flex-shrink-0" />
                 {customDomain}
               </a>
+            ) : website.deploymentUrl ? (
+              /* No custom domain yet — show the auto-generated Vercel URL so
+                 the customer can visit their live site immediately. */
+              <a
+                href={website.deploymentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-primary hover:underline truncate max-w-[120px] sm:max-w-[180px] md:max-w-[220px]"
+                title={website.deploymentUrl}
+                data-testid="link-vercel-domain"
+              >
+                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                <span className="hidden sm:inline">Se hjemmeside</span>
+                <span className="sm:hidden">Se side</span>
+              </a>
             ) : (
               <button
                 onClick={() => setLocation(`/website/${id}/settings`)}

@@ -175,14 +175,20 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       await addCustomDomain(projectId, config.customDomain, vercelConfig);
     }
     
-    // Resolve the stable public alias — with retry, because Vercel can take a
-    // few seconds to assign it after the deployment becomes READY.
+    // Resolve the stable public alias. For new projects Vercel assigns the
+    // *.vercel.app alias at the moment the deployment becomes READY, so we
+    // pass the deployment's own alias list as the fast path — this resolves
+    // immediately for first-time publishes without any polling delay.
+    //
+    // Falls back to project-metadata polling (10 × 5 s) for edge cases.
     //
     // IMPORTANT: if the alias is not available after all retries we return
     // success:false. We NEVER fall back to readyDeployment.url because that
     // hashed per-deployment URL is SSO-protected and would make the customer
     // site unreachable.
-    const stableUrl = await getProductionAliasUrlWithRetry(projectId, vercelConfig);
+    const stableUrl = await getProductionAliasUrlWithRetry(projectId, vercelConfig, {
+      deploymentAliases: readyDeployment.aliases,
+    });
     
     if (!stableUrl) {
       return {

@@ -10,6 +10,10 @@ export type DeploymentResult = {
   id: string;
   url: string;
   readyState: string;
+  /** Aliases assigned to this specific deployment by Vercel (e.g. stable
+   *  *.vercel.app entries). Available as soon as readyState === 'READY' and
+   *  checked before falling back to the project-level metadata lookup. */
+  aliases?: string[];
 };
 
 async function vercelFetch(
@@ -220,14 +224,43 @@ export async function deployProject(
   };
 }
 
+/** Pick the shortest stable *.vercel.app entry from a list of alias strings,
+ *  skipping the team-scoped hashed aliases that are SSO-protected.
+ *  Returns null when no suitable alias is found. */
+function pickStableAlias(aliases: string[]): string | null {
+  const candidates = aliases.filter(
+    (a) => typeof a === 'string' && a.endsWith('.vercel.app') && !a.includes('-projects-')
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.length - b.length);
+  return candidates[0];
+}
+
 // Resolve the stable production alias for a project (e.g. site-xxx.vercel.app).
 // Per-deployment hashed URLs can be SSO-protected by Vercel, so the URL we
 // store and hand to visitors must be a stable public alias domain instead.
+//
+// Pass `deploymentAliases` (from the READY deployment response) to skip the
+// project-metadata round-trip when aliases are already known — this is the
+// fast path for first-time publishes where the alias is assigned at READY time.
 export async function getProductionAliasUrl(
   projectId: string,
-  config: VercelConfig
+  config: VercelConfig,
+  deploymentAliases?: string[]
 ): Promise<string | null> {
   try {
+    // Fast path: check aliases that Vercel already returned on the deployment
+    // object. These are available the moment the build is READY, so new
+    // projects don't need to wait for a separate project-metadata update.
+    if (deploymentAliases && deploymentAliases.length > 0) {
+      const pick = pickStableAlias(deploymentAliases);
+      if (pick) {
+        console.log('[Publish] alias_from_deployment_response', { projectId, alias: pick });
+        return `https://${pick}`;
+      }
+    }
+
+    // Fallback: query the project's production target metadata.
     const res = await vercelFetch(`/v9/projects/${projectId}`, config);
     if (!res.ok) return null;
     const project = await res.json();
@@ -235,12 +268,9 @@ export async function getProductionAliasUrl(
     // Keep only vercel.app aliases and skip the team-scoped alias
     // (site-...-<team>-projects-<hash>.vercel.app); the shortest remaining
     // entry is the stable project alias.
-    const candidates = aliases.filter(
-      (a) => typeof a === 'string' && a.endsWith('.vercel.app') && !a.includes('-projects-')
-    );
-    if (candidates.length === 0) return null;
-    candidates.sort((a, b) => a.length - b.length);
-    return `https://${candidates[0]}`;
+    const pick = pickStableAlias(aliases);
+    if (!pick) return null;
+    return `https://${pick}`;
   } catch (err) {
     console.error('Failed to resolve production alias:', err);
     return null;
@@ -250,9 +280,13 @@ export async function getProductionAliasUrl(
 /**
  * Retry-aware wrapper around getProductionAliasUrl.
  *
- * Vercel may take a few seconds after READY before the production alias
- * appears in the project metadata. 4 attempts × 3 s gives 12 s of grace
- * without blocking the deploy indefinitely.
+ * For brand-new Vercel projects the stable *.vercel.app alias is assigned at
+ * the moment the deployment becomes READY. Pass `deploymentAliases` from the
+ * READY deployment response so the first attempt resolves immediately without
+ * any polling delay.
+ *
+ * Falls back to querying project metadata with 10 attempts × 5 s (50 s total)
+ * for belt-and-suspenders coverage on edge cases where the alias lags.
  *
  * Returns null only when all attempts are exhausted — callers MUST treat
  * null as a hard failure and NOT fall back to the hashed deployment URL
@@ -261,14 +295,21 @@ export async function getProductionAliasUrl(
 export async function getProductionAliasUrlWithRetry(
   projectId: string,
   config: VercelConfig,
-  options: { maxAttempts?: number; delayMs?: number } = {}
+  options: { maxAttempts?: number; delayMs?: number; deploymentAliases?: string[] } = {}
 ): Promise<string | null> {
-  const maxAttempts = options.maxAttempts ?? 4;
-  const delayMs = options.delayMs ?? 3_000;
+  const maxAttempts = options.maxAttempts ?? 10;
+  const delayMs = options.delayMs ?? 5_000;
+  const deploymentAliases = options.deploymentAliases;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     console.log(`[Publish] alias_lookup_attempt ${attempt}/${maxAttempts}`, { projectId });
-    const alias = await getProductionAliasUrl(projectId, config);
+    // On the first attempt pass the deployment-level aliases (fast path).
+    // Subsequent attempts go straight to project metadata.
+    const alias = await getProductionAliasUrl(
+      projectId,
+      config,
+      attempt === 1 ? deploymentAliases : undefined
+    );
     if (alias) {
       console.log('[Publish] production_alias_found', { projectId, alias });
       return alias;
@@ -298,10 +339,16 @@ export async function waitForDeployment(
     const deployment = await res.json();
     
     if (deployment.readyState === 'READY') {
+      // Capture aliases from the deployment response. Vercel assigns the
+      // stable *.vercel.app alias to the deployment at the same moment it
+      // becomes READY, so this list is immediately usable — no separate
+      // project-level polling needed for new projects.
+      const aliases: string[] = Array.isArray(deployment.alias) ? deployment.alias : [];
       return {
         id: deployment.id,
         url: `https://${deployment.url}`,
         readyState: deployment.readyState,
+        aliases,
       };
     }
     
