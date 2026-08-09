@@ -1,0 +1,557 @@
+#147 - AI Builder Capability Benchmark & Architecture Audit
+
+What & Why
+
+The AI Builder is the core competitive advantage of BirdFlow. This task establishes the first comprehensive benchmark of its real-world capabilities by testing the complete design workflow from a customer’s perspective.
+
+Rather than only checking whether the AI can generate a website, this benchmark evaluates whether it can behave like an experienced web designer that can:
+
+* Understand vague and detailed design requests
+* Plan an entire website before building
+* Build complete multi-page websites
+* Maintain design consistency
+* Create custom components when necessary
+* Edit existing websites without breaking them
+* Apply global design changes
+* Create responsive layouts
+* Generate SVG illustrations and decorative elements
+* Apply motion and interactions
+* Review and critique its own work
+* Recover from mistakes
+* Operate reliably over long conversations
+
+The benchmark also identifies whether failures originate from:
+
+* AI reasoning
+* Missing tools
+* Schema limitations
+* Component architecture
+* Context limitations
+* Rendering limitations
+* Builder UX
+* Prompt design
+
+The resulting audit becomes the foundation for future AI Builder improvements.
+
+⸻
+
+Success Criteria
+
+A realistic psychologist clinic website is created entirely through the AI assistant using only natural language.
+
+The audit evaluates every major capability of the AI Builder—not only generation, but also editing, redesigning, reviewing, repairing and maintaining the website.
+
+A detailed benchmark report is written to:
+
+.local/ai-builder-audit.md
+
+The report contains:
+
+* capability scores
+* failed benchmarks
+* failure classifications
+* architectural bottlenecks
+* missing tools
+* prompt recommendations
+* future engineering tasks
+
+No builder code is modified during this task.
+
+This is an evaluation only.
+
+⸻
+
+Benchmark Phases
+
+Phase 1 — Initial Website Generation
+
+Create a demanding psychologist clinic website from a deliberately broad prompt.
+
+Example request:
+
+Create a premium psychologist clinic website specialising in anxiety, stress and burnout. Design the branding yourself, create the visual identity, determine the page structure, write all content, and build the complete experience.
+
+Evaluate:
+
+* planning
+* branding
+* information architecture
+* copywriting
+* typography
+* colors
+* spacing
+* hierarchy
+* imagery
+* CTA strategy
+* navigation
+* responsiveness
+
+Record:
+
+* prompts
+* AI reasoning
+* tool calls
+* failures
+
+⸻
+
+Phase 2 — Creative Design Capability
+
+Challenge the AI with designs beyond existing components.
+
+Examples:
+
+* curved SVG section transitions
+* overlapping illustrations
+* editorial layouts
+* asymmetrical hero
+* floating review cards
+* timeline following an SVG path
+* premium booking section
+* custom treatment cards
+
+Whenever existing components cannot satisfy the request, the AI should decide whether to:
+
+* modify existing components
+* compose primitives
+* create custom components
+
+Record which strategy was chosen.
+
+⸻
+
+Phase 3 — Editing Capability
+
+After the site exists, repeatedly modify it.
+
+Examples:
+
+Change only typography.
+
+Change only colors.
+
+Redesign only Home.
+
+Move testimonials.
+
+Replace icons.
+
+Convert cards into timeline.
+
+Update booking section.
+
+Change every CTA globally.
+
+Adjust spacing.
+
+Improve readability.
+
+Verify:
+
+* edit precision
+* unintended side effects
+* consistency
+
+⸻
+
+Phase 4 — Cross-page Consistency
+
+Test global understanding.
+
+Examples:
+
+Change the entire brand to forest green.
+
+Increase border radius.
+
+Change typography.
+
+Replace every illustration.
+
+Update button style.
+
+Rename a service everywhere.
+
+Verify that all pages remain consistent.
+
+⸻
+
+Phase 5 — Responsiveness
+
+Evaluate desktop, tablet and mobile.
+
+Test:
+
+spacing
+
+wrapping
+
+overflow
+
+text scaling
+
+grid behavior
+
+hero layouts
+
+navigation
+
+SVG scaling
+
+animations
+
+custom components
+
+⸻
+
+Phase 6 — Motion Design
+
+Request:
+
+Hero animations
+
+scroll reveal
+
+stagger animations
+
+SVG motion
+
+hover interactions
+
+micro animations
+
+parallax
+
+Record:
+
+supported motion
+
+broken motion
+
+missing motion
+
+schema limitations
+
+⸻
+
+Phase 7 — SVG Capability
+
+Evaluate:
+
+wave dividers
+
+organic backgrounds
+
+blob shapes
+
+arrows
+
+icons
+
+timelines
+
+illustrations
+
+decorative graphics
+
+Determine:
+
+valid SVG
+
+responsive SVG
+
+theme-aware SVG
+
+editable SVG
+
+⸻
+
+Phase 8 — Booking Integration
+
+Evaluate whether the AI can:
+
+insert booking
+
+configure booking
+
+style booking
+
+match palette
+
+match typography
+
+match spacing
+
+match buttons
+
+integrate naturally into layout
+
+⸻
+
+Phase 9 — Self Review
+
+Prompt:
+
+Review the website as a senior product designer.
+
+The AI should identify:
+
+visual problems
+
+spacing issues
+
+hierarchy
+
+typography
+
+accessibility
+
+consistency
+
+UX
+
+copywriting
+
+component quality
+
+It should then improve the weakest parts itself.
+
+⸻
+
+Phase 10 — Long Conversation Stability
+
+Continue editing for many prompts.
+
+Examples:
+
+20–40 consecutive edits.
+
+Observe:
+
+context retention
+
+brand consistency
+
+component reuse
+
+hallucinations
+
+duplicate components
+
+tool selection
+
+memory degradation
+
+⸻
+
+Phase 11 — Failure Recovery
+
+Intentionally stress the system.
+
+Examples:
+
+contradictory instructions
+
+invalid SVG
+
+very large layouts
+
+multiple redesigns
+
+delete sections
+
+restore sections
+
+replace components
+
+rename pages repeatedly
+
+Determine how well the AI recovers.
+
+⸻
+
+Benchmark Scoring
+
+Every benchmark receives scores (1–5) for:
+
+Understanding
+
+Planning
+
+Design Quality
+
+Visual Consistency
+
+Tool Selection
+
+Component Selection
+
+Custom Component Creation
+
+Editing Precision
+
+Responsiveness
+
+Motion
+
+SVG
+
+Content Quality
+
+Brand Consistency
+
+Recovery
+
+Reliability
+
+Overall Success
+
+⸻
+
+Failure Classification
+
+Every failure must be classified as exactly one category.
+
+AI reasoning
+
+Prompt ambiguity
+
+Missing tool
+
+Component limitation
+
+Schema limitation
+
+Rendering limitation
+
+Builder limitation
+
+Context limitation
+
+Memory limitation
+
+Validation issue
+
+Publish limitation
+
+Unknown
+
+This prevents architectural issues from being mistaken for prompt issues.
+
+⸻
+
+Deliverables
+
+Produce:
+
+1. Capability Matrix
+
+Every tested feature
+
+Success rate
+
+Confidence
+
+Notes
+
+⸻
+
+2. Failure Log
+
+Every failure
+
+Reproduction prompt
+
+Observed behavior
+
+Expected behavior
+
+Failure category
+
+Severity
+
+Suggested fix
+
+⸻
+
+3. Architectural Gaps
+
+List every missing capability required for the AI to become an autonomous website designer.
+
+Examples:
+
+Missing global design tokens
+
+Cannot inspect generated output
+
+Cannot edit custom components
+
+No responsive editing
+
+No layout reasoning
+
+Missing visual feedback loop
+
+No design review capability
+
+Weak component reuse
+
+No brand system
+
+Weak page-wide editing
+
+Missing animation abstraction
+
+⸻
+
+4. Prompt Library
+
+Document:
+
+Prompts that consistently produce excellent results.
+
+Prompts that partially work.
+
+Prompts that fail.
+
+Patterns that confuse the AI.
+
+Best practices for future users.
+
+⸻
+
+5. Prioritized Roadmap
+
+Instead of only 3–5 follow-up tasks, group improvements into:
+
+P0 — Critical blockers
+
+Capabilities preventing the AI from functioning as an autonomous designer.
+
+P1 — Major improvements
+
+Features that significantly improve design quality and reliability.
+
+P2 — Creative capabilities
+
+Advanced design features such as custom components, motion, SVG generation, and visual systems.
+
+P3 — Polish
+
+Performance, UX refinements, prompt improvements, and quality-of-life enhancements.
+
+⸻
+
+Important Rules
+
+* Do not manually edit the website. All creation and modifications must be performed through the AI assistant using natural language.
+* Log every prompt, tool invocation (where visible), AI action, and resulting change.
+* Distinguish between AI failures and platform/tooling limitations—do not mask architectural issues with prompt tweaks.
+* Evaluate both the final visual result and the correctness of the AI’s planning, tool selection, and editing process.
+* Prefer existing components when appropriate; create custom components only when they provide a clear advantage or when existing primitives cannot satisfy the requested design.
+* Preserve design consistency across the entire website during every edit, and verify that unrelated pages are not unintentionally modified.
+* This benchmark is an evaluation only. No AI Builder implementation code should be changed during this task.
+
+⸻
+
+I think this revised plan aligns much better with your long-term vision for BirdFlow. It benchmarks the AI as a true autonomous web design agent, not just a website generator, and the resulting audit will produce an engineering roadmap that’s directly useful for evolving BirdFlow into an AI-first website platform.
