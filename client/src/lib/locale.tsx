@@ -29,9 +29,9 @@ const STORAGE_KEY = "bf-lang";
 
 /**
  * Routes that follow the visitor's language choice. Everything else —
- * /auth, /privacy, /terms and the entire logged-in product — renders
- * Danish. Adding a public marketing page means adding it here, or its
- * copy object will never switch.
+ * /privacy, /terms and the entire logged-in product — renders Danish.
+ * Adding a public marketing page means adding it here, or its copy
+ * object will never switch.
  */
 const PUBLIC_MARKETING_PATHS = new Set([
   "/",
@@ -49,9 +49,23 @@ const PUBLIC_MARKETING_PATHS = new Set([
   "/klinik",
 ]);
 
+/**
+ * Auth and onboarding also honour the stored language choice, so a
+ * visitor who switched to English on the landing page sees English
+ * sign-up/sign-in forms and has the language step pre-filled. The
+ * builder, manage and admin routes are unaffected — still Danish.
+ */
+const AUTH_LOCALE_PATHS = new Set(["/auth", "/onboarding"]);
+
 export function isPublicMarketingPath(path: string): boolean {
   const clean = (path.split("?")[0] ?? "/").replace(/\/+$/, "");
   return PUBLIC_MARKETING_PATHS.has(clean === "" ? "/" : clean);
+}
+
+function isLocaleAwarePath(path: string): boolean {
+  const clean = (path.split("?")[0] ?? "/").replace(/\/+$/, "");
+  const normalized = clean === "" ? "/" : clean;
+  return PUBLIC_MARKETING_PATHS.has(normalized) || AUTH_LOCALE_PATHS.has(normalized);
 }
 
 function readStoredLang(): Lang {
@@ -89,7 +103,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const [location] = useLocation();
 
   const onPublicMarketing = isPublicMarketingPath(location);
-  const lang: Lang = onPublicMarketing ? storedLang : "da";
+  const lang: Lang = isLocaleAwarePath(location) ? storedLang : "da";
 
   const setLang = useCallback((next: Lang) => {
     setStoredLang(next);

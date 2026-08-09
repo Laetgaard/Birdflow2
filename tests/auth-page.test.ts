@@ -13,6 +13,11 @@ const read = (...p: string[]) => readFileSync(join(root, ...p), "utf8");
  * that can rot — the authentication behaviour drifting while someone
  * restyles the page, and the page drifting back off the shared bf2
  * brand layer into its own colours, fonts or logo.
+ *
+ * Task #146 made /auth bilingual: copy lives in copy.ts, keyed by Lang,
+ * and auth.tsx reads it through useLocale(). The guards below now verify
+ * the DA strings are present in copy.ts and that auth.tsx references the
+ * bilingual copy objects rather than hard-coding either language.
  */
 
 const page = read("client", "src", "pages", "auth.tsx");
@@ -25,14 +30,25 @@ const tabs = read("client", "src", "components", "auth", "AuthModeTabs.tsx");
 const mobile = read("client", "src", "components", "auth", "AuthMobileReassurance.tsx");
 const styles = read("client", "src", "components", "auth", "authStyles.ts");
 const primitives = read("client", "src", "components", "bf2", "primitives.tsx");
+const locale = read("client", "src", "lib", "locale.tsx");
 
 describe("auth page behaviour is unchanged by the redesign", () => {
-  it("keeps both schemas and their messages", () => {
-    expect(page).toContain('fullName: z.string().min(2, "Navn er påkrævet")');
-    expect(page).toContain('email: z.string().email("Ugyldig email adresse")');
-    expect(page).toContain('phoneNumber: z.string().min(8, "Telefonnummer er påkrævet")');
-    expect(page).toContain('password: z.string().min(8, "Adgangskode skal være mindst 8 tegn")');
-    expect(page).toContain('password: z.string().min(1, "Adgangskode er påkrævet")');
+  it("keeps both schemas and their DA messages in the copy file", () => {
+    // Validation messages now live in the bilingual copy file, not hard-coded
+    // in the page. The DA strings must exist in copy.ts under AUTH_VALIDATION.
+    expect(copy).toContain('nameRequired: "Navn er påkrævet"');
+    expect(copy).toContain('emailInvalid: "Ugyldig email adresse"');
+    expect(copy).toContain('phoneRequired: "Telefonnummer er påkrævet"');
+    expect(copy).toContain('passwordMin: "Adgangskode skal være mindst 8 tegn"');
+    expect(copy).toContain('passwordRequired: "Adgangskode er påkrævet"');
+    // The page must derive its schemas from AUTH_VALIDATION rather than
+    // hard-coding literals, so a translation change only touches copy.ts.
+    expect(page).toContain("AUTH_VALIDATION");
+    expect(page).toContain("z.string().min(2, v.nameRequired)");
+    expect(page).toContain("z.string().email(v.emailInvalid)");
+    expect(page).toContain("z.string().min(8, v.phoneRequired)");
+    expect(page).toContain("z.string().min(8, v.passwordMin)");
+    expect(page).toContain("z.string().min(1, v.passwordRequired)");
   });
 
   it("still picks the initial mode from ?mode=signup", () => {
@@ -58,13 +74,17 @@ describe("auth page behaviour is unchanged by the redesign", () => {
     expect(page).not.toContain('setLocation("/onboarding")');
   });
 
-  it("fires the same toasts", () => {
-    expect(page).toContain('title: "Konto oprettet!"');
-    expect(page).toContain('title: "Velkommen tilbage!"');
-    expect(page).toContain('description: "Du er nu logget ind."');
-    expect(page).toContain('title: "Fejl"');
-    expect(page).toContain('description: error.message || "Noget gik galt. Prøv venligst igen."');
-    expect(page).toContain('description: error.message || "Ugyldige loginoplysninger."');
+  it("fires the correct toasts via the bilingual copy", () => {
+    // DA toast strings live in copy.ts — not inlined in auth.tsx.
+    expect(copy).toContain('"Konto oprettet!"');
+    expect(copy).toContain('"Velkommen tilbage!"');
+    expect(copy).toContain('"Du er nu logget ind."');
+    expect(copy).toContain('"Fejl"');
+    expect(copy).toContain('"Noget gik galt. Prøv venligst igen."');
+    expect(copy).toContain('"Ugyldige loginoplysninger."');
+    // auth.tsx must reference the copy objects, not hard-code either language.
+    expect(page).toContain("AUTH_MODES[lang]");
+    expect(page).toContain("AUTH_SHARED");
     expect(page).toContain('variant: "destructive"');
   });
 
@@ -189,7 +209,7 @@ describe("auth page wears the Birdflow brand", () => {
 });
 
 describe("auth copy", () => {
-  it("says the agreed thing in each mode", () => {
+  it("says the agreed thing in each DA mode", () => {
     expect(copy).toContain('eyebrow: "DIN HJEMMESIDE STARTER HER"');
     expect(copy).toContain('heading: "Få din hjemmeside"');
     expect(copy).toContain(
@@ -210,7 +230,20 @@ describe("auth copy", () => {
     expect(copy).toContain('switchAction: "Få din hjemmeside"');
   });
 
-  it("carries the brand promise and the journey", () => {
+  it("has English equivalents for every DA copy string", () => {
+    expect(copy).toContain('"YOUR WEBSITE STARTS HERE"');
+    expect(copy).toContain('"Get your website"');
+    expect(copy).toContain('"WELCOME BACK"');
+    expect(copy).toContain('"Continue with your website"');
+    expect(copy).toContain('"Your digital practice. Built around you."');
+    expect(copy).toContain('nameRequired: "Name is required"');
+    expect(copy).toContain('emailInvalid: "Invalid email address"');
+    expect(copy).toContain('phoneRequired: "Phone number is required"');
+    expect(copy).toContain('passwordMin: "Password must be at least 8 characters"');
+  });
+
+  it("carries the brand promise and the journey in both languages", () => {
+    // DA
     expect(copy).toContain('"Din digitale praksis. Skabt omkring dig."');
     expect(copy).toContain(
       "Birdflow hjælper dig fra de første valg til en færdig hjemmeside, brandguide og de værktøjer, du bruger i hverdagen.",
@@ -224,10 +257,19 @@ describe("auth copy", () => {
     expect(copy).toContain(
       "Det tager kun et øjeblik at oprette din konto. Derefter bliver du guidet trin for trin.",
     );
+    // EN
+    expect(copy).toContain('"Your digital practice. Built around you."');
+    expect(copy).toContain('title: "Tell us about your practice"');
+    expect(copy).toContain('title: "See your result"');
+    expect(copy).toContain('title: "Approve when you\'re happy"');
+    expect(copy).toContain(
+      "It only takes a moment to create your account. Then you're guided step by step.",
+    );
   });
 
-  it("is the single source both modes render from", () => {
-    expect(page).toContain("const copy = AUTH_MODES[mode]");
+  it("is the single source both modes render from, looked up by lang then mode", () => {
+    // Bilingual access pattern: AUTH_MODES[lang][mode]
+    expect(page).toContain("const copy = AUTH_MODES[lang][mode]");
     expect(page).toContain("<AuthFormHeader copy={copy} />");
     // no mode copy inlined in the page or duplicated per form
     expect(page).not.toContain("Velkommen tilbage</");
@@ -237,6 +279,43 @@ describe("auth copy", () => {
   it("keeps the journey and the mobile note on one source for both layouts", () => {
     expect(brandPanel).toContain('<AuthJourney tone="onPurple" />');
     expect(mobile).toContain('<AuthJourney tone="onLight" />');
-    expect(mobile).toContain("{MOBILE_NOTE}");
+    // MOBILE_NOTE is now lang-keyed; the component reads MOBILE_NOTE[lang]
+    expect(mobile).toContain("{MOBILE_NOTE[lang]}");
+  });
+});
+
+describe("locale follows bf-lang on /auth and /onboarding", () => {
+  it("includes /auth and /onboarding in the locale-aware path set", () => {
+    expect(locale).toContain('"/auth"');
+    expect(locale).toContain('"/onboarding"');
+    // The effective lang is derived from the broader locale-aware check, not only marketing
+    expect(locale).toContain("isLocaleAwarePath");
+  });
+
+  it("does not extend locale awareness to the logged-in product", () => {
+    // Builder, manage and admin must not appear in the locale path sets
+    expect(locale).not.toContain('"/builder"');
+    expect(locale).not.toContain('"/manage"');
+    expect(locale).not.toContain('"/admin"');
+  });
+
+  it("onboarding language step shows the marketing preference as pre-selected", () => {
+    const onboarding = read("client", "src", "pages", "onboarding.tsx");
+    // storedLang comes from useLocale() — no direct localStorage read needed
+    // because /onboarding is now locale-aware
+    expect(onboarding).toContain("storedLang");
+    expect(onboarding).toContain("useLocale");
+    // defaultValue is passed to LanguageStepCard using storedLang
+    expect(onboarding).toContain("defaultValue={storedLang as SiteLanguage}");
+    // the card uses it to apply the ring highlight
+    expect(onboarding).toContain("isPreferred");
+  });
+
+  it("onboarding fork screen uses the stored language preference before language is confirmed", () => {
+    const onboarding = read("client", "src", "pages", "onboarding.tsx");
+    // uiLang falls back to storedLang before answers.language is set
+    expect(onboarding).toContain("answers.language");
+    expect(onboarding).toContain("storedLang as SiteLanguage");
+    expect(onboarding).toContain("const t = ONBOARDING_UI_COPY[uiLang]");
   });
 });

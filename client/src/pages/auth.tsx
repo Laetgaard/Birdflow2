@@ -6,25 +6,14 @@ import * as z from "zod";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { useLocale } from "@/lib/locale";
 import { BLUSH } from "@/components/bf2/theme";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { AuthFormHeader } from "@/components/auth/AuthFormHeader";
 import { AuthModeTabs } from "@/components/auth/AuthModeTabs";
 import { AuthField } from "@/components/auth/AuthField";
 import { AuthMobileReassurance } from "@/components/auth/AuthMobileReassurance";
-import { AUTH_MODES, type AuthMode } from "@/components/auth/copy";
-
-const signUpSchema = z.object({
-  fullName: z.string().min(2, "Navn er påkrævet"),
-  email: z.string().email("Ugyldig email adresse"),
-  phoneNumber: z.string().min(8, "Telefonnummer er påkrævet"),
-  password: z.string().min(8, "Adgangskode skal være mindst 8 tegn"),
-});
-
-const signInSchema = z.object({
-  email: z.string().email("Ugyldig email adresse"),
-  password: z.string().min(1, "Adgangskode er påkrævet"),
-});
+import { AUTH_MODES, AUTH_SHARED, AUTH_VALIDATION, type AuthMode } from "@/components/auth/copy";
 
 const SURFACE = {
   background: BLUSH,
@@ -38,9 +27,28 @@ export default function AuthPage() {
 
   const { signIn, signUp } = useAuth();
   const { toast } = useToast();
+  const { lang } = useLocale();
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<AuthMode>(defaultTab);
-  const copy = AUTH_MODES[mode];
+
+  const copy = AUTH_MODES[lang][mode];
+  const shared = AUTH_SHARED[lang];
+  const v = AUTH_VALIDATION[lang];
+
+  // Schemas defined at render time so validation messages follow the locale.
+  // Lang is stable during a single page visit (set on the marketing site
+  // before the user navigates here), so these memos never recreate in practice.
+  const signUpSchema = z.object({
+    fullName: z.string().min(2, v.nameRequired),
+    email: z.string().email(v.emailInvalid),
+    phoneNumber: z.string().min(8, v.phoneRequired),
+    password: z.string().min(8, v.passwordMin),
+  });
+
+  const signInSchema = z.object({
+    email: z.string().email(v.emailInvalid),
+    password: z.string().min(1, v.passwordRequired),
+  });
 
   const signUpForm = useForm({
     resolver: zodResolver(signUpSchema),
@@ -69,19 +77,19 @@ export default function AuthPage() {
         fullName: data.fullName,
         phoneNumber: data.phoneNumber,
       });
-      
+
       if (result.needsEmailConfirmation) {
         setLocation(`/check-email?email=${encodeURIComponent(data.email)}`);
       } else {
         toast({
-          title: "Konto oprettet!",
-          description: "Velkommen til Birdflow.",
+          title: AUTH_MODES[lang].signup.successTitle,
+          description: AUTH_MODES[lang].signup.successDescription,
         });
       }
     } catch (error: any) {
       toast({
-        title: "Fejl",
-        description: error.message || "Noget gik galt. Prøv venligst igen.",
+        title: shared.errorTitle,
+        description: error.message || shared.errorFallback,
         variant: "destructive",
       });
     } finally {
@@ -94,13 +102,13 @@ export default function AuthPage() {
       setIsLoading(true);
       await signIn(data.email, data.password);
       toast({
-        title: "Velkommen tilbage!",
-        description: "Du er nu logget ind.",
+        title: AUTH_MODES[lang].signin.successTitle,
+        description: AUTH_MODES[lang].signin.successDescription,
       });
     } catch (error: any) {
       toast({
-        title: "Fejl",
-        description: error.message || "Ugyldige loginoplysninger.",
+        title: shared.errorTitle,
+        description: error.message || shared.invalidCredentials,
         variant: "destructive",
       });
     } finally {
@@ -129,21 +137,21 @@ export default function AuthPage() {
             <form onSubmit={signInForm.handleSubmit(onSignIn)} className="space-y-4">
               <AuthField
                 id="signin-email"
-                label="Email"
-                placeholder="din@email.dk"
+                label={shared.labelEmail}
+                placeholder={shared.placeholderEmail}
                 error={signInErrors.email?.message}
                 testId="input-email-signin"
                 {...signInForm.register("email")}
               />
               <AuthField
                 id="signin-password"
-                label="Adgangskode"
+                label={shared.labelPassword}
                 type="password"
                 error={signInErrors.password?.message}
                 testId="input-password-signin"
                 action={
                   <Link href="/reset-password" className="bfa-link text-[13px]">
-                    Glemt adgangskode?
+                    {shared.forgotPassword}
                   </Link>
                 }
                 {...signInForm.register("password")}
@@ -155,7 +163,7 @@ export default function AuthPage() {
                 aria-busy={isLoading}
                 data-testid="button-signin"
               >
-                {isLoading ? AUTH_MODES.signin.loadingAction : AUTH_MODES.signin.action}
+                {isLoading ? copy.loadingAction : copy.action}
               </button>
             </form>
           </TabsPrimitive.Content>
@@ -164,33 +172,33 @@ export default function AuthPage() {
             <form onSubmit={signUpForm.handleSubmit(onSignUp)} className="space-y-4">
               <AuthField
                 id="signup-name"
-                label="Fulde navn"
-                placeholder="Dit navn"
+                label={shared.labelName}
+                placeholder={shared.placeholderName}
                 error={signUpErrors.fullName?.message}
                 testId="input-name-signup"
                 {...signUpForm.register("fullName")}
               />
               <AuthField
                 id="signup-email"
-                label="Email"
-                placeholder="din@email.dk"
+                label={shared.labelEmail}
+                placeholder={shared.placeholderEmail}
                 error={signUpErrors.email?.message}
                 testId="input-email-signup"
                 {...signUpForm.register("email")}
               />
               <AuthField
                 id="signup-phone"
-                label="Telefonnummer"
-                placeholder="+45 12 34 56 78"
+                label={shared.labelPhone}
+                placeholder={shared.placeholderPhone}
                 error={signUpErrors.phoneNumber?.message}
                 testId="input-phone-signup"
                 {...signUpForm.register("phoneNumber")}
               />
               <AuthField
                 id="signup-password"
-                label="Adgangskode"
+                label={shared.labelPassword}
                 type="password"
-                placeholder="Mindst 8 tegn"
+                placeholder={shared.placeholderPasswordNew}
                 error={signUpErrors.password?.message}
                 testId="input-password-signup"
                 {...signUpForm.register("password")}
@@ -202,13 +210,13 @@ export default function AuthPage() {
                 aria-busy={isLoading}
                 data-testid="button-signup"
               >
-                {isLoading ? AUTH_MODES.signup.loadingAction : AUTH_MODES.signup.action}
+                {isLoading ? copy.loadingAction : copy.action}
               </button>
               <p className="m-0 text-[13px] leading-[1.6]" style={{ color: "rgba(0,0,0,0.7)" }}>
-                Ved at oprette en konto accepterer du vores{" "}
-                <Link href="/terms" className="bfa-link">vilkår</Link>
-                {" "}og{" "}
-                <Link href="/privacy" className="bfa-link">privatlivspolitik</Link>
+                {shared.termsPre}{" "}
+                <Link href="/terms" className="bfa-link">{shared.termsLinkLabel}</Link>
+                {" "}{shared.termsMid}{" "}
+                <Link href="/privacy" className="bfa-link">{shared.privacyLinkLabel}</Link>
               </p>
             </form>
           </TabsPrimitive.Content>

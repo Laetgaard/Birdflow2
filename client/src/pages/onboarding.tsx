@@ -45,6 +45,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { BrandGuide } from "@shared/customComponents";
 import type { OnboardingDecisionSnapshot, OnboardingResumeStage } from "@shared/onboardingDecision";
 import { normalizeSiteLanguage, type SiteLanguage } from "@shared/siteLanguage";
+import { useLocale } from "@/lib/locale";
 import { ONBOARDING_UI_COPY, type OnboardingUiCopy } from "./onboarding.copy";
 import { DecisionWorkspace, type DecisionCopy, type DecisionPage } from "@/components/onboarding/DecisionWorkspace";
 import { PaymentChoiceDialog } from "@/components/onboarding/PaymentChoiceDialog";
@@ -414,10 +415,12 @@ function LanguageStepCard({
   disabled,
   onChoose,
   t,
+  defaultValue,
 }: {
   disabled: boolean;
   onChoose: (lang: SiteLanguage) => void;
   t: OnboardingUiCopy;
+  defaultValue?: SiteLanguage;
 }) {
   const options: Array<{ value: SiteLanguage; label: string; hint: string }> = [
     { value: "da", label: t.languageDanish, hint: t.languageDanishHint },
@@ -431,20 +434,25 @@ function LanguageStepCard({
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">{t.languageStepHint}</p>
       <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {options.map((option) => (
-          <button
-            key={option.value}
-            className="rounded-lg border p-3 text-left transition-colors hover:border-primary/50 disabled:opacity-60"
-            disabled={disabled}
-            onClick={() => onChoose(option.value)}
-            data-testid={`button-language-${option.value}`}
-          >
-            <span className="text-sm font-semibold block">{option.label}</span>
-            <span className="text-[11px] text-muted-foreground leading-snug block mt-0.5">
-              {option.hint}
-            </span>
-          </button>
-        ))}
+        {options.map((option) => {
+          const isPreferred = option.value === defaultValue;
+          return (
+            <button
+              key={option.value}
+              className={`rounded-lg border p-3 text-left transition-colors hover:border-primary/50 disabled:opacity-60 ${
+                isPreferred ? "border-primary ring-1 ring-primary" : ""
+              }`}
+              disabled={disabled}
+              onClick={() => onChoose(option.value)}
+              data-testid={`button-language-${option.value}`}
+            >
+              <span className="text-sm font-semibold block">{option.label}</span>
+              <span className="text-[11px] text-muted-foreground leading-snug block mt-0.5">
+                {option.hint}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -516,6 +524,9 @@ function TemplatePickerCard({
 export default function OnboardingPage() {
   const [, navigate] = useLocation();
   const { user, token, profile, refreshProfile, loading: authLoading } = useAuth();
+  // storedLang is the marketing-site preference (bf-lang). On /onboarding the
+  // locale provider now honours it, so this equals what the visitor set there.
+  const { storedLang } = useLocale();
   const { toast } = useToast();
 
   const [booting, setBooting] = useState(true);
@@ -559,13 +570,16 @@ export default function OnboardingPage() {
   const [awaitingWebhook, setAwaitingWebhook] = useState(false);
 
   /* ---- The customer's language ----
-     Picked on the screen right after the fork and stored server-side with
-     the rest of the answers, so a reload or a device switch resumes in the
-     same language. Deliberately NOT read from useLocale(): that hook is the
-     marketing site's switcher, which is forced to Danish outside the public
-     pages. Absent means Danish - the experience this flow always had. */
+     Once the language step is answered the choice is stored server-side, so
+     reloads and device switches resume in the same language. Before the step
+     is answered we fall back to the marketing-site preference (bf-lang) so
+     the fork screen and language card are already in the visitor's chosen
+     language — and after it is answered we use the committed website language. */
+  const uiLang: SiteLanguage = answers.language
+    ? normalizeSiteLanguage(answers.language)
+    : (storedLang as SiteLanguage);
   const lang: SiteLanguage = normalizeSiteLanguage(answers.language);
-  const t = ONBOARDING_UI_COPY[lang];
+  const t = ONBOARDING_UI_COPY[uiLang];
 
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1191,7 +1205,7 @@ export default function OnboardingPage() {
                       </div>
                     )}
                     {showLanguageStep && (
-                      <LanguageStepCard disabled={isLoading} onChoose={chooseLanguage} t={t} />
+                      <LanguageStepCard disabled={isLoading} onChoose={chooseLanguage} t={t} defaultValue={storedLang as SiteLanguage} />
                     )}
                     {diyMode && !websiteId && (
                       <TemplatePickerCard disabled={isLoading} onPick={createDiyWebsite} t={t} />
