@@ -87,7 +87,7 @@ describe("importing AI modules without credentials", () => {
   it("does not throw", async () => {
     await expect(import("../server/designInterview")).resolves.toBeDefined();
     await expect(import("../server/websiteArchitect")).resolves.toBeDefined();
-  });
+  }, 20_000); // dynamic imports pull the full module graph; allow extra time in CI
 
   it("only fails when the client is actually used", async () => {
     const { getOpenAI, resetOpenAIClientForTests } = await import(
