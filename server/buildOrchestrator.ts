@@ -36,7 +36,7 @@ import {
   type PlanStep,
   type PlanStepResult,
 } from "@shared/assistantPlan";
-import { runAgentLoop, type AgentEvent } from "./aiAgent";
+import { runAgentLoop, INITIAL_TURN_BUDGET, type AgentEvent } from "./aiAgent";
 import { completeSelfReview } from "./selfReview";
 import { assumedCallCostUsd, createSpendMeter, type SpendMeter } from "./aiSpend";
 import { aiConfig } from "./aiConfig";
@@ -67,8 +67,12 @@ import {
   type AssistantBuild,
 } from "./planStore";
 
-/** Model turns allowed per step. A step is smaller than a whole request. */
-const MAX_TURNS_PER_STEP = 8;
+/**
+ * Initial turn budget per step. Continuation passes (up to
+ * MAX_AUTOMATIC_CONTINUATIONS × CONTINUATION_TURN_BUDGET) extend this when
+ * the agent has not yet called finish. See aiAgent.ts for the constants.
+ */
+const MAX_TURNS_PER_STEP = INITIAL_TURN_BUDGET;
 
 /* ──────────────── honesty about out-of-scope repairs ──────────────── */
 
@@ -739,9 +743,20 @@ async function runStep(args: {
 
   if (loop.status === "needs_approval") {
     // The classifier tripped on something the plan did not warrant. The
-    // build stops and asks — approving a plan is not approving this.
+    // build stops and asks — approving a plan is not approving this specific
+    // change. A scoped approvalId is issued so the continue route can verify
+    // the approval is for exactly this step at this revision.
+    const approvalId = `appr-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     return {
-      result: { status: "failed", summary: "", mutationCount: 0, notes: ctx.notes, rejections },
+      result: {
+        status: "failed",
+        summary: "",
+        mutationCount: 0,
+        notes: ctx.notes,
+        rejections,
+        pauseReason: "approval_required" as const,
+        approvalId,
+      },
       pause: `Trinnet ville lave en større ændring (${loop.reason}), som kræver din godkendelse.`,
       retryable: false,
     };
@@ -759,6 +774,7 @@ async function runStep(args: {
         mutationCount: 0,
         notes: ctx.notes,
         rejections,
+        pauseReason: "spend_budget" as const,
       },
       // Same question as the pre-step check: the loop may have stopped
       // because the next call was unaffordable, not because the meter is
@@ -812,6 +828,7 @@ async function runStep(args: {
         mutationCount: ctx.applied.length,
         notes: [...ctx.notes, ...check.notes],
         rejections,
+        pauseReason: "conflict" as const,
       },
       pause:
         "Websitet blev ændret et andet sted, mens trinnet kørte. Bygningen er sat på pause, " +
@@ -824,6 +841,38 @@ async function runStep(args: {
 
   emit({ type: "state", revision: saved.revision, newState });
 
+  // Determine completion: finish must have been explicitly called by the agent.
+  // If the loop exhausted its full budget (including all continuation passes)
+  // without calling finish, the step has done partial work — saved to DB above
+  // — but is not complete. It is paused for the user to retry or skip.
+  const loopFinished = loop.status === "finished";
+  const agentCalledFinish = loopFinished && loop.finishCalled;
+
+  if (loopFinished && !agentCalledFinish) {
+    const continuationCount = loop.runMeta.continuationCount;
+    return {
+      result: {
+        status: "failed",
+        summary: "",
+        mutationCount: ctx.applied.length,
+        notes: [
+          ...ctx.notes,
+          ...check.notes,
+          ...strayNotes,
+          `Agenten nåede den samlede turn-grænse (${loop.steps} trin inkl. ${continuationCount} fortsættelse${continuationCount === 1 ? "" : "r"}) ` +
+            `og kald finish ikke. ${ctx.applied.length} ændring${ctx.applied.length === 1 ? " er gemt" : "er er gemt"}.`,
+        ],
+        rejections,
+        pauseReason: "turn_budget" as const,
+        continuationCount,
+      },
+      pause:
+        "Trinnet er ikke fuldført — AI'en nåede sin turn-grænse, men de udførte ændringer er gemt. " +
+        "Brug \"Prøv trinnet igen\" for at lade AI'en fortsætte fra det punkt, den nåede.",
+      retryable: true,
+    };
+  }
+
   return {
     result: {
       status: "completed",
@@ -831,6 +880,7 @@ async function runStep(args: {
       mutationCount: ctx.applied.length,
       notes: [...ctx.notes, ...check.notes, ...strayNotes],
       rejections,
+      finishCalled: true,
     },
     pause: null,
     retryable: false,

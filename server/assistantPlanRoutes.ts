@@ -485,7 +485,7 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
       if (buildId === null) return res.status(400).json({ message: "Ugyldigt build-id" });
 
       const action = String((req.body ?? {}).action ?? "resume");
-      if (!["resume", "skip", "retry"].includes(action)) {
+      if (!["resume", "skip", "retry", "approve_and_resume"].includes(action)) {
         return res.status(400).json({ message: "Ugyldig handling" });
       }
 
@@ -505,11 +505,67 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
         const budget = consumeAgentRun((req as any).user?.id ?? websiteId, { charge: false });
         if (!budget.ok) return res.status(429).json({ message: budget.message });
 
+        // ── approve_and_resume: validate the scoped approval token ────────
+        if (action === "approve_and_resume") {
+          const { approvalId, stepId } = (req.body ?? {}) as Record<string, unknown>;
+          if (!approvalId || !stepId) {
+            return res.status(400).json({ message: "Mangler approvalId og stepId" });
+          }
+
+          const currentResult = build.stepResults[build.currentStep];
+          if (!currentResult) {
+            return res.status(409).json({ message: "Ingen aktiv step at godkende." });
+          }
+          if (currentResult.pauseReason !== "approval_required") {
+            return res
+              .status(409)
+              .json({ message: "Det aktive trin kræver ikke godkendelse." });
+          }
+          if (currentResult.approvalId !== approvalId) {
+            return res.status(409).json({ message: "Godkendelses-id'et stemmer ikke overens." });
+          }
+          if (currentResult.stepId !== stepId) {
+            return res.status(409).json({ message: "Trin-id'et stemmer ikke overens." });
+          }
+
+          // Consume the approval: clear the token, reset the step, mark as pending.
+          const stepResults = build.stepResults.map((result, index) =>
+            index === build.currentStep
+              ? {
+                  ...result,
+                  attempts: 0,
+                  status: "pending" as const,
+                  rejections: [],
+                  pauseReason: undefined,
+                  approvalId: undefined,
+                }
+              : result
+          );
+
+          await updateBuildProgress(buildId, { status: "running", stepResults, error: null });
+
+          void runBuildBackground({
+            websiteId,
+            buildId,
+            approvedLargeChanges: true,
+          });
+
+          return res.status(202).json({ buildId });
+        }
+
+        // ── retry / skip / resume ─────────────────────────────────────────
         // Retry gives the step a clean slate: without resetting attempts it
         // would inherit the failed run's count and pause again immediately.
         const stepResults = build.stepResults.map((result, index) =>
           action === "retry" && index === build.currentStep
-            ? { ...result, attempts: 0, status: "pending" as const, rejections: [] }
+            ? {
+                ...result,
+                attempts: 0,
+                status: "pending" as const,
+                rejections: [],
+                pauseReason: undefined,
+                approvalId: undefined,
+              }
             : result
         );
 

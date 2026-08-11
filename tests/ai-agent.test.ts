@@ -341,10 +341,10 @@ describe("agent loop invariants (source tripwires)", () => {
     // what stops a run from ending having produced nothing.
     expect(agent).toContain('            : "auto",');
     expect(agent).toContain("function: { name: args.finalTurn.toolName }");
-    // The cap is a parameter now (Build mode runs the same loop per plan
-    // step with a smaller one), but it still defaults to MAX_STEPS and the
-    // loop still cannot run unbounded.
-    expect(agent).toContain("while (steps < maxSteps)");
+    // The effective cap (maxStepsEffective) starts at maxSteps and is extended
+    // by continuation passes — the loop still cannot run unbounded, and the
+    // parameter still defaults to MAX_STEPS.
+    expect(agent).toContain("while (steps < maxStepsEffective)");
     expect(agent).toContain("args.maxSteps ?? MAX_STEPS");
     expect(agent).toContain("MAX_TOTAL_COMPLETION_TOKENS");
   });

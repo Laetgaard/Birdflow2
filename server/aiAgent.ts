@@ -46,6 +46,28 @@ export const MAX_STEPS = 12;
 /** Whole-run ceiling; stops a runaway loop from burning the budget. */
 const MAX_TOTAL_COMPLETION_TOKENS = 120000;
 
+/* ─────────── adaptive turn budgets ─────────── */
+
+/**
+ * Initial turn allowance per build step. Higher than the old MAX_TURNS_PER_STEP=8
+ * because complex section steps routinely need orient→write×N→finish.
+ */
+export const INITIAL_TURN_BUDGET = 16;
+
+/**
+ * How many extra turns each automatic continuation pass adds when the agent
+ * has not yet called finish. Each pass injects a user reminder so the model
+ * understands what is expected.
+ */
+export const CONTINUATION_TURN_BUDGET = 8;
+
+/**
+ * Maximum number of continuation passes. Total maximum turns per step:
+ * INITIAL_TURN_BUDGET + MAX_AUTOMATIC_CONTINUATIONS × CONTINUATION_TURN_BUDGET
+ * = 16 + 2×8 = 32.
+ */
+export const MAX_AUTOMATIC_CONTINUATIONS = 2;
+
 export type AgentEvent =
   | { type: "step"; step: number; label: string }
   | {
@@ -242,6 +264,8 @@ export type AgentRunMeta = {
   stopReason: AgentStopReason;
   /** What the run cost, in USD, as tracked by its spend meter. */
   estimatedSpendUsd: number;
+  /** How many automatic continuation passes ran (0 = only the initial budget). */
+  continuationCount: number;
 };
 
 export type AgentLoopResult =
@@ -254,6 +278,12 @@ export type AgentLoopResult =
       truncated: boolean;
       /** Observability counters for the run. */
       runMeta: AgentRunMeta;
+      /**
+       * True when the agent explicitly called the finish tool.
+       * False means the loop ended due to budget exhaustion or another stop
+       * condition — the agent did NOT certify that the task is done.
+       */
+      finishCalled: boolean;
     }
   | { status: "needs_approval"; reason: string; steps: number }
   | { status: "failed"; message: string; steps: number; truncated?: boolean; stopReason?: AgentStopReason };
@@ -338,8 +368,17 @@ export async function runAgentLoop(args: {
   let finalSummary = "";
   let truncated = false;
   let stopReason: AgentStopReason = "finished";
+  /** True once the model calls the finish tool — the authoritative completion signal. */
+  let finishCalled = false;
+  /** Number of automatic continuation passes that have fired so far. */
+  let continuationCount = 0;
+  /**
+   * Effective turn ceiling, extended each time a continuation pass fires.
+   * Starts at maxSteps (= INITIAL_TURN_BUDGET for build steps).
+   */
+  let maxStepsEffective = maxSteps;
 
-  while (steps < maxSteps) {
+  while (steps < maxStepsEffective) {
     steps += 1;
     emit({
       type: "step",
@@ -349,7 +388,7 @@ export async function runAgentLoop(args: {
 
     // Last allowed turn: stop letting the model read and make it deliver.
     const forceFinal =
-      args.finalTurn !== undefined && steps === maxSteps && !args.finalTurn.satisfied();
+      args.finalTurn !== undefined && steps === maxStepsEffective && !args.finalTurn.satisfied();
     if (forceFinal && args.finalTurn) {
       messages.push({ role: "user", content: args.finalTurn.reminder });
     }
@@ -395,10 +434,12 @@ export async function runAgentLoop(args: {
           steps,
           stopReason: "spend_limit",
           truncated,
+          finishCalled: false,
           runMeta: buildRunMeta(role, meter, {
             promptTokens: totalPromptTokens, outputTokens: totalOutputTokens,
             cachedTokens: totalCachedTokens, toolCallCount: totalToolCallCount,
             toolErrorCount, providerErrorCount, steps, stopReason: "spend_limit",
+            continuationCount,
           }),
         };
       }
@@ -543,6 +584,7 @@ export async function runAgentLoop(args: {
 
       if (tool?.name === "finish" && result.ok) {
         finalSummary = result.summary;
+        finishCalled = true;
         stop = true;
       }
     }
@@ -596,10 +638,50 @@ export async function runAgentLoop(args: {
       stopReason = "token_budget";
       break;
     }
+
+    // ── Adaptive continuation: extend the budget at phase boundaries ──────
+    //
+    // When the agent reaches the end of the current turn phase without having
+    // called finish, and there is still budget available, inject a user-turn
+    // reminder and extend maxStepsEffective by one continuation pass.
+    //
+    // This fires at the END of turn N (after N has completed), so the next
+    // while-condition check sees the extended ceiling and lets turn N+1 run.
+    //
+    // The check `steps >= nextPhaseEnd` is equivalent to "we are at the last
+    // turn of the current phase". Using `===` would be fragile if `steps`
+    // somehow jumped; `>=` is safe because continuationCount is only bumped
+    // once per phase boundary.
+    const nextPhaseEnd = maxSteps + continuationCount * CONTINUATION_TURN_BUDGET;
+    if (
+      steps >= nextPhaseEnd &&
+      !finishCalled &&
+      continuationCount < MAX_AUTOMATIC_CONTINUATIONS &&
+      !meter.exceeded()
+    ) {
+      continuationCount++;
+      maxStepsEffective = maxSteps + continuationCount * CONTINUATION_TURN_BUDGET;
+
+      // Stall detection: no mutations applied across any turn means the agent
+      // is looping or confused. Prompt it to conclude rather than continue.
+      const progressMade = ctx.applied.length > 0;
+      const continuationReminder = progressMade
+        ? `Du har brugt din turn-kvote (${steps} trin), men trinnet er endnu ikke afsluttet. ` +
+          `Du har allerede gennemført ${ctx.applied.length} ændring${ctx.applied.length === 1 ? "" : "er"}. ` +
+          `Fortsæt med det resterende arbejde og kald finish, når alt på listen er gjort.`
+        : `Du har brugt ${steps} trin uden at gennemføre synlige ændringer. ` +
+          `Gentag ikke handlinger, der allerede er fejlet. ` +
+          `Kald finish med en kort forklaring på, hvad der ikke kunne gennemføres, og hvad du anbefaler i stedet.`;
+
+      messages.push({ role: "user" as const, content: continuationReminder });
+      ctx.notes.push(
+        `Agenten fortsætter automatisk — trin-kvoten er udvidet (fortsættelse ${continuationCount} af ${MAX_AUTOMATIC_CONTINUATIONS}).`
+      );
+    }
   }
 
-  if (steps >= maxSteps && !finalSummary) {
-    ctx.notes.push(`Agenten nåede grænsen på ${maxSteps} trin og stoppede her.`);
+  if (steps >= maxStepsEffective && !finalSummary) {
+    ctx.notes.push(`Agenten nåede den samlede grænse på ${maxStepsEffective} trin og stoppede her.`);
     finalSummary = "Stoppede ved trin-grænsen.";
     if (stopReason === "finished") stopReason = "turn_limit";
   }
@@ -610,6 +692,7 @@ export async function runAgentLoop(args: {
     steps,
     stopReason,
     truncated,
+    finishCalled,
     runMeta: buildRunMeta(role, meter, {
       promptTokens: totalPromptTokens,
       outputTokens: totalOutputTokens,
@@ -619,6 +702,7 @@ export async function runAgentLoop(args: {
       providerErrorCount,
       steps,
       stopReason,
+      continuationCount,
     }),
   };
 }
@@ -636,6 +720,7 @@ function buildRunMeta(
     providerErrorCount: number;
     steps: number;
     stopReason: AgentStopReason;
+    continuationCount?: number;
   }
 ): AgentRunMeta {
   const cfg = aiConfig(role);
@@ -652,6 +737,7 @@ function buildRunMeta(
     steps: counts.steps,
     stopReason: counts.stopReason,
     estimatedSpendUsd: meter.spentUsd,
+    continuationCount: counts.continuationCount ?? 0,
   };
 }
 

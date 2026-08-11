@@ -306,7 +306,10 @@ export async function startBuildJob(args: {
 }
 
 /**
- * Resume, skip or retry a paused build as a background job.
+ * Resume, skip, retry or approve-and-resume a paused build as a background job.
+ *
+ * For `approve_and_resume`, pass `approvalId` and `stepId` from the paused
+ * step's result — the server validates both before consuming the token.
  *
  * The server updates the step state and fires a background worker.
  * Returns immediately — poll `fetchPlanState` for progress.
@@ -315,14 +318,23 @@ export async function continueBuildJob(args: {
   websiteId: string;
   accessToken: string;
   buildId: number;
-  action: "resume" | "skip" | "retry";
+  action: "resume" | "skip" | "retry" | "approve_and_resume";
+  /** Required for `approve_and_resume`. Single-use token from the step result. */
+  approvalId?: string;
+  /** Required for `approve_and_resume`. Identifies the step being approved. */
+  stepId?: string;
 }): Promise<{ buildId: number }> {
+  const body: Record<string, unknown> = { action: args.action };
+  if (args.action === "approve_and_resume") {
+    body.approvalId = args.approvalId;
+    body.stepId = args.stepId;
+  }
   const response = await fetch(
     `/api/websites/${args.websiteId}/ai/build/${args.buildId}/continue`,
     {
       method: "POST",
       headers: headers(args.websiteId, args.accessToken),
-      body: JSON.stringify({ action: args.action }),
+      body: JSON.stringify(body),
     }
   );
   return json<{ buildId: number }>(response);

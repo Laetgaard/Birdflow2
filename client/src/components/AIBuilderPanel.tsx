@@ -33,7 +33,7 @@ import { uploadImage } from "@/lib/builderUpload";
 import PlanChecklistCard from "@/components/builder/PlanChecklistCard";
 import { SelfReviewSection } from "@/components/builder/SelfReviewSection";
 import BuildProgressCard, { type BuildView } from "@/components/builder/BuildProgressCard";
-import type { AssistantPlan, PlanStep } from "@shared/assistantPlan";
+import type { AssistantPlan, PlanStep, PlanStepResult } from "@shared/assistantPlan";
 import { ACTIVE_BUILD_STATUSES } from "@shared/assistantPlan";
 import {
   approvePlanVersion,
@@ -187,20 +187,31 @@ export default function AIBuilderPanel({
       const summary = state.build.summary;
 
       // Rebuild the BuildView from the polled state.
-      setBuildView((prev) => ({
-        buildId: state.build!.id,
-        planTitle: summary?.planTitle ?? state.plan!.title,
-        steps: state.plan!.steps,
-        // Always use polled results so completed steps show ✓ in real time.
-        results: summary?.steps ?? prev?.results ?? [],
-        activeIndex: pollStatus === "running" ? state.build!.currentStep : -1,
-        activeLabel: pollStatus === "running" ? "Bygger…" : "",
-        status: pollStatus,
-        pauseReason: state.build!.error,
-        // Only show final summary when the build has stopped (not while running).
-        summary: pollStatus !== "running" ? (summary ?? null) : null,
-        canUndo: state.build!.canUndo && (summary?.canUndo ?? false),
-      }));
+      setBuildView((prev) => {
+        const stepResults = summary?.steps ?? prev?.results ?? [];
+        const currentStepResult = stepResults[state.build!.currentStep];
+        const approvalPending =
+          pollStatus === "paused" &&
+          currentStepResult?.pauseReason === "approval_required" &&
+          currentStepResult?.approvalId
+            ? { approvalId: currentStepResult.approvalId, stepId: currentStepResult.stepId }
+            : null;
+        return {
+          buildId: state.build!.id,
+          planTitle: summary?.planTitle ?? state.plan!.title,
+          steps: state.plan!.steps,
+          // Always use polled results so completed steps show ✓ in real time.
+          results: stepResults,
+          activeIndex: pollStatus === "running" ? state.build!.currentStep : -1,
+          activeLabel: pollStatus === "running" ? "Bygger…" : "",
+          status: pollStatus,
+          pauseReason: state.build!.error,
+          // Only show final summary when the build has stopped (not while running).
+          summary: pollStatus !== "running" ? (summary ?? null) : null,
+          canUndo: state.build!.canUndo && (summary?.canUndo ?? false),
+          approvalPending,
+        };
+      });
 
       const wasRunning = lastBuildStatusRef.current === "running";
       lastBuildStatusRef.current = pollStatus;
@@ -273,27 +284,36 @@ export default function AIBuilderPanel({
         if (state.plan && state.build) {
           const summary = state.build.summary;
           const buildStatus = state.build.status;
+          const initialResults: PlanStepResult[] = summary?.steps ?? state.plan.steps.map((step, index): PlanStepResult => ({
+            stepId: step.id,
+            index,
+            status: "pending" as const,
+            summary: "",
+            mutationCount: 0,
+            notes: [],
+            rejections: [],
+            imagesUsed: 0,
+            attempts: 0,
+          }));
+          const pausedStepResult = initialResults[state.build.currentStep];
+          const initialApprovalPending =
+            buildStatus === "paused" &&
+            pausedStepResult?.pauseReason === "approval_required" &&
+            pausedStepResult?.approvalId
+              ? { approvalId: pausedStepResult.approvalId, stepId: pausedStepResult.stepId }
+              : null;
           setBuildView({
             buildId: state.build.id,
             planTitle: summary?.planTitle ?? state.plan.title,
             steps: state.plan.steps,
-            results: summary?.steps ?? state.plan.steps.map((step, index) => ({
-              stepId: step.id,
-              index,
-              status: "pending" as const,
-              summary: "",
-              mutationCount: 0,
-              notes: [],
-              rejections: [],
-              imagesUsed: 0,
-              attempts: 0,
-            })),
+            results: initialResults,
             activeIndex: buildStatus === "running" ? state.build.currentStep : -1,
             activeLabel: buildStatus === "running" ? "Genoptager…" : "",
             status: buildStatus,
             pauseReason: state.build.error,
             summary: buildStatus !== "running" ? (summary ?? null) : null,
             canUndo: state.build.canUndo && (summary?.canUndo ?? false),
+            approvalPending: initialApprovalPending,
           });
           if (buildStatus === "paused") setMode("plan");
           if (buildStatus === "running") {
@@ -615,7 +635,38 @@ export default function AIBuilderPanel({
         action,
       });
       setBuildView((prev) =>
-        prev ? { ...prev, status: "running", activeLabel: "Genoptager…" } : prev
+        prev ? { ...prev, status: "running", activeLabel: "Genoptager…", approvalPending: null } : prev
+      );
+      onBuildStatusChange?.(true);
+      startBuildPolling();
+    } catch (error: any) {
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  /**
+   * The large-change classifier fired on the paused step. The user explicitly
+   * approved it here — send the scoped token so the server can verify and then
+   * re-run the step with approvedLargeChanges: true.
+   */
+  const approveStep = async () => {
+    if (!buildView?.buildId || !buildView.approvalPending) return;
+    setPlanBusy(true);
+    try {
+      await continueBuildJob({
+        websiteId,
+        accessToken: session.access_token,
+        buildId: buildView.buildId,
+        action: "approve_and_resume",
+        approvalId: buildView.approvalPending.approvalId,
+        stepId: buildView.approvalPending.stepId,
+      });
+      setBuildView((prev) =>
+        prev
+          ? { ...prev, status: "running", activeLabel: "Godkender og genoptager…", approvalPending: null }
+          : prev
       );
       onBuildStatusChange?.(true);
       startBuildPolling();
@@ -1069,6 +1120,7 @@ export default function AIBuilderPanel({
                 view={buildView}
                 busy={planBusy}
                 onApproveProposal={(proposal) => sendMessage(proposal.instruction)}
+                onApproveStep={buildView.approvalPending ? approveStep : undefined}
                 onStop={stopBuildRun}
                 onResume={() => continueBuild("resume")}
                 onSkip={() => continueBuild("skip")}

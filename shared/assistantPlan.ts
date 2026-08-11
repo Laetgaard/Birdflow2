@@ -213,6 +213,24 @@ export const STEP_RESULT_STATUSES = [
 ] as const;
 export type StepResultStatus = (typeof STEP_RESULT_STATUSES)[number];
 
+/**
+ * Why a step is paused. Only set when the step is paused, not when it
+ * genuinely failed — so callers can distinguish "needs user action" from
+ * "agent error".
+ *
+ * approval_required — the large-change classifier fired; user must approve.
+ * turn_budget      — agent ran out of turns before calling finish; user can retry.
+ * spend_budget     — build cost ceiling reached.
+ * tool_error       — too many tool errors in this step.
+ * conflict         — canvas was edited mid-step; changes would be overwritten.
+ */
+export type StepPauseReason =
+  | "approval_required"
+  | "turn_budget"
+  | "spend_budget"
+  | "tool_error"
+  | "conflict";
+
 export type PlanStepResult = {
   stepId: string;
   index: number;
@@ -238,6 +256,21 @@ export type PlanStepResult = {
    * its meter from what it really cost rather than from a guess.
    */
   spentUsd?: number;
+  /**
+   * Why this step is paused. Only present when the step needs user action —
+   * distinguishes approval-required from genuine failures.
+   */
+  pauseReason?: StepPauseReason;
+  /**
+   * Single-use approval token. Present only when pauseReason is
+   * "approval_required". The continue route validates and then clears it so
+   * the same approval cannot be reused.
+   */
+  approvalId?: string;
+  /** True when the agent explicitly called the finish tool for this step. */
+  finishCalled?: boolean;
+  /** How many automatic continuation passes the agent ran inside this step. */
+  continuationCount?: number;
 };
 
 export type BuildSummary = {

@@ -18,7 +18,12 @@ const readBuildStatus = vi.fn(async () => "running" as const);
 const markPlanBuilt = vi.fn(async () => {});
 const updateBuilderState = vi.fn(async () => ({ revision: 2, state: emptyState() }));
 
-vi.mock("../server/aiAgent", () => ({ runAgentLoop: (...args: any[]) => runAgentLoop(...args) }));
+vi.mock("../server/aiAgent", () => ({
+  runAgentLoop: (...args: any[]) => runAgentLoop(...args),
+  INITIAL_TURN_BUDGET: 16,
+  CONTINUATION_TURN_BUDGET: 8,
+  MAX_AUTOMATIC_CONTINUATIONS: 2,
+}));
 
 vi.mock("../server/aiAgentTools", () => ({ buildToolCatalogue: () => [] }));
 
