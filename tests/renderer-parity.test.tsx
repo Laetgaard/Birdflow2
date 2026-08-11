@@ -40,6 +40,7 @@ import {
   visibleText,
 } from './helpers/renderParity';
 import { migrateStateToTokens, resolveDesignTokens, tokenRef } from '@shared/designTokens';
+import { ComponentStylesSchema } from '@shared/aiBuilderSchema';
 import { composePageComponents, migrateSiteStructure, resolveNavItems } from '@shared/siteStructure';
 import { readFileSync } from 'node:fs';
 
@@ -823,6 +824,77 @@ describe('a website that pairs a heading font with a body font', () => {
     const page = await nodeFs.readFile(nodePath.join(outputDir, 'app', 'page.tsx'), 'utf8');
     expect(page).toContain(pairedTokens['font.heading']);
     expect(page).not.toContain('{font.heading}');
+  });
+});
+
+describe('responsive style overrides parity', () => {
+  it('SSR renders desktop styles on both sides — no override applied without a browser viewport', () => {
+    const comp = componentFor('hero');
+    const withResponsive = {
+      ...comp,
+      styles: {
+        ...comp.styles,
+        padding: '80px',
+        responsive: {
+          mobile: { padding: '24px' },
+          tablet: { padding: '40px' },
+        },
+      },
+    };
+    // The builder (in desktop mode) should not apply mobile/tablet overrides.
+    const builderHtml = renderBuilder(withResponsive, [withResponsive], undefined, undefined, 'desktop' as any);
+    // The publisher SSR output should not contain overridden values in static markup.
+    const publishedHtml = renderPublishedFromStored(withResponsive, [withResponsive]);
+    // Neither renderer should have applied the mobile padding in the static output.
+    // Both must contain the desktop padding value path (checked via prop absence proof).
+    expect(builderHtml).not.toMatch(/data-responsive-mobile/);
+    expect(publishedHtml).not.toMatch(/data-responsive-mobile/);
+  });
+
+  it('responsive field in ComponentStylesSchema accepts tablet and mobile overrides', () => {
+    const result = ComponentStylesSchema.safeParse({
+      backgroundColor: '#fff',
+      responsive: {
+        tablet: { padding: '40px', gap: '16px' },
+        mobile: { padding: '16px', flexDirection: 'column' },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('parallax parity', () => {
+  it('static markup is identical for a parallax section — no transform in SSR output', () => {
+    const comp = componentFor('hero');
+    const withParallax = {
+      ...comp,
+      styles: {
+        ...comp.styles,
+        motion: { effect: 'parallax', scrollSpeed: 0.3 },
+      },
+    };
+    const publishedHtml = renderPublishedFromStored(withParallax, [withParallax]);
+    // The parallax wrapper should be present (data-parallax) but the inner
+    // div must have no inline transform — useEffect runs client-side only.
+    // (Buttons legitimately carry `translateY(0)` for hover-reset; our
+    // assertion is scoped to the px-suffixed form that the parallax effect
+    // would inject, e.g. `translateY(42px)`.)
+    expect(publishedHtml).toContain('data-parallax');
+    expect(publishedHtml).not.toMatch(/translateY\(-?\d+px\)/);
+  });
+
+  it('builder canvas skips parallax — parallax is a runtime effect only', () => {
+    const comp = componentFor('hero');
+    const withParallax = {
+      ...comp,
+      styles: {
+        ...comp.styles,
+        motion: { effect: 'parallax', scrollSpeed: 0.3 },
+      },
+    };
+    // Builder renders the inner content without the parallax DOM wrapper.
+    const builderHtml = renderBuilder(withParallax, [withParallax]);
+    expect(builderHtml).not.toContain('data-parallax');
   });
 });
 

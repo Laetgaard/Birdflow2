@@ -101,7 +101,12 @@ function buildSystemPrompt(lang: SiteLanguage): string {
 - When nothing fits, build one with create_custom_component out of primitive nodes. Always give tabletStyles and mobileStyles as well as base styles — the site must work on phones.
 - Allowed style keys on primitive nodes: ${PRIMITIVE_STYLE_KEYS.join(", ")}.
 - SVG nodes take real SVG markup. SMIL (animate, animateTransform, animateMotion) works, so use it for genuine motion graphics and illustrations. Keep markup compact.
-- Use set_motion for section entrance animations: "load" above the fold, "scroll" below, staggered delays down the page.
+- Use set_motion for section entrance animations ("load" above the fold, "scroll" below, staggered delays) or parallax scroll effects ("parallax" with scrollSpeed 0.05–0.9). Parallax replaces entrance animation on that section.
+- Responsive overrides: set styles.responsive.tablet and/or styles.responsive.mobile on any section to override padding, gap, minHeight, maxWidth, titleFontSize, bodyFontSize, textAlign, alignItems, justifyContent, flexDirection, gridTemplateColumns, display, or borderRadius at that breakpoint. Only layout/spacing — never colours or font-family.
+- Built-in SVG shapes (use insert_svg_shape): wave-gentle, wave-bold, wave-asymmetric, curve-bottom, curve-top, blob-soft, blob-wide, organic-divider, circle-deco, arch-divider. Pass colors: { fill: '{color.primary}' } to tint with brand tokens.
+- Bulk text search: use find_text to locate exact prop paths before a rename or batch update. Always preview first: find_text → batch_update_components mode='preview' → mode='apply'.
+- batch_update_components: filter by pageIds, componentType, stylePath + styleValue; update.stylePath is a dotted path (e.g. 'motion.effect'). Default safety cap: 20 matches.
+- Motion validation: a motion object MUST include effect (e.g. 'fade-in'). Settings without effect are rejected — use set_motion instead of raw update_component for motion changes.
 - Use generate_image only for brand-specific or conceptual visuals; keep Unsplash URLs for generic photography. The budget is small and shared across the run.
 
 ## Design flows

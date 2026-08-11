@@ -42,6 +42,7 @@ export const MOTION_EFFECTS = [
   'zoom-out',
   'bounce',
   'flip',
+  'parallax',
 ] as const;
 export type MotionEffect = (typeof MOTION_EFFECTS)[number];
 
@@ -92,6 +93,11 @@ export type MotionSpec = {
   stagger?: MotionStagger;
   /** Hover response preset. Default 'none'. */
   hover?: MotionHover;
+  /**
+   * Parallax scroll speed. Only meaningful when effect is 'parallax'.
+   * 0.05 = barely perceptible, 0.9 = strong depth. Default 0.3.
+   */
+  scrollSpeed?: number;
 };
 
 // ============ The tables (baked into the published renderer as JSON) ============
@@ -369,6 +375,10 @@ export function sanitizeMotionSpec(value: unknown): MotionSpec | undefined {
   if (typeof v.repeat === 'string' && REPEAT_SET.has(v.repeat) && v.repeat !== 'once') out.repeat = v.repeat as MotionRepeat;
   if (typeof v.stagger === 'string' && STAGGER_SET.has(v.stagger) && v.stagger !== 'none') out.stagger = v.stagger as MotionStagger;
   if (typeof v.hover === 'string' && HOVER_SET.has(v.hover) && v.hover !== 'none') out.hover = v.hover as MotionHover;
+  // scrollSpeed is only meaningful for parallax; preserve it only when effect is parallax.
+  if (out.effect === 'parallax' && typeof v.scrollSpeed === 'number' && v.scrollSpeed > 0 && v.scrollSpeed <= 1) {
+    out.scrollSpeed = Math.max(0.05, Math.min(0.9, v.scrollSpeed));
+  }
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
@@ -376,6 +386,19 @@ export function sanitizeMotionSpec(value: unknown): MotionSpec | undefined {
 export function hoverPresetStyles(hover: unknown): Record<string, string> | undefined {
   if (typeof hover !== 'string') return undefined;
   return MOTION_TABLES.hovers[hover];
+}
+
+/**
+ * Extract parallax settings from a motion spec.
+ * Returns { scrollSpeed } when effect === 'parallax', null otherwise.
+ * Not baked into the publisher — called inline in both renderer contexts.
+ */
+export function resolveParallaxSettings(spec: unknown): { scrollSpeed: number } | null {
+  if (!spec || typeof spec !== 'object') return null;
+  const s = spec as Record<string, unknown>;
+  if (s.effect !== 'parallax') return null;
+  const speed = typeof s.scrollSpeed === 'number' ? s.scrollSpeed : 0.3;
+  return { scrollSpeed: Math.max(0.05, Math.min(0.9, speed)) };
 }
 
 /**

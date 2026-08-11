@@ -2912,6 +2912,30 @@ function useMotionPhase(resolved: any, replayKey: string) {
   };
 }
 
+// Resolves breakpoint-specific style overrides for the active viewport.
+// SSR renders desktop styles; a client-side effect swaps in the right
+// breakpoint once window.innerWidth is known.
+function useResponsiveOverrides(responsive: any): Record<string, unknown> {
+  const [overrides, setOverrides] = useState<Record<string, unknown>>({});
+  useEffect(() => {
+    if (!responsive) return;
+    function update() {
+      const w = window.innerWidth;
+      if (w <= 640 && responsive.mobile) {
+        setOverrides(responsive.mobile);
+      } else if (w <= 1024 && responsive.tablet) {
+        setOverrides(responsive.tablet);
+      } else {
+        setOverrides({});
+      }
+    }
+    update();
+    window.addEventListener('resize', update, { passive: true });
+    return function() { window.removeEventListener('resize', update); };
+  }, []);
+  return overrides;
+}
+
 function AnimatedWrapper({ 
   children, 
   styles 
@@ -2932,6 +2956,68 @@ function AnimatedWrapper({
   return (
     <div ref={m.ref} data-motion="" style={m.style}>
       {children}
+    </div>
+  );
+}
+
+// Wraps a section with a scroll-speed-reduced parallax effect.
+// The section translates at (speed * 0.5) of the scroll delta, creating depth.
+// Runs only on the client; SSR renders no transform, so initial markup is
+// identical between builder and published (parity maintained).
+function ParallaxWrapper({
+  speed,
+  children,
+}: {
+  speed: number;
+  children: React.ReactNode;
+}) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    let rafId = 0;
+    let visible = false;
+
+    function update() {
+      const rect = outer!.getBoundingClientRect();
+      const viewH = window.innerHeight;
+      const mid = rect.top + rect.height / 2 - viewH / 2;
+      inner!.style.transform = 'translateY(' + String(Math.round(mid * speed * -0.5)) + 'px)';
+    }
+
+    function onScroll() {
+      if (!visible) return;
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(update);
+    }
+
+    const observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        visible = entry.isIntersecting;
+        if (visible) update();
+      });
+    }, { threshold: 0 });
+    observer.observe(outer);
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return function() {
+      observer.disconnect();
+      window.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(rafId);
+    };
+  }, [speed, reduceMotion]);
+
+  return (
+    <div ref={outerRef} data-parallax="" style={{ overflow: 'hidden', position: 'relative' }}>
+      <div ref={innerRef}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -2981,6 +3067,10 @@ type ComponentStyles = {
   scrollBehavior?: string;
   scrolledBackgroundColor?: string;
   hoverColor?: string;
+  responsive?: {
+    tablet?: Record<string, string>;
+    mobile?: Record<string, string>;
+  };
   [key: string]: any;
 };
 
@@ -5437,7 +5527,7 @@ function CustomComponentSection({ props, styles }: { props: ComponentProps; styl
 }
 
 export default function ComponentRenderer({
-  component,
+  component: _component,
   products = [],
   pages = [],
   // No default: undefined means "no stored menu", [] means "empty on purpose".
@@ -5452,6 +5542,10 @@ export default function ComponentRenderer({
   /** Every component on the page, so containers can find their children. */
   allComponents?: ComponentData[];
 }) {
+  const responsiveOverrides = useResponsiveOverrides(_component.styles.responsive);
+  const component = Object.keys(responsiveOverrides).length > 0
+    ? { ..._component, styles: { ..._component.styles, ...responsiveOverrides } }
+    : _component;
   const renderComponent = () => {
     switch (component.type) {
       case 'hero':
@@ -5536,11 +5630,17 @@ export default function ComponentRenderer({
   const componentElement = renderComponent();
   if (!componentElement) return null;
 
-  return (
+  const isParallax = !!(component.styles.motion && (component.styles.motion as any).effect === 'parallax');
+  const parallaxSpeed = isParallax ? (Number((component.styles.motion as any).scrollSpeed) || 0.3) : 0;
+  const animated = (
     <AnimatedWrapper styles={component.styles}>
       {componentElement}
     </AnimatedWrapper>
   );
+  if (isParallax) {
+    return <ParallaxWrapper speed={parallaxSpeed}>{animated}</ParallaxWrapper>;
+  }
+  return animated;
 }
 `;
 }

@@ -446,6 +446,20 @@ function checkMotionSafety(state: BuilderStateData, add: AddFinding): void {
       const motion = (styles.motion ?? {}) as Record<string, unknown>;
       if (motion.repeat === "every-view") everyView += 1;
       if (styles.animationType === "bounce" || motion.easing === "spring") playful += 1;
+      // Detect orphaned motion settings: configuration present but no effect field.
+      const motionKeys = Object.keys(motion).filter(
+        (k) => k !== "hover" && k !== "stagger" && k !== "scrollSpeed"
+      );
+      if (motionKeys.length > 0 && (!motion.effect || motion.effect === "none")) {
+        add(
+          "motion",
+          `Sektion "${component.type}" (${component.id}) på "${page.name}" har motion-indstillinger ` +
+            `(${motionKeys.join(", ")}) men intet effect-felt — animationen afspilles ikke. ` +
+            "Tilføj effect (f.eks. 'fade-in') eller ryd hele motion-objektet.",
+          false,
+          page.name
+        );
+      }
       const tree = (component.props as Record<string, unknown> | undefined)?.customTree;
       walkTree(tree as PrimitiveNode | undefined, (node) => {
         const nodeMotion = (node as { motion?: Record<string, unknown> }).motion;

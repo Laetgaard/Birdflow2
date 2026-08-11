@@ -4034,6 +4034,19 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
     [storedComponent, resolvedTokens]
   );
 
+  // Apply breakpoint-specific style overrides for the active device mode.
+  // Only layout/spacing properties are allowed (see ResponsiveStyleOverrides).
+  const effectiveStyles = useMemo(() => {
+    const resp = component.styles.responsive;
+    if (!resp) return component.styles;
+    const override =
+      deviceMode === 'mobile' ? resp.mobile :
+      deviceMode === 'tablet' ? resp.tablet :
+      undefined;
+    if (!override) return component.styles;
+    return { ...component.styles, ...override };
+  }, [component.styles, deviceMode]);
+
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -4055,7 +4068,7 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
 
   const commonProps: ComponentRenderProps = {
     props: component.props,
-    styles: component.styles,
+    styles: effectiveStyles,
     isSelected,
     onClick: handleClick,
     isPreview,

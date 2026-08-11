@@ -388,6 +388,37 @@ describe('the baked runtime IS the shared runtime', () => {
   });
 });
 
+describe('parallax effect', () => {
+  it("'parallax' is in MOTION_EFFECTS so schema validation accepts it", () => {
+    expect(MOTION_EFFECTS).toContain('parallax');
+  });
+
+  it("computeMotion returns null for 'parallax' — it is not an entrance animation", () => {
+    expect(computeMotion({ effect: 'parallax', scrollSpeed: 0.3 } as any)).toBeNull();
+  });
+
+  it('sanitizeMotionSpec preserves scrollSpeed for parallax', () => {
+    const spec = sanitizeMotionSpec({ effect: 'parallax', scrollSpeed: 0.4 } as any);
+    expect(spec.effect).toBe('parallax');
+    expect((spec as any).scrollSpeed).toBe(0.4);
+  });
+
+  it('sanitizeMotionSpec strips scrollSpeed for non-parallax effects', () => {
+    const spec = sanitizeMotionSpec({ effect: 'fade-in', scrollSpeed: 0.4 } as any);
+    expect((spec as any).scrollSpeed).toBeUndefined();
+  });
+
+  it('MotionSpecSchema accepts a parallax spec with scrollSpeed', () => {
+    const result = MotionSpecSchema.safeParse({ effect: 'parallax', scrollSpeed: 0.3 });
+    expect(result.success).toBe(true);
+  });
+
+  it('MotionSpecSchema rejects scrollSpeed outside 0.05–0.9', () => {
+    expect(MotionSpecSchema.safeParse({ effect: 'parallax', scrollSpeed: 1.5 }).success).toBe(false);
+    expect(MotionSpecSchema.safeParse({ effect: 'parallax', scrollSpeed: 0 }).success).toBe(false);
+  });
+});
+
 describe('the generated project carries the motion runtime', () => {
   const source = generateComponentRenderer('da');
 

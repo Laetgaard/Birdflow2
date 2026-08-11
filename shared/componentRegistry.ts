@@ -474,6 +474,28 @@ export type ComponentProps = {
   fullWidth?: boolean;
 };
 
+/**
+ * Safe subset of ComponentStyles that may differ per breakpoint.
+ * Only layout and spacing — never colours (brand-guide-managed),
+ * never font-family (brand-consistent), never animation.
+ */
+export type ResponsiveStyleOverrides = {
+  padding?: string;
+  margin?: string;
+  gap?: string;
+  minHeight?: string;
+  maxWidth?: string;
+  titleFontSize?: string;
+  bodyFontSize?: string;
+  textAlign?: string;
+  alignItems?: string;
+  justifyContent?: string;
+  flexDirection?: string;
+  gridTemplateColumns?: string;
+  display?: string;
+  borderRadius?: string;
+};
+
 export type ComponentStyles = {
   backgroundColor?: string;
   backgroundOpacity?: number;
@@ -547,6 +569,14 @@ export type ComponentStyles = {
   dividerWidth?: 'narrow' | 'medium' | 'full' | string;
   // Header glassmorphism
   glassmorphism?: boolean | string;
+  /**
+   * Breakpoint-specific style overrides applied on top of the desktop styles.
+   * Only layout/spacing properties; see ResponsiveStyleOverrides for the allowlist.
+   */
+  responsive?: {
+    tablet?: ResponsiveStyleOverrides;
+    mobile?: ResponsiveStyleOverrides;
+  };
 };
 
 export type BuilderComponentData = {

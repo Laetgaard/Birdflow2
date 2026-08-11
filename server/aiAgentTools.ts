@@ -21,6 +21,7 @@ import {
   UpdateBrandGuideMutation,
 } from "@shared/aiBuilderSchema";
 import { buildBrandContext } from "@shared/customComponents";
+import { SVG_SHAPES, renderSvgShape } from "@shared/svgShapes";
 import { applyMutation, validateMutation, analyzeDesign, assertSaneJsonDepth } from "./aiBuilder";
 import { runSelfCheck } from "./selfCheck";
 import { checkPublishParity } from "./publishParity";
@@ -176,6 +177,41 @@ function applyWrite(
       return { ok: false, error: guarded.reason };
     }
     if (guarded.notes?.length) ctx.notes.push(...guarded.notes);
+  }
+
+  // Reject motion specs that have settings but no effect field — they
+  // silently produce no animation and confuse the model on the next read.
+  const anyMut = mutation as Record<string, unknown>;
+  const stylesToCheck: Record<string, unknown>[] = [];
+  if (anyMut.styles && typeof anyMut.styles === 'object') {
+    stylesToCheck.push(anyMut.styles as Record<string, unknown>);
+  }
+  if (anyMut.component && typeof anyMut.component === 'object') {
+    const comp = anyMut.component as Record<string, unknown>;
+    if (comp.styles && typeof comp.styles === 'object') {
+      stylesToCheck.push(comp.styles as Record<string, unknown>);
+    }
+  }
+  for (const styles of stylesToCheck) {
+    const m = styles.motion;
+    if (!m || typeof m !== 'object' || Array.isArray(m)) continue;
+    const motionObj = m as Record<string, unknown>;
+    // Only check when the styles do NOT also set animationType to a real animation.
+    // When animationType is present (and not 'none'), it carries the intent and
+    // the motion sub-object is just for overrides (easing, repeat, etc.) —
+    // no effect field is needed in that case.
+    const animationType = styles.animationType as string | undefined;
+    const hasLegacyType = animationType && animationType !== 'none';
+    if (!hasLegacyType) {
+      const orphaned = Object.keys(motionObj).filter(k => k !== 'hover' && k !== 'stagger' && k !== 'scrollSpeed');
+      if (orphaned.length > 0 && (!motionObj.effect || motionObj.effect === 'none')) {
+        return {
+          ok: false,
+          error: `Ugyldig motion spec: ${orphaned.join(', ')} er angivet men 'effect' mangler. ` +
+            "Angiv et effect (f.eks. 'fade-in') eller ryd hele motion-objektet.",
+        };
+      }
+    }
   }
 
   // Deliberately after the guard: an approved plan buys scope, never a
@@ -428,6 +464,76 @@ export function buildReadTools(): AgentTool[] {
     },
   });
 
+  // ---- find_text: locate text content across all pages ----
+
+  tools.push({
+    name: "find_text",
+    description:
+      "Search all pages and sections for text content. Returns every prop or node where the query " +
+      "text appears — useful before batch_update_components (to preview scope) or to locate a phrase. " +
+      "Always call this before a batch rename so you know the exact path and current value.",
+    parameters: z.object({
+      query: z.string().describe("Text to search for."),
+      exact: z.boolean().optional().describe("true = case-sensitive exact match; false (default) = case-insensitive substring."),
+    }),
+    mutates: false,
+    run: (args, ctx) => {
+      const needle = args.exact ? args.query : args.query.toLowerCase();
+      const matches: Array<{
+        pageId: string;
+        pageName: string;
+        componentId: string;
+        componentType: string;
+        path: string;
+        value: string;
+      }> = [];
+
+      function matchesStr(s: string): boolean {
+        if (args.exact) return s === needle;
+        return s.toLowerCase().includes(needle);
+      }
+
+      // Fields we skip to avoid noisy internal IDs or base64 blobs.
+      const SKIP_KEYS = new Set(['id', 'customTree', 'styledTitle', 'styledSubtitle', 'styledDescription', 'svgAssetId']);
+
+      function walkValue(val: unknown, path: string, pageId: string, pageName: string, compId: string, compType: string): void {
+        if (typeof val === 'string') {
+          if (val.length > 0 && val.length < 2000 && !val.startsWith('data:') && matchesStr(val)) {
+            matches.push({ pageId, pageName, componentId: compId, componentType: compType, path, value: val });
+          }
+          return;
+        }
+        if (Array.isArray(val)) {
+          val.forEach((item, i) => walkValue(item, path + '[' + String(i) + ']', pageId, pageName, compId, compType));
+          return;
+        }
+        if (val && typeof val === 'object') {
+          for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+            if (!SKIP_KEYS.has(k)) {
+              walkValue(v, path ? path + '.' + k : k, pageId, pageName, compId, compType);
+            }
+          }
+        }
+      }
+
+      for (const page of ctx.state.pages) {
+        for (const comp of page.components) {
+          walkValue(comp.props, 'props', page.id, page.name, comp.id, comp.type);
+        }
+      }
+
+      return {
+        ok: true,
+        summary: `Søgte efter "${args.query}" — fandt ${matches.length} forekomster`,
+        data: {
+          count: matches.length,
+          matches: matches.slice(0, 50),
+          truncated: matches.length > 50,
+        },
+      };
+    },
+  });
+
   return tools;
 }
 
@@ -582,56 +688,286 @@ export function buildToolCatalogue(): AgentTool[] {
   tools.push({
     name: "set_motion",
     description:
-      "Set the entrance animation on a section. Use 'load' above the fold and 'scroll' below it; stagger " +
-      "consecutive sections with increasing delays. Motion is data — only these preset names exist, and calm " +
-      "defaults (fade/slide, 'soft', 'medium', 'once') convert best; reserve 'spring'/'bounce' for one playful " +
-      "accent per page. Respect the brand guide's motion level. Each call replaces any previous " +
-      "easing/distance/repeat overrides — omitted fields return to their defaults.",
+      "Set the entrance animation OR parallax effect on a section. " +
+      "For entrances: use 'load' above the fold and 'scroll' below it; stagger consecutive sections with " +
+      "increasing delays. For parallax: use 'parallax' with scrollSpeed (0.1 = subtle, 0.9 = strong, default 0.3) " +
+      "— parallax replaces any entrance animation on the same section. " +
+      "Motion is data — only these preset names exist, and calm defaults (fade/slide, 'soft', 'medium', 'once') " +
+      "convert best; reserve 'spring'/'bounce' for one playful accent per page. " +
+      "Respect the brand guide's motion level. Each call fully replaces prior motion settings.",
     parameters: z.object({
       pageId: z.string(),
       componentId: z.string(),
       animationType: z.enum([
         "none", "fade-in", "slide-up", "slide-down", "slide-left",
-        "slide-right", "zoom-in", "zoom-out", "bounce", "flip",
+        "slide-right", "zoom-in", "zoom-out", "bounce", "flip", "parallax",
       ]),
-      animationTrigger: z.enum(["load", "scroll"]).optional(),
-      animationDuration: z.enum(["0.3s", "0.5s", "0.8s", "1.2s"]).optional(),
-      animationDelay: z.enum(["0s", "0.1s", "0.3s", "0.5s"]).optional(),
+      animationTrigger: z.enum(["load", "scroll"]).optional()
+        .describe("Ignored when animationType is 'parallax'."),
+      animationDuration: z.enum(["0.3s", "0.5s", "0.8s", "1.2s"]).optional()
+        .describe("Ignored when animationType is 'parallax'."),
+      animationDelay: z.enum(["0s", "0.1s", "0.3s", "0.5s"]).optional()
+        .describe("Ignored when animationType is 'parallax'."),
       easing: z.enum(["soft", "ease-out", "ease-in-out", "linear", "spring"]).optional()
-        .describe("Bevægelseskurve — 'soft' er standarden."),
+        .describe("Bevægelseskurve — 'soft' er standarden. Ignoreret ved 'parallax'."),
       distance: z.enum(["short", "medium", "long"]).optional()
-        .describe("Hvor langt slide-effekter bevæger sig."),
+        .describe("Hvor langt slide-effekter bevæger sig. Ignoreret ved 'parallax'."),
       repeat: z.enum(["once", "every-view"]).optional()
-        .describe("'every-view' afspiller igen hver gang sektionen scrolles ind."),
+        .describe("'every-view' afspiller igen hver gang sektionen scrolles ind. Ignoreret ved 'parallax'."),
+      scrollSpeed: z.number().min(0.05).max(0.9).optional()
+        .describe("Kun ved 'parallax': scroll-hastighed 0.05–0.9. Standard: 0.3."),
     }),
     mutates: true,
     run: (args, ctx) => {
-      // Idempotent overlay: every call fully restates the motion overrides.
-      // 'none' and omitted fields CLEAR earlier values instead of inheriting
-      // them — the (possibly empty) object below replaces styles.motion
-      // wholesale in the styles merge, so a later re-enable never resurrects
-      // a stale easing or repeat.
-      const motion =
-        args.animationType === "none"
-          ? {}
-          : {
-              ...(args.easing ? { easing: args.easing } : {}),
-              ...(args.distance ? { distance: args.distance } : {}),
-              ...(args.repeat ? { repeat: args.repeat } : {}),
-            };
-      const mutation = {
-        action: "update_component" as const,
-        pageId: args.pageId,
-        componentId: args.componentId,
-        styles: {
+      let styles: Record<string, unknown>;
+
+      if (args.animationType === "parallax") {
+        // Parallax lives entirely in styles.motion — clear the legacy
+        // animationType fields so they don't interfere.
+        styles = {
+          animationType: "none",
+          motion: {
+            effect: "parallax",
+            ...(args.scrollSpeed !== undefined ? { scrollSpeed: args.scrollSpeed } : { scrollSpeed: 0.3 }),
+          },
+        };
+      } else if (args.animationType === "none") {
+        // Clear all motion settings.
+        styles = { animationType: "none", motion: {} };
+      } else {
+        // Standard entrance animation.
+        const motion = {
+          ...(args.easing ? { easing: args.easing } : {}),
+          ...(args.distance ? { distance: args.distance } : {}),
+          ...(args.repeat ? { repeat: args.repeat } : {}),
+        };
+        styles = {
           animationType: args.animationType,
           ...(args.animationTrigger ? { animationTrigger: args.animationTrigger } : {}),
           ...(args.animationDuration ? { animationDuration: args.animationDuration } : {}),
           ...(args.animationDelay ? { animationDelay: args.animationDelay } : {}),
           motion,
-        },
+        };
+      }
+
+      const mutation = {
+        action: "update_component" as const,
+        pageId: args.pageId,
+        componentId: args.componentId,
+        styles,
       } as BuilderMutation;
       return applyWrite(mutation, ctx, () => `Satte animation ${args.animationType}`);
+    },
+  });
+
+  // ---- SVG shapes ----
+
+  tools.push({
+    name: "insert_svg_shape",
+    description:
+      "Add a decorative SVG shape from the built-in registry as a section on a page. " +
+      "Shapes: wave-gentle, wave-bold, wave-asymmetric, curve-bottom, curve-top, blob-soft, blob-wide, " +
+      "organic-divider, circle-deco, arch-divider. " +
+      "Dividers (wave-*, curve-*, organic-divider, arch-divider) look best at height '60px'–'120px'. " +
+      "Blobs and circles work as decorative highlights at '200px'–'400px'. " +
+      "Check each shape's colorSlots to know which slot IDs are available for colour overrides.",
+    parameters: z.object({
+      pageId: z.string(),
+      shapeId: z.enum([
+        'wave-gentle', 'wave-bold', 'wave-asymmetric',
+        'curve-bottom', 'curve-top',
+        'blob-soft', 'blob-wide',
+        'organic-divider', 'circle-deco', 'arch-divider',
+      ]).describe("Shape ID from the built-in registry."),
+      position: z.number().optional().describe("Insert index (0 = top of page). Omit to append."),
+      height: z.string().optional().describe("CSS height, e.g. '80px'. Defaults to shape's natural size."),
+      flipX: z.boolean().optional().describe("Mirror the shape horizontally."),
+      flipY: z.boolean().optional().describe("Flip the shape upside-down."),
+      opacity: z.number().min(0).max(1).optional().describe("Overall opacity (0–1)."),
+      backgroundColor: z.string().optional().describe("Background colour of the wrapping section. Default: transparent."),
+      colors: z.record(z.string()).optional()
+        .describe("Override color slots by their id. E.g. { fill: '{color.primary}' }. " +
+          "Use get_svg_shape_info to find a shape's slot IDs first."),
+      name: z.string().optional().describe("Optional display name for the component."),
+    }),
+    mutates: true,
+    run: (args, ctx) => {
+      const shapeDef = SVG_SHAPES[args.shapeId];
+      if (!shapeDef) {
+        return { ok: false, error: `Ukendt shape ID '${args.shapeId}'.` };
+      }
+
+      const svgMarkup = renderSvgShape(shapeDef, {
+        colors: args.colors,
+        height: args.height,
+        flipX: args.flipX,
+        flipY: args.flipY,
+        opacity: args.opacity,
+      });
+
+      const uid = String(Date.now());
+      const mutation = {
+        action: 'add_custom_component' as const,
+        pageId: args.pageId,
+        name: args.name || shapeDef.name,
+        position: args.position,
+        styles: {
+          backgroundColor: args.backgroundColor || 'transparent',
+          padding: '0',
+        },
+        tree: {
+          id: 'shape-box-' + uid,
+          type: 'box' as const,
+          styles: {
+            padding: '0',
+            lineHeight: '0',
+            fontSize: '0',
+            overflow: 'hidden',
+          },
+          children: [
+            {
+              id: 'shape-svg-' + uid,
+              type: 'svg' as const,
+              svg: svgMarkup,
+            },
+          ],
+        },
+        schema: {
+          fields: [
+            {
+              key: 'bg',
+              label: 'Baggrundsfarve',
+              type: 'color' as const,
+              nodeId: 'shape-box-' + uid,
+              styleKey: 'backgroundColor' as const,
+            },
+          ],
+        },
+      } as BuilderMutation;
+
+      return applyWrite(mutation, ctx, () => `Indsatte SVG-form "${shapeDef.name}"`);
+    },
+  });
+
+  // ---- batch update components ----
+
+  tools.push({
+    name: "batch_update_components",
+    description:
+      "Preview or apply a style change across many sections at once. " +
+      "ALWAYS call with mode='preview' first to confirm scope, then mode='apply' to commit. " +
+      "Filter by page, section type, or current style value. " +
+      "Stops when more than confirmIfOver sections match in apply mode (default: 20).",
+    parameters: z.object({
+      mode: z.enum(['preview', 'apply']),
+      filter: z.object({
+        pageIds: z.array(z.string()).optional().describe("Restrict to these pages; omit for all pages."),
+        componentType: z.string().optional().describe("Only match sections of this type."),
+        stylePath: z.string().optional().describe("Dotted path into styles, e.g. 'backgroundColor'."),
+        styleValue: z.string().optional().describe("Only match when the style at stylePath equals this value."),
+      }),
+      update: z.object({
+        stylePath: z.string().describe("Dotted style path to set, e.g. 'backgroundColor' or 'motion.effect'."),
+        styleValue: z.unknown().describe("New value to write at that path."),
+      }),
+      confirmIfOver: z.number().optional().describe("Refuse apply if match count exceeds this. Default: 20."),
+    }),
+    mutates: true,
+    run: (args, ctx) => {
+      const limit = args.confirmIfOver ?? 20;
+
+      function getNestedStyle(obj: Record<string, unknown>, path: string): unknown {
+        const parts = path.split('.');
+        let cur: unknown = obj;
+        for (const p of parts) {
+          if (!cur || typeof cur !== 'object') return undefined;
+          cur = (cur as Record<string, unknown>)[p];
+        }
+        return cur;
+      }
+
+      const allowedPages = args.filter.pageIds ? new Set(args.filter.pageIds) : null;
+      const matches: Array<{
+        pageId: string; pageName: string;
+        componentId: string; componentType: string;
+        currentValue: unknown;
+      }> = [];
+
+      for (const page of ctx.state.pages) {
+        if (allowedPages && !allowedPages.has(page.id)) continue;
+        for (const comp of page.components) {
+          if (args.filter.componentType && comp.type !== args.filter.componentType) continue;
+          const styles = (comp.styles ?? {}) as Record<string, unknown>;
+          if (args.filter.stylePath) {
+            const val = getNestedStyle(styles, args.filter.stylePath);
+            if (args.filter.styleValue !== undefined && String(val) !== args.filter.styleValue) continue;
+            if (args.filter.styleValue === undefined && val === undefined) continue;
+          }
+          matches.push({
+            pageId: page.id, pageName: page.name,
+            componentId: comp.id, componentType: comp.type,
+            currentValue: args.filter.stylePath
+              ? getNestedStyle(styles, args.filter.stylePath)
+              : undefined,
+          });
+        }
+      }
+
+      if (args.mode === 'preview') {
+        return {
+          ok: true,
+          summary: `Preview: ${matches.length} sektioner matcher filteret`,
+          data: {
+            matchCount: matches.length,
+            matches: matches.slice(0, 20),
+            truncated: matches.length > 20,
+            hint: matches.length > 0
+              ? "Kald med mode='apply' for at anvende ændringen."
+              : "Ingen sektioner matcher — juster filteret.",
+          },
+        };
+      }
+
+      // Apply mode.
+      if (matches.length > limit) {
+        return {
+          ok: false,
+          error: `${matches.length} sektioner matcher — over grænsen på ${limit}. ` +
+            "Kald preview-mode for at se listen, brug confirmIfOver for at hæve grænsen, " +
+            "eller gør filteret mere specifikt.",
+        };
+      }
+
+      let applied = 0;
+      for (const match of matches) {
+        // Build a partial styles object with the update path applied.
+        const styleUpdate: Record<string, unknown> = {};
+        const parts = args.update.stylePath.split('.');
+        if (parts.length === 1) {
+          styleUpdate[parts[0]] = args.update.styleValue;
+        } else if (parts.length === 2) {
+          styleUpdate[parts[0]] = { [(parts[1])]: args.update.styleValue };
+        } else {
+          // For deeper paths, set only the leaf and the parent.
+          styleUpdate[parts[0]] = { [parts.slice(1).join('.')]: args.update.styleValue };
+        }
+
+        const mut = {
+          action: 'update_component' as const,
+          pageId: match.pageId,
+          componentId: match.componentId,
+          styles: styleUpdate,
+        } as BuilderMutation;
+
+        const result = applyWrite(mut, ctx, () => `Batch: ${match.componentType}`);
+        if (result.ok) applied++;
+      }
+
+      return {
+        ok: true,
+        summary: `Batch-opdaterede ${applied}/${matches.length} sektioner`,
+        data: { applied, total: matches.length },
+      };
     },
   });
 

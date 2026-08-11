@@ -99,10 +99,30 @@ export const MotionSpecSchema = z
     repeat: z.enum(MOTION_REPEATS).optional().describe("'once' som standard; 'every-view' afspiller igen hver gang elementet kommer i syne."),
     stagger: z.enum(MOTION_STAGGERS).optional().describe('Kun box-noder: børnene kommer ind ét ad gangen med denne rytme.'),
     hover: z.enum(MOTION_HOVERS).optional().describe('Hover-respons som preset (lift/grow/glow) — aldrig rå CSS.'),
+    scrollSpeed: z.number().min(0.05).max(0.9).optional()
+      .describe("Parallax scroll-hastighed — kun meningsfuld når effect er 'parallax'. 0.1 = subtil, 0.9 = kraftig. Standard: 0.3."),
   })
   .strict();
 
 export type AIMotionSpec = MotionSpec;
+
+/** Allowlisted layout/spacing properties for breakpoint overrides. */
+export const ResponsiveStyleOverridesSchema = z.object({
+  padding: z.string().optional(),
+  margin: z.string().optional(),
+  gap: z.string().optional(),
+  minHeight: z.string().optional(),
+  maxWidth: z.string().optional(),
+  titleFontSize: z.string().optional(),
+  bodyFontSize: z.string().optional(),
+  textAlign: z.string().optional(),
+  alignItems: z.string().optional(),
+  justifyContent: z.string().optional(),
+  flexDirection: z.string().optional(),
+  gridTemplateColumns: z.string().optional(),
+  display: z.string().optional(),
+  borderRadius: z.string().optional(),
+});
 
 export const ComponentStylesSchema = z.object({
   backgroundColor: z.string().optional().describe(TOKEN_HINT),
@@ -141,6 +161,11 @@ export const ComponentStylesSchema = z.object({
   // Newer motion properties (easing, distance, repeat …) — preset names
   // only, overlaid on the four legacy fields by sectionMotionSpec().
   motion: MotionSpecSchema.optional(),
+  // Breakpoint-specific layout/spacing overrides — never colours or animation.
+  responsive: z.object({
+    tablet: ResponsiveStyleOverridesSchema.optional(),
+    mobile: ResponsiveStyleOverridesSchema.optional(),
+  }).optional().describe("Viewport-specifikke overstyrelser af layout og spacing (ikke farver eller animation)."),
 });
 
 export const ComponentSchema = z.object({
