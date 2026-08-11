@@ -9,13 +9,38 @@
  * room mid-thought and end with nothing.
  *
  * One table, keyed by ROLE — what the call is for, not which file it lives
- * in. A role owns its model, its completion budget, its reasoning effort and
- * the money one customer-visible run of it may cost.
+ * in. A role owns its provider, model, completion budget, reasoning effort
+ * and the money one customer-visible run of it may cost.
  *
- * Reasoning tokens count against `max_completion_tokens` on the reasoning
+ * Provider routing:
+ *   kimi  — Kimi K3 (Moonshot AI). Powers all complex builder-agent roles:
+ *            planning, building, design analysis, self-review. Large context
+ *            window and strong agentic tool-calling are the key advantages.
+ *   openai — OpenAI. Retains image generation (gpt-image-1), onboarding
+ *            (out of scope for this migration) and the lightweight
+ *            conversational design-interview roles.
+ *
+ * Reasoning tokens count against `max_completion_tokens` on reasoning
  * models, so a "16k" planning budget is not 16k of visible plan: the model
  * thinks inside the same allowance. Budgets here are sized for the whole
  * allowance, not for the text that survives it.
+ *
+ * Role → provider/model mapping
+ * ─────────────────────────────────────────────────────────────────────────
+ * assistant        kimi  / kimi-k3  — main builder chat agent
+ * planning         kimi  / kimi-k3  — whole-site plan generation
+ * buildStep        kimi  / kimi-k3  — one approved-plan step
+ * siteGeneration   kimi  / kimi-k3  — one-shot site build (legacy path)
+ * siteThinking     kimi  / kimi-k3  — site build with reasoning
+ * designAnalysis   kimi  / kimi-k3  — design critique
+ * referenceVision  kimi  / kimi-k3  — analyse an uploaded inspiration image
+ * architectPlan    kimi  / kimi-k3  — brief → site plan
+ * architectBuild   kimi  / kimi-k3  — site plan → pages
+ * selfReview       kimi  / kimi-k3  — AI design recommendations (level B/C)
+ * designInterview  openai/ gpt-5.1  — palette/font conversational flow
+ * brandGuide       openai/ gpt-5.1  — brand-guide enrichment
+ * onboarding       openai/ gpt-5.1  — onboarding walkthrough (out of scope)
+ * image            openai/ gpt-image-1 — image generation (no Kimi equivalent)
  */
 
 export const AI_ROLES = [
@@ -51,9 +76,14 @@ export const AI_ROLES = [
 
 export type AiRole = (typeof AI_ROLES)[number];
 
-export type ReasoningEffort = "none" | "low" | "medium" | "high";
+/** Which backend handles a role's completions. */
+export type AiProvider = "openai" | "kimi";
+
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "max";
 
 export type AiRoleConfig = {
+  /** Backend that serves this role's completions. */
+  provider: AiProvider;
   model: string;
   /**
    * Ceiling for one model call, in completion tokens. On reasoning models
@@ -66,89 +96,140 @@ export type AiRoleConfig = {
    * an approved plan — however many model calls it becomes.
    */
   maxRunCostUsd: number;
-  /** Only sent when set; omitted models keep the provider default. */
+  /**
+   * Reasoning intensity. Only sent to providers that support the parameter;
+   * see chatParamsFor. Omitting keeps the provider's default.
+   */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Provider to try when the primary fails at a safe request boundary (i.e.
+   * before any output is produced). Only attempted on provider-level errors,
+   * never on spend-limit refusals.
+   */
+  fallbackProvider?: AiProvider;
+  /** Model name for the fallback. Required when fallbackProvider is set. */
+  fallbackModel?: string;
 };
 
-const REASONING_MODEL = "gpt-5.1";
+const KIMI_MODEL = "kimi-k3";
+const OPENAI_REASONING_MODEL = "gpt-5.1";
 
 export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
+  // ── Complex builder-agent roles → Kimi K3 ──────────────────────────────
+
   assistant: {
-    model: REASONING_MODEL,
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 8192,
     maxRunCostUsd: 0.5,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
   // Planning is the one role that must never run out of room: everything
   // else in the product gets planned through it, and a truncated plan costs
   // the customer the whole round.
   planning: {
-    model: REASONING_MODEL,
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 16384,
     maxRunCostUsd: 0.75,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
   // Charged per BUILD, not per step — the meter is shared across the steps
   // of one approved plan, so a longer plan is not a more expensive request
   // for the same work.
   buildStep: {
-    model: REASONING_MODEL,
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 12288,
     maxRunCostUsd: 3,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
   siteGeneration: {
-    model: REASONING_MODEL,
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 16384,
     maxRunCostUsd: 1,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
   siteThinking: {
-    model: REASONING_MODEL,
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 16384,
     maxRunCostUsd: 1,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
   designAnalysis: {
-    model: REASONING_MODEL,
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 8192,
     maxRunCostUsd: 0.4,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
   referenceVision: {
-    model: REASONING_MODEL,
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 900,
     maxRunCostUsd: 0.2,
   },
   architectPlan: {
-    model: "gpt-4o",
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 4096,
     maxRunCostUsd: 0.5,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
   architectBuild: {
-    model: "gpt-4o",
+    provider: "kimi",
+    model: KIMI_MODEL,
     maxCompletionTokens: 8192,
     maxRunCostUsd: 0.75,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
+  selfReview: {
+    provider: "kimi",
+    model: KIMI_MODEL,
+    maxCompletionTokens: 4096,
+    maxRunCostUsd: 0.25,
+    // The review is advisory-only and rides on a build that already paid for
+    // its mutations, so it gets a deliberately small ceiling: when the money
+    // is gone the review is skipped and says so, never the other way around.
+  },
+
+  // ── Lightweight conversational roles → OpenAI ─────────────────────────
+
   designInterview: {
-    model: REASONING_MODEL,
+    provider: "openai",
+    model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 4096,
     maxRunCostUsd: 0.4,
   },
   brandGuide: {
-    model: REASONING_MODEL,
+    provider: "openai",
+    model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 2048,
     maxRunCostUsd: 0.3,
   },
   // One onboarding conversation is one run, however many turns it takes.
+  // Out of scope for Kimi migration — remains on OpenAI.
   onboarding: {
-    model: REASONING_MODEL,
+    provider: "openai",
+    model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 2048,
     maxRunCostUsd: 1,
   },
-  // The review is advisory-only and rides on a build that already paid for
-  // its mutations, so it gets a deliberately small ceiling: when the money
-  // is gone the review is skipped and says so, never the other way around.
-  selfReview: {
-    model: REASONING_MODEL,
-    maxCompletionTokens: 4096,
-    maxRunCostUsd: 0.25,
-  },
+
+  // ── Image generation → OpenAI only ───────────────────────────────────
+
   image: {
+    provider: "openai",
     model: "gpt-image-1",
     maxCompletionTokens: 0,
     maxRunCostUsd: 0.6,
@@ -161,8 +242,12 @@ export function aiConfig(role: AiRole): AiRoleConfig {
 
 /**
  * The request fields a chat completion needs for this role, ready to spread.
- * Keeps `reasoning_effort` out of the payload entirely when the role does not
- * set one, rather than sending an explicit default the provider may not know.
+ *
+ * Provider-aware:
+ * - reasoning_effort is only sent to OpenAI, which supports the parameter.
+ *   Kimi K3 controls reasoning intensity through its own model variants and
+ *   does not accept this field on the OpenAI-compatible endpoint.
+ * - max_completion_tokens is sent to both providers.
  */
 export function chatParamsFor(role: AiRole): {
   model: string;
@@ -173,6 +258,9 @@ export function chatParamsFor(role: AiRole): {
   return {
     model: config.model,
     max_completion_tokens: config.maxCompletionTokens,
-    ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
+    // Only emit reasoning_effort for OpenAI providers — Kimi does not accept it.
+    ...(config.reasoningEffort && config.provider === "openai"
+      ? { reasoning_effort: config.reasoningEffort }
+      : {}),
   };
 }

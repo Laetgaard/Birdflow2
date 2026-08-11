@@ -20,6 +20,16 @@ vi.mock("../server/openaiClient", () => ({
   }),
 }));
 
+// Kimi K3 is the backing provider for builder-agent roles (assistant, planning,
+// buildStep, etc.). The test seam must cover both clients so mocked runs
+// that use those roles are intercepted rather than hitting the real API.
+vi.mock("../server/kimiClient", () => ({
+  getKimi: () => ({
+    chat: { completions: { create: (...a: any[]) => chatCreate(...a) } },
+  }),
+  resetKimiClientForTests: () => {},
+}));
+
 // A single harmless read tool, so the loop can take a turn without touching
 // the real catalogue (or the real site).
 vi.mock("../server/aiAgentTools", async () => {

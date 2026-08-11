@@ -25,6 +25,16 @@ vi.mock("../server/openaiClient", () => ({
   }),
 }));
 
+// Kimi K3 is the backing provider for builder-agent roles (buildStep, planning,
+// assistant, etc.). Both clients must share the same mock so spend-ceiling
+// tests work regardless of which provider the role uses.
+vi.mock("../server/kimiClient", () => ({
+  getKimi: () => ({
+    chat: { completions: { create: (...a: any[]) => chatCreate(...a) } },
+  }),
+  resetKimiClientForTests: () => {},
+}));
+
 vi.mock("../server/planStore", () => ({
   updateBuildProgress: (...a: any[]) => updateBuildProgress(...a),
   readBuildStatus: async () => "running" as const,
@@ -71,10 +81,11 @@ function expensiveRead(usd: number) {
         },
       },
     ],
-    // The cost is carried by INPUT tokens (gpt-5.1: $1.25 per million), so
+    // The cost is carried by INPUT tokens (kimi-k3: $1.00 per million), so
     // the turn is expensive without also tripping the separate token budget
-    // that counts generated tokens.
-    usage: { prompt_tokens: Math.round((usd / 1.25) * 1_000_000), completion_tokens: 100 },
+    // that counts generated tokens. Builder roles (buildStep, planning) now use
+    // Kimi K3 ($1.00/M); keep this divisor in sync with PROVIDER_PRICES.kimi.
+    usage: { prompt_tokens: Math.round((usd / 1.00) * 1_000_000), completion_tokens: 100 },
   };
 }
 

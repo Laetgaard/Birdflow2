@@ -336,7 +336,7 @@ describe("agent loop invariants (source tripwires)", () => {
   const tools = readFileSync(join(__dirname, "..", "server", "aiAgentTools.ts"), "utf8");
 
   it("is a real tool-calling loop with a step cap", () => {
-    expect(agent).toContain("tools: openAITools");
+    expect(agent).toContain("tools: toolDefinitions");
     // Tool choice is free every turn except a forced final call, which is
     // what stops a run from ending having produced nothing.
     expect(agent).toContain('            : "auto",');

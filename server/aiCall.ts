@@ -11,11 +11,22 @@
  * A meter passed in is shared with the rest of that run (a build, an
  * onboarding conversation). A call that passes none gets a meter of its own,
  * which is the honest reading of a one-shot endpoint: one call is the run.
+ *
+ * Provider routing lives here, not at the call site. Whether a role uses
+ * Kimi K3 or OpenAI is a configuration decision in aiConfig — callers just
+ * pass a role name and the right client is selected automatically. Image
+ * generation always stays on OpenAI regardless of role configuration.
+ *
+ * Fallback: when a primary provider fails at the network/auth boundary —
+ * before any output is produced — and the role has a fallback configured,
+ * meteredChat retries once with that fallback. Spend limits are never
+ * retried: they are intentional stops, not transient errors.
  */
 
 import type OpenAI from "openai";
 import { getOpenAI } from "./openaiClient";
-import { aiConfig, chatParamsFor, type AiRole } from "./aiConfig";
+import { getKimi } from "./kimiClient";
+import { aiConfig, chatParamsFor, type AiRole, type AiProvider } from "./aiConfig";
 import { createSpendMeter, worstCaseCallCostUsd, type SpendMeter } from "./aiSpend";
 
 /** Thrown instead of making a call the run can no longer afford. */
@@ -42,6 +53,14 @@ export function isSpendLimitError(err: unknown): err is SpendLimitError {
  * assume it was free.
  */
 export const IMAGE_PRICE_USD = 0.04;
+
+/**
+ * Return the right AI client for a provider. Images always use OpenAI;
+ * for chat completions, the provider comes from the role's configuration.
+ */
+function clientFor(provider: AiProvider): ReturnType<typeof getOpenAI> {
+  return provider === "kimi" ? getKimi() : getOpenAI();
+}
 
 /**
  * Charge for a call the run can pay for — BEFORE making it — or refuse.
@@ -74,6 +93,11 @@ function reserveOrRefuse(role: AiRole, meter: SpendMeter, upcomingUsd: number): 
  * Callers pass only what makes their call different — messages, tools,
  * response_format. Anything they do pass wins, so a call with a genuine
  * reason to differ still can, visibly.
+ *
+ * Provider routing is automatic: the role's configuration in aiConfig
+ * determines whether Kimi K3 or OpenAI handles the completion. If the primary
+ * provider fails (network or auth error, not a spend limit) and the role has
+ * a fallback configured, the call is retried once with the fallback.
  */
 export async function meteredChat(
   role: AiRole,
@@ -81,19 +105,70 @@ export async function meteredChat(
     Partial<Pick<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming, "model">>,
   meter: SpendMeter = createSpendMeter(role)
 ): Promise<OpenAI.Chat.ChatCompletion> {
+  const config = aiConfig(role);
   const request = { ...chatParamsFor(role), ...params };
   const reserved = worstCaseCallCostUsd(request.model, request.max_completion_tokens ?? 0);
   reserveOrRefuse(role, meter, reserved);
 
   let completion: OpenAI.Chat.ChatCompletion;
   try {
-    completion = await getOpenAI().chat.completions.create({
+    completion = await clientFor(config.provider).chat.completions.create({
       ...request,
       stream: false,
     } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
   } catch (err) {
+    // Spend limits are intentional stops — never retry them.
+    if (
+      err instanceof SpendLimitError ||
+      !config.fallbackProvider ||
+      !config.fallbackModel
+    ) {
+      meter.release(reserved);
+      throw err;
+    }
+
+    // Primary provider failed at the network/auth boundary. Before trying the
+    // fallback, release the primary reservation and verify that the fallback's
+    // own worst case fits the remaining budget. Without this check, a fallback
+    // call (which may use a different, potentially more expensive model) could
+    // push the run past its ceiling just as reliably as the primary would have.
+    console.warn(
+      `[AI] ${role}: ${config.provider}/${request.model} failed, ` +
+        `trying fallback ${config.fallbackProvider}/${config.fallbackModel}`,
+      err instanceof Error ? err.message : String(err)
+    );
+
     meter.release(reserved);
-    throw err;
+
+    const fallbackWorstCase = worstCaseCallCostUsd(
+      config.fallbackModel,
+      request.max_completion_tokens ?? 0
+    );
+    if (!meter.reserve(fallbackWorstCase)) {
+      // The run cannot afford the fallback's worst case — honour the ceiling.
+      // Throw the original provider error rather than a misleading spend error
+      // so the call site knows the root cause.
+      throw err;
+    }
+
+    let fallbackCompletion: OpenAI.Chat.ChatCompletion;
+    try {
+      const fallbackRequest = { ...request, model: config.fallbackModel };
+      fallbackCompletion = await clientFor(config.fallbackProvider).chat.completions.create({
+        ...fallbackRequest,
+        stream: false,
+      } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+    } catch (fallbackErr) {
+      // Both providers failed. Give back the fallback reservation so the meter
+      // stays accurate and re-throw the fallback error (it is the freshest signal).
+      meter.release(fallbackWorstCase);
+      throw fallbackErr;
+    }
+
+    // Fallback succeeded. Swap reservation for the actual cost.
+    meter.release(fallbackWorstCase);
+    meter.record(config.fallbackModel, fallbackCompletion.usage);
+    return fallbackCompletion;
   }
 
   // The worst case has been held all along; now swap it for the real cost.

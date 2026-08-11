@@ -20,6 +20,7 @@
 - [Customer website language](customer-site-language.md) — language lives on the websites row; publisher `${'${jsx()}'}` double-escape ships code as text; email defaults are seeded in the DB too.
 - [Design tokens](design-tokens.md) — publisher resolves at generation time (resolve before sanitising), sanitiser must allow whole-value refs, migrate fonts via the approved-font resolver, enforce at the mutation choke point.
 - [Builder CAS writes](builder-cas-writes.md) — guarded saves pass the read revision, never retry; every save response must return its new revision and clients must adopt it, or autosave 409s.
+- [Kimi K3 provider routing](kimi-provider-routing.md) — provider field on AiRoleConfig, client selection in aiCall, $1.00/M pricing estimate, test seam (mock both clients), repeat-call detection, AgentRunMeta.
 - [Preview vs published parity](renderer-parity.md) — render both sides from registry defaults; escape generated literals (comments too) and compile output; runtime checks are three-valued (unavailable ≠ failed).
 - [Async publish pipeline](async-publish-pipeline.md) — 202+jobId flow; BIRDFLOW_PUBLIC_PLATFORM_URL required (no REPLIT_DEPLOYMENT); alias retry; never store hashed URL; worker pattern.
 - [Builder motion system](builder-motion.md) — motion specs are data, resolvers stay stringifiable, done-phase = {} so hover wins, stagger is box-only, reduced-motion needs the baked CSS unhide rule.

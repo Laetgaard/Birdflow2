@@ -6,36 +6,85 @@
  * ones, and nothing measured the difference. This adds the missing half — a
  * money ceiling for one customer-visible run, checked between model calls.
  *
- * Prices are estimates kept deliberately in one small table. They do not
- * need to be exact to do their job: the meter exists to stop a runaway loop,
- * so being in the right order of magnitude is what matters. An unknown model
- * falls back to the most expensive entry rather than to zero — a pricing gap
- * must never read as "free".
+ * Prices are estimates kept deliberately in one maintainable table, keyed
+ * by provider and then by model. An unknown model does NOT fall back to zero
+ * — that would make an unmetered provider look free forever. A model not in
+ * the table uses FALLBACK_PRICE and logs a warning so the gap is visible.
+ *
+ * Kimi K3 pricing (estimates — verify against https://platform.moonshot.cn/pricing):
+ *   Input:  $1.00 / 1M tokens
+ *   Output: $3.00 / 1M tokens
+ * These are deliberately conservative estimates so the spend ceiling errs on
+ * the safe side. Update when official pricing is published.
  */
 
 import { aiConfig, type AiRole } from "./aiConfig";
 
-/** USD per 1M tokens. */
-type ModelPrice = { input: number; output: number };
+/** USD per 1M tokens. cachedInput applies when the provider discounts cached prompt tokens. */
+type ModelPrice = { input: number; cachedInput?: number; output: number };
 
-const PRICES: Record<string, ModelPrice> = {
-  "gpt-5.1": { input: 1.25, output: 10 },
-  "gpt-4o": { input: 2.5, output: 10 },
-  "gpt-4o-mini": { input: 0.15, output: 0.6 },
+/**
+ * Canonical price table: provider → model → pricing.
+ * Kept nested so adding a new provider does not pollute the top-level keys.
+ */
+const PROVIDER_PRICES: Record<string, Record<string, ModelPrice>> = {
+  openai: {
+    "gpt-5.1": { input: 1.25, output: 10 },
+    "gpt-4o": { input: 2.5, output: 10 },
+    "gpt-4o-mini": { input: 0.15, output: 0.6 },
+    // gpt-image-1 is charged flat per image via IMAGE_PRICE_USD in aiCall.ts
+  },
+  kimi: {
+    // Kimi K3 — estimates, update when Moonshot publishes official pricing.
+    "kimi-k3": { input: 1.0, output: 3.0 },
+  },
 };
 
+/**
+ * Flat lookup across all providers. Used when the call site only has a model
+ * name (e.g. meteredChat records usage from the completion's model field).
+ */
+function lookupPrice(model: string): ModelPrice | null {
+  for (const providerModels of Object.values(PROVIDER_PRICES)) {
+    if (model in providerModels) return providerModels[model];
+  }
+  return null;
+}
+
+/**
+ * When a model is genuinely unknown, charge the most expensive entry rather
+ * than zero — a pricing gap must never read as "free".
+ */
 const FALLBACK_PRICE: ModelPrice = { input: 5, output: 20 };
 
 export type TokenUsage = {
   prompt_tokens?: number | null;
   completion_tokens?: number | null;
+  /** Cached prompt tokens, when the provider discounts them. */
+  prompt_tokens_details?: { cached_tokens?: number | null } | null;
 };
 
 export function estimateCostUsd(model: string, usage: TokenUsage | null | undefined): number {
-  const price = PRICES[model] ?? FALLBACK_PRICE;
+  const price = lookupPrice(model);
+  if (!price) {
+    // Unknown model: log a warning so pricing gaps surface quickly, then use
+    // the conservative fallback instead of returning zero.
+    console.warn(
+      `[aiSpend] No pricing found for model "${model}". Using fallback price. ` +
+        "Add it to PROVIDER_PRICES in server/aiSpend.ts."
+    );
+  }
+  const p = price ?? FALLBACK_PRICE;
   const input = usage?.prompt_tokens ?? 0;
   const output = usage?.completion_tokens ?? 0;
-  return (input * price.input + output * price.output) / 1_000_000;
+  const cached = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  // Cached tokens are charged at the cachedInput rate when available;
+  // uncached prompt tokens are charged at the full input rate.
+  const uncachedInput = Math.max(0, input - cached);
+  const cachedCost = cached * (p.cachedInput ?? p.input) / 1_000_000;
+  const uncachedCost = uncachedInput * p.input / 1_000_000;
+  const outputCost = output * p.output / 1_000_000;
+  return cachedCost + uncachedCost + outputCost;
 }
 
 /**

@@ -32,7 +32,7 @@ import {
    ───────────────────────────────────────────────────────────── */
 
 import { meteredChat, SpendLimitError } from "./aiCall";
-import { type AiRole } from "./aiConfig";
+import { type AiRole, type AiProvider, aiConfig } from "./aiConfig";
 import { createSpendMeter, type SpendMeter } from "./aiSpend";
 import { parsePartialJson } from "./partialJson";
 import {
@@ -196,7 +196,39 @@ export type AgentStopReason =
   | "turn_limit"
   | "token_budget"
   | "spend_limit"
-  | "truncated";
+  | "truncated"
+  /** Same tool with identical args called more times than maxRepeatedToolCalls allows. */
+  | "repeated_calls"
+  /** Accumulated tool errors exceeded maxToolErrors. */
+  | "excessive_errors"
+  /** Primary + fallback provider both returned a non-spend error. */
+  | "provider_error";
+
+/**
+ * Observability counters for one agent loop run. Available on the "finished"
+ * result so callers can log cost breakdowns without re-parsing usage fields.
+ */
+export type AgentRunMeta = {
+  role: AiRole;
+  provider: AiProvider;
+  model: string;
+  /** Sum of prompt_tokens across all steps. */
+  promptTokens: number;
+  /** Sum of completion_tokens across all steps. */
+  outputTokens: number;
+  /** Sum of cached prompt tokens (when the provider discounts them). */
+  cachedTokens: number;
+  /** Total tool calls made across all steps. */
+  toolCallCount: number;
+  /** Tool calls that returned ok:false. */
+  toolErrorCount: number;
+  /** Primary-provider errors that triggered a fallback attempt. */
+  providerErrorCount: number;
+  steps: number;
+  stopReason: AgentStopReason;
+  /** What the run cost, in USD, as tracked by its spend meter. */
+  estimatedSpendUsd: number;
+};
 
 export type AgentLoopResult =
   | {
@@ -206,9 +238,11 @@ export type AgentLoopResult =
       stopReason: AgentStopReason;
       /** True when at least one model answer was cut off mid-write. */
       truncated: boolean;
+      /** Observability counters for the run. */
+      runMeta: AgentRunMeta;
     }
   | { status: "needs_approval"; reason: string; steps: number }
-  | { status: "failed"; message: string; steps: number; truncated?: boolean };
+  | { status: "failed"; message: string; steps: number; truncated?: boolean; stopReason?: AgentStopReason };
 
 /**
  * The tool-calling loop itself, with nothing decided for you.
@@ -241,15 +275,44 @@ export async function runAgentLoop(args: {
    * having produced nothing.
    */
   finalTurn?: { toolName: string; reminder: string; satisfied: () => boolean };
+  /**
+   * How many times the same tool may be called with identical arguments
+   * before the loop returns structured feedback to the model and, if
+   * ALL calls in a turn are still repeats, eventually stops. Default: 3.
+   */
+  maxRepeatedToolCalls?: number;
+  /**
+   * How many tool errors (ok:false results) may accumulate across the run
+   * before the loop stops. Default: 5. Prevents a broken tool from burning
+   * the whole budget on calls that can never succeed.
+   */
+  maxToolErrors?: number;
 }): Promise<AgentLoopResult> {
   const { tools, ctx } = args;
   const emit = args.emit ?? (() => {});
   const maxSteps = args.maxSteps ?? MAX_STEPS;
   const role: AiRole = args.role ?? "assistant";
   const meter = args.spendMeter ?? createSpendMeter(role);
+  const maxRepeatedCalls = args.maxRepeatedToolCalls ?? 3;
+  const maxErrors = args.maxToolErrors ?? 5;
 
   const toolsByName = new Map(tools.map((t) => [t.name, t]));
-  const openAITools = toOpenAITools(tools);
+  const toolDefinitions = toOpenAITools(tools);
+
+  // Observability counters — accumulated across all steps.
+  let totalPromptTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCachedTokens = 0;
+  let totalToolCallCount = 0;
+  let toolErrorCount = 0;
+  let providerErrorCount = 0;
+
+  // Repeated-call detection: key = "toolName:argsJSON", value = call count.
+  // A model that reads the same unchanged resource repeatedly is looping;
+  // we return structured feedback and, after two consecutive all-repeat
+  // turns, stop rather than burning the rest of the budget.
+  const callFrequency = new Map<string, number>();
+  let consecutiveRepeatOnlyTurns = 0;
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: args.systemPrompt },
@@ -295,7 +358,7 @@ export async function runAgentLoop(args: {
         role,
         {
           messages,
-          tools: openAITools,
+          tools: toolDefinitions,
           tool_choice:
             forceFinal && args.finalTurn
               ? { type: "function", function: { name: args.finalTurn.toolName } }
@@ -318,15 +381,28 @@ export async function runAgentLoop(args: {
           steps,
           stopReason: "spend_limit",
           truncated,
+          runMeta: buildRunMeta(role, meter, {
+            promptTokens: totalPromptTokens, outputTokens: totalOutputTokens,
+            cachedTokens: totalCachedTokens, toolCallCount: totalToolCallCount,
+            toolErrorCount, providerErrorCount, steps, stopReason: "spend_limit",
+          }),
         };
       }
+      // Provider-level error (network, auth, etc.). The fallback in meteredChat
+      // already tried once if one was configured; we arrive here when it also
+      // failed or was not configured.
+      providerErrorCount++;
       const message = `AI-tjenesten svarede ikke: ${err?.message ?? err}`;
       emit({ type: "error", message });
-      return { status: "failed", message, steps, truncated };
+      return { status: "failed", message, steps, truncated, stopReason: "provider_error" };
     }
 
     // meteredChat has already charged this call to the run's meter.
     totalCompletionTokens += completion.usage?.completion_tokens ?? 0;
+    totalPromptTokens += completion.usage?.prompt_tokens ?? 0;
+    totalOutputTokens += completion.usage?.completion_tokens ?? 0;
+    totalCachedTokens +=
+      (completion.usage as any)?.prompt_tokens_details?.cached_tokens ?? 0;
     const withinSpend = !meter.exceeded();
     const choice = completion.choices[0];
     const message = choice?.message;
@@ -355,14 +431,40 @@ export async function runAgentLoop(args: {
     }
 
     let stop = false;
+    let turnHadNonRepeatCall = false;
+    totalToolCallCount += toolCalls.length;
+
     for (const call of toolCalls) {
       if (call.type !== "function") continue;
       const tool = toolsByName.get(call.function.name);
 
+      // ── Repeated-call detection ───────────────────────────────────────
+      // Key on tool name + raw args so the same action on different targets
+      // is not conflated. Unknown tools take the same path as repeat-blocks
+      // (they cannot make progress, and counting them does not help).
+      const rawArgsForKey = call.function.arguments?.trim() ?? "{}";
+      const callKey = `${call.function.name}:${rawArgsForKey}`;
+      const callCount = (callFrequency.get(callKey) ?? 0) + 1;
+      callFrequency.set(callKey, callCount);
+
       let result: ToolResult;
       if (!tool) {
         result = { ok: false, error: `Ukendt værktøj "${call.function.name}"` };
+      } else if (callCount > maxRepeatedCalls) {
+        // Soft-block: return structured feedback instead of running the tool
+        // again. This gives the model a chance to choose a different action
+        // without burning budget on a call that cannot change the outcome.
+        result = {
+          ok: false,
+          error:
+            `Du har allerede kaldt "${call.function.name}" med de samme parametre ` +
+            `${callCount} gange og situationen er uændret. ` +
+            `Brug det eksisterende resultat eller vælg en anden handling.`,
+        };
       } else {
+        // This is a real call — it counts toward the non-repeat tally.
+        turnHadNonRepeatCall = true;
+
         // A cut-off call arrives as valid JSON with the end missing. Recover
         // the part that did arrive rather than discarding the whole turn; the
         // tool decides what is usable, and `truncated` makes the loss visible.
@@ -401,6 +503,8 @@ export async function runAgentLoop(args: {
         } else {
           result = { ok: false, error: "Argumenterne var ikke gyldig JSON." };
         }
+
+        if (!result.ok) toolErrorCount++;
       }
 
       emit({
@@ -430,6 +534,31 @@ export async function runAgentLoop(args: {
     }
 
     if (stop) break;
+
+    // ── Post-turn runaway checks ──────────────────────────────────────────
+
+    // If every call in this turn was repeat-blocked, increment the counter;
+    // two consecutive all-repeat turns mean the model is looping and will
+    // not recover on its own.
+    if (toolCalls.length > 0 && !turnHadNonRepeatCall) {
+      consecutiveRepeatOnlyTurns++;
+      if (consecutiveRepeatOnlyTurns >= 2) {
+        ctx.notes.push("Agenten gentog de samme handlinger og stoppede.");
+        finalSummary = "Stoppede: gentagne kald uden fremskridt.";
+        stopReason = "repeated_calls";
+        break;
+      }
+    } else {
+      consecutiveRepeatOnlyTurns = 0;
+    }
+
+    // Tool error ceiling — stop before a broken tool eats the whole budget.
+    if (toolErrorCount >= maxErrors) {
+      ctx.notes.push(`Agenten nåede fejlgrænsen på ${maxErrors} fejl og stoppede.`);
+      finalSummary = "Stoppede: for mange fejl.";
+      stopReason = "excessive_errors";
+      break;
+    }
 
     // The forced final call has happened; there are no turns left to use.
     // It delivered, so this is not the "ran out of turns" ending — say so,
@@ -461,7 +590,55 @@ export async function runAgentLoop(args: {
     if (stopReason === "finished") stopReason = "turn_limit";
   }
 
-  return { status: "finished", summary: finalSummary, steps, stopReason, truncated };
+  return {
+    status: "finished",
+    summary: finalSummary,
+    steps,
+    stopReason,
+    truncated,
+    runMeta: buildRunMeta(role, meter, {
+      promptTokens: totalPromptTokens,
+      outputTokens: totalOutputTokens,
+      cachedTokens: totalCachedTokens,
+      toolCallCount: totalToolCallCount,
+      toolErrorCount,
+      providerErrorCount,
+      steps,
+      stopReason,
+    }),
+  };
+}
+
+/** Builds the observability summary returned with every finished run. */
+function buildRunMeta(
+  role: AiRole,
+  meter: SpendMeter,
+  counts: {
+    promptTokens: number;
+    outputTokens: number;
+    cachedTokens: number;
+    toolCallCount: number;
+    toolErrorCount: number;
+    providerErrorCount: number;
+    steps: number;
+    stopReason: AgentStopReason;
+  }
+): AgentRunMeta {
+  const cfg = aiConfig(role);
+  return {
+    role,
+    provider: cfg.provider,
+    model: cfg.model,
+    promptTokens: counts.promptTokens,
+    outputTokens: counts.outputTokens,
+    cachedTokens: counts.cachedTokens,
+    toolCallCount: counts.toolCallCount,
+    toolErrorCount: counts.toolErrorCount,
+    providerErrorCount: counts.providerErrorCount,
+    steps: counts.steps,
+    stopReason: counts.stopReason,
+    estimatedSpendUsd: meter.spentUsd,
+  };
 }
 
 /**
