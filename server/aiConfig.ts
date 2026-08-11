@@ -70,6 +70,8 @@ export const AI_ROLES = [
   "onboarding",
   /** Level B of the self-review: recommendations, never mutations. */
   "selfReview",
+  /** Visual review: screenshot → Kimi K3 vision → structured VisualIssue[]. */
+  "visualReview",
   /** Image generation. */
   "image",
 ] as const;
@@ -224,6 +226,19 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
     model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 2048,
     maxRunCostUsd: 1,
+  },
+
+  // ── Visual design review → Kimi K3 (vision support required) ─────────
+
+  visualReview: {
+    provider: "kimi",
+    model: KIMI_MODEL,
+    // Each review sends 1–3 high-res screenshots. 2048 tokens gives enough
+    // room for structured issue output without burning the run's whole budget.
+    maxCompletionTokens: 2048,
+    // Per-call ceiling. The run's shared meter still caps the whole loop;
+    // this just prevents one runaway review call from dominating.
+    maxRunCostUsd: 0.5,
   },
 
   // ── Image generation → OpenAI only ───────────────────────────────────

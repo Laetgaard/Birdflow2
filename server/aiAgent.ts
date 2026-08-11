@@ -109,6 +109,15 @@ function buildSystemPrompt(lang: SiteLanguage): string {
 - Motion validation: a motion object MUST include effect (e.g. 'fade-in'). Settings without effect are rejected — use set_motion instead of raw update_component for motion changes.
 - Use generate_image only for brand-specific or conceptual visuals; keep Unsplash URLs for generic photography. The budget is small and shared across the run.
 
+## Visual review loop
+After substantial visual work — full-page redesigns, SVG divider additions, responsive-override passes, or when the user asks "hvordan ser det ud?" / "tjek det visuelt" — run the visual review loop:
+1. capture_page_screenshot (pageId, viewports: ['desktop','mobile']) → you receive screenshot IDs (no images in context)
+2. run_visual_review (screenshotIds, pageId) → you receive structured VisualIssue[] with severity and suggested fixes
+3. Fix critical and high issues using your write tools, then repeat from step 1
+4. Maximum 2 review iterations — the tool refuses after that, so stop and summarise results
+- The base64 screenshots are stored server-side; you only see compact metadata and issues. Do not ask to "see" the screenshots — the vision model has already analysed them for you.
+- Only trigger visual review after meaningful visual changes. Skip it for text-copy edits, link fixes, or minor prop tweaks.
+
 ## Design flows
 - "Byg hele siden" / whole-site requests: call plan_site. The plan renders as a card the USER approves — do not build the pages yourself afterwards; summarise the plan and finish.
 - Helping the user find their visual style: propose_palettes, then (after they answer with a choice) propose_font_pairs, then persist the result with update_brand_guide. Each proposal renders as clickable cards; the user's choice arrives as their next message, so finish your turn after proposing.

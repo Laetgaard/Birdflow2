@@ -27,3 +27,4 @@
 - [Invented-claims gate](invented-claims-gate.md) — mutations judge against facts+site copy, whole-state scrubs against facts only; forbidden ≠ evidence; scrub again after registry defaults.
 - [Marketing SEO head injection](marketing-seo-head-injection.md) — initial-response metadata on both servers; `index:false` doesn't stop GET /index.html; managed-tag list for SPA head sync; SSR tests need reactEscape.
 - [Generated page type safety](generated-page-type-safety.md) — never import types from @ts-nocheck renderer in page files (isolatedModules breaks it); use a local loose PageComponentData type instead.
+- [Visual review loop](visual-review-loop.md) — screenshot→Kimi vision→VisualIssue[]; screenshots stored in AgentContext.screenshotCache by UUID, never in tool text; iteration cap via visualReviewCount; Chromium path detection required.

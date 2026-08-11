@@ -94,6 +94,19 @@ export type AgentContext = {
    * A guard may repair the mutation in place and report what it changed.
    */
   guard?: MutationGuard;
+  /**
+   * Run-scoped screenshot cache for the visual review loop. Keyed by UUID.
+   * Tools store VisualScreenshot records here; only compact IDs travel in
+   * tool results — the raw base64 never enters the agent's context window.
+   * Initialised lazily on first capture_page_screenshot call.
+   */
+  screenshotCache?: Map<string, import("./visualReview").VisualScreenshot>;
+  /**
+   * How many visual reviews have run in this agent session. The
+   * run_visual_review tool refuses further calls once this reaches
+   * MAX_VISUAL_ITERATIONS (imported from visualReview.ts).
+   */
+  visualReviewCount?: number;
 };
 
 export type GuardVerdict =
@@ -1197,6 +1210,195 @@ export function buildToolCatalogue(): AgentTool[] {
       } catch (err: any) {
         return { ok: false, error: `Billedanalysen fejlede: ${err?.message ?? err}` };
       }
+    },
+  });
+
+  // ---- visual review ----
+
+  tools.push({
+    name: "capture_page_screenshot",
+    description:
+      "Render a builder page to a standalone HTML document (same publisher renderer as the live site) " +
+      "and capture JPEG screenshots at desktop (1440px), tablet (834px), and/or mobile (390px). " +
+      "Returns compact screenshot IDs — NOT raw images — to keep the context window small. " +
+      "Pass the IDs to run_visual_review to get structured design feedback. " +
+      "Use after substantial visual changes: full-page redesigns, new SVG dividers, responsive-override additions.",
+    parameters: z.object({
+      pageId: z.string().describe("ID of the page to screenshot"),
+      viewports: z
+        .array(z.enum(["desktop", "tablet", "mobile"]))
+        .min(1)
+        .max(3)
+        .default(["desktop", "mobile"])
+        .describe("Which viewport sizes to capture"),
+      fullPage: z
+        .boolean()
+        .default(true)
+        .describe("Capture the full page height (true) or only the visible viewport (false)"),
+    }),
+    mutates: false,
+    run: async ({ pageId, viewports, fullPage }, ctx) => {
+      // Lazy-initialise the screenshot cache on this context.
+      if (!ctx.screenshotCache) {
+        ctx.screenshotCache = new Map();
+      }
+
+      const { capturePageScreenshots } = await import("./visualReview");
+      const state = ctx.state;
+
+      const page = state.pages.find((p: { id: string }) => p.id === pageId);
+      if (!page) {
+        return { ok: false, error: `Siden med id "${pageId}" findes ikke.` };
+      }
+
+      const { refs, warnings } = await capturePageScreenshots(
+        state,
+        pageId,
+        viewports as Array<"desktop" | "tablet" | "mobile">,
+        ctx.screenshotCache,
+        { fullPage }
+      );
+
+      if (refs.length === 0) {
+        return {
+          ok: false,
+          error: "Ingen screenshots blev fanget.",
+          data: { warnings },
+        };
+      }
+
+      return {
+        ok: true,
+        summary: `Fanget ${refs.length} screenshot(s) af "${page.name}"`,
+        data: {
+          screenshots: refs.map((r) => ({
+            id: r.id,
+            viewport: r.viewport,
+            width: r.width,
+            height: r.height,
+          })),
+          screenshotIds: refs.map((r) => r.id),
+          pageId,
+          pageName: page.name,
+          warnings: warnings.length > 0 ? warnings : undefined,
+        },
+      };
+    },
+  });
+
+  tools.push({
+    name: "run_visual_review",
+    description:
+      "Send previously captured screenshots to Kimi K3 for visual design analysis. " +
+      "Returns up to 8 structured design issues (severity: critical/high/medium/low) with " +
+      "the affected component ID, category, description, and a suggested fix. " +
+      "When previousReviewIssues is provided, also reports which issues were resolved or regressed. " +
+      `Maximum ${2} review passes per agent run — the tool refuses after that.`,
+    parameters: z.object({
+      screenshotIds: z
+        .array(z.string().uuid())
+        .min(1)
+        .max(3)
+        .describe("IDs returned by capture_page_screenshot"),
+      pageId: z.string().describe("Page that was screenshotted"),
+      previousReviewIssues: z
+        .array(
+          z.object({
+            id: z.string(),
+            category: z.string(),
+            viewport: z.string(),
+            severity: z.string(),
+            componentId: z.string().optional(),
+            description: z.string(),
+          })
+        )
+        .optional()
+        .describe("Issues from a prior run_visual_review, used to track resolved/regressed findings"),
+    }),
+    mutates: false,
+    run: async ({ screenshotIds, pageId, previousReviewIssues }, ctx) => {
+      const { MAX_VISUAL_ITERATIONS, analyzeScreenshots, resolveIssues } = await import(
+        "./visualReview"
+      );
+
+      // Enforce iteration limit.
+      const count = ctx.visualReviewCount ?? 0;
+      if (count >= MAX_VISUAL_ITERATIONS) {
+        return {
+          ok: false,
+          error: `Maks ${MAX_VISUAL_ITERATIONS} visuelle gennemgange nået for denne kørsel. Stop og opsummer resultater.`,
+        };
+      }
+
+      if (!ctx.screenshotCache || ctx.screenshotCache.size === 0) {
+        return {
+          ok: false,
+          error: "Ingen screenshots i cachen. Kald capture_page_screenshot først.",
+        };
+      }
+
+      // Validate that the requested IDs are in the cache.
+      const missing = screenshotIds.filter((id: string) => !ctx.screenshotCache!.has(id));
+      if (missing.length > 0) {
+        return {
+          ok: false,
+          error: `Ukendte screenshot-id'er: ${missing.join(", ")}. Kald capture_page_screenshot igen.`,
+        };
+      }
+
+      const state = ctx.state;
+      ctx.visualReviewCount = count + 1;
+
+      const { issues, ran, skippedReason } = await analyzeScreenshots(
+        screenshotIds,
+        ctx.screenshotCache,
+        state,
+        pageId,
+        ctx.spendMeter
+      );
+
+      if (!ran) {
+        return {
+          ok: false,
+          error: skippedReason ?? "Visuel gennemgang fejlede.",
+          data: { iterationsUsed: ctx.visualReviewCount, iterationsRemaining: MAX_VISUAL_ITERATIONS - ctx.visualReviewCount },
+        };
+      }
+
+      // If a prior review was supplied, compare issue-for-issue.
+      let resolutions: ReturnType<typeof resolveIssues> | undefined;
+      if (previousReviewIssues && previousReviewIssues.length > 0) {
+        resolutions = resolveIssues(
+          previousReviewIssues as Parameters<typeof resolveIssues>[0],
+          issues
+        );
+      }
+
+      const critical = issues.filter((i) => i.severity === "critical").length;
+      const high = issues.filter((i) => i.severity === "high").length;
+      const medium = issues.filter((i) => i.severity === "medium").length;
+      const low = issues.filter((i) => i.severity === "low").length;
+
+      return {
+        ok: true,
+        summary: issues.length === 0
+          ? "Ingen synlige designproblemer fundet 🎉"
+          : `Fandt ${issues.length} problem(er): ${critical} kritiske, ${high} høje, ${medium} mellemstore, ${low} lave`,
+        data: {
+          issues,
+          issueCount: issues.length,
+          bySeverity: { critical, high, medium, low },
+          resolutions,
+          iterationsUsed: ctx.visualReviewCount,
+          iterationsRemaining: MAX_VISUAL_ITERATIONS - ctx.visualReviewCount,
+          guidance:
+            issues.length === 0
+              ? "Siden ser god ud. Ingen korrektioner nødvendige."
+              : critical + high > 0
+              ? "Ret de kritiske og høje problemer, kald capture_page_screenshot igen og verificér."
+              : "Overvej at rette de mellemstore problemer, eller afslut hvis designet er acceptabelt.",
+        },
+      };
     },
   });
 
