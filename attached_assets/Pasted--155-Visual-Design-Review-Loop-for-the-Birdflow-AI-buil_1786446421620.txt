@@ -1,0 +1,530 @@
+# #155 — Visual Design Review Loop for the Birdflow AI builder
+
+Build a visual feedback loop that allows Birdflow's AI agent to inspect what it actually created, identify visual/design problems, correct them through existing Birdflow tools, and verify the improved result.
+
+This is not simply a screenshot feature.
+
+The goal is to turn the builder AI from:
+
+“AI that changes website data”
+
+into:
+
+“AI that designs, visually evaluates, improves and verifies the website.”
+
+Kimi K3 should be used for visual analysis if it is already integrated through Task #153.
+
+Do not allow the vision model to bypass Birdflow's existing tool layer or directly mutate the database.
+
+---
+
+# First: audit the existing preview architecture
+
+Before implementing, inspect:
+
+* how builder preview renders websites
+* whether preview already runs inside iframe/browser context
+* how desktop/tablet/mobile preview modes work
+* existing screenshot/browser automation dependencies
+* whether Playwright/Puppeteer or equivalent already exists
+* how page navigation works inside preview
+* how custom components render
+* current AI self-review structure
+* current agent tool loop
+* current Kimi vision/message support
+* whether screenshots can be captured server-side safely
+
+Reuse existing infrastructure instead of introducing another rendering stack unnecessarily.
+
+---
+
+# Target workflow
+
+The final flow should conceptually be:
+
+```text
+User request
+↓
+K3 architect/planner
+↓
+Birdflow tools modify website
+↓
+Render real builder preview
+↓
+Capture screenshots
+   ├ desktop
+   ├ tablet
+   └ mobile
+↓
+K3 visual review
+↓
+Structured design issues
+↓
+Prioritize issues
+↓
+Birdflow tools correct website
+↓
+Re-render
+↓
+Capture screenshots again
+↓
+K3 verifies
+↓
+Complete
+```
+
+The AI must review the real rendered result — not just infer visual quality from component JSON.
+
+---
+
+# 1. Screenshot capture service
+
+Create a controlled internal screenshot capability.
+
+It should capture actual Birdflow-rendered pages at defined viewport sizes.
+
+At minimum support:
+
+* desktop
+* tablet
+* mobile
+
+Use sensible existing Birdflow preview breakpoints if they exist.
+
+Otherwise define centralized viewport presets.
+
+Example only:
+
+```ts
+desktop: 1440x1000
+tablet: 834x1112
+mobile: 390x844
+```
+
+Do not duplicate breakpoint definitions in several files.
+
+The screenshot system should:
+
+* wait for page rendering to settle
+* wait for required fonts where possible
+* wait for images with a bounded timeout
+* avoid screenshotting loading skeletons
+* support full-page capture where useful
+* support viewport capture
+* navigate between site pages
+* clean up browser/page resources
+* never expose authenticated editor controls inside the screenshot if the AI is reviewing the actual website design
+
+Prefer reviewing the same rendering path users see in builder preview.
+
+---
+
+# 2. Add safe AI inspection tools
+
+Introduce tools equivalent to:
+
+```text
+capture_page_screenshot
+capture_site_screenshots
+```
+
+They should be read-only.
+
+Example:
+
+```json
+{
+  "pageId": "home",
+  "viewports": ["desktop", "mobile"],
+  "fullPage": true
+}
+```
+
+Return structured metadata including:
+
+* page
+* viewport
+* screenshot reference
+* dimensions
+* capture status
+* rendering warnings
+
+Do not return giant base64 strings through normal tool text if a safer internal asset/reference mechanism exists.
+
+---
+
+# 3. Visual review schema
+
+Do NOT ask the model for free-form design criticism only.
+
+Create a structured review schema.
+
+Example concept:
+
+```ts
+interface VisualIssue {
+  id: string;
+  pageId: string;
+  viewport: "desktop" | "tablet" | "mobile";
+  severity: "critical" | "high" | "medium" | "low";
+  category:
+    | "layout"
+    | "spacing"
+    | "typography"
+    | "contrast"
+    | "responsive"
+    | "overflow"
+    | "alignment"
+    | "hierarchy"
+    | "imagery"
+    | "motion"
+    | "svg"
+    | "cta"
+    | "consistency";
+  componentId?: string;
+  description: string;
+  suggestedAction: string;
+  confidence: number;
+}
+```
+
+Adapt this to the existing self-review architecture.
+
+The visual reviewer should evaluate at minimum:
+
+* layout balance
+* hierarchy
+* typography
+* text wrapping
+* spacing consistency
+* alignment
+* CTA prominence
+* color contrast
+* image sizing/cropping
+* visual rhythm
+* excessive empty space
+* crowding
+* clipping/overflow
+* SVG divider issues
+* responsive problems
+* inconsistent components
+* obvious motion/layout conflicts
+* overall brand consistency
+
+---
+
+# 4. Connect visual issues to website structure
+
+Screenshots alone do not always tell the model which component ID should change.
+
+Give the review agent enough structured context to connect visible sections to Birdflow components.
+
+For the reviewed page provide a compact representation including relevant:
+
+* component IDs
+* component types
+* order
+* user-visible text
+* styles
+* responsive overrides
+* motion
+* semantic section names
+
+Do NOT dump the entire application's source code into every review request.
+
+Use relevant structured context.
+
+The visual reviewer should return `componentId` where confidently identifiable.
+
+When confidence is low, it may describe the section and let the agent inspect the page through existing read tools.
+
+---
+
+# 5. Separate design review from correction
+
+Do not let the initial vision review immediately perform uncontrolled mutations.
+
+Use:
+
+```text
+Screenshot
+↓
+Visual review
+↓
+Structured issues
+↓
+Correction planner
+↓
+Existing Birdflow tools
+```
+
+This makes the workflow debuggable and allows issue prioritization.
+
+The correction planner should decide:
+
+* which issues are real
+* which can be solved safely
+* which tool to use
+* whether multiple issues share one root cause
+* whether a fix may break another viewport
+
+---
+
+# 6. Review prioritization
+
+Not every minor imperfection should trigger another agent step.
+
+Prioritize:
+
+1. broken layout / clipping / unreadable content
+2. mobile responsiveness
+3. visual hierarchy / CTA problems
+4. alignment / spacing
+5. typography
+6. consistency
+7. polish
+
+Allow low-severity cosmetic observations to remain suggestions instead of causing endless correction loops.
+
+---
+
+# 7. Visual correction loop
+
+Support iterative correction, but prevent infinite “pixel perfection” loops.
+
+Suggested conceptual limits:
+
+```text
+initial build
+→ review #1
+→ correction
+→ review #2
+→ optional correction
+→ final verification
+```
+
+Make iteration limits configurable.
+
+The visual loop should stop when:
+
+* no critical/high issues remain
+* remaining issues are below correction threshold
+* max visual-review iterations reached
+* spend/token budget reached
+* corrections stop producing meaningful improvement
+
+Integrate with the Task #153 budget/runaway protections.
+
+---
+
+# 8. Before/after verification
+
+After corrections, capture new screenshots for the affected viewport(s).
+
+The reviewer should compare the new result against the previous issues.
+
+Each issue can become:
+
+```text
+resolved
+improved
+unchanged
+regressed
+```
+
+Do not assume an executed tool call fixed the visual problem.
+
+A correction only counts as successful after visual verification.
+
+---
+
+# 9. Regression detection
+
+A desktop fix may break mobile.
+
+If a correction touches:
+
+* layout
+* spacing
+* typography
+* image size
+* responsive styles
+* SVG shapes
+
+review at least the relevant affected breakpoints.
+
+The visual verifier should explicitly detect:
+
+“Desktop improved but mobile regressed.”
+
+When this occurs, the agent may perform another targeted correction if within its loop budget.
+
+---
+
+# 10. Visual review modes
+
+Design the architecture to support at least two modes:
+
+## Targeted review
+
+Used after requests like:
+
+“Fix the hero on mobile.”
+
+Only review relevant page/viewports.
+
+## Full design review
+
+Used after:
+
+“Redesign my entire website.”
+
+Review all important pages at relevant viewports.
+
+Do not screenshot every page at every viewport for tiny edits.
+
+The agent should choose the smallest useful review scope to control latency and cost.
+
+---
+
+# 11. Accessibility-aware review
+
+The visual review should flag obvious visual accessibility issues such as:
+
+* insufficient visible contrast
+* text too small on mobile
+* CTA not visually distinguishable
+* overlapping content
+* important text clipped
+* motion that conflicts with reduced-motion rules
+
+Do not pretend screenshot vision alone replaces proper automated accessibility testing.
+
+If Birdflow already has accessibility checks, combine them rather than duplicating them.
+
+---
+
+# 12. Review custom SVG/components
+
+The visual loop must work with custom components and Task #154 SVG shapes.
+
+Specifically detect:
+
+* SVG clipping
+* incorrect wave height
+* divider gaps
+* unexpected whitespace
+* flipped shapes creating bad transitions
+* content hidden behind decorative layers
+* custom component overflow
+* responsive custom-component failures
+
+---
+
+# 13. Publisher confidence
+
+The primary visual loop may use builder preview, but Birdflow ultimately publishes standalone generated websites.
+
+If feasible within the current architecture, add an optional publisher-parity visual smoke test that can render generated output and compare major layout behavior.
+
+Do not turn this task into a full visual-diff CI platform.
+
+At minimum preserve the existing renderer parity guarantees from Task #154.
+
+---
+
+# 14. Observability
+
+For every visual review run record useful debugging metadata such as:
+
+* pages reviewed
+* viewports reviewed
+* screenshots captured
+* issues found
+* issue severities
+* corrections attempted
+* resolved issues
+* regressions
+* number of visual iterations
+* model used
+* spend
+* stop reason
+
+Do not permanently retain customer screenshots longer than necessary unless Birdflow already has an intentional storage policy for them.
+
+---
+
+# 15. AI system instructions
+
+Update Kimi's builder-agent instructions so it knows:
+
+* it should inspect the rendered result after substantial visual changes
+* screenshots are evidence, not just inspiration
+* prioritize real visible problems
+* avoid needless micro-adjustment loops
+* use existing Birdflow tools to correct issues
+* verify fixes visually
+* review affected responsive breakpoints
+* never claim a problem is fixed before re-render verification
+
+---
+
+# Example expected behavior
+
+User:
+
+“Make my homepage feel much more premium and organic.”
+
+Expected:
+
+1. Agent inspects page + brand guide.
+2. Creates design plan.
+3. Updates layout, typography, SVG dividers, imagery and spacing.
+4. Captures desktop + mobile screenshots.
+5. Visual review finds:
+
+   * hero heading wraps awkwardly on mobile
+   * CTA contrast is weak
+   * wave divider creates 40px unwanted gap
+   * services cards have inconsistent heights
+6. Agent maps issues to components.
+7. Fixes those components through Birdflow tools.
+8. Captures screenshots again.
+9. Verifies:
+
+   * mobile heading resolved
+   * CTA improved
+   * wave fixed
+   * service cards aligned
+10. Completes with a concise summary.
+
+---
+
+# Done looks like
+
+* Kimi can visually inspect the real Birdflow website preview.
+* Desktop/tablet/mobile screenshots can be captured safely.
+* Review output is structured, not just prose.
+* Visual findings can be connected to component IDs.
+* Agent corrects issues through existing Birdflow tools only.
+* Fixes are visually reverified.
+* Desktop fixes are checked for responsive regressions.
+* Visual-review loops have strict iteration/spend protections.
+* Tiny edits do not trigger unnecessary full-site screenshot runs.
+* Custom components and SVG shapes are visually reviewable.
+* Existing builder behavior remains intact.
+* Tests cover screenshot tooling, review schemas, loop limits and correction verification.
+
+At the end provide:
+
+1. existing preview architecture audit,
+2. screenshot architecture chosen,
+3. files changed,
+4. new AI tools,
+5. visual review schema,
+6. correction loop behavior,
+7. safeguards and budgets,
+8. tests added,
+9. remaining limitations.
+
+Do not build a separate autonomous website editor. This visual system must extend the existing Birdflow AI agent created in Task #153 and use the design primitives/tools from Task #154.
