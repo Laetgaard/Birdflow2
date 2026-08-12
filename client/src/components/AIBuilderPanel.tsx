@@ -76,12 +76,27 @@ import {
 /** One line in the agent's live activity list. */
 type AgentStep = { label: string; ok: boolean };
 
+/** A single design direction proposed by the AI. */
+type DesignDirection = {
+  id: string;
+  name: string;
+  concept: string;
+  designIntent: "brand_aligned" | "brand_evolution" | "experimental";
+  brandDeviation: {
+    level: "none" | "low" | "medium" | "high";
+    changes: string[];
+    rationale: string;
+  };
+  brandGuideChanges?: Record<string, unknown>;
+};
+
 /** Rich payload a tool streamed for inline rendering. */
 type DisplayCard =
   | { kind: "palettes"; value: PaletteProposal[]; chosenId?: string }
   | { kind: "fontPairs"; value: FontPairProposal[]; chosenId?: string }
   | { kind: "sitePlan"; value: { plan: WebsitePlan; screenshotBase64?: string }; applied?: boolean; dismissed?: boolean }
-  | { kind: "designTokens"; value: Record<string, unknown> };
+  | { kind: "designTokens"; value: Record<string, unknown> }
+  | { kind: "designDirections"; value: DesignDirection[]; chosenId?: string };
 
 type Message = {
   id: string;
@@ -102,6 +117,16 @@ type Message = {
    * exactly the words that were sent, not whatever was typed since.
    */
   retryPrompt?: string;
+  /**
+   * Set when an experimental design direction has been applied and the user
+   * must make an explicit post-application choice about the brand guide.
+   */
+  brandEvolutionOffer?: {
+    proposalId: string;
+    directionName: string;
+    designIntent: string;
+    brandDeviation: { level: string; changes: string[]; rationale: string };
+  };
 };
 
 type AIBuilderPanelProps = {
@@ -270,6 +295,67 @@ export default function AIBuilderPanel({
     };
   }, [websiteId, session?.access_token]);
 
+  // ─── Load pending design-direction proposals on mount ────────────────────
+  // Any directions proposed in a previous session (and not yet chosen/rejected)
+  // are restored as a message card so the user can still pick or dismiss them.
+  useEffect(() => {
+    let cancelled = false;
+    if (!session?.access_token || !websiteId) return;
+
+    fetch(`/api/websites/${websiteId}/ai/proposals`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (cancelled || !data) return;
+
+        const newMessages: Message[] = [];
+
+        // Restore pending direction cards from a previous session.
+        if (data.proposals?.length) {
+          const directions = data.proposals.map((p: any) => ({
+            id: p.id,
+            name: p.direction.name,
+            concept: p.direction.concept ?? "",
+            designIntent: p.direction.designIntent,
+            brandDeviation: p.direction.brandDeviation,
+            brandGuideChanges: p.direction.brandGuideChanges,
+          }));
+          newMessages.push({
+            id: `proposals-restored-${Date.now()}`,
+            role: "assistant" as const,
+            content: "Her er designretninger fra din tidligere session — vælg en for at fortsætte:",
+            displays: [{ kind: "designDirections" as const, value: directions }],
+          });
+        }
+
+        // Restore unresolved evolution offer cards for applied experimental directions.
+        // These are the "apply site-wide / add to brand guide / keep here" choices.
+        if (data.evolutionOffers?.length) {
+          for (const offer of data.evolutionOffers) {
+            newMessages.push({
+              id: `evolution-offer-restored-${offer.proposalId}`,
+              role: "assistant" as const,
+              content: "",
+              brandEvolutionOffer: {
+                proposalId: offer.proposalId,
+                directionName: offer.directionName,
+                designIntent: offer.designIntent,
+                brandDeviation: offer.brandDeviation,
+              },
+            });
+          }
+        }
+
+        if (newMessages.length > 0) {
+          setMessages((prev) => [...prev, ...newMessages]);
+        }
+      })
+      .catch(() => {/* silently ignore — panel is still usable */});
+
+    return () => { cancelled = true; };
+  }, [websiteId, session?.access_token]);
+
   // ─── Load plan + build state from server on mount ────────────────────────
 
   // Reload whatever plan and build the server is holding for this website.
@@ -367,6 +453,17 @@ export default function AIBuilderPanel({
           break;
         case "error":
           pushStep(event.message, false);
+          break;
+        case "brand_evolution_offer":
+          patchMessage(messageId, (m) => ({
+            ...m,
+            brandEvolutionOffer: {
+              proposalId: event.proposalId,
+              directionName: event.directionName,
+              designIntent: event.designIntent,
+              brandDeviation: event.brandDeviation,
+            },
+          }));
           break;
         default:
           break;
@@ -1022,8 +1119,73 @@ export default function AIBuilderPanel({
                       />
                     )}
                     {display.kind === "designTokens" && <DesignTokensCard tokens={display.value} />}
+                    {display.kind === "designDirections" && (
+                      <DesignDirectionCards
+                        directions={display.value}
+                        chosenId={display.chosenId}
+                        disabled={isLoading}
+                        onChoose={(dir) => {
+                          // Mark the chosen direction and send the selection
+                          // back to the agent as a chat message so it can call
+                          // apply_design_direction with the correct proposalId.
+                          patchMessage(message.id, (m) => ({
+                            ...m,
+                            displays: m.displays?.map((d, j) =>
+                              j === i && d.kind === "designDirections"
+                                ? { ...d, chosenId: dir.id }
+                                : d
+                            ),
+                          }));
+                          sendMessage(
+                            `Vælg designretningen "${dir.name}" (proposalId: ${dir.id}) og anvend den på websitet.`
+                          );
+                        }}
+                        onDismissAll={() => {
+                          // Reject each pending proposal on the server, then hide this card group.
+                          for (const dir of display.value) {
+                            fetch(
+                              `/api/websites/${websiteId}/ai/proposals/${dir.id}/reject`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${session.access_token}`,
+                                },
+                              }
+                            ).catch(() => {/* best-effort — already hidden client-side */});
+                          }
+                          // Remove the message from the panel immediately.
+                          setMessages((prev) => prev.filter((m) => m.id !== message.id));
+                        }}
+                      />
+                    )}
                   </div>
                 ))}
+
+                {/* Brand evolution offer — shown after an experimental direction is applied */}
+                {message.brandEvolutionOffer && (
+                  <BrandEvolutionOfferCard
+                    offer={message.brandEvolutionOffer}
+                    disabled={isLoading}
+                    websiteId={websiteId}
+                    accessToken={session.access_token}
+                    onSuccess={(_outcomeKind, newState, revision) => {
+                      if (revision !== undefined) {
+                        onStateChange(newState, "AI: designretning udvidet", revision);
+                      }
+                      patchMessage(message.id, (m) => ({
+                        ...m,
+                        brandEvolutionOffer: undefined,
+                      }));
+                    }}
+                    onDismiss={() =>
+                      patchMessage(message.id, (m) => ({
+                        ...m,
+                        brandEvolutionOffer: undefined,
+                      }))
+                    }
+                  />
+                )}
 
                 {/* Large-change approval card */}
                 {message.approval && (
@@ -1434,6 +1596,240 @@ function DesignTokensCard({ tokens }: { tokens: Record<string, unknown> }) {
       )}
       {typeof tokens.mood === "string" && (
         <p className="mt-1.5 text-[11px] text-muted-foreground leading-snug">{tokens.mood}</p>
+      )}
+    </div>
+  );
+}
+
+/* ============ Design direction cards (streamed by propose_design_directions) ============ */
+
+const DEVIATION_LABELS: Record<string, string> = {
+  none: "Uændret",
+  low: "Lille afvigelse",
+  medium: "Brandudvikling",
+  high: "Eksperimentel",
+};
+
+const DEVIATION_COLORS: Record<string, string> = {
+  none: "text-green-700 bg-green-50 border-green-200",
+  low: "text-blue-700 bg-blue-50 border-blue-200",
+  medium: "text-amber-700 bg-amber-50 border-amber-200",
+  high: "text-purple-700 bg-purple-50 border-purple-200",
+};
+
+function DesignDirectionCards({
+  directions,
+  chosenId,
+  disabled,
+  onChoose,
+  onDismissAll,
+}: {
+  directions: DesignDirection[];
+  chosenId?: string;
+  disabled: boolean;
+  onChoose: (dir: DesignDirection) => void;
+  /** Optional: call POST .../reject for each pending proposal and hide the card group. */
+  onDismissAll?: () => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-2" data-testid="design-direction-cards">
+      <div className="flex items-center justify-between mb-0.5">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+          Vælg en designretning
+        </p>
+        {onDismissAll && !chosenId && (
+          <button
+            className="text-[10.5px] text-muted-foreground hover:text-foreground"
+            disabled={disabled}
+            onClick={onDismissAll}
+            data-testid="button-dismiss-directions"
+          >
+            Afvis
+          </button>
+        )}
+      </div>
+      {directions.map((dir) => {
+        const chosen = chosenId === dir.id;
+        const deviationColor = DEVIATION_COLORS[dir.brandDeviation.level] ?? DEVIATION_COLORS.low;
+        return (
+          <button
+            key={dir.id}
+            className={`rounded-lg border p-2.5 text-left transition-colors bg-card ${
+              chosen ? "border-primary ring-1 ring-primary" : "hover:border-primary/50"
+            } ${chosenId && !chosen ? "opacity-50" : ""}`}
+            disabled={disabled || !!chosenId}
+            onClick={() => onChoose(dir)}
+            data-testid={`design-direction-card-${dir.id}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold truncate">{dir.name}</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span
+                  className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${deviationColor}`}
+                >
+                  {DEVIATION_LABELS[dir.brandDeviation.level] ?? dir.brandDeviation.level}
+                </span>
+                {chosen && <Check className="w-3.5 h-3.5 text-primary" />}
+              </div>
+            </div>
+            {dir.concept && (
+              <p className="mt-1 text-[11px] text-muted-foreground leading-snug">{dir.concept}</p>
+            )}
+            {dir.brandDeviation.changes.length > 0 && (
+              <ul className="mt-1.5 pl-3 text-[10.5px] text-muted-foreground space-y-0.5 list-disc">
+                {dir.brandDeviation.changes.slice(0, 3).map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============ Brand evolution offer card ============ */
+
+type EvolutionOfferOutcome = "idle" | "applying" | "done" | "error";
+
+function BrandEvolutionOfferCard({
+  offer,
+  disabled,
+  websiteId,
+  accessToken,
+  onSuccess,
+  onDismiss,
+}: {
+  offer: {
+    proposalId: string;
+    directionName: string;
+    designIntent: string;
+    brandDeviation: { level: string; changes: string[]; rationale: string };
+  };
+  disabled: boolean;
+  websiteId: string;
+  accessToken: string;
+  /** Called when any structured action completes. Receives the new state and revision if available. */
+  onSuccess: (outcome: "site-wide" | "guide" | "kept", newState?: any, revision?: number) => void;
+  onDismiss: () => void;
+}) {
+  const [outcome, setOutcome] = useState<EvolutionOfferOutcome>("idle");
+  const [outcomeLabel, setOutcomeLabel] = useState<string>("");
+
+  const keepHere = async () => {
+    setOutcome("applying");
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/ai/proposals/${offer.proposalId}/keep-here`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Fejl");
+      setOutcome("done");
+      setOutcomeLabel("✓ Retningen bevaret på de allerede opdaterede sider.");
+      onSuccess("kept");
+    } catch (err: any) {
+      // Reset to idle so the user can retry.
+      setOutcome("idle");
+      setOutcomeLabel(err.message ?? "Noget gik galt. Prøv igen.");
+    }
+  };
+
+  const postProposalAction = async (action: "apply-site-wide" | "add-to-brand-guide") => {
+    setOutcome("applying");
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/ai/proposals/${offer.proposalId}/${action}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Fejl");
+      setOutcome("done");
+      if (action === "apply-site-wide") {
+        const count = data.pagesUpdated ?? 0;
+        setOutcomeLabel(
+          count > 0
+            ? `✓ Retningen er nu anvendt på ${count} yderligere ${count === 1 ? "side" : "sider"}.`
+            : "✓ Globale stilændringer er tilføjet."
+        );
+        onSuccess("site-wide", data.newState, data.revision);
+      } else {
+        setOutcomeLabel("✓ Brand guide er opdateret med retningens tokens.");
+        onSuccess("guide", data.newState, data.revision);
+      }
+    } catch (err: any) {
+      // On failure (including 409 CAS conflicts), reset to idle so the user
+      // can retry any of the three choices without reloading.
+      setOutcome("idle");
+      setOutcomeLabel(err.message ?? "Noget gik galt. Prøv igen.");
+    }
+  };
+
+  const busy = disabled || outcome === "applying";
+
+  return (
+    <div
+      className="mt-2.5 rounded-xl border border-purple-200 bg-purple-50/80 p-3"
+      data-testid="brand-evolution-offer-card"
+    >
+      <p className="text-[11.5px] font-semibold text-purple-800">
+        Eksperimentel retning anvendt: "{offer.directionName}"
+      </p>
+      {offer.brandDeviation.rationale && (
+        <p className="mt-1 text-[11px] text-purple-700/80 leading-snug">
+          {offer.brandDeviation.rationale}
+        </p>
+      )}
+      {outcome === "done" || outcome === "error" ? (
+        <p className={`mt-2 text-[11px] font-medium ${outcome === "error" ? "text-red-600" : "text-green-700"}`}>
+          {outcomeLabel}
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-[11px] text-purple-800/70 font-medium">Hvad vil du gøre med den?</p>
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11.5px] rounded-lg border-purple-300 text-purple-800 hover:bg-purple-100"
+              disabled={busy}
+              onClick={() => postProposalAction("apply-site-wide")}
+              data-testid="button-apply-site-wide"
+            >
+              {outcome === "applying" ? "Anvender…" : "Anvend på hele websitet"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11.5px] rounded-lg border-purple-300 text-purple-800 hover:bg-purple-100"
+              disabled={busy}
+              onClick={() => postProposalAction("add-to-brand-guide")}
+              data-testid="button-add-to-guide"
+            >
+              {outcome === "applying" ? "Tilføjer…" : "Tilføj til brand guide"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-[11.5px] text-muted-foreground"
+              disabled={busy}
+              onClick={keepHere}
+              data-testid="button-keep-here"
+            >
+              Behold kun her
+            </Button>
+          </div>
+        </>
       )}
     </div>
   );

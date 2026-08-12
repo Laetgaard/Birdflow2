@@ -80,6 +80,19 @@ export type AgentEvent =
     }
   | { type: "note"; text: string }
   | { type: "approval_required"; reason: string; summary: string[]; mutations: BuilderMutation[] }
+  | {
+      /**
+       * Emitted after an experimental design direction is successfully applied.
+       * The client shows a choice card: "Keep only here / Apply across website /
+       * Add this direction to the brand guide". The brand guide is NEVER updated
+       * automatically — only the explicit "add_to_guide" choice does that.
+       */
+      type: "brand_evolution_offer";
+      proposalId: string;
+      directionName: string;
+      designIntent: import("@shared/creativeTypes").DesignIntent;
+      brandDeviation: import("@shared/creativeTypes").BrandDeviation;
+    }
   | { type: "done"; summary: string }
   | { type: "error"; message: string };
 
@@ -92,6 +105,19 @@ export type AgentOutcome =
       createdImages: string[];
       summary: string;
       steps: number;
+      /**
+       * Present when ANY design direction (any deviation level) was chosen
+       * and writes were applied in this run. The route handler advances the
+       * proposal lifecycle (updateProposalMutations → markProposalApplied →
+       * supersedePendingProposals) AFTER the CAS save succeeds — never before.
+       * Undefined if no direction was active or no writes were made.
+       */
+      appliedDirectionProposalId?: string;
+      /**
+       * The deviation level of the applied direction — route uses this to
+       * decide whether to emit brand_evolution_offer (only for "high").
+       */
+      appliedDirectionDeviationLevel?: string;
     }
   | {
       status: "needs_approval";
@@ -117,8 +143,22 @@ function buildSystemPrompt(lang: SiteLanguage): string {
 ## Design philosophy
 - Lead with visual craft: choose the layout, typographic hierarchy, colour use and motion that best serves the customer's brand and audience — then express it with whichever tools give you the most control.
 - Standard section types (${componentTypes.join(", ")}) cover common patterns. Use them when they fit exactly. But custom components built from primitive nodes (box/text/image/button/svg) are equally first-class — prefer them whenever a design idea does not fit cleanly into a standard type.
-- The brand guide is a design system, not a bureaucratic constraint. Use its colours, fonts, spacing, radius, shadow and motion as a vocabulary. Interpret it creatively: combine tokens in unexpected ways, vary weights and sizes, layer surfaces — as long as every visual decision traces back to the guide's values.
+- The brand guide describes the customer's current identity and is the DEFAULT design direction. Preserve it when appropriate. You may propose thoughtful evolution or experimental alternatives when they plausibly improve differentiation, emotional impact, usability or visual quality. Use its colours, fonts, spacing, radius, shadow and motion as a creative vocabulary — combine tokens unexpectedly, vary weights and sizes, layer surfaces.
 - Every word you put ON the site is idiomatic ${LANGUAGE_NAME_EN[lang]}, specific and concrete — never lorem ipsum, never "Din tekst her". ${copyLanguageInstruction(lang)} You talk to the user in Danish (the builder UI is Danish), but site copy follows the language rule above.
+
+## Creative direction and brand evolution
+You are a creative director, not a compliance bot. When the customer asks to redesign, explore, or try something different, you may propose genuinely new directions — but with clear intent and approval gates:
+
+- **brand_aligned**: Stays within the current palette, fonts and style. No approval needed for single-section changes.
+- **brand_evolution**: Same visual DNA, evolved emphasis (e.g. a new typographic scale, a shifted accent colour). Flag it with "Dette er en brandudvikling…" before applying.
+- **experimental**: A materially new direction (palette + type + layout language all change). Use propose_design_directions so the user can preview and choose — NEVER apply experimental directions directly without user selection.
+
+When you propose a design direction, you MUST describe:
+1. The direction name (evocative, 2-3 words)
+2. What departs from the current brand guide and why it is better (BrandDeviation)
+3. The design intent classification
+
+The brand guide is never updated automatically. After an experimental direction is approved and applied, the user is offered three explicit choices (keep here / apply site-wide / add to brand guide). Only "add to brand guide" mutates the guide.
 
 ## Business facts and copy rules
 - The BUSINESS FACTS block is the only source of concrete claims. Never invent testimonials, reviews, ratings, prices, statistics, client counts, qualifications, memberships or treatment results — the server refuses copy with unbacked claims. Rephrase facts freely; use PROTECTED facts verbatim. With no facts, write claim-free copy or leave social-proof sections out.
@@ -893,6 +933,16 @@ export async function runBuilderAgent(args: {
 
   emit({ type: "done", summary: outcome.summary });
 
+  // When ANY design direction was chosen and writes were applied, surface the
+  // proposal id so the route handler can finalize the proposal lifecycle AFTER
+  // the CAS save succeeds. This covers all deviation levels (none/low/medium/high).
+  // The brand_evolution_offer event is emitted only for high-deviation (experimental)
+  // directions — handled in the route handler using appliedDirectionDeviationLevel.
+  const appliedDirectionProposalId: string | undefined =
+    ctx.activeDirectionProposalId && ctx.applied.length > 0
+      ? ctx.activeDirectionProposalId
+      : undefined;
+
   return {
     status: "completed",
     state: ctx.state,
@@ -901,5 +951,11 @@ export async function runBuilderAgent(args: {
     createdImages: ctx.createdImages,
     summary: outcome.summary,
     steps: outcome.steps,
+    // Route handler uses these to advance the proposal lifecycle and optionally
+    // emit brand_evolution_offer — all AFTER successful CAS, never before.
+    appliedDirectionProposalId,
+    appliedDirectionDeviationLevel: appliedDirectionProposalId
+      ? (ctx.activeBrandDeviation?.level ?? "none")
+      : undefined,
   };
 }

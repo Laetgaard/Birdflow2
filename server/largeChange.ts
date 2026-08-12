@@ -13,14 +13,34 @@
 
 import type { BuilderStateData } from "@shared/schema";
 import type { BuilderMutation } from "@shared/aiBuilderSchema";
+import type { BrandDeviation } from "@shared/creativeTypes";
 
 export type LargeChangeVerdict = { large: boolean; reason?: string };
 
+/**
+ * Classify whether a mutation (or the running batch) is "too big to make
+ * unattended" and should stop behind the approval gate.
+ *
+ * The optional `brandDeviation` parameter is set when the agent has
+ * computed that the mutation would represent a material departure from
+ * the customer's current brand guide. A high-level deviation (new palette
+ * + new type system + new layout language) is treated the same as deleting
+ * a page or swapping a preset — it must be explicitly approved.
+ */
 export function classifyChange(
   appliedSoFar: BuilderMutation[],
   next: BuilderMutation,
-  state: BuilderStateData
+  state: BuilderStateData,
+  brandDeviation?: BrandDeviation
 ): LargeChangeVerdict {
+  // Material brand deviation requires approval before anything else is checked.
+  if (brandDeviation?.level === "high") {
+    return {
+      large: true,
+      reason:
+        `Designretningen afviger markant fra brand guiden: ${brandDeviation.rationale ?? "eksperimentel retning"}`,
+    };
+  }
   const all = [...appliedSoFar, next];
 
   if (next.action === "remove_page") {

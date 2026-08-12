@@ -20,6 +20,12 @@ import {
   UpdateCustomComponentMutation,
   UpdateBrandGuideMutation,
 } from "@shared/aiBuilderSchema";
+import type { DesignDirection } from "@shared/creativeTypes";
+import {
+  storeProposal,
+  deriveBrandDeviationLevel,
+  classifyDesignIntent,
+} from "./proposalStore";
 import {
   buildBrandContext,
   findPrimitiveNode,
@@ -132,6 +138,26 @@ export type AgentContext = {
    * so the component is available across all the user's websites.
    */
   ownerId?: string;
+  /**
+   * When the agent is applying a design direction, this holds the direction's
+   * BrandDeviation so `applyWrite` can pass it to `classifyChange` and fire
+   * the gate for high-deviation directions even when individual mutations are
+   * individually small.
+   */
+  activeBrandDeviation?: import("@shared/creativeTypes").BrandDeviation;
+  /**
+   * True when the user has explicitly chosen a design direction via
+   * `apply_design_direction`. Bypasses the deviation-based large-change gate
+   * (the user's choice IS their consent) while leaving all other gate
+   * criteria (delete-page, remove-many-components, etc.) intact.
+   */
+  approvedDirectionDeviation?: boolean;
+  /**
+   * Set to the chosen proposalId by `apply_design_direction` so the agent
+   * loop can emit `brand_evolution_offer` after all writes complete (rather
+   * than mid-run before anything is applied).
+   */
+  activeDirectionProposalId?: string;
 };
 
 export type GuardVerdict =
@@ -150,7 +176,7 @@ export type ToolResult =
        * (palette cards, font pairs, a site plan). `data` is what the
        * MODEL sees — keep it compact; `display` is what the USER sees.
        */
-      display?: { kind: "palettes" | "fontPairs" | "sitePlan" | "designTokens"; value: unknown };
+      display?: { kind: "palettes" | "fontPairs" | "sitePlan" | "designTokens" | "designDirections"; value: unknown };
     }
   | { ok: false; error: string }
   /** Large-change gate tripped: the loop must stop and ask the user. */
@@ -198,7 +224,30 @@ async function applyWrite(
   ctx: AgentContext,
   summarize: (m: BuilderMutation) => string
 ): Promise<ToolResult> {
-  const verdict = classifyChange(ctx.applied, mutation, ctx.state);
+  // While an experimental design direction is active, update_brand_guide is
+  // categorically blocked. Guide mutations may only reach the state through the
+  // explicit add-to-brand-guide endpoint AFTER the direction is applied.
+  // This is server-enforced: the "brand guide is never auto-mutated" invariant
+  // cannot be violated by prompt phrasing or model drift.
+  if (ctx.activeDirectionProposalId && mutation.action === "update_brand_guide") {
+    return {
+      ok: false,
+      error:
+        "Brand guide-ændringer er ikke tilladt mens en designretning er aktiv. " +
+        "Brug 'Tilføj til brand guide'-valget EFTER retningen er fuldt anvendt.",
+    };
+  }
+
+  // Pass any active brand deviation so the gate fires for experimental
+  // directions — UNLESS the user already gave scoped consent for this
+  // direction via apply_design_direction (approvedDirectionDeviation:true).
+  // Other large-change criteria (delete page, many removals, etc.) still run.
+  const verdict = classifyChange(
+    ctx.applied,
+    mutation,
+    ctx.state,
+    ctx.approvedDirectionDeviation ? undefined : ctx.activeBrandDeviation
+  );
   if (verdict.large && !ctx.approvedLargeChanges) {
     return {
       ok: false,
@@ -1593,6 +1642,228 @@ export function buildToolCatalogue(): AgentTool[] {
       } catch (err: any) {
         return { ok: false, error: `Planlægningen fejlede: ${err?.message ?? err}` };
       }
+    },
+  });
+
+  tools.push({
+    name: "propose_design_directions",
+    description:
+      "Generate 2–3 named design directions for the website (e.g. 'Calm Clinical / Organic Editorial / " +
+      "Modern Sanctuary'). Each direction specifies a DesignIntent and BrandDeviation so the user sees " +
+      "exactly what changes and why. The user sees them as selectable cards. This tool is READ-ONLY: " +
+      "it never modifies the site. The user chooses one, then you apply it with write tools. " +
+      "Use when the user asks to 'redesign', 'explore styles', 'try something different', or wants " +
+      "to see creative alternatives. Do NOT use for small targeted edits.",
+    parameters: z.object({
+      context: z
+        .string()
+        .min(4)
+        .max(1000)
+        .describe(
+          "What the user wants to achieve — their goal, audience, mood or reference. Include relevant brand guide details."
+        ),
+      count: z
+        .number()
+        .int()
+        .min(2)
+        .max(3)
+        .default(2)
+        .describe("Number of directions to generate"),
+    }),
+    mutates: false,
+    run: async ({ context, count }, ctx) => {
+      try {
+        const brand = ctx.state.brandGuide
+          ? buildBrandContext(ctx.state.brandGuide as BrandGuide)
+          : "Ingen brand guide endnu.";
+
+        const systemMsg = [
+          "You are a creative web-design director. Generate exactly " + count + " named design directions as JSON.",
+          "",
+          "Each direction must have:",
+          "  name: evocative 2-3 word Danish/English label (e.g. 'Calm Clinical', 'Organisk Editorial')",
+          "  concept: one Danish sentence describing the visual + emotional direction",
+          "  designIntent: one of 'brand_aligned' | 'brand_evolution' | 'experimental'",
+          "  brandDeviation: { level: 'none'|'low'|'medium'|'high', changes: string[], rationale: string }",
+          "    - level none/low = brand_aligned, medium = brand_evolution, high = experimental",
+          "    - changes: list of specific things that differ from the current brand guide (in Danish)",
+          "    - rationale: Danish sentence explaining why this deviation is beneficial",
+          "  brandGuideChanges: nested BrandGuidePatch object with the guide keys that would change.",
+          "    Use the NESTED schema — flat keys like primaryColor are INVALID and will be rejected:",
+          "    {",
+          "      colors?: { primary?, secondary?, accent?, background?, surface?, text? },",
+          "      typography?: { headingFont?, bodyFont?, scale? (modern|editorial|classic|bold) },",
+          "      imageryStyle?: photo|illustration|3d|minimal|bold,",
+          "      toneOfVoice?: string,",
+          "      keywords?: string[],",
+          "      spacing?: tight|normal|airy,",
+          "      radius?: none|soft|rounded,",
+          "      shadow?: none|subtle|elevated,",
+          "      motion?: none|subtle|expressive",
+          "    }",
+          "    Example: { colors: { primary: '#2d6a4f', accent: '#f5c518' }, typography: { headingFont: 'Playfair Display, serif' } }",
+          "",
+          "Respond with: { directions: [ ...exactly " + count + " direction objects... ] }",
+          "JSON only. All prose in Danish.",
+        ].join("\n");
+
+        const userMsg =
+          "Current brand guide:\n" +
+          brand +
+          "\n\nCustomer goal:\n" +
+          context +
+          "\n\nGenerate " +
+          count +
+          " distinct, meaningfully different design directions. " +
+          "At least one should be experimental (high brand deviation).";
+
+        const completion = await meteredChat(
+          "assistant",
+          {
+            messages: [
+              { role: "system", content: systemMsg },
+              { role: "user", content: userMsg },
+            ],
+            response_format: { type: "json_object" },
+          },
+          ctx.spendMeter
+        );
+
+        const raw = completion.choices[0]?.message?.content ?? "{}";
+        let parsed: { directions?: unknown[] };
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          return { ok: false, error: "AI returnerede ugyldigt JSON for designretninger." };
+        }
+
+        const rawDirs = Array.isArray(parsed?.directions) ? parsed.directions : [];
+        if (rawDirs.length === 0) {
+          return { ok: false, error: "AI returnerede ingen designretninger." };
+        }
+
+        // Validate and normalise each direction
+        const directions: DesignDirection[] = rawDirs.slice(0, count).map((d: any, i: number) => {
+          const changes: string[] = Array.isArray(d?.brandDeviation?.changes)
+            ? d.brandDeviation.changes.map(String)
+            : [];
+          const level = deriveBrandDeviationLevel(changes);
+          const designIntent = classifyDesignIntent(level);
+          return {
+            id: "", // storeProposal assigns the real id
+            name: String(d?.name ?? `Retning ${i + 1}`),
+            concept: String(d?.concept ?? ""),
+            designIntent: (["brand_aligned", "brand_evolution", "experimental"] as const).includes(d?.designIntent)
+              ? d.designIntent
+              : designIntent,
+            brandDeviation: {
+              level,
+              changes,
+              rationale: String(d?.brandDeviation?.rationale ?? ""),
+            },
+            brandGuideChanges:
+              d?.brandGuideChanges && typeof d.brandGuideChanges === "object" ? d.brandGuideChanges : {},
+          };
+        });
+
+        // Store each direction as a pending proposal (no mutations yet — the
+        // user chooses a direction; then the agent applies it with write tools).
+        const proposals = directions.map((dir) =>
+          storeProposal({
+            websiteId: ctx.websiteId,
+            direction: dir,
+            mutations: [], // filled in later when the user picks a direction
+            baseRevision: 0, // proposals track intent, not a specific revision
+          })
+        );
+
+        const finalDirections = proposals.map((p) => p.direction);
+
+        return {
+          ok: true,
+          summary: `Foreslog ${finalDirections.length} designretninger`,
+          data: finalDirections.map((d) => ({
+            id: d.id,
+            name: d.name,
+            concept: d.concept,
+            designIntent: d.designIntent,
+            deviationLevel: d.brandDeviation.level,
+          })),
+          display: { kind: "designDirections", value: finalDirections },
+        };
+      } catch (err: any) {
+        return { ok: false, error: `Designretninger fejlede: ${err?.message ?? err}` };
+      }
+    },
+  });
+
+  tools.push({
+    name: "apply_design_direction",
+    description:
+      "Signal that the user has chosen a design direction (from propose_design_directions) and " +
+      "prepare the context for applying it. This grants scoped consent for the direction's writes " +
+      "so subsequent calls to update_component, add_custom_component, etc. can proceed without the " +
+      "large-change gate re-firing (the user's click IS their explicit consent). " +
+      "The brand guide is NEVER updated automatically — only the user's explicit 'add to brand guide' " +
+      "choice does that. brandGuideChanges in the response are INFORMATIONAL only. " +
+      "After calling this, use normal write tools to implement the chosen direction's visual changes. " +
+      "For experimental (high-deviation) directions, a brand_evolution_offer event is emitted " +
+      "AFTER all writes complete so the user can choose: keep here / apply site-wide / add to guide. " +
+      "Use this tool when the user has selected one of the directions proposed by propose_design_directions.",
+    parameters: z.object({
+      proposalId: z.string().describe("ID of the pending design direction to apply (from propose_design_directions)"),
+    }),
+    mutates: true,
+    run: async ({ proposalId }, ctx) => {
+      const { getProposal } = await import("./proposalStore");
+
+      const proposal = getProposal(proposalId);
+      if (!proposal) {
+        return { ok: false, error: `Forslaget "${proposalId}" findes ikke.` };
+      }
+      if (proposal.websiteId !== ctx.websiteId) {
+        return { ok: false, error: "Forslaget tilhører ikke dette website." };
+      }
+      if (proposal.status !== "pending") {
+        return {
+          ok: false,
+          error: `Forslaget er allerede ${proposal.status === "approved" ? "godkendt" : "afvist"}.`,
+        };
+      }
+
+      const direction = proposal.direction;
+      const deviation = direction.brandDeviation;
+
+      // Set the deviation on context so the write-gate can record it for
+      // diagnostic purposes. The user's explicit selection grants scoped consent
+      // (below), so the deviation-based gate will be bypassed for subsequent
+      // writes in this run — but all other large-change criteria (delete page,
+      // bulk removal, etc.) remain active.
+      ctx.activeBrandDeviation = deviation;
+
+      // User's click of this direction card IS their explicit consent for the
+      // deviation. Grant scoped approval so subsequent write tools can proceed
+      // without the deviation re-triggering needs_approval. This does NOT grant
+      // blanket ctx.approvedLargeChanges — other gate criteria still fire.
+      ctx.approvedDirectionDeviation = true;
+
+      // Store the proposal id so the agent loop can emit brand_evolution_offer
+      // AFTER all writes complete (not here before anything is applied).
+      ctx.activeDirectionProposalId = proposalId;
+
+      return {
+        ok: true,
+        summary: `Designretning "${direction.name}" er klar — anvend nu ændringerne med write-værktøjerne`,
+        data: {
+          proposalId,
+          directionName: direction.name,
+          designIntent: direction.designIntent,
+          brandDeviation: deviation,
+          // brandGuideChanges is informational only; guide is NOT yet changed
+          brandGuideChanges: direction.brandGuideChanges,
+          // brand_evolution_offer is emitted by the agent loop AFTER writes complete
+        },
+      };
     },
   });
 

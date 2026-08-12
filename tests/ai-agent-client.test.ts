@@ -217,7 +217,7 @@ describe("panel + route wiring (source tripwires)", () => {
 
   it("the route owns the load-bearing tail in order", () => {
     const idx = routes.indexOf('app.post("/api/websites/:id/ai/agent"');
-    const handler = routes.slice(idx, idx + 6500);
+    const handler = routes.slice(idx, idx + 8500);
     const selfCheck = handler.indexOf("runSelfCheck(newState)");
     const sanitize = handler.indexOf("sanitizeBuilderStateCustomContent(newState)");
     // The save is guarded now: two writers cannot silently overwrite each other.

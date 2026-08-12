@@ -24,6 +24,18 @@ export type AgentStreamEvent =
   | { type: "note"; text: string }
   | { type: "approval_required"; reason: string; summary: string[]; mutations: BuilderMutation[] }
   | { type: "done"; summary: string }
+  | {
+      /**
+       * Emitted after apply_design_direction succeeds for an experimental
+       * (high-deviation) direction. The client renders a three-choice card:
+       * "Keep only here / Apply across website / Add to brand guide".
+       */
+      type: "brand_evolution_offer";
+      proposalId: string;
+      directionName: string;
+      designIntent: string;
+      brandDeviation: { level: string; changes: string[]; rationale: string };
+    }
   | { type: "error"; message: string }
   | {
       type: "result";

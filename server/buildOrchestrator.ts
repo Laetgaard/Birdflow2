@@ -195,7 +195,7 @@ ${step.detail}
 ## Core rules for this step
 - Do THIS step and nothing else. Later steps belong to later runs; earlier steps are already done. The server enforces it: a mutation outside this step's scope is refused and you will have to correct yourself.
 - A "${step.type}" step may only use these actions: they are the ones the customer approved for it.
-- The brand guide is LAW: only its colours and fonts, its spacing, radius, shadow and motion levels, its tone of voice.
+- The brand guide describes the customer's current identity and is the default design direction for this build step. Preserve it when appropriate. You may propose thoughtful evolution or experimental alternatives when they plausibly improve differentiation, emotional impact, usability or visual quality — but flag any material brand deviation explicitly.
 - ${copyLanguageInstruction(lang)} All user-visible copy is specific and concrete. Never lorem ipsum, never placeholder text — those are rejected automatically and you will have to rewrite them.
 - Custom components must work on phones: always give tabletStyles and mobileStyles alongside base styles. Fixed widths and grids that cannot collapse are rejected automatically.
 - The image budget of ${MAX_IMAGES_PER_BUILD} is shared by the WHOLE build. Use ai:// markers for hero images and gallery/team images; use Unsplash URLs for generic supporting photography.

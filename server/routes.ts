@@ -1422,6 +1422,11 @@ export async function registerRoutes(
       // decision: bump the revision so an unpaid approval has to be renewed.
       await bumpSiteRevision(req.params.id).catch(() => {});
 
+      // Supersede any pending design-direction proposals so stale experimental
+      // directions cannot be applied on top of a site that has moved on.
+      const { supersedePendingProposals } = await import("./proposalStore");
+      supersedePendingProposals(req.params.id);
+
       // Mutation succeeded - record it if this was an admin editing a
       // client's website (no-op for owners).
       await recordAdminAudit(access, {
@@ -5375,6 +5380,34 @@ export async function registerRoutes(
       // The site the customer is deciding about just changed - new revision,
       // and any approval that has not been paid for is void.
       await bumpSiteRevision(req.params.id).catch(() => {});
+
+      // Design-direction post-processing — runs for ALL deviation levels, only
+      // AFTER the CAS save succeeds. Ordering is critical:
+      //   1. Persist mutations on the proposal (for guide/site-wide API paths)
+      //   2. Mark the proposal as applied (prevents replay by the approve API)
+      //   3. Supersede all OTHER pending proposals (they targeted the old state)
+      //   4. Emit brand_evolution_offer ONLY for high-deviation (experimental) directions
+      if (outcome.appliedDirectionProposalId) {
+        const { getProposal, updateProposalMutations, markProposalApplied, supersedePendingProposals } =
+          await import("./proposalStore");
+        const evtProposal = getProposal(outcome.appliedDirectionProposalId);
+        if (evtProposal) {
+          updateProposalMutations(outcome.appliedDirectionProposalId, outcome.mutations);
+          markProposalApplied(outcome.appliedDirectionProposalId);
+          // Invalidate sibling directions generated against the now-changed state.
+          supersedePendingProposals(req.params.id);
+          // Only experimental (high-deviation) directions get the post-apply card.
+          if (outcome.appliedDirectionDeviationLevel === "high") {
+            send({
+              type: "brand_evolution_offer",
+              proposalId: outcome.appliedDirectionProposalId,
+              directionName: evtProposal.direction.name,
+              designIntent: evtProposal.direction.designIntent,
+              brandDeviation: evtProposal.direction.brandDeviation,
+            });
+          }
+        }
+      }
 
       // The three-level self-review, on the state the customer actually
       // keeps (post-repair, post-scrub, post-save). Level A findings were
