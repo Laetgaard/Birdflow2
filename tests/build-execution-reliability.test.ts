@@ -110,6 +110,15 @@ vi.mock("../server/aiConfig", () => ({
   aiConfig: () => ({ maxRunCostUsd: 5, provider: "openai", model: "gpt-4o" }),
 }));
 
+// Prevent the policy-driven visual review from launching real Puppeteer
+// in unit tests. Each step only verifies orchestration logic — screenshot
+// capture and Kimi analysis are integration-tested separately.
+vi.mock("../server/visualReview", () => ({
+  capturePageScreenshots: vi.fn().mockResolvedValue({ refs: [], warnings: [] }),
+  analyzeScreenshots: vi.fn().mockResolvedValue({ issues: [], ran: true }),
+  MAX_VISUAL_ITERATIONS: 2,
+}));
+
 /* ─── helpers ────────────────────────────────────────────────────────────── */
 
 import { runAgentLoop } from "../server/aiAgent";

@@ -45,6 +45,19 @@ import {
   type AgentContext,
   type GuardVerdict,
 } from "./aiAgentTools";
+import {
+  determineReviewPolicy,
+  hasBlockingVisualIssues,
+  formatUnresolvedIssueNote,
+  MAX_REVIEW_PASSES,
+} from "./reviewPolicy";
+import {
+  extractPageSummary,
+  buildConsistencyContext,
+  stepNeedsConsistencyContext,
+  extractedPageIdsForStep,
+  type PageConsistencySummary,
+} from "./pageConsistency";
 import { runSelfCheck } from "./selfCheck";
 import { guardResponsive } from "./responsiveGuard";
 import { checkCopy, pageHeadings } from "./copyRules";
@@ -241,7 +254,8 @@ function buildStepUserMessage(
   step: PlanStep,
   index: number,
   state: BuilderStateData,
-  earlier: PlanStepResult[]
+  earlier: PlanStepResult[],
+  consistencyContext?: string
 ): string {
   const done = earlier
     .filter((r) => r.status === "completed" || r.status === "no_changes")
@@ -252,13 +266,580 @@ function buildStepUserMessage(
     .map((p) => `- ${p.name} (id: ${p.id}): ${p.components.map((c) => `${c.id}:${c.type}`).join(", ") || "tom"}`)
     .join("\n");
 
+  const consistencySection = consistencyContext ? `\n${consistencyContext}\n` : "";
+
   return `Website lige nu:
 ${pages || "- ingen sider"}
-
+${consistencySection}
 ${done ? `Allerede gjort i denne bygning:\n${done}\n` : ""}
 Dit trin (${index + 1} af ${plan.steps.length}): ${step.title}
 ${step.detail}
 Trinnet må ændre: ${describeScope(step, state)}.`;
+}
+
+/* ─────────────────────── policy review cycle ─────────────────────── */
+
+/**
+ * Turn budget for one corrective-pass agent run.
+ *
+ * Corrective passes are deliberately short — the agent already knows the
+ * full site context and only needs to fix a small set of flagged issues.
+ * Giving it a full main-step budget would waste money and risk over-editing.
+ */
+const CORRECTIVE_TURN_BUDGET = 8;
+
+/**
+ * After a step has been saved, run the policy-determined visual review and,
+ * if blocking issues are found, iterate through corrective agent passes
+ * (up to MAX_REVIEW_PASSES total). Each pass captures fresh screenshots,
+ * analyzes with Kimi, runs a short corrective agent run if high/critical
+ * issues remain, and saves the corrections.
+ *
+ * Design invariants:
+ *  - Each corrective pass has its own AgentContext and screenshotCache.
+ *  - The corrective agent gets a short turn budget (CORRECTIVE_TURN_BUDGET).
+ *  - A CAS save failure (canvas conflict) stops the corrective loop; the
+ *    step still completes with whatever was already saved.
+ *  - Unresolved issues after MAX_REVIEW_PASSES → step completes with warning
+ *    notes. The build never pauses purely because of visual findings.
+ *  - All corrective passes draw from the BUILD's shared spend meter, so the
+ *    build's overall cost ceiling is respected end-to-end.
+ */
+async function runPolicyReviewCycle(args: {
+  step: PlanStep;
+  plan: AssistantPlan;
+  index: number;
+  websiteId: string;
+  state: BuilderStateData;
+  savedRevision: number;
+  appliedMutations: BuilderMutation[];
+  imageCache: Map<string, string>;
+  spendMeter: SpendMeter;
+  approvedLargeChanges: boolean;
+  language: SiteLanguage;
+  emit: (event: BuildStreamEvent) => void;
+}): Promise<{
+  state: BuilderStateData;
+  savedRevision: number;
+  notes: string[];
+  hasUnresolvedBlocking: boolean;
+}> {
+  const policy = determineReviewPolicy(
+    args.step,
+    args.appliedMutations,
+    args.state.pages.map((p) => p.id)
+  );
+
+  if (policy.level === "none" || policy.pageIds.length === 0) {
+    return {
+      state: args.state,
+      savedRevision: args.savedRevision,
+      notes: [],
+      hasUnresolvedBlocking: false,
+    };
+  }
+
+  // Lazy import — visualReview loads Puppeteer which is not needed on every
+  // code path, so we keep it out of the top-level module scope.
+  const { capturePageScreenshots, analyzeScreenshots } = await import("./visualReview");
+  const notes: string[] = [];
+  let currentState = args.state;
+  let currentRevision = args.savedRevision;
+  let passesRun = 0;
+  let lastBlockingIssues: import("./visualReview").VisualIssue[] = [];
+
+  args.emit({
+    type: "step_progress",
+    index: args.index,
+    label: `Visuel tjek (${policy.level === "mandatory" ? "desktop + mobil" : "desktop"}) — ${policy.reason}`,
+  });
+
+  while (passesRun < MAX_REVIEW_PASSES) {
+    passesRun++;
+
+    // Check spend before each pass — screenshots and model calls are not free.
+    const { assumedCallCostUsd: costUsd } = await import("./aiSpend");
+    if (args.spendMeter.exceeded()) {
+      notes.push("Visuelt tjek sprunget over: omkostningsloftet er nået.");
+      break;
+    }
+
+    // ── Screenshot phase ─────────────────────────────────────────────
+    // Completeness is ALL-target / ALL-viewport: a pass is only considered
+    // successful when every required (pageId × viewport) combination was
+    // captured AND successfully analyzed. Missing any target is
+    // "unavailable" — prior blocking issues must be preserved and the
+    // corrective loop must not fire on false-clean data.
+    const screenshotCache = new Map<string, import("./visualReview").VisualScreenshot>();
+    const allIssues: import("./visualReview").VisualIssue[] = [];
+    const incompleteTargets: string[] = [];
+
+    for (const pageId of policy.pageIds) {
+      const { refs, warnings } = await capturePageScreenshots(
+        currentState,
+        pageId,
+        policy.viewports,
+        screenshotCache,
+        { lang: args.language }
+      );
+      if (warnings.length > 0) {
+        notes.push(...warnings.map((w) => `Screenshot: ${w}`));
+      }
+
+      // Verify that every requested viewport was captured for this page.
+      const capturedViewports = new Set(refs.map((r) => r.viewport));
+      const missingViewports = policy.viewports.filter((v) => !capturedViewports.has(v));
+      if (missingViewports.length > 0) {
+        incompleteTargets.push(`side ${pageId}: mangler ${missingViewports.join(", ")}`);
+      }
+      if (refs.length === 0) {
+        incompleteTargets.push(`side ${pageId}: ingen screenshots fanget`);
+        continue;
+      }
+
+      const analysis = await analyzeScreenshots(
+        refs.map((r) => r.id),
+        screenshotCache,
+        currentState,
+        pageId,
+        args.spendMeter
+      );
+      if (analysis.ran) {
+        allIssues.push(...analysis.issues);
+      } else {
+        incompleteTargets.push(
+          `side ${pageId}: analyse ikke tilgængelig` +
+            (analysis.skippedReason ? ` (${analysis.skippedReason})` : "")
+        );
+      }
+    }
+
+    // If any target was incomplete this pass, the review is "unavailable" —
+    // we cannot claim the site is clean. Preserve lastBlockingIssues from any
+    // prior pass (not the partial findings from this pass) and stop the loop.
+    if (incompleteTargets.length > 0) {
+      notes.push(
+        `Visuel verifikation ufuldstændig (pas ${passesRun}): ${incompleteTargets.join("; ")}. ` +
+          (lastBlockingIssues.length > 0
+            ? "Tidligere fundne problemer er stadig uafklaret."
+            : "Resultatet er ukendt.")
+      );
+      break;
+    }
+
+    const blocking = allIssues.filter(
+      (i) => i.severity === "critical" || i.severity === "high"
+    );
+    // Only update lastBlockingIssues when all targets completed — an
+    // unavailable pass must not erase prior findings with an empty list.
+    lastBlockingIssues = blocking;
+
+    if (!hasBlockingVisualIssues(allIssues)) {
+      const passNote =
+        passesRun === 1
+          ? `Visuelt tjek bestået (${policy.level}): ingen kritiske/høje problemer.`
+          : `Visuel korrektion lykkedes efter ${passesRun - 1} korrigerende ${passesRun - 1 === 1 ? "kørsel" : "kørsler"}.`;
+      notes.push(passNote);
+      return {
+        state: currentState,
+        savedRevision: currentRevision,
+        notes,
+        hasUnresolvedBlocking: false,
+      };
+    }
+
+    // If this was the last pass, report unresolved issues without running
+    // another corrective loop — there are no passes left to verify it.
+    if (passesRun >= MAX_REVIEW_PASSES) break;
+
+    // ── Corrective agent pass ─────────────────────────────────────────
+    args.emit({
+      type: "step_progress",
+      index: args.index,
+      label: `Korrigerer ${blocking.length} visuelle problemer (kørsel ${passesRun} af ${MAX_REVIEW_PASSES - 1})...`,
+    });
+
+    const issueList = blocking
+      .map(
+        (issue, i) =>
+          `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.category} · ${issue.viewport}` +
+          ` — ${issue.description}` +
+          `\n   Handling: ${issue.suggestedAction}` +
+          (issue.componentId ? `\n   Komponent-id: ${issue.componentId}` : "")
+      )
+      .join("\n");
+
+    const correctiveSystemPrompt =
+      `Du er BirdFlows visuelle korrigent. Du retter UDELUKKENDE de specificerede visuelle problemer — intet andet.\n\n` +
+      `## Trinets kontekst\n${PLAN_STEP_TYPE_LABELS[args.step.type]}: ${args.step.title}\n` +
+      `Detaljer: ${args.step.detail}\n\n` +
+      `## Regler\n` +
+      `- Ret KUN de problemer, der er listet — lav ingen andre ændringer\n` +
+      `- Brug komponent-id'erne til at finde de rigtige sektioner (get_page, derefter update)\n` +
+      `- Kald finish, når alle problemer er rettet eller forsøgt rettet`;
+
+    const correctiveCtx: AgentContext = {
+      websiteId: args.websiteId,
+      state: structuredClone(currentState),
+      applied: [],
+      notes: [],
+      createdImages: [],
+      imageCache: args.imageCache,
+      spendMeter: args.spendMeter,
+      approvedLargeChanges: args.approvedLargeChanges,
+      guard: makeStepGuard(args.step),
+    };
+
+    try {
+      await runAgentLoop({
+        tools: buildToolCatalogue(),
+        systemPrompt: correctiveSystemPrompt,
+        userMessage:
+          `Disse visuelle problemer er fundet og skal rettes (tjek ${passesRun}):\n\n${issueList}\n\n` +
+          `Ret dem nu. Kald get_page for at se siden, ret med update-tools, kald finish.`,
+        ctx: correctiveCtx,
+        emit: (event: AgentEvent) => {
+          if (event.type === "tool") {
+            args.emit({
+              type: "tool",
+              index: args.index,
+              name: event.name,
+              summary: event.summary,
+              ok: event.ok,
+            });
+          }
+        },
+        role: "buildStep",
+        spendMeter: args.spendMeter,
+        maxSteps: CORRECTIVE_TURN_BUDGET,
+        firstStepLabel: "Retter visuelle problemer",
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notes.push(`Korrigerende kørsel ${passesRun} fejlede: ${msg}`);
+      break;
+    }
+
+    if (correctiveCtx.applied.length === 0) {
+      notes.push(`Korrigerende kørsel ${passesRun} foretog ingen ændringer.`);
+      break;
+    }
+
+    // Save corrective mutations with CAS.
+    const beforeRepairs = pageSignatures(correctiveCtx.state);
+    const checkResult = runSelfCheck(correctiveCtx.state);
+    const correctedState = checkResult.state;
+    sanitizeBuilderStateCustomContent(correctedState);
+
+    const saved = await storage.updateBuilderState(
+      args.websiteId,
+      correctedState,
+      currentRevision,
+      { svgAssetOrigin: "ai" }
+    );
+    if (!saved) {
+      notes.push(
+        "Korrigerende ændringer kunne ikke gemmes (canvas-konflikt) — fortsætter med eksisterende tilstand."
+      );
+      break;
+    }
+
+    await bumpSiteRevision(args.websiteId).catch(() => {});
+    currentState = correctedState;
+    currentRevision = saved.revision;
+    args.emit({ type: "state", revision: saved.revision, newState: correctedState });
+    notes.push(
+      ...checkResult.notes,
+      `Korrigerende kørsel ${passesRun}: ${correctiveCtx.applied.length} rettelse${correctiveCtx.applied.length === 1 ? "" : "r"} gemt.`
+    );
+
+    void beforeRepairs; // used indirectly via outOfScopeRepairNotes if needed
+  }
+
+  // Report any remaining blocking issues.
+  const unresolvedNote = formatUnresolvedIssueNote(lastBlockingIssues, passesRun - 1);
+  if (unresolvedNote) notes.push(unresolvedNote);
+  const hasUnresolvedBlocking = lastBlockingIssues.some(
+    (i) => i.severity === "critical" || i.severity === "high"
+  );
+
+  return { state: currentState, savedRevision: currentRevision, notes, hasUnresolvedBlocking };
+}
+
+/* ─────────────────────── final site review ─────────────────────── */
+
+/**
+ * Full-site visual review that runs for multi-page builds before build_finished
+ * is emitted. Screenshots representative pages (home + last + one middle page),
+ * analyzes with Kimi, runs ONE corrective agent pass when blocking issues are
+ * found, then re-verifies.
+ *
+ * Returns:
+ *   notes                — Danish notes appended to the last step result.
+ *   hasUnresolvedBlocking — true when high/critical issues survived correction.
+ *                          The caller may use this to pause the build rather
+ *                          than emitting a clean "completed" status.
+ *
+ * Degrades gracefully — any failure produces notes, never throws.
+ */
+async function runFinalSiteReview(args: {
+  state: BuilderStateData;
+  savedRevision: number;
+  spendMeter: SpendMeter;
+  language: SiteLanguage;
+  websiteId: string;
+  imageCache: Map<string, string>;
+  approvedLargeChanges: boolean;
+  lastStepIndex: number;
+  emit: (event: BuildStreamEvent) => void;
+}): Promise<{ notes: string[]; hasUnresolvedBlocking: boolean }> {
+  const notes: string[] = [];
+  try {
+    const { capturePageScreenshots, analyzeScreenshots } = await import("./visualReview");
+
+    type VisualIssueT = import("./visualReview").VisualIssue;
+    type VisualScreenshotT = import("./visualReview").VisualScreenshot;
+
+    // Capture and analyze a set of pages with all-target / all-viewport
+    // completeness semantics — same rule as per-step review: a pass is
+    // only considered successful when every (pageId × viewport) combo
+    // was captured AND successfully analyzed.
+    // Defined as a const arrow (not a function declaration) because
+    // function declarations inside try blocks are forbidden in strict-mode ES5.
+    const captureAndAnalyze = async (
+      state: BuilderStateData,
+      pageIds: string[],
+      prefix: string
+    ): Promise<{ issues: VisualIssueT[]; allComplete: boolean }> => {
+      const cache = new Map<string, VisualScreenshotT>();
+      const issues: VisualIssueT[] = [];
+      let allComplete = true;
+
+      for (const pageId of pageIds) {
+        if (args.spendMeter.exceeded()) {
+          allComplete = false;
+          notes.push(`${prefix}: omkostningsloftet nået, side ${pageId} sprunget over.`);
+          break;
+        }
+        const { refs, warnings } = await capturePageScreenshots(
+          state,
+          pageId,
+          ["desktop", "mobile"],
+          cache,
+          { lang: args.language }
+        );
+        if (warnings.length > 0) {
+          notes.push(...warnings.map((w: string) => `${prefix}: ${w}`));
+        }
+        const capturedViewports = new Set(refs.map((r) => r.viewport));
+        const missing = (["desktop", "mobile"] as const).filter(
+          (v) => !capturedViewports.has(v)
+        );
+        if (missing.length > 0 || refs.length === 0) {
+          allComplete = false;
+          notes.push(
+            `${prefix}: side ${pageId} ufuldstændig (mangler ${missing.length > 0 ? missing.join(", ") : "alle viewports"}).`
+          );
+          if (refs.length === 0) continue;
+        }
+        const analysis = await analyzeScreenshots(
+          refs.map((r) => r.id),
+          cache,
+          state,
+          pageId,
+          args.spendMeter
+        );
+        if (analysis.ran) {
+          issues.push(...analysis.issues);
+        } else {
+          allComplete = false;
+          if (analysis.skippedReason) {
+            notes.push(`${prefix} analyse sprunget over: ${analysis.skippedReason}`);
+          }
+        }
+      }
+      return { issues, allComplete };
+    };
+
+    const pages = args.state.pages;
+    // Full-site gate: every page must pass, not a sampled subset.
+    // Sampling would let issues on non-sampled pages through even when the
+    // build is reported "completed" — exactly the gap this gate exists to close.
+    const targetPageIds = pages.map((p) => p.id);
+
+    // ── First pass ────────────────────────────────────────────────────
+    const first = await captureAndAnalyze(args.state, targetPageIds, "Slutgennemgang");
+    const blocking = first.issues.filter(
+      (i) => i.severity === "critical" || i.severity === "high"
+    );
+
+    if (!first.allComplete) {
+      // Incomplete first pass: at least one page/viewport was unavailable.
+      // We cannot distinguish "no issues" from "issues undetectable due to
+      // capture failure" — the unknown result must not silently complete the
+      // build. Report blocking regardless of whether partial issues were found.
+      notes.push(
+        "Slutvisuel gennemgang ufuldstændig: ikke alle sider/viewports kunne analyseres. " +
+          "Resultatet er ukendt — bygningen sættes på pause for at undgå falsk godkendelse."
+      );
+      return { notes, hasUnresolvedBlocking: true };
+    }
+
+    if (blocking.length === 0) {
+      const minor =
+        first.issues.length > 0
+          ? `${first.issues.length} mindre problem${first.issues.length === 1 ? "" : "er"} (ingen kritiske/høje).`
+          : "ingen synlige problemer fundet.";
+      notes.push(`Slutvisuel gennemgang bestået: ${minor}`);
+      return { notes, hasUnresolvedBlocking: false };
+    }
+
+    // ── Blocking issues found — run one corrective pass ───────────────
+    const issueList = blocking
+      .map(
+        (issue, i) =>
+          `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.category} · ${issue.viewport}` +
+          ` — ${issue.description}` +
+          `\n   Handling: ${issue.suggestedAction}` +
+          (issue.componentId ? `\n   Komponent-id: ${issue.componentId}` : "")
+      )
+      .join("\n");
+
+    notes.push(
+      `Slutvisuel gennemgang: ${blocking.length} vigtigt problem${blocking.length === 1 ? "" : "er"} fundet på tværs af sider. Starter én korrigerende kørsel.`
+    );
+    args.emit({
+      type: "step_progress",
+      index: args.lastStepIndex,
+      label: `Slutgennemgang: retter ${blocking.length} visuelle problemer...`,
+    });
+
+    let correctedState = args.state;
+    let correctedRevision = args.savedRevision;
+
+    if (!args.spendMeter.exceeded()) {
+      const correctiveCtx: AgentContext = {
+        websiteId: args.websiteId,
+        state: structuredClone(args.state),
+        applied: [],
+        notes: [],
+        createdImages: [],
+        imageCache: args.imageCache,
+        spendMeter: args.spendMeter,
+        approvedLargeChanges: args.approvedLargeChanges,
+        guard: makeStepGuard({
+          id: "final-review",
+          type: "design",
+          title: "Slutvisuel korrektion",
+          detail: "Ret visuelle problemer fundet i slutgennemgangen.",
+          scope: { pageIds: targetPageIds },
+        }),
+      };
+      try {
+        await runAgentLoop({
+          tools: buildToolCatalogue(),
+          systemPrompt:
+            `Du er BirdFlows slutvisuelle korrigent. Ret UDELUKKENDE de specificerede visuelle problemer på tværs af alle sider.\n\n` +
+            `## Regler\n` +
+            `- Ret KUN de listede problemer — lav ingen andre ændringer\n` +
+            `- Brug komponent-id'erne til at finde de rigtige sektioner (get_page)\n` +
+            `- Kald finish, når alle problemer er rettet eller forsøgt rettet`,
+          userMessage:
+            `Slutvisuel gennemgang fandt disse problemer på tværs af sider:\n\n${issueList}\n\n` +
+            `Ret dem nu. Kald get_page for at se siderne, ret med update-tools, kald finish.`,
+          ctx: correctiveCtx,
+          emit: (event: AgentEvent) => {
+            if (event.type === "tool") {
+              args.emit({
+                type: "tool",
+                index: args.lastStepIndex,
+                name: event.name,
+                summary: event.summary,
+                ok: event.ok,
+              });
+            }
+          },
+          role: "buildStep",
+          spendMeter: args.spendMeter,
+          maxSteps: CORRECTIVE_TURN_BUDGET,
+          firstStepLabel: "Retter slutvisuelle problemer",
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message.split("\n")[0] : String(err);
+        notes.push(`Slutvisuel korrigerende kørsel fejlede: ${msg}`);
+      }
+
+      if (correctiveCtx.applied.length > 0) {
+        const beforeRepairs = pageSignatures(correctiveCtx.state);
+        const checkResult = runSelfCheck(correctiveCtx.state);
+        const fixed = checkResult.state;
+        sanitizeBuilderStateCustomContent(fixed);
+        void beforeRepairs;
+
+        const saved = await storage.updateBuilderState(
+          args.websiteId,
+          fixed,
+          correctedRevision,
+          { svgAssetOrigin: "ai" }
+        );
+        if (saved) {
+          await bumpSiteRevision(args.websiteId).catch(() => {});
+          correctedState = fixed;
+          correctedRevision = saved.revision;
+          args.emit({ type: "state", revision: saved.revision, newState: fixed });
+          notes.push(`Slutvisuel korrektion: ${correctiveCtx.applied.length} rettelse${correctiveCtx.applied.length === 1 ? "" : "r"} gemt.`);
+        } else {
+          notes.push("Slutvisuel korrektion: ændringer kunne ikke gemmes (canvas-konflikt).");
+        }
+      } else {
+        notes.push("Slutvisuel korrigerende kørsel foretog ingen ændringer.");
+      }
+    }
+
+    // ── Verification pass after correction ────────────────────────────
+    if (args.spendMeter.exceeded()) {
+      const top = blocking.slice(0, 3).map((i) => i.description).join("; ");
+      const extra = blocking.length > 3 ? ` (+${blocking.length - 3} mere)` : "";
+      notes.push(
+        `Slutvisuel verifikation sprunget over (omkostningsloft): ${blocking.length} problem${blocking.length === 1 ? "" : "er"} er stadig uafklaret: ${top}${extra}.`
+      );
+      return { notes, hasUnresolvedBlocking: true };
+    }
+
+    const second = await captureAndAnalyze(correctedState, targetPageIds, "Slutverifikation");
+    const stillBlocking = second.issues.filter(
+      (i) => i.severity === "critical" || i.severity === "high"
+    );
+
+    if (!second.allComplete && stillBlocking.length === 0) {
+      // Could not fully verify after correction — treat as unresolved to be safe.
+      notes.push(
+        "Slutvisuel verifikation ufuldstændig efter korrektion: ikke alle sider kunne analyseres."
+      );
+      return { notes, hasUnresolvedBlocking: true };
+    }
+
+    if (stillBlocking.length === 0) {
+      notes.push("Slutvisuel korrektion lykkedes: ingen kritiske/høje problemer efter korrektion.");
+      return { notes, hasUnresolvedBlocking: false };
+    }
+
+    const top2 = stillBlocking.slice(0, 3).map((i) => i.description).join("; ");
+    const extra2 = stillBlocking.length > 3 ? ` (+${stillBlocking.length - 3} mere)` : "";
+    notes.push(
+      `Slutvisuel gennemgang: ${stillBlocking.length} problem${stillBlocking.length === 1 ? "" : "er"} stadig uløst efter korrektion: ${top2}${extra2}. ` +
+        `Byg rækker sættes på pause — ret disse i editor-værktøjet og genoptag.`
+    );
+    return { notes, hasUnresolvedBlocking: true };
+  } catch (err: unknown) {
+    notes.push(
+      `Slutvisuel gennemgang fejlede: ${err instanceof Error ? err.message.split("\n")[0] : String(err)} — bygningen sættes på pause.`
+    );
+    // A failed final review is an unknown result, not a clean one.
+    // Returning false here would silently complete a build whose final gate
+    // could not run — that is exactly the false-approval path we must prevent.
+    return { notes, hasUnresolvedBlocking: true };
+  }
 }
 
 /* ─────────────────────── the orchestrator ─────────────────────── */
@@ -419,6 +1000,10 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
   const website = await storage.getWebsite(websiteId).catch(() => undefined);
   const language = normalizeSiteLanguage(website?.language);
 
+  // Accumulated consistency summaries — each completed page/section step
+  // appends its own summary so later steps know the established visual language.
+  const consistencySummaries: PageConsistencySummary[] = [];
+
   const results: PlanStepResult[] =
     build.stepResults.length === plan.steps.length ? [...build.stepResults] : initialStepResults(plan);
 
@@ -506,6 +1091,15 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
     });
 
     const attemptsAlready = results[index].attempts ?? 0;
+
+    // Inject consistency context into page/section steps only, and only when
+    // at least one earlier page has completed (nothing to be consistent with
+    // before the first page is built).
+    const consistencyCtx =
+      stepNeedsConsistencyContext(step) && consistencySummaries.length > 0
+        ? buildConsistencyContext(consistencySummaries)
+        : undefined;
+
     const outcome = await runStep({
       websiteId,
       plan,
@@ -517,6 +1111,7 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
       approvedLargeChanges: options.approvedLargeChanges,
       language,
       emit,
+      consistencyContext: consistencyCtx,
     });
 
     imagesUsed = imageCache.size;
@@ -545,6 +1140,31 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
     }
 
     emit({ type: "step_finished", index, result: results[index] });
+
+    // After each completed page/section step, extract a consistency summary
+    // for subsequent steps to match. This must read the live DB state (the
+    // step may have saved a different revision than ctx.state held at end).
+    if (
+      outcome.result.status === "completed" &&
+      stepNeedsConsistencyContext(step)
+    ) {
+      try {
+        const savedData = await storage.getBuilderState(websiteId).catch(() => null);
+        if (savedData) {
+          const savedState = savedData.state as BuilderStateData;
+          const pageIds = extractedPageIdsForStep(step, savedState);
+          for (const pid of pageIds) {
+            const summary = extractPageSummary(savedState, pid);
+            if (summary && !consistencySummaries.some((s) => s.pageId === pid)) {
+              consistencySummaries.push(summary);
+            }
+          }
+        }
+      } catch {
+        /* non-fatal — consistency context is best-effort */
+      }
+    }
+
     index += 1;
     await updateBuildProgress(build.id, {
       currentStep: index,
@@ -552,6 +1172,11 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
       imagesUsed,
     });
   }
+
+  // Whether the final-site visual review found unresolved blocking issues
+  // after its own corrective pass. Hoisted here so it survives the try/catch
+  // scope and can be used to gate the build outcome below.
+  let finalReviewBlocking = false;
 
   const finalOutcome =
     finalStatus === "completed" && index >= plan.steps.length ? "completed" : finalStatus;
@@ -564,15 +1189,83 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
   if (finalOutcome === "completed" && results.length > 0) {
     try {
       const finalData = await storage.getBuilderState(websiteId);
-      if (finalData) {
-        const finalState = finalData.state as BuilderStateData;
-        const website = await storage.getWebsite(websiteId).catch(() => null);
+      if (!finalData) {
+        // State could not be loaded — the final visual gate cannot run, and
+        // self-review would describe an empty/stale snapshot. Treat this as
+        // an unknown/unverified result: mark blocking so the build pauses
+        // instead of silently completing with an unverified final state.
+        finalReviewBlocking = true;
+        results[results.length - 1] = {
+          ...results[results.length - 1],
+          notes: [
+            ...(results[results.length - 1].notes ?? []),
+            "Slutvisuel gennemgang ikke mulig: den gemte tilstand kunne ikke hentes efter bygningen. " +
+              "Bygningen sættes på pause — start en ny plan for at verificere.",
+          ],
+        };
+      } else {
+      const finalState = finalData.state as BuilderStateData;
+      const website = await storage.getWebsite(websiteId).catch(() => null);
+
+        // Full-site visual review for builds covering ≥2 pages.
+        // Runs BEFORE completeSelfReview so the summary card carries both
+        // the visual findings and the deterministic/AI design review.
+        // Any failure is caught here — it must never block the summary.
+        // When the review finds unresolved blocking issues after its own
+        // corrective pass, the build outcome is changed to "paused" so the
+        // customer knows the site needs attention before it goes live.
+        let finalSiteReviewNotes: string[] = [];
+        if (finalState.pages.length >= 2) {
+          if (spendMeter.exceeded()) {
+            // Budget exhausted before the final gate could run. An unverified
+            // multi-page build must not report "completed" — the gate exists to
+            // catch cross-page issues invisible to per-step reviews.
+            finalSiteReviewNotes = [
+              "Slutvisuel gennemgang sprunget over: omkostningsloftet er nået. " +
+                "Den visuelle slutkontrol kunne ikke køre — start en ny plan for at verificere siderne.",
+            ];
+            finalReviewBlocking = true;
+          } else {
+            try {
+              const finalReview = await runFinalSiteReview({
+                state: finalState,
+                savedRevision: finalData.revision,
+                spendMeter,
+                language: website?.language === "en" ? "en" : "da",
+                websiteId,
+                imageCache,
+                approvedLargeChanges: options.approvedLargeChanges,
+                lastStepIndex: results.length - 1,
+                emit,
+              });
+              finalSiteReviewNotes = finalReview.notes;
+              finalReviewBlocking = finalReview.hasUnresolvedBlocking;
+            } catch (err: unknown) {
+              console.error("[build] final site review failed:", err);
+              // A failed gate is also unknown — do not complete silently.
+              finalSiteReviewNotes = [
+                `Slutvisuel gennemgang fejlede: ${err instanceof Error ? err.message.split("\n")[0] : String(err)} — bygningen sættes på pause.`,
+              ];
+              finalReviewBlocking = true;
+            }
+          }
+        }
+
+        // Reload state from DB before deterministic/self review — the final
+        // visual review's corrective pass may have saved a newer revision,
+        // and completeSelfReview must describe the persisted site, not the
+        // pre-correction snapshot.
+        const latestData = await storage.getBuilderState(websiteId).catch(() => null);
+        const reviewState = latestData
+          ? (latestData.state as BuilderStateData)
+          : finalState;
+
         // Every step's save already ran the deterministic repairs, so this
         // pass finds no new ones — it is re-run for its FINDINGS (the
         // report-only coverage: budgets, SEO, semantics), and its returned
         // state is deliberately discarded.
-        const finalCheck = runSelfCheck(finalState);
-        const review = await completeSelfReview(finalState, {
+        const finalCheck = runSelfCheck(reviewState);
+        const review = await completeSelfReview(reviewState, {
           findings: finalCheck.findings,
           meter: spendMeter,
           language: website?.language === "en" ? "en" : "da",
@@ -582,20 +1275,61 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
         // sees add up to what actually ran.
         // Completeness check: flag pages with too few sections so the
         // customer knows which pages need a follow-up plan.
-        const completenessNotes = buildCompletenessNotes(finalState);
+        const completenessNotes = buildCompletenessNotes(reviewState);
         results[results.length - 1] = {
           ...results[results.length - 1],
           review,
-          notes: [...(results[results.length - 1].notes ?? []), ...completenessNotes],
+          notes: [
+            ...(results[results.length - 1].notes ?? []),
+            ...finalSiteReviewNotes,
+            ...completenessNotes,
+          ],
           spentUsd: spendMeter.spentUsd,
         };
       }
     } catch (err) {
       console.error("[build] self-review after build failed:", err);
+      // Any throw from the completion block (including a failed state load)
+      // means the final visual gate could not run — unknown ≠ clean.
+      finalReviewBlocking = true;
+      if (results.length > 0) {
+        results[results.length - 1] = {
+          ...results[results.length - 1],
+          notes: [
+            ...(results[results.length - 1].notes ?? []),
+            `Slutvisuel gennemgang ikke mulig: intern fejl (${err instanceof Error ? err.message.split("\n")[0] : String(err)}) — bygningen sættes på pause.`,
+          ],
+        };
+      }
     }
   }
 
-  const summary = summarize(build, plan, results, finalOutcome, imagesUsed);
+  // If the final site review found high/critical issues that survived its
+  // own corrective pass, downgrade the build outcome to "paused". The
+  // customer's work is saved and they can fix the issues in the editor or
+  // start a new plan — but the build must not silently report "done" when
+  // the final gate says otherwise.
+  // This can only change "completed" → "paused" because finalReviewBlocking
+  // is only set when finalOutcome was already "completed".
+  if (finalReviewBlocking) {
+    finalStatus = "paused";
+    pauseReason =
+      "Slutvisuel gennemgang fandt problemer, der ikke kunne rettes automatisk. " +
+      "Se noterne på det sidste trin og ret dem i editor-værktøjet. " +
+      "Brug \"Genoptag\" for at fortsætte, når problemerne er løst.";
+  }
+
+  // Recompute the effective outcome after any post-completion downgrade.
+  const effectiveOutcome: BuildSummary["status"] =
+    finalStatus === "paused"
+      ? "paused"
+      : finalStatus === "cancelled"
+        ? "cancelled"
+        : finalStatus === "completed" && index >= plan.steps.length
+          ? "completed"
+          : finalStatus;
+
+  const summary = summarize(build, plan, results, effectiveOutcome, imagesUsed);
 
   await updateBuildProgress(build.id, {
     currentStep: index,
@@ -657,6 +1391,11 @@ async function runStep(args: {
   approvedLargeChanges: boolean;
   language: SiteLanguage;
   emit: (event: BuildStreamEvent) => void;
+  /**
+   * Injected into the user message for page/section steps so the agent
+   * matches the visual language established by earlier pages.
+   */
+  consistencyContext?: string;
 }): Promise<StepOutcome> {
   const { websiteId, plan, step, index, emit } = args;
 
@@ -717,7 +1456,7 @@ async function runStep(args: {
     loop = await runAgentLoop({
       tools: buildToolCatalogue(),
       systemPrompt: buildStepSystemPrompt(plan, step, index, args.language),
-      userMessage: buildStepUserMessage(plan, step, index, ctx.state, args.results),
+      userMessage: buildStepUserMessage(plan, step, index, ctx.state, args.results, args.consistencyContext),
       ctx,
       emit: onAgentEvent,
       role: "buildStep",
@@ -841,6 +1580,40 @@ async function runStep(args: {
 
   emit({ type: "state", revision: saved.revision, newState });
 
+  // ── Policy-driven visual review + corrective loop ──────────────────────
+  // Runs on every completed step where the policy engine decides a screenshot
+  // check adds value (not copywriting, not image-swap, not motion-only). The
+  // corrective loop may apply additional mutations and save them before we
+  // determine whether the agent called finish — those mutations do not change
+  // the finish-call assessment, which is based on the main loop only.
+  //
+  // IMPORTANT: any unexpected error from the visual review must NEVER abort
+  // the build — the step's work is already saved and the customer should see
+  // their changes. Failures degrade to a note on the step result.
+  let reviewCycleNotes: string[] = [];
+  try {
+    const reviewCycle = await runPolicyReviewCycle({
+      step,
+      plan,
+      index,
+      websiteId,
+      state: newState,
+      savedRevision: saved.revision,
+      appliedMutations: ctx.applied,
+      imageCache: args.imageCache,
+      spendMeter: args.spendMeter,
+      approvedLargeChanges: args.approvedLargeChanges,
+      language: args.language,
+      emit,
+    });
+    reviewCycleNotes = reviewCycle.notes;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message.split("\n")[0] : String(err);
+    reviewCycleNotes = [`Visuelt tjek fejlede og blev sprunget over: ${msg}`];
+    console.error("[build] runPolicyReviewCycle threw unexpectedly:", err);
+  }
+  const reviewNotes = reviewCycleNotes;
+
   // Determine completion: finish must have been explicitly called by the agent.
   // If the loop exhausted its full budget (including all continuation passes)
   // without calling finish, the step has done partial work — saved to DB above
@@ -859,6 +1632,7 @@ async function runStep(args: {
           ...ctx.notes,
           ...check.notes,
           ...strayNotes,
+          ...reviewNotes,
           `Agenten nåede den samlede turn-grænse (${loop.steps} trin inkl. ${continuationCount} fortsættelse${continuationCount === 1 ? "" : "r"}) ` +
             `og kald finish ikke. ${ctx.applied.length} ændring${ctx.applied.length === 1 ? " er gemt" : "er er gemt"}.`,
         ],
@@ -878,7 +1652,7 @@ async function runStep(args: {
       status: "completed",
       summary: loop.summary || "Trinnet er gennemført.",
       mutationCount: ctx.applied.length,
-      notes: [...ctx.notes, ...check.notes, ...strayNotes],
+      notes: [...ctx.notes, ...check.notes, ...strayNotes, ...reviewNotes],
       rejections,
       finishCalled: true,
     },
