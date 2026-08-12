@@ -2058,7 +2058,13 @@ export function validateMutation(
       return { valid: false, error: 'Custom component tree is empty or invalid' };
     }
     if (tree.nodes > MAX_CUSTOM_TREE_NODES) {
-      return { valid: false, error: `Custom component tree exceeds ${MAX_CUSTOM_TREE_NODES} nodes` };
+      return {
+        valid: false,
+        error:
+          `Custom component tree exceeds the limit: ${tree.nodes} nodes (limit: ${MAX_CUSTOM_TREE_NODES}). ` +
+          'Break it into 2–3 smaller create_custom_component calls, each covering one visual area. ' +
+          'Place the resulting components side-by-side or stacked with add_component.',
+      };
     }
     if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
       return { valid: false, error: `Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels` };
@@ -2097,8 +2103,17 @@ export function validateMutation(
     }
     if (mutation.tree) {
       const tree = measureAiTree(mutation.tree);
-      if (tree.nodes === 0 || tree.nodes > MAX_CUSTOM_TREE_NODES) {
-        return { valid: false, error: `Custom component tree is invalid (empty or more than ${MAX_CUSTOM_TREE_NODES} nodes)` };
+      if (tree.nodes === 0) {
+        return { valid: false, error: 'Custom component tree is empty or invalid' };
+      }
+      if (tree.nodes > MAX_CUSTOM_TREE_NODES) {
+        return {
+          valid: false,
+          error:
+            `Custom component tree exceeds the limit: ${tree.nodes} nodes (limit: ${MAX_CUSTOM_TREE_NODES}). ` +
+            'Break it into 2–3 smaller create_custom_component calls, each covering one visual area. ' +
+            'Place the resulting components side-by-side or stacked with add_component.',
+        };
       }
       if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
         return { valid: false, error: `Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels` };

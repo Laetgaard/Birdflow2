@@ -46,6 +46,16 @@ function pxValue(value: string | undefined): number | null {
 }
 
 /**
+ * True when a node's base position value makes it a "positioned" ancestor
+ * (i.e., children with `position: absolute` will stack inside it on the
+ * published site, which emits real CSS class-scoped rules).
+ */
+function isPositionedNode(styles: Record<string, string>): boolean {
+  const p = styles.position;
+  return p === "relative" || p === "absolute" || p === "sticky";
+}
+
+/**
  * Repair a tree in place and report what happened.
  *
  * `label` names the section in the Danish notes. The tree is mutated: both
@@ -55,7 +65,7 @@ export function guardResponsive(root: PrimitiveNode, label: string): ResponsiveR
   const repairs: string[] = [];
   const blocking: string[] = [];
 
-  const walk = (node: PrimitiveNode) => {
+  const walk = (node: PrimitiveNode, hasPositionedAncestor: boolean) => {
     if (!node || typeof node !== "object") return;
     const nodeName = node.name || node.type;
     const styles = (node.styles ?? {}) as Record<string, string>;
@@ -130,10 +140,46 @@ export function guardResponsive(root: PrimitiveNode, label: string): ResponsiveR
       }
     }
 
-    if (Array.isArray(node.children)) node.children.forEach(walk);
+    // 7) Absolute positioning without a positioned ancestor breaks layout on
+    //    the published site (the node escapes its section and overlays other
+    //    content). Blocking: the tree structure must be fixed before saving.
+    //    If the node IS inside a positioned ancestor but lacks a mobile
+    //    override, repair it to position:relative on mobile so it flows
+    //    normally on phones instead of potentially flying off-screen.
+    if (styles.position === "absolute") {
+      if (!hasPositionedAncestor) {
+        blocking.push(
+          `"${nodeName}" i ${label} er absolut positioneret uden et positioneret overordnet element. ` +
+          "Angiv position:relative eller position:sticky på forælderen, eller fjern absolute."
+        );
+      } else {
+        // Has a positioned ancestor — absolute is valid structurally.
+        // On mobile, though, there is rarely enough space to keep it from
+        // clipping. Auto-repair to relative unless the designer already set a
+        // mobile override.
+        const mobilePos = (node.mobileStyles ?? {}).position;
+        if (!mobilePos) {
+          node.mobileStyles = {
+            ...(node.mobileStyles ?? {}),
+            position: "relative",
+            top: "0",
+            left: "0",
+          };
+          repairs.push(
+            `Mobiltilpasning: absolut position på "${nodeName}" i ${label} gøres relativ på mobil (tilføj eksplicit mobilversion for at overstyre).`
+          );
+        }
+      }
+    }
+
+    // Propagate positioned-ancestor context: this node is positioned if it
+    // has position relative/absolute/sticky, which contains its absolutely-
+    // positioned children correctly in CSS.
+    const childPositioned = hasPositionedAncestor || isPositionedNode(styles);
+    if (Array.isArray(node.children)) node.children.forEach((child) => walk(child, childPositioned));
   };
 
-  walk(root);
+  walk(root, false);
   return { repairs, blocking };
 }
 

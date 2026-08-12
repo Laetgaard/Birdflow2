@@ -20,9 +20,27 @@ import {
   UpdateCustomComponentMutation,
   UpdateBrandGuideMutation,
 } from "@shared/aiBuilderSchema";
-import { buildBrandContext } from "@shared/customComponents";
+import {
+  buildBrandContext,
+  findPrimitiveNode,
+  insertPrimitiveChild,
+  updatePrimitiveNode,
+  removePrimitiveNode,
+  movePrimitiveNode,
+  countPrimitiveNodes,
+  sanitizeStyleRecord,
+  sanitizeLinkHref,
+  sanitizeEditableSchema,
+  inferEditableSchema,
+  createPrimitiveNode,
+  type PrimitiveNode,
+  type PrimitiveNodeType,
+  PRIMITIVE_TEXT_TAGS,
+  PRIMITIVE_BUTTON_VARIANTS,
+} from "@shared/customComponents";
 import { SVG_SHAPES, renderSvgShape } from "@shared/svgShapes";
 import { applyMutation, validateMutation, analyzeDesign, assertSaneJsonDepth } from "./aiBuilder";
+import { guardResponsive } from "./responsiveGuard";
 import { runSelfCheck } from "./selfCheck";
 import { checkPublishParity } from "./publishParity";
 import { generateAndStoreImage, readObjectImageAsDataUrl, type ImageAspect } from "./aiImages";
@@ -190,6 +208,34 @@ function applyWrite(
       return { ok: false, error: guarded.reason };
     }
     if (guarded.notes?.length) ctx.notes.push(...guarded.notes);
+  }
+
+  // Enforce absolute-positioning safety on ALL AI paths — not just the build
+  // orchestrator path that sets ctx.guard. guardResponsive mutates the tree
+  // in-place for repairable cases (adds a position:relative mobile override so
+  // the layout degrades gracefully) and returns blocking messages for cases
+  // where there is no positioned ancestor at all. We skip this when ctx.guard is
+  // already set to avoid double-running the same check (the orchestrator guard
+  // calls guardResponsive itself via its own step-context rules).
+  if (
+    !ctx.guard &&
+    (mutation.action === "add_custom_component" || mutation.action === "update_custom_component") &&
+    "tree" in mutation &&
+    mutation.tree
+  ) {
+    const absGuard = guardResponsive(
+      mutation.tree as unknown as PrimitiveNode,
+      (mutation as any).name ?? "komponent"
+    );
+    if (absGuard.blocking.length > 0) {
+      return {
+        ok: false,
+        error:
+          "Absolut positionering uden en positioned ancestor er ikke tilladt (mobil-layout-fejl). " +
+          absGuard.blocking.join(" ") +
+          " Tilføj position:relative til forælderen, eller brug en anden layout-strategi.",
+      };
+    }
   }
 
   // Reject motion specs that have settings but no effect field — they
@@ -665,14 +711,20 @@ export function buildToolCatalogue(): AgentTool[] {
   tools.push(
     writeTool(
       "create_custom_component",
-      "Build a brand new component from primitive nodes (box/text/image/button/svg) when no standard section fits. " +
-        "Supply base styles plus tabletStyles and mobileStyles so it is responsive. SVG nodes may contain SMIL " +
-        "(animate, animateTransform, animateMotion) for real motion graphics. Nodes accept a \"motion\" object of " +
-        "presets (effect/trigger/duration/delay/easing/distance/repeat/hover; boxes also stagger) — motion is data, " +
-        "never keyframes or scripts. Use it sparingly: one entrance per block, children via stagger on the parent box. " +
-        "ALWAYS include \"schema\" declaring " +
-        "the editable fields (Danish labels, node-id bindings, repeaters for lists) — give referenced nodes explicit ids. " +
-        "Custom components are visual-only: never imitate booking/forms/checkout; insert the trusted section types instead.",
+      "Build a brand new component from primitive nodes (box/text/image/button/svg) — the right choice whenever " +
+        "no standard section captures the exact visual design needed. " +
+        "Supply base styles plus tabletStyles and mobileStyles so it is responsive on phones. " +
+        "Allowed style keys: all layout/sizing/visual/typography keys plus position (static/relative/absolute/sticky), " +
+        "top/right/bottom/left/inset, zIndex, rotate, scale, translateX, translateY, objectPosition, " +
+        "clipPath (safe presets: circle/ellipse/inset/polygon/none), visibility, pointerEvents, isolation. " +
+        "SVG nodes may contain SMIL (animate, animateTransform, animateMotion) for real motion graphics. " +
+        "Nodes accept a \"motion\" object of presets (effect/trigger/duration/delay/easing/distance/repeat/hover; " +
+        "boxes also stagger) — motion is data, never keyframes or scripts. " +
+        "\"schema\" is OPTIONAL — if omitted it is auto-generated from the tree. " +
+        "Include it when you want to name the editable fields explicitly (Danish labels, node-id bindings, repeaters for lists). " +
+        "Give referenced nodes explicit ids. " +
+        "Custom components are visual-only: never imitate booking/forms/checkout; insert the trusted section types instead. " +
+        "Use the node-level tools (add_custom_node, update_custom_node_styles, …) for incremental edits after creation.",
       AddCustomComponentMutation,
       (m) => `Byggede komponenten "${m.name}"`
     )
@@ -680,13 +732,296 @@ export function buildToolCatalogue(): AgentTool[] {
   tools.push(
     writeTool(
       "update_custom_component",
-      "Replace the tree or styles of an existing custom component. Keep node ids and schema keys stable where " +
-        "possible, and include \"schema\" again whenever the structure changed. Node \"motion\" presets " +
-        "(effect/…/hover, stagger on boxes) are the only way to animate nodes — keep it calm and purposeful.",
+      "Replace the tree or styles of an existing custom component (full-tree replacement). " +
+        "For targeted node edits, prefer the node-level tools instead: " +
+        "get_custom_component_tree, add_custom_node, update_custom_node_styles, update_custom_node_content, " +
+        "move_custom_node, remove_custom_node. " +
+        "Keep node ids and schema keys stable where possible, and include \"schema\" again whenever the structure changed. " +
+        "Node \"motion\" presets (effect/…/hover, stagger on boxes) are the only way to animate nodes — keep it calm and purposeful.",
       UpdateCustomComponentMutation,
       () => "Opdaterede en egen komponent"
     )
   );
+
+  // ---- node-level tools for incremental custom-component editing ----
+
+  /** Helper: find a custom component on a page and return its current tree. */
+  function findCustomTree(
+    ctx: AgentContext,
+    pageId: string,
+    componentId: string
+  ): { tree: PrimitiveNode; page: typeof ctx.state.pages[0]; comp: typeof ctx.state.pages[0]['components'][0] }
+    | { error: string } {
+    const page = ctx.state.pages.find((p) => p.id === pageId);
+    if (!page) return { error: `Side "${pageId}" findes ikke.` };
+    const comp = page.components.find((c) => c.id === componentId);
+    if (!comp) return { error: `Komponent "${componentId}" findes ikke på siden "${pageId}".` };
+    if (comp.type !== "custom") return { error: `Komponent "${componentId}" er ikke en custom komponent.` };
+    const tree = (comp.props as { customTree?: PrimitiveNode })?.customTree;
+    if (!tree) return { error: `Komponent "${componentId}" har intet node-træ.` };
+    return { tree, page, comp };
+  }
+
+  tools.push({
+    name: "get_custom_component_tree",
+    description:
+      "Read the full node tree of a custom component. Use this to inspect node ids and structure " +
+      "before calling add_custom_node, update_custom_node_styles, update_custom_node_content, " +
+      "move_custom_node or remove_custom_node.",
+    parameters: z.object({
+      pageId: z.string().describe("ID of the page that owns the component"),
+      componentId: z.string().describe("ID of the custom component"),
+    }),
+    mutates: false,
+    run: (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+      return {
+        ok: true,
+        summary: `Hentede node-træ for komponent "${args.componentId}"`,
+        data: { tree: found.tree, nodeCount: countPrimitiveNodes(found.tree) },
+      };
+    },
+  });
+
+  tools.push({
+    name: "get_custom_node",
+    description: "Read a single node from a custom component's tree by its id.",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      nodeId: z.string().describe("Id of the node to read"),
+    }),
+    mutates: false,
+    run: (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+      const node = findPrimitiveNode(found.tree, args.nodeId);
+      if (!node) return { ok: false, error: `Node "${args.nodeId}" findes ikke i komponent "${args.componentId}".` };
+      return { ok: true, summary: `Hentede node "${args.nodeId}"`, data: { node } };
+    },
+  });
+
+  tools.push({
+    name: "add_custom_node",
+    description:
+      "Add a new node inside a box node of an existing custom component. " +
+      "Specify the parent box id and the new node's type and properties. " +
+      "Omit index to append; pass 0 to prepend.",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      parentNodeId: z.string().describe("Id of the box node that will receive the new child"),
+      nodeType: z.enum(["box", "text", "image", "button", "svg"]),
+      index: z.number().int().min(0).optional().describe("Insert position among siblings (0 = first). Omit to append."),
+      props: z.record(z.unknown()).optional()
+        .describe("Initial node properties: text, tag, src, alt, label, href, variant, styles, tabletStyles, mobileStyles, etc."),
+    }),
+    mutates: true,
+    run: (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+
+      const parent = findPrimitiveNode(found.tree, args.parentNodeId);
+      if (!parent) return { ok: false, error: `Forældrenode "${args.parentNodeId}" findes ikke.` };
+      if (parent.type !== "box") return { ok: false, error: `Forældrenode "${args.parentNodeId}" er af typen "${parent.type}" — kun box-noder kan have børn.` };
+
+      const newNode: PrimitiveNode = {
+        ...createPrimitiveNode(args.nodeType as PrimitiveNodeType),
+        ...(args.props as Partial<PrimitiveNode> ?? {}),
+      };
+
+      const newTree = insertPrimitiveChild(found.tree, args.parentNodeId, newNode, args.index);
+      const mutation = {
+        action: "update_custom_component" as const,
+        pageId: args.pageId,
+        componentId: args.componentId,
+        tree: newTree,
+      } as BuilderMutation;
+      return applyWrite(mutation, ctx, () => `Tilføjede ${args.nodeType}-node til komponent`);
+    },
+  });
+
+  tools.push({
+    name: "update_custom_node_styles",
+    description:
+      "Update the styles of a single node inside a custom component. " +
+      "Pass only the style keys you want to change; others are preserved. " +
+      "Specify device to target a breakpoint (styles = desktop base; tabletStyles; mobileStyles; hoverStyles).",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      nodeId: z.string(),
+      device: z.enum(["styles", "tabletStyles", "mobileStyles", "hoverStyles"]).default("styles"),
+      styles: z.record(z.string()).describe("Style key-value pairs to merge into the node. Pass an empty string to delete a key."),
+    }),
+    mutates: true,
+    run: (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+
+      const target = findPrimitiveNode(found.tree, args.nodeId);
+      if (!target) return { ok: false, error: `Node "${args.nodeId}" findes ikke.` };
+
+      const cleaned = sanitizeStyleRecord(args.styles);
+      if (!cleaned || Object.keys(cleaned).length === 0) {
+        return { ok: false, error: "Ingen gyldige style-nøgler i opdateringen. Brug tilladte camelCase CSS-egenskaber." };
+      }
+
+      const device = args.device as "styles" | "tabletStyles" | "mobileStyles" | "hoverStyles";
+      const newTree = updatePrimitiveNode(found.tree, args.nodeId, (node) => {
+        const existing = (node[device] ?? {}) as Record<string, string>;
+        const merged: Record<string, string> = { ...existing };
+        for (const [k, v] of Object.entries(cleaned)) {
+          if (v === "") delete merged[k];
+          else merged[k] = v;
+        }
+        return { ...node, [device]: Object.keys(merged).length > 0 ? merged : undefined };
+      });
+
+      const mutation = {
+        action: "update_custom_component" as const,
+        pageId: args.pageId,
+        componentId: args.componentId,
+        tree: newTree,
+      } as BuilderMutation;
+      return applyWrite(mutation, ctx, () => `Opdaterede styles på node "${args.nodeId}"`);
+    },
+  });
+
+  tools.push({
+    name: "update_custom_node_content",
+    description:
+      "Update the content of a single node inside a custom component: text, href, src/alt/mediaId for images, " +
+      "label/variant for buttons, svg markup for svg nodes. " +
+      "Pass only the fields you want to change.",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      nodeId: z.string(),
+      text: z.string().optional().describe("New text content (text nodes and button labels)"),
+      tag: z.enum(PRIMITIVE_TEXT_TAGS).optional().describe("HTML tag for text nodes (h1/h2/h3/h4/p/span/blockquote)"),
+      href: z.string().optional().describe("Link target for button nodes"),
+      variant: z.enum(PRIMITIVE_BUTTON_VARIANTS).optional().describe("Button variant (primary/secondary/outline/ghost/link)"),
+      src: z.string().optional().describe("Image URL"),
+      alt: z.string().optional().describe("Alt text for image nodes"),
+      mediaId: z.string().optional().describe("Media asset id for image nodes"),
+      svg: z.string().optional().describe("SVG markup for svg nodes"),
+      name: z.string().optional().describe("Display name shown in the layer panel"),
+    }),
+    mutates: true,
+    run: (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+
+      const target = findPrimitiveNode(found.tree, args.nodeId);
+      if (!target) return { ok: false, error: `Node "${args.nodeId}" findes ikke.` };
+
+      const newTree = updatePrimitiveNode(found.tree, args.nodeId, (node) => {
+        const updated = { ...node };
+        if (args.name !== undefined) updated.name = args.name;
+        // Button nodes store visible text as `label`, not `text`.
+        // Route the unified `text` field to the right property.
+        if (args.text !== undefined) {
+          if (node.type === "button") updated.label = args.text;
+          else updated.text = args.text;
+        }
+        if (args.tag !== undefined) updated.tag = args.tag;
+        if (args.href !== undefined) updated.href = sanitizeLinkHref(args.href);
+        if (args.variant !== undefined) updated.variant = args.variant;
+        if (args.src !== undefined) updated.src = args.src;
+        if (args.alt !== undefined) updated.alt = args.alt;
+        if (args.mediaId !== undefined) updated.mediaId = args.mediaId;
+        if (args.svg !== undefined) updated.svg = args.svg;
+        return updated;
+      });
+
+      const mutation = {
+        action: "update_custom_component" as const,
+        pageId: args.pageId,
+        componentId: args.componentId,
+        tree: newTree,
+      } as BuilderMutation;
+      return applyWrite(mutation, ctx, () => `Opdaterede indhold i node "${args.nodeId}"`);
+    },
+  });
+
+  tools.push({
+    name: "move_custom_node",
+    description: "Move a node one position up or down among its siblings inside a custom component.",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      nodeId: z.string().describe("Id of the node to move"),
+      direction: z.enum(["up", "down"]),
+    }),
+    mutates: true,
+    run: (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+
+      const newTree = movePrimitiveNode(found.tree, args.nodeId, args.direction);
+      if (newTree === found.tree) {
+        return { ok: false, error: `Node "${args.nodeId}" er allerede ved kanten i retningen "${args.direction}".` };
+      }
+
+      const mutation = {
+        action: "update_custom_component" as const,
+        pageId: args.pageId,
+        componentId: args.componentId,
+        tree: newTree,
+      } as BuilderMutation;
+      return applyWrite(mutation, ctx, () => `Flyttede node "${args.nodeId}" ${args.direction === "up" ? "op" : "ned"}`);
+    },
+  });
+
+  tools.push({
+    name: "remove_custom_node",
+    description:
+      "Remove a node (and its subtree) from a custom component. The root node of the component cannot be removed. " +
+      "Use get_custom_component_tree first to confirm the node id.",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      nodeId: z.string().describe("Id of the node to remove"),
+    }),
+    mutates: true,
+    run: (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+
+      if (found.tree.id === args.nodeId) {
+        return { ok: false, error: "Rodknuden kan ikke fjernes. Brug update_custom_component for at erstatte hele træet." };
+      }
+
+      const newTree = removePrimitiveNode(found.tree, args.nodeId);
+      if (newTree === found.tree) {
+        return { ok: false, error: `Node "${args.nodeId}" findes ikke i komponentens træ.` };
+      }
+
+      // Preserve the existing stored schema where possible.
+      // sanitizeEditableSchema automatically drops only the fields bound to the
+      // deleted node (because findPrimitiveNode returns null for them) while
+      // keeping all surviving field bindings — including authored Danish labels,
+      // style groups and repeater configurations — intact.
+      // Fall back to inference only when nothing valid remains after pruning.
+      const existingSchema = (found.comp.props as { customSchema?: unknown })?.customSchema;
+      const prunedSchema = existingSchema
+        ? sanitizeEditableSchema(newTree, existingSchema)
+        : undefined;
+      const resolvedSchema = prunedSchema ?? inferEditableSchema(newTree);
+
+      const mutation = {
+        action: "update_custom_component" as const,
+        pageId: args.pageId,
+        componentId: args.componentId,
+        tree: newTree,
+        schema: resolvedSchema,
+      } as BuilderMutation;
+      return applyWrite(mutation, ctx, () => `Fjernede node "${args.nodeId}" fra komponent`);
+    },
+  });
+
   tools.push(
     writeTool(
       "update_brand_guide",

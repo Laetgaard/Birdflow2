@@ -29,3 +29,4 @@
 - [Marketing SEO head injection](marketing-seo-head-injection.md) — initial-response metadata on both servers; `index:false` doesn't stop GET /index.html; managed-tag list for SPA head sync; SSR tests need reactEscape.
 - [Generated page type safety](generated-page-type-safety.md) — never import types from @ts-nocheck renderer in page files (isolatedModules breaks it); use a local loose PageComponentData type instead.
 - [Visual review loop](visual-review-loop.md) — screenshot→Kimi vision→VisualIssue[]; screenshots stored in AgentContext.screenshotCache by UUID, never in tool text; iteration cap via visualReviewCount; Chromium path detection required.
+- [Generative DSL 2.0](generative-dsl2.md) — shared/generative/ module split; new style keys; absolute-pos guard rule 7; structured truncation keeps "exceeds"; 7 node-level AI tools; design-first prompt.
