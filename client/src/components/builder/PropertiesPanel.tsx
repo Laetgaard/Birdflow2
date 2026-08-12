@@ -1390,7 +1390,73 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
   };
 
   // ---- TAB: Animation ----
-  const renderAnimationTab = () => (
+  const renderAnimationTab = () => {
+    // When styles.motion is present (set directly or after the save-time migration
+    // converts legacy animationType/* fields), the legacy fields may be absent.
+    // Derive effective display values from styles.motion so the panel stays accurate
+    // after migration and writes to BOTH paths so legacy-only stored components
+    // also work until their next save upgrades them.
+    const motionObj = component.styles.motion as Record<string, unknown> | undefined;
+
+    // Effect and trigger share the same vocabulary in both systems.
+    const effectiveEffect =
+      (motionObj?.effect as string | undefined) ?? component.styles.animationType ?? 'none';
+    const effectiveTrigger =
+      (motionObj?.trigger as string | undefined) ?? component.styles.animationTrigger ?? 'load';
+
+    // Duration / delay: motion uses named presets; legacy uses time strings.
+    // Reverse-map for the button selected-state comparison.
+    const MOTION_DUR_TO_LEGACY: Record<string, string> = {
+      fast: '0.3s', normal: '0.5s', slow: '0.8s', 'very-slow': '1.2s',
+    };
+    const MOTION_DEL_TO_LEGACY: Record<string, string> = {
+      short: '0.1s', medium: '0.3s', long: '0.5s',
+    };
+    const effectiveDuration =
+      component.styles.animationDuration ??
+      (motionObj?.duration ? MOTION_DUR_TO_LEGACY[motionObj.duration as string] : undefined);
+    const effectiveDelay =
+      component.styles.animationDelay ??
+      (motionObj?.delay && motionObj.delay !== 'none'
+        ? MOTION_DEL_TO_LEGACY[motionObj.delay as string]
+        : '0s');
+
+    // Build a combined update that writes to both legacy fields (for components not
+    // yet migrated) and styles.motion (authoritative after the save-time migration).
+    const LEGACY_DUR_TO_MOTION: Record<string, string> = {
+      '0.3s': 'fast', '0.5s': 'normal', '0.8s': 'slow', '1.2s': 'very-slow',
+    };
+    const LEGACY_DEL_TO_MOTION: Record<string, string> = {
+      '0s': 'none', '0.1s': 'short', '0.3s': 'medium', '0.5s': 'long',
+    };
+    const updateAnim = (patch: {
+      effect?: string;
+      trigger?: string;
+      duration?: string;
+      delay?: string;
+    }) => {
+      const newMotion: Record<string, unknown> = { ...(component.styles.motion ?? {}) };
+      const legacyPatch: Record<string, unknown> = {};
+      if ('effect' in patch) {
+        legacyPatch.animationType = patch.effect;
+        newMotion.effect = patch.effect;
+      }
+      if ('trigger' in patch) {
+        legacyPatch.animationTrigger = patch.trigger;
+        newMotion.trigger = patch.trigger;
+      }
+      if ('duration' in patch) {
+        legacyPatch.animationDuration = patch.duration;
+        newMotion.duration = patch.duration ? LEGACY_DUR_TO_MOTION[patch.duration] : undefined;
+      }
+      if ('delay' in patch) {
+        legacyPatch.animationDelay = patch.delay;
+        newMotion.delay = patch.delay ? LEGACY_DEL_TO_MOTION[patch.delay] : 'none';
+      }
+      onUpdate({ styles: { ...legacyPatch, motion: newMotion as any } });
+    };
+
+    return (
     <div className="space-y-4">
       <div className="space-y-3">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -1401,8 +1467,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         <div className="space-y-2">
           <Label className="text-xs">Type</Label>
           <Select
-            value={component.styles.animationType || 'none'}
-            onValueChange={(value) => onUpdate({ styles: { animationType: value as any } })}
+            value={effectiveEffect}
+            onValueChange={(value) => updateAnim({ effect: value })}
           >
             <SelectTrigger className="h-8" data-testid="select-animation-type">
               <SelectValue />
@@ -1424,8 +1490,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <button
                 key={preset.value}
                 type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationTrigger === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { animationTrigger: preset.value as any } })}
+                className={`px-2 py-1 text-xs rounded border transition-all ${effectiveTrigger === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => updateAnim({ trigger: preset.value })}
                 data-testid={`animation-trigger-${preset.value}`}
               >
                 {preset.name}
@@ -1441,8 +1507,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <button
                 key={preset.value}
                 type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationDuration === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { animationDuration: preset.value } })}
+                className={`px-2 py-1 text-xs rounded border transition-all ${effectiveDuration === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => updateAnim({ duration: preset.value })}
                 data-testid={`animation-duration-${preset.name.toLowerCase()}`}
               >
                 {preset.name}
@@ -1458,8 +1524,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <button
                 key={preset.value}
                 type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationDelay === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { animationDelay: preset.value } })}
+                className={`px-2 py-1 text-xs rounded border transition-all ${effectiveDelay === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => updateAnim({ delay: preset.value })}
                 data-testid={`animation-delay-${preset.name.toLowerCase()}`}
               >
                 {preset.name}
@@ -1473,7 +1539,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         <div className="space-y-2">
           <Label className="text-xs">Kurve</Label>
           <Select
-            value={component.styles.motion?.easing || 'soft'}
+            value={motionObj?.easing as string || 'soft'}
             onValueChange={(value) =>
               onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), easing: value as any } } })
             }
@@ -1498,7 +1564,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <button
                 key={preset.value}
                 type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${(component.styles.motion?.distance || 'medium') === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                className={`px-2 py-1 text-xs rounded border transition-all ${(motionObj?.distance as string || 'medium') === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
                 onClick={() =>
                   onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), distance: preset.value as any } } })
                 }
@@ -1517,7 +1583,7 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <button
                 key={preset.value}
                 type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${(component.styles.motion?.repeat || 'once') === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                className={`px-2 py-1 text-xs rounded border transition-all ${(motionObj?.repeat as string || 'once') === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
                 onClick={() =>
                   onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), repeat: preset.value as any } } })
                 }
@@ -1530,16 +1596,17 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         </div>
       </div>
 
-      {/* Animation preview hint */}
-      {component.styles.animationType && component.styles.animationType !== 'none' && (
+      {/* Animation preview hint — shows when any non-none effect is active */}
+      {effectiveEffect && effectiveEffect !== 'none' && (
         <div className="p-3 bg-muted/50 rounded-lg border border-dashed border-muted-foreground/20">
           <p className="text-xs text-muted-foreground">
-            Animationen afspilles ved {component.styles.animationTrigger === 'scroll' ? 'scroll' : 'sideindlæsning'}.
+            Animationen afspilles ved {effectiveTrigger === 'scroll' ? 'scroll' : 'sideindlæsning'}.
           </p>
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'content', label: 'Indhold', icon: <Type className="h-3.5 w-3.5" /> },

@@ -77,6 +77,7 @@ import {
   readBuildStatus,
   updateBuildProgress,
   markPlanBuilt,
+  createBuilderSnapshot,
   type AssistantBuild,
 } from "./planStore";
 
@@ -1178,6 +1179,11 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
   // scope and can be used to gate the build outcome below.
   let finalReviewBlocking = false;
 
+  // Snapshot data captured from the state already loaded during the completion
+  // block — no extra DB read, no race with customer edits that happen after we
+  // emit completion. Set only when finalOutcome === "completed".
+  let snapshotData: { state: BuilderStateData; revision: number } | null = null;
+
   const finalOutcome =
     finalStatus === "completed" && index >= plan.steps.length ? "completed" : finalStatus;
 
@@ -1259,6 +1265,14 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
         const reviewState = latestData
           ? (latestData.state as BuilderStateData)
           : finalState;
+
+        // Capture for version snapshot. We use the state already loaded here
+        // (no extra DB read) so the snapshot is the exact bytes the self-review
+        // describes — no race with customer edits that arrive after we emit
+        // "build_finished".
+        snapshotData = latestData
+          ? { state: latestData.state as BuilderStateData, revision: latestData.revision }
+          : { state: finalState, revision: finalData.revision };
 
         // Every step's save already ran the deterministic repairs, so this
         // pass finds no new ones — it is re-run for its FINDINGS (the
@@ -1346,6 +1360,33 @@ export async function runBuild(options: BuildRunOptions): Promise<BuildSummary> 
 
   if (summary.status === "completed") {
     await markPlanBuilt(websiteId, plan.id).catch(() => {});
+
+    // Persist the version snapshot and enriched metadata using the state
+    // captured during the completion block — no extra read, no race with
+    // post-completion customer edits. Any failure is non-fatal and logged.
+    if (snapshotData) {
+      try {
+        const pagesAfter = snapshotData.state.pages.length;
+        const pagesBefore = build.snapshot?.pages.length ?? pagesAfter;
+        const pagesAdded = Math.max(0, pagesAfter - pagesBefore);
+
+        await createBuilderSnapshot({
+          websiteId,
+          buildId: build.id,
+          label: summary.headline,
+          content: snapshotData.state,
+          revision: snapshotData.revision,
+        });
+
+        await updateBuildProgress(build.id, {
+          pagesAdded,
+          modelUsed: aiConfig("buildStep").model,
+        }).catch(() => {});
+      } catch (err) {
+        console.warn("[build] version snapshot failed (non-fatal):", err);
+      }
+    }
+
     emit({ type: "build_finished", summary });
   } else if (summary.status === "paused") {
     emit({ type: "build_paused", reason: pauseReason ?? "Bygningen blev sat på pause.", index, summary });

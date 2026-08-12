@@ -50,6 +50,8 @@ import {
   requestStop,
   startBuild,
   updateBuildProgress,
+  listBuilderSnapshots,
+  getBuilderSnapshot,
 } from "./planStore";
 import { bumpSiteRevision } from "./onboardingDecision";
 import {
@@ -667,6 +669,82 @@ export function registerAssistantPlanRoutes(app: Express, deps: AssistantPlanDep
       } catch (error: any) {
         console.error("Build undo error:", error);
         res.status(500).json({ message: "Bygningen kunne ikke fortrydes." });
+      }
+    }
+  );
+
+  /* ─────────────────── version history ─────────────────── */
+
+  /**
+   * List the last 20 completed-build snapshots for a website.
+   * Used by the builder's version history panel.
+   */
+  app.get(
+    "/api/websites/:id/ai/snapshots",
+    requireAuth,
+    requireWebsitePermission("readBuilder"),
+    async (req, res) => {
+      const websiteId = req.params.id;
+      try {
+        const snapshots = await listBuilderSnapshots(websiteId);
+        return res.json({ snapshots });
+      } catch (err: any) {
+        console.error("List snapshots error:", err);
+        res.status(500).json({ message: err?.message ?? "Fejl ved hentning af versionshistorik." });
+      }
+    }
+  );
+
+  /**
+   * Restore a previous build snapshot.
+   *
+   * The current builder state is replaced atomically. This uses the same
+   * optimistic-locking path as the canvas autosave, so a concurrent edit
+   * results in a 409 rather than a silent overwrite.
+   */
+  app.post(
+    "/api/websites/:id/ai/snapshots/:snapshotId/restore",
+    requireAuth,
+    requireWebsitePermission("updateBuilder"),
+    async (req, res) => {
+      const websiteId = req.params.id;
+      const snapshotId = req.params.snapshotId;
+      try {
+        const snapshot = await getBuilderSnapshot(websiteId, snapshotId);
+        if (!snapshot) {
+          return res.status(404).json({ message: "Snapshot ikke fundet." });
+        }
+
+        // Read the current revision to use for optimistic locking
+        const current = await storage.getBuilderState(websiteId);
+        if (!current) {
+          return res.status(404).json({ message: "Builder state ikke fundet." });
+        }
+
+        // Replace the live state — fails with null if the revision was stale
+        const saved = await storage.updateBuilderState(
+          websiteId,
+          snapshot.content,
+          current.revision
+        );
+        if (!saved) {
+          return res.status(409).json({
+            message:
+              "Versionen kunne ikke gendannes — siden er ændret. Genindlæs og prøv igen.",
+          });
+        }
+
+        await bumpSiteRevision(websiteId).catch(() => {});
+
+        return res.json({
+          ok: true,
+          revision: saved.revision,
+          label: snapshot.label,
+          createdAt: snapshot.createdAt,
+        });
+      } catch (err: any) {
+        console.error("Restore snapshot error:", err);
+        res.status(500).json({ message: err?.message ?? "Fejl ved gendannelse af version." });
       }
     }
   );

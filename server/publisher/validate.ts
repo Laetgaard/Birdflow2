@@ -13,6 +13,7 @@
  */
 
 import { z } from 'zod';
+import { componentTypes } from '@shared/aiBuilderSchema';
 
 // ── Base shape every component must have ─────────────────────────────────────
 
@@ -22,6 +23,17 @@ const BaseComponentSchema = z.object({
   props: z.record(z.unknown()).default({}),
   styles: z.record(z.unknown()).default({}),
 });
+
+// ── Known component types ─────────────────────────────────────────────────────
+// componentTypes from aiBuilderSchema excludes 'custom' (custom trees use a
+// different creation path). Both are valid at publish time.
+const KNOWN_COMPONENT_TYPES = new Set<string>([...componentTypes, 'custom']);
+
+// ── Known primitive node types ────────────────────────────────────────────────
+// These are the only values the published CustomNode renderer branches on.
+const KNOWN_PRIMITIVE_NODE_TYPES = new Set<string>([
+  'box', 'text', 'image', 'button', 'svg', 'capability',
+]);
 
 // ── Known literal-union props that must stay within their allowed sets ────────
 // These are the exact values the generated ComponentRenderer branches on.
@@ -69,7 +81,18 @@ export function validatePageComponents(
 
     const { id, type, props } = result.data;
 
-    // 2. Validate known literal-union props
+    // 2. Reject unknown component types — an unknown type would either be
+    //    silently ignored or crash the ComponentRenderer on the published site.
+    if (!KNOWN_COMPONENT_TYPES.has(type)) {
+      throw new Error(
+        `Cannot publish page "${pageName}".\n\n` +
+          `Component: ${id}\n` +
+          `Unknown component type: "${type}"\n` +
+          `Allowed types: ${Array.from(KNOWN_COMPONENT_TYPES).sort().join(', ')}`,
+      );
+    }
+
+    // 3. Validate known literal-union props
     if (
       props.alignment !== undefined &&
       typeof props.alignment === 'string' &&
@@ -104,7 +127,7 @@ export function validatePageComponents(
       );
     }
 
-    // 3. Custom AI-generated component checks
+    // 4. Custom AI-generated component checks
     if (type === 'custom') {
       validateCustomComponent(id, props, pageName);
     }
@@ -142,6 +165,35 @@ function validateCustomComponent(
     }
     // Recursively check all imageUrl fields in the tree
     validateImageUrlsInNode(props.customTree, componentId, pageName);
+    // Recursively check all node types in the tree
+    validatePrimitiveNodeTypes(props.customTree, componentId, pageName);
+  }
+}
+
+/**
+ * Walk a custom tree recursively and reject any node whose type is not in the
+ * known primitive node type set. An unknown type would be silently dropped or
+ * crash the published CustomNode renderer.
+ */
+function validatePrimitiveNodeTypes(
+  node: unknown,
+  componentId: string,
+  pageName: string,
+): void {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+  const obj = node as Record<string, unknown>;
+  if (typeof obj.type === 'string' && !KNOWN_PRIMITIVE_NODE_TYPES.has(obj.type)) {
+    throw new Error(
+      `Cannot publish page "${pageName}".\n\n` +
+        `Component: ${componentId} (custom)\n` +
+        `Unknown primitive node type: "${obj.type}"\n` +
+        `Allowed types: ${Array.from(KNOWN_PRIMITIVE_NODE_TYPES).sort().join(', ')}`,
+    );
+  }
+  if (Array.isArray(obj.children)) {
+    for (const child of obj.children) {
+      validatePrimitiveNodeTypes(child, componentId, pageName);
+    }
   }
 }
 

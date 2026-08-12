@@ -18,6 +18,7 @@ import { isTokenRef } from '../designTokens';
 import { sanitizeSvgColorOverrides } from '../svgAssets';
 import { sanitizeMotionSpec } from '../motion';
 import type { BuilderComponentData } from '../componentRegistry';
+import { applyMigrations } from './migrations';
 import {
   deepClone,
   generateNodeId,
@@ -574,7 +575,17 @@ export function sanitizeBuilderStateCustomContent<T extends BuilderStateLike>(st
     }
   };
 
-  state.pages?.forEach((page) => page.components?.forEach(sanitizeComponent));
+  state.pages?.forEach((page) => {
+    if (!page.components) return;
+    // Apply schema migrations (pure, idempotent) to every section component before
+    // sanitizing its custom tree. This converts legacy style props persisted in the
+    // DB (e.g. animationType → motion) so old-format data is transparently upgraded
+    // on next save — regardless of whether the component has a custom tree.
+    page.components = page.components.map((c) =>
+      c ? (applyMigrations(c as unknown as BuilderComponentData) as unknown as typeof c) : c
+    );
+    page.components.forEach(sanitizeComponent);
+  });
   state.customComponents?.forEach((entry) => {
     sanitizeComponent(entry.source);
     if (entry && typeof entry === 'object' && entry.source) {

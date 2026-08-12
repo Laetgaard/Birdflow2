@@ -671,12 +671,37 @@ export const assistantBuilds = pgTable("assistant_builds", {
   snapshotRevision: integer("snapshot_revision"),
   summary: text("summary"),
   error: text("error"),
+  // Enriched metadata added after initial release
+  pagesAdded: integer("pages_added").notNull().default(0),
+  visualQaBlocking: boolean("visual_qa_blocking").notNull().default(false),
+  modelUsed: text("model_used"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   finishedAt: timestamp("finished_at"),
 });
 
 export type AssistantBuildRow = typeof assistantBuilds.$inferSelect;
+
+/**
+ * Customer-facing version history.
+ *
+ * One row is created after every completed AI build so the customer can
+ * browse back and restore any earlier state. This is separate from the
+ * publish-pipeline `website_versions` table (which is scoped to Vercel
+ * deployments) — a builder snapshot exists even if the site has never
+ * been published.
+ */
+export const builderSnapshots = pgTable("builder_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()::varchar`),
+  websiteId: varchar("website_id").notNull(),
+  buildId: integer("build_id").notNull(),
+  label: text("label").notNull(),
+  content: jsonb("content").notNull(),
+  revision: integer("revision").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BuilderSnapshotRow = typeof builderSnapshots.$inferSelect;
 
 // Orders table (for ecommerce)
 export const orders = pgTable("orders", {

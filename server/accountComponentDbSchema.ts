@@ -35,6 +35,11 @@ export const ACCOUNT_COMPONENT_DDL: SchemaStatement[] = [
     sql: `CREATE INDEX IF NOT EXISTS account_components_owner_idx
           ON account_components (owner_id, created_at DESC)`,
   },
+  // account_component_versions intentionally deferred:
+  // the full write path (createAccountComponent, updateAccountComponent,
+  // createNewAccountComponentVersion) and the restore/history routes belong
+  // in a separate task so this DDL isn't shipped without the corresponding
+  // application layer.  See task #189.
 ];
 
 /** Apply the DDL. Idempotent — safe to run on every boot. */

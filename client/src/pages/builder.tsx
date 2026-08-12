@@ -97,6 +97,7 @@ import DragDropLayer from "@/components/builder/DragDropLayer";
 import MobileBottomSheet from "@/components/builder/MobileBottomSheet";
 import GlobalStylesPanel from "@/components/builder/GlobalStylesPanel";
 import { SiteStructurePanel } from "@/components/builder/SiteStructurePanel";
+import VersionHistoryPanel from "@/components/builder/VersionHistoryPanel";
 import SpacingIndicators from "@/components/builder/SpacingIndicators";
 import { ElementSelectionProvider } from "@/components/builder/ElementSelectionContext";
 import ElementOverlay from "@/components/builder/ElementOverlay";
@@ -208,6 +209,10 @@ export default function BuilderPage() {
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const saveInFlightRef = useRef(false);
+  // Monotone counter incremented by every restore.  executeSave captures the
+  // current value at call time and silently discards 409/success handling if
+  // a restore has happened by the time the response arrives.
+  const saveGenerationRef = useRef(0);
   const pendingSaveRef = useRef<BuilderStateData | null>(null);
   const lastSavedStateRef = useRef<string>('');
   // builder_state.revision as this tab last saw it. Sent with every save so
@@ -233,6 +238,11 @@ export default function BuilderPage() {
       return true;
     }
 
+    // Capture the restore generation so that if a restore happens while this
+    // PATCH is in-flight, the response handler recognises it is stale and
+    // discards any state/revision mutations that would overwrite the snapshot.
+    const capturedGeneration = saveGenerationRef.current;
+
     setIsSaving(true);
     saveInFlightRef.current = true;
     try {
@@ -251,6 +261,10 @@ export default function BuilderPage() {
           ...(revisionRef.current !== null ? { expectedRevision: revisionRef.current } : {}),
         }),
       });
+
+      // A restore has happened while this PATCH was in-flight — discard the
+      // response entirely so it cannot overwrite the restored snapshot.
+      if (saveGenerationRef.current !== capturedGeneration) return false;
 
       if (response.status === 409) {
         // Someone else — usually an AI build a step ahead of us — has moved
@@ -2092,6 +2106,43 @@ export default function BuilderPage() {
                   activePageId={builderState.activePage}
                   onSelectPage={switchPage}
                 />
+              )}
+              {website && session && (
+                <>
+                  <Separator className="my-3" />
+                  <VersionHistoryPanel
+                    websiteId={website.id}
+                    accessToken={session.access_token}
+                    onRestored={(restoredState, revision) => {
+                      // Increment the generation FIRST so any in-flight PATCH
+                      // that races with this restore sees a stale generation
+                      // in its response handler and silently discards its
+                      // state/revision mutations — preventing it from
+                      // overwriting the restored snapshot.
+                      saveGenerationRef.current += 1;
+
+                      // Cancel any queued autosave or history debounce that
+                      // carries the pre-restore canvas — if either fires after
+                      // this point it would overwrite the restored snapshot.
+                      if (autoSaveTimerRef.current) {
+                        clearTimeout(autoSaveTimerRef.current);
+                        autoSaveTimerRef.current = null;
+                      }
+                      pendingSaveRef.current = null;
+                      if (historyDebounceRef.current) {
+                        clearTimeout(historyDebounceRef.current);
+                        historyDebounceRef.current = null;
+                      }
+                      // Adopt the restored state as the new ground truth.
+                      revisionRef.current = revision;
+                      lastSavedStateRef.current = JSON.stringify(restoredState);
+                      setIsDirty(false);
+                      setHasPendingEdit(false);
+                      setBuilderState(restoredState);
+                      setHistory(createHistory(restoredState));
+                    }}
+                  />
+                </>
               )}
             </TabsContent>
 
