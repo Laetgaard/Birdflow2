@@ -1,5 +1,7 @@
 # Memory index
 
+- [Account component library](account-component-library.md) — cross-site DB table + master/instance model; applyWrite is async; ownerId in AgentContext; libraryRef.accountComponentId; adapt uses aiSpend not aiCall.
+
 - [Builder custom components](builder-custom-components.md) — data trees, breakpoint cascade, sanitize points, editable-schema rules, svg asset store + library dedupe/thumbnails, AI pipeline order, tsc quirks.
 - [AI onboarding pipeline](ai-onboarding-pipeline.md) — never-stranded fallbacks, guide-saved-first ordering, user picks override AI, sync single-flight claims, media ownership filter, client resume model.
 - [Onboarding decision flow](onboarding-decision-flow.md) — four state dimensions with one writer, revision-scoped approval (bump only on explicit site writes), per-consumer webhook dedup, paid-only-on-webhook, no price literals.

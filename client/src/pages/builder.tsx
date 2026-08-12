@@ -51,7 +51,7 @@ import {
   type ComponentProps,
   type ComponentStyles
 } from "@shared/componentRegistry";
-import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext, SvgAsset } from "@shared/schema";
+import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext, SvgAsset, AccountComponent } from "@shared/schema";
 import {
   cloneLibrarySource,
   clonePrimitiveTree,
@@ -183,6 +183,14 @@ export default function BuilderPage() {
   // Library browse controls (search + category filter)
   const [librarySearch, setLibrarySearch] = useState("");
   const [libraryCategory, setLibraryCategory] = useState<LibraryCategory | null>(null);
+  // Account-level component library (cross-site reusable components).
+  const [accountLibraryEntries, setAccountLibraryEntries] = useState<AccountComponent[]>([]);
+  const [accountLibraryLoading, setAccountLibraryLoading] = useState(false);
+  // Track which entry ids came from account library for menu options.
+  const accountEntryIds = useMemo(
+    () => new Set(accountLibraryEntries.map((e) => e.id)),
+    [accountLibraryEntries]
+  );
   // Stored SVG illustrations (svg_assets) — svg nodes reference them by id.
   const [svgAssets, setSvgAssets] = useState<SvgAsset[]>([]);
   const [device, setDevice] = useState<DeviceType>('desktop');
@@ -1112,6 +1120,26 @@ export default function BuilderPage() {
     void reloadSvgAssets();
   }, [reloadSvgAssets]);
 
+  // Fetch the account-level component library once on mount.
+  const reloadAccountLibrary = useCallback(async () => {
+    if (!session) return;
+    setAccountLibraryLoading(true);
+    try {
+      const res = await fetch("/api/account/components", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) setAccountLibraryEntries(await res.json());
+    } catch {
+      // keep whatever we have
+    } finally {
+      setAccountLibraryLoading(false);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    void reloadAccountLibrary();
+  }, [reloadAccountLibrary]);
+
   const svgAssetMap = useMemo(() => {
     const map: Record<string, SvgAsset> = {};
     for (const asset of svgAssets) map[asset.id] = asset;
@@ -1120,7 +1148,46 @@ export default function BuilderPage() {
 
   // Library browsing: free-text search over name/description/tags plus a
   // category filter. Chips only appear for categories actually in use.
-  const libraryEntries = builderState?.customComponents ?? [];
+  // Account-level entries are shown first; local-only entries (not yet in the
+  // account library) are appended for backward compatibility.
+  const accountEntryIdsFromState = useMemo(
+    () => new Set(accountLibraryEntries.map((e) => e.id)),
+    [accountLibraryEntries]
+  );
+
+  const libraryEntries: CustomComponentEntry[] = useMemo(() => {
+    // Map each AccountComponent to the shape the panel already knows.
+    const fromAccount: CustomComponentEntry[] = accountLibraryEntries.map((comp) => ({
+      id: comp.id,
+      name: comp.name,
+      description: comp.description ?? undefined,
+      category: (comp.category as LibraryCategory) ?? undefined,
+      tags: (comp.tags as string[] | undefined) ?? undefined,
+      source: {
+        id: `account-${comp.id}`,
+        type: "custom" as const,
+        props: {
+          customTree: comp.tree,
+          customSchema: comp.schema ?? undefined,
+          libraryRef: {
+            entryId: comp.id,
+            version: comp.version,
+            accountComponentId: comp.id,
+          },
+        },
+        styles: {} as any,
+      } as any,
+      origin: (comp.origin as "ai" | "customer") ?? "customer",
+      version: comp.version,
+      thumbnail: (comp.designMetadata as any)?.thumbnail,
+      createdAt: new Date(comp.createdAt).toISOString(),
+    }));
+    // Local entries not yet promoted to the account library
+    const localOnly = (builderState?.customComponents ?? []).filter(
+      (e) => !accountEntryIdsFromState.has(e.id)
+    );
+    return [...fromAccount, ...localOnly];
+  }, [accountLibraryEntries, builderState?.customComponents, accountEntryIdsFromState]);
 
   const libraryCategoriesInUse = useMemo(() => {
     const present = new Set(libraryEntries.map((entry) => entry.category ?? "andet"));
@@ -1144,9 +1211,19 @@ export default function BuilderPage() {
     const instance = cloneLibrarySource(entry.source);
     // Provenance: remember which entry (and version) this copy came from.
     // The instance stays fully detached — this is bookkeeping, not linking.
+    // Preserve accountComponentId when inserting from the account library.
+    const sourceRef = (entry.source?.props as any)?.libraryRef;
     instance.props = {
       ...instance.props,
-      libraryRef: { entryId: entry.id, version: entry.version ?? 1 },
+      libraryRef: {
+        entryId: entry.id,
+        version: entry.version ?? 1,
+        ...(sourceRef?.accountComponentId
+          ? { accountComponentId: sourceRef.accountComponentId }
+          : accountEntryIds.has(entry.id)
+          ? { accountComponentId: entry.id }
+          : {}),
+      },
     } as typeof instance.props;
     const newState: BuilderStateData = {
       ...builderState,
@@ -1170,7 +1247,7 @@ export default function BuilderPage() {
     setSaveDuplicateOf(null);
   };
 
-  const saveSelectionAsComponent = () => {
+  const saveSelectionAsComponent = async () => {
     if (!builderState || !selectedComponent) return;
     const name = saveComponentName.trim();
     if (!name) return;
@@ -1191,8 +1268,53 @@ export default function BuilderPage() {
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
+
+    // Try to save to the account library first so we can use its UUID as the
+    // canonical entry id in both the local customComponents list and the placed
+    // component's libraryRef. This means the client-side merge (which
+    // deduplicates by id) produces exactly one entry, not two.
+    let canonicalId = generateLibraryEntryId(); // fallback if API is unavailable
+    let accountComp: any = null;
+    const customTree = selectedComponent.type === "custom"
+      ? (selectedComponent.props as any)?.customTree
+      : null;
+    const customSchema = selectedComponent.type === "custom"
+      ? ((selectedComponent.props as any)?.customSchema ?? null)
+      : null;
+
+    if (session && customTree) {
+      try {
+        const resp = await fetch("/api/account/components", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            name,
+            description: saveComponentDescription.trim() || undefined,
+            category: saveComponentCategory || undefined,
+            tags: tags.length ? tags : undefined,
+            tree: customTree,
+            schema: customSchema ?? undefined,
+            origin: "customer",
+            createdFromWebsiteId: id,
+          }),
+        });
+        if (resp.ok) {
+          accountComp = await resp.json();
+          if (accountComp?.id) {
+            canonicalId = accountComp.id;
+            setAccountLibraryEntries((prev) => [accountComp, ...prev]);
+          }
+        }
+      } catch {
+        /* fallback to local-only save with the generated id */
+      }
+    }
+
     const entry: CustomComponentEntry = {
-      id: generateLibraryEntryId(),
+      id: canonicalId,
       name,
       source: JSON.parse(JSON.stringify(selectedComponent)),
       createdAt: new Date().toISOString(),
@@ -1208,8 +1330,28 @@ export default function BuilderPage() {
     // Same clamps and backfills (incl. the wireframe thumbnail) that the
     // server runs on every save.
     normalizeLibraryEntryInPlace(entry);
+
+    // Stamp the currently placed component with the canonical libraryRef so
+    // "Update all instances" can find it later.
+    const libraryRef = {
+      entryId: canonicalId,
+      version: 1,
+      ...(accountComp?.id ? { accountComponentId: canonicalId } : {}),
+    };
+    const pagesWithStamp = builderState.pages.map((page) => ({
+      ...page,
+      components: page.components.map((c) => {
+        if (c.id !== selectedComponentId) return c;
+        return { ...c, props: { ...c.props, libraryRef } } as typeof c;
+      }),
+    }));
+
     updateStateWithHistory(
-      { ...builderState, customComponents: [...(builderState.customComponents ?? []), entry] },
+      {
+        ...builderState,
+        pages: pagesWithStamp,
+        customComponents: [...(builderState.customComponents ?? []), entry],
+      },
       `Gem komponent: ${name}`
     );
     resetSaveComponentDialog();
@@ -1229,6 +1371,26 @@ export default function BuilderPage() {
       },
       `Omdøb komponent: ${name}`
     );
+    // Also rename in the account library if it's an account entry.
+    if (accountEntryIds.has(renameEntry.id) && session) {
+      fetch(`/api/account/components/${renameEntry.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ name }),
+      })
+        .then((r) => r.json())
+        .then((updated) => {
+          if (updated?.id) {
+            setAccountLibraryEntries((prev) =>
+              prev.map((e) => (e.id === updated.id ? updated : e))
+            );
+          }
+        })
+        .catch(() => {});
+    }
     setRenameEntry(null);
   };
 
@@ -1239,8 +1401,40 @@ export default function BuilderPage() {
       { ...builderState, customComponents: (builderState.customComponents ?? []).filter(e => e.id !== entryId) },
       `Slet komponent${entry ? `: ${entry.name}` : ''}`
     );
+    // Also delete from account library if it's an account entry.
+    if (accountEntryIds.has(entryId) && session) {
+      fetch(`/api/account/components/${entryId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+        .then(() => {
+          setAccountLibraryEntries((prev) => prev.filter((e) => e.id !== entryId));
+        })
+        .catch(() => {});
+    }
     setDeleteEntryId(null);
     toast({ title: "Komponent slettet", description: entry ? `"${entry.name}" er fjernet fra Mine komponenter.` : undefined });
+  };
+
+  const updateAllLinkedInstances = (entryId: string) => {
+    if (!session) return;
+    fetch(`/api/account/components/${entryId}/update-instances`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        const count = (result?.updatedWebsites ?? []).length;
+        toast({
+          title: "Instanser opdateret",
+          description: count > 0
+            ? `${count} website${count === 1 ? "" : "s"} er opdateret til den nyeste version.`
+            : "Ingen instanser at opdatere.",
+        });
+      })
+      .catch(() => {
+        toast({ title: "Fejl", description: "Kunne ikke opdatere instanserne.", variant: "destructive" });
+      });
   };
 
   useEffect(() => {
@@ -2049,6 +2243,15 @@ export default function BuilderPage() {
                               <Pencil className="w-4 h-4 mr-2" />
                               Omdøb
                             </DropdownMenuItem>
+                            {accountEntryIds.has(entry.id) && (
+                              <DropdownMenuItem
+                                onClick={() => updateAllLinkedInstances(entry.id)}
+                                data-testid={`update-instances-${entry.id}`}
+                              >
+                                <BookmarkPlus className="w-4 h-4 mr-2" />
+                                Opdater alle instanser
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
                               onClick={() => setDeleteEntryId(entry.id)}

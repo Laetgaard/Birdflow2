@@ -444,7 +444,14 @@ export type ComponentProps = {
   // entry (and which version of it) this section was cloned from. The
   // instance stays a fully detached copy — this is bookkeeping only, and
   // the publisher ignores it.
-  libraryRef?: { entryId: string; version: number };
+  /**
+   * Provenance: which library entry (and version) this section was cloned
+   * from. `entryId` matches the local `customComponents` entry id; when the
+   * component was also saved to the account-level library,
+   * `accountComponentId` matches the `account_components.id` row.
+   * Instances remain fully detached — the publisher ignores this field.
+   */
+  libraryRef?: { entryId: string; version: number; accountComponentId?: string };
   // Product detail props
   showReviews?: boolean;
   showRelated?: boolean;

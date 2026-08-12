@@ -5,6 +5,7 @@ import { startDomainVerificationScheduler } from "./domainVerificationScheduler"
 import { ensurePlatformCalendar } from "./platformCalendar";
 import { startOnboardingDecisionSchema } from "./onboardingDecisionSchema";
 import { startAssistantPlanSchema } from "./assistantPlanDbSchema";
+import { startAccountComponentSchema } from "./accountComponentDbSchema";
 import { db } from "./storage";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -282,6 +283,7 @@ app.use((req, res, next) => {
   // simply stays inline in the builder state, which both renderers render
   // exactly as before.
   void startSvgAssetSchema(db);
+  void startAccountComponentSchema(db);
   startPublishJobSchema(db).then(ready => {
     if (ready) {
       void failStalePublishJobs().catch(err =>

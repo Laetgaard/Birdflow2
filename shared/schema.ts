@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import type { CustomComponentEntry, BrandGuide } from "./customComponents";
+import type { CustomComponentEntry, BrandGuide, PrimitiveNode } from "./customComponents";
 import type { SvgColorSlot } from "./svgAssets";
 import type { BusinessContext } from "./businessContext";
 import type { SiteLanguage } from "./siteLanguage";
@@ -1770,6 +1770,44 @@ export type SupportTicket = typeof supportTickets.$inferSelect;
 
 export type SupportTicketType = 'bug' | 'problem' | 'improvement';
 export type SupportTicketStatus = 'open' | 'in_progress' | 'closed';
+
+// ── Account Component Library ─────────────────────────────────────────────────
+// One row per "master" component owned by an account (user). Placed instances
+// carry a `libraryRef.accountComponentId` back-reference but remain fully
+// detached: editing an instance never touches this row.
+export const accountComponents = pgTable("account_components", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()::varchar`),
+  ownerId: varchar("owner_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category"),
+  tags: jsonb("tags").$type<string[]>(),
+  tree: jsonb("tree").$type<PrimitiveNode>().notNull(),
+  schema: jsonb("schema").$type<unknown>(),
+  /** Rendering hints stored alongside the component: wireframe thumbnail, etc. */
+  designMetadata: jsonb("design_metadata").$type<{ thumbnail?: string; origin?: string }>(),
+  origin: text("origin").notNull().default("customer"),
+  createdFromWebsiteId: varchar("created_from_website_id"),
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type AccountComponent = typeof accountComponents.$inferSelect;
+
+export type InsertAccountComponent = {
+  ownerId: string;
+  name: string;
+  description?: string | null;
+  category?: string | null;
+  tags?: string[] | null;
+  tree: PrimitiveNode;
+  schema?: unknown;
+  designMetadata?: { thumbnail?: string; origin?: string } | null;
+  origin?: string;
+  createdFromWebsiteId?: string | null;
+  version?: number;
+};
 
 // OAuth state tokens for replay prevention (persisted for multi-instance deployments)
 export const oauthStateTokens = pgTable("oauth_state_tokens", {

@@ -781,6 +781,8 @@ function buildRunMeta(
  */
 export async function runBuilderAgent(args: {
   websiteId: string;
+  /** Authenticated user id — when set, saveToLibrary mutations also write to account_components. */
+  ownerId?: string;
   prompt: string;
   state: BuilderStateData;
   approvedLargeChanges?: boolean;
@@ -790,6 +792,7 @@ export async function runBuilderAgent(args: {
 }): Promise<AgentOutcome> {
   const {
     websiteId,
+    ownerId,
     prompt,
     state,
     approvedLargeChanges = false,
@@ -803,6 +806,7 @@ export async function runBuilderAgent(args: {
 
   const ctx: AgentContext = {
     websiteId,
+    ownerId,
     state: structuredClone(state),
     applied: [],
     notes: [],

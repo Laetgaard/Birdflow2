@@ -5308,6 +5308,7 @@ export async function registerRoutes(
       const { runBuilderAgent } = await import("./aiAgent");
       const outcome = await runBuilderAgent({
         websiteId: req.params.id,
+        ownerId: userId,
         prompt: parsed.data.prompt,
         state: currentState,
         approvedLargeChanges: parsed.data.approvedLargeChanges === true,
@@ -7667,6 +7668,191 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Webhook processing error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── Account Component Library ────────────────────────────────────────────
+  // Cross-site reusable component store. All routes require a logged-in user;
+  // ownership is enforced per-method (ownerId = authenticated user's id).
+
+  /** List all account-level components for the authenticated user. */
+  app.get("/api/account/components", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const components = await storage.listAccountComponents(userId);
+      res.json(components);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Create a new account-level component (customer-saved from builder). */
+  app.post("/api/account/components", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const body = req.body ?? {};
+      if (!body.name?.trim() || !body.tree) {
+        return res.status(400).json({ message: "name og tree er påkrævet" });
+      }
+      const comp = await storage.createAccountComponent({
+        ownerId: userId,
+        name: body.name.trim(),
+        description: body.description ?? null,
+        category: body.category ?? null,
+        tags: Array.isArray(body.tags) ? body.tags : null,
+        tree: body.tree,
+        schema: body.schema ?? null,
+        designMetadata: body.designMetadata ?? null,
+        origin: body.origin ?? "customer",
+        createdFromWebsiteId: body.createdFromWebsiteId ?? null,
+        version: 1,
+      });
+      res.status(201).json(comp);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Get a single account-level component (owner only). */
+  app.get("/api/account/components/:componentId", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const comp = await storage.getAccountComponent(req.params.componentId, userId);
+      if (!comp) return res.status(404).json({ message: "Komponenten findes ikke" });
+      res.json(comp);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Rename or update metadata of an account-level component. */
+  app.patch("/api/account/components/:componentId", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const body = req.body ?? {};
+      const updated = await storage.updateAccountComponent(
+        req.params.componentId,
+        userId,
+        {
+          name: body.name ?? undefined,
+          description: body.description ?? undefined,
+          category: body.category ?? undefined,
+          tags: body.tags ?? undefined,
+          designMetadata: body.designMetadata ?? undefined,
+        }
+      );
+      if (!updated) return res.status(404).json({ message: "Komponenten findes ikke" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Delete an account-level component (owner only). */
+  app.delete("/api/account/components/:componentId", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const deleted = await storage.deleteAccountComponent(req.params.componentId, userId);
+      if (!deleted) return res.status(404).json({ message: "Komponenten findes ikke" });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Create a new version of an account-level component (update master). */
+  app.post("/api/account/components/:componentId/new-version", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const body = req.body ?? {};
+      if (!body.tree) return res.status(400).json({ message: "tree er påkrævet" });
+      const updated = await storage.createNewAccountComponentVersion(
+        req.params.componentId,
+        userId,
+        body.tree,
+        body.schema ?? null
+      );
+      if (!updated) return res.status(404).json({ message: "Komponenten findes ikke" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Propagate the latest master version to all linked instances across all websites. */
+  app.post("/api/account/components/:componentId/update-instances", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const result = await storage.updateAllLinkedInstances(req.params.componentId, userId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /**
+   * Adapt a component from the account library to a target website's brand.
+   * Calls the AI to recolour / restyle the component tree without mutating the master.
+   */
+  app.post("/api/account/components/:componentId/adapt", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const { targetWebsiteId } = req.body ?? {};
+      if (!targetWebsiteId) {
+        return res.status(400).json({ message: "targetWebsiteId er påkrævet" });
+      }
+
+      const comp = await storage.getAccountComponent(req.params.componentId, userId);
+      if (!comp) return res.status(404).json({ message: "Komponenten findes ikke" });
+
+      // Verify ownership of the target website.
+      const targetSite = await storage.getWebsite(targetWebsiteId);
+      if (!targetSite || targetSite.ownerId !== userId) {
+        return res.status(403).json({ message: "Ingen adgang til dette website" });
+      }
+
+      const targetBuilder = await storage.getBuilderState(targetWebsiteId);
+      const targetBrand = (targetBuilder?.state as any)?.brandGuide ?? null;
+
+      const adaptPrompt = [
+        "You are a visual design adapter. You receive a component tree (JSON) and a target brand guide.",
+        "Return ONLY the adapted component tree as valid JSON, with no explanation.",
+        "Rules:",
+        "1. Replace color hex values with the target brand's palette equivalents.",
+        "2. Replace font families with the target brand's heading/body fonts.",
+        "3. Keep the structure, layout and content identical.",
+        "4. Do not add or remove nodes.",
+        `Target brand guide: ${JSON.stringify(targetBrand ?? {})}`,
+        `Component tree: ${JSON.stringify(comp.tree)}`,
+      ].join("\n");
+
+      let adaptedTree = comp.tree;
+      try {
+        const { meteredChat } = await import("./aiCall");
+        const { createSpendMeter } = await import("./aiSpend");
+        const adaptMeter = createSpendMeter("assistant");
+        const result = await meteredChat(
+          "assistant",
+          { messages: [{ role: "user", content: adaptPrompt }], temperature: 0.3 },
+          adaptMeter
+        );
+        const text = (result.choices[0]?.message?.content ?? "").trim();
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          adaptedTree = JSON.parse(jsonMatch[0]);
+        }
+      } catch {
+        // Fallback to the original tree if AI fails
+      }
+
+      res.json({
+        adaptedTree,
+        originalId: comp.id,
+        name: comp.name,
+        schema: comp.schema,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

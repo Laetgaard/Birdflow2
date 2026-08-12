@@ -33,6 +33,7 @@ import {
   sanitizeEditableSchema,
   inferEditableSchema,
   createPrimitiveNode,
+  findDuplicateLibraryEntry,
   type PrimitiveNode,
   type PrimitiveNodeType,
   PRIMITIVE_TEXT_TAGS,
@@ -125,6 +126,12 @@ export type AgentContext = {
    * MAX_VISUAL_ITERATIONS (imported from visualReview.ts).
    */
   visualReviewCount?: number;
+  /**
+   * The authenticated user's id. When set, `add_custom_component` mutations
+   * with `saveToLibrary: true` also write to the `account_components` table
+   * so the component is available across all the user's websites.
+   */
+  ownerId?: string;
 };
 
 export type GuardVerdict =
@@ -186,11 +193,11 @@ function compactComponent(c: { id: string; type: string; props?: Record<string, 
 }
 
 /** Apply a validated mutation to the working copy, or explain why not. */
-function applyWrite(
+async function applyWrite(
   mutation: BuilderMutation,
   ctx: AgentContext,
   summarize: (m: BuilderMutation) => string
-): ToolResult {
+): Promise<ToolResult> {
   const verdict = classifyChange(ctx.applied, mutation, ctx.state);
   if (verdict.large && !ctx.approvedLargeChanges) {
     return {
@@ -281,6 +288,11 @@ function applyWrite(
     return { ok: false, error: check.error ?? "Ugyldig ændring" };
   }
 
+  // Record how many local library entries exist before the mutation so we can
+  // detect whether applyMutation added one (only happens when saveToLibrary:true
+  // and no duplicate is found).
+  const localCountBefore = (ctx.state.customComponents ?? []).length;
+
   try {
     ctx.state = applyMutation(ctx.state, mutation);
   } catch (err: any) {
@@ -288,6 +300,101 @@ function applyWrite(
   }
 
   ctx.applied.push(mutation);
+
+  // When the AI creates a component with saveToLibrary:true AND we have an
+  // authenticated owner, persist it to the account-level component library so
+  // it is reusable across all the user's websites.
+  //
+  // The local duplicate guard in applyMutation deliberately skips adding a new
+  // customComponents entry when the tree is structurally identical to one that
+  // already exists. We mirror that guard here: a new account row is created ONLY
+  // when a new local entry was also created (localCountAfter > localCountBefore).
+  // When the guard fires (localCountAfter === localCountBefore), we look up the
+  // existing local entry's account component instead of creating a duplicate row.
+  if (
+    mutation.action === "add_custom_component" &&
+    (mutation as any).saveToLibrary === true &&
+    ctx.ownerId
+  ) {
+    const addMut = mutation as any;
+    const page = ctx.state.pages.find((p) => p.id === addMut.pageId);
+    if (page) {
+      // The component was just spliced in; find it at the expected position.
+      const pos = typeof addMut.position === "number"
+        ? addMut.position
+        : page.components.length - 1;
+      const newComp = page.components[pos];
+      if (newComp?.type === "custom") {
+        const localCountAfter = (ctx.state.customComponents ?? []).length;
+
+        if (localCountAfter > localCountBefore) {
+          // A new local entry was added → create a new account component and
+          // sync its UUID into both the local entry and the placed instance.
+          try {
+            const accountComp = await storage.createAccountComponent({
+              ownerId: ctx.ownerId,
+              name: addMut.name ?? "Komponent",
+              description: addMut.description ?? null,
+              category: addMut.category ?? null,
+              tags: addMut.tags ?? null,
+              tree: (newComp.props as any).customTree,
+              schema: (newComp.props as any).customSchema ?? null,
+              designMetadata: null,
+              origin: "ai",
+              createdFromWebsiteId: ctx.websiteId,
+              version: 1,
+            });
+
+            // Stamp the placed instance with the account UUID.
+            (newComp.props as any).libraryRef = {
+              entryId: accountComp.id,
+              version: accountComp.version,
+              accountComponentId: accountComp.id,
+            };
+
+            // Replace the local entry's generated id with the account UUID so the
+            // client-side merge (accountEntryIds.has(entry.id)) deduplicates
+            // correctly — without this, two entries appear in the library panel.
+            const entries = [...ctx.state.customComponents!];
+            entries[entries.length - 1] = {
+              ...entries[entries.length - 1],
+              id: accountComp.id,
+            };
+            ctx.state = { ...ctx.state, customComponents: entries };
+          } catch (err) {
+            // Non-fatal: component is placed; the library write is best-effort.
+            console.error("[applyWrite] account library save failed:", err);
+          }
+        } else {
+          // The local duplicate guard fired — the tree matches an existing entry.
+          // Find that entry and reuse its account component id for the libraryRef.
+          try {
+            const source = structuredClone(newComp) as any;
+            const existingEntry = findDuplicateLibraryEntry(
+              ctx.state.customComponents,
+              source
+            );
+            if (existingEntry) {
+              const existingAccountComp = await storage.getAccountComponent(
+                existingEntry.id,
+                ctx.ownerId
+              );
+              if (existingAccountComp) {
+                (newComp.props as any).libraryRef = {
+                  entryId: existingAccountComp.id,
+                  version: existingAccountComp.version,
+                  accountComponentId: existingAccountComp.id,
+                };
+              }
+            }
+          } catch {
+            // Non-fatal: stamp is best-effort when reusing an existing master.
+          }
+        }
+      }
+    }
+  }
+
   return { ok: true, data: { applied: true }, summary: summarize(mutation) };
 }
 
@@ -1221,7 +1328,7 @@ export function buildToolCatalogue(): AgentTool[] {
       confirmIfOver: z.number().optional().describe("Refuse apply if match count exceeds this. Default: 20."),
     }),
     mutates: true,
-    run: (args, ctx) => {
+    run: async (args, ctx) => {
       const limit = args.confirmIfOver ?? 20;
 
       function getNestedStyle(obj: Record<string, unknown>, path: string): unknown {
@@ -1307,7 +1414,7 @@ export function buildToolCatalogue(): AgentTool[] {
           styles: styleUpdate,
         } as BuilderMutation;
 
-        const result = applyWrite(mut, ctx, () => `Batch: ${match.componentType}`);
+        const result = await applyWrite(mut, ctx, () => `Batch: ${match.componentType}`);
         if (result.ok) applied++;
       }
 
