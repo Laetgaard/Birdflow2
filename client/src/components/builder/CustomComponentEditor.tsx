@@ -77,6 +77,9 @@ const NODE_TYPE_META: Record<PrimitiveNodeType, { label: string; icon: typeof Bo
   image: { label: "Billede", icon: ImageIcon },
   button: { label: "Knap", icon: MousePointerClick },
   svg: { label: "Grafik", icon: Shapes },
+  // Capability nodes are created by the AI, not via the manual "add child" panel.
+  // They need a meta entry so the Record<PrimitiveNodeType, ...> type is satisfied.
+  capability: { label: "Widget", icon: BoxIcon },
 };
 
 const TAG_OPTIONS: { value: PrimitiveTextTag; label: string }[] = [

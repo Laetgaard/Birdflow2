@@ -372,7 +372,7 @@ const AIPrimitiveStylesSchema = z.record(z.union([z.string(), z.number()]));
 
 export type AIPrimitiveNode = {
   id?: string;
-  type: 'box' | 'text' | 'image' | 'button' | 'svg';
+  type: 'box' | 'text' | 'image' | 'button' | 'svg' | 'capability';
   name?: string;
   styles?: Record<string, string | number>;
   tabletStyles?: Record<string, string | number>;
@@ -398,12 +398,66 @@ export type AIPrimitiveNode = {
   /** Controlled motion presets (entrance/hover/stagger) — never raw CSS. */
   motion?: MotionSpec;
   children?: AIPrimitiveNode[];
+
+  /**
+   * Capability type — required when type === 'capability'. Embeds trusted
+   * Birdflow functionality. Birdflow owns the implementation; AI controls
+   * only placement and wrapper styling around the capability node.
+   * Allowed: 'booking' | 'contact_form' | 'newsletter' | 'product_grid'
+   */
+  capability?: string;
+
+  /**
+   * Presentation-only config for capability nodes. All keys are whitelisted;
+   * no endpoint, URL, API key, or script fields are ever accepted.
+   */
+  capabilityConfig?: Record<string, string | number | boolean>;
+
+  /**
+   * Declarative interaction behavior — only valid on type === 'box'.
+   * Birdflow generates all interaction code; no user JS is ever accepted.
+   * Allowed: 'accordion' | 'tabs' | 'carousel' | 'expandable' | 'toggle'
+   */
+  behavior?: {
+    type: string;
+    multiple?: boolean;
+    defaultOpen?: number;
+    defaultTab?: number;
+    autoPlay?: boolean;
+    interval?: number;
+    showArrows?: boolean;
+    showDots?: boolean;
+    defaultExpanded?: boolean;
+    defaultOn?: boolean;
+  };
 };
+
+/**
+ * Zod schema for behaviors — controls which fields are accepted per type.
+ * All config is presentation-only (display hints); Birdflow owns the runtime.
+ */
+const AIBehaviorSchema = z.object({
+  type: z.enum(['accordion', 'tabs', 'carousel', 'expandable', 'toggle']),
+  // accordion
+  multiple: z.boolean().optional(),
+  defaultOpen: z.number().int().min(0).max(99).optional(),
+  // tabs
+  defaultTab: z.number().int().min(0).max(99).optional(),
+  // carousel
+  autoPlay: z.boolean().optional(),
+  interval: z.number().int().min(1000).max(30000).optional(),
+  showArrows: z.boolean().optional(),
+  showDots: z.boolean().optional(),
+  // expandable
+  defaultExpanded: z.boolean().optional(),
+  // toggle
+  defaultOn: z.boolean().optional(),
+});
 
 export const AIPrimitiveNodeSchema: z.ZodType<AIPrimitiveNode> = z.lazy(() =>
   z.object({
     id: z.string().optional(),
-    type: z.enum(['box', 'text', 'image', 'button', 'svg']),
+    type: z.enum(['box', 'text', 'image', 'button', 'svg', 'capability']),
     name: z.string().optional(),
     styles: AIPrimitiveStylesSchema.optional(),
     tabletStyles: AIPrimitiveStylesSchema.optional(),
@@ -421,6 +475,58 @@ export const AIPrimitiveNodeSchema: z.ZodType<AIPrimitiveNode> = z.lazy(() =>
     svgColors: z.record(z.string().max(64)).optional(),
     motion: MotionSpecSchema.optional(),
     children: z.array(AIPrimitiveNodeSchema).optional(),
+    // Capability
+    capability: z.enum([
+      'booking', 'contact_form', 'newsletter', 'product_grid',
+    ]).optional(),
+    capabilityConfig: z.record(
+      z.union([z.string().max(200), z.number(), z.boolean()])
+    ).optional(),
+    // Behavior (box nodes only; sanitizer strips it from other node types)
+    behavior: AIBehaviorSchema.optional(),
+  }).superRefine((val, ctx) => {
+    // structural: capability node must declare which capability it embeds
+    if (val.type === 'capability' && !val.capability) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A 'capability' node must include a 'capability' field ('booking' | 'contact_form' | 'newsletter' | 'product_grid')",
+        path: ['capability'],
+      });
+    }
+
+    // structural: behavior is only meaningful on box nodes; reject early so the
+    // AI doesn't generate ignored fields on text/image/button/svg/capability
+    if (val.behavior != null && val.type !== 'box') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "The 'behavior' field is only valid on type='box' nodes",
+        path: ['behavior'],
+      });
+    }
+
+    // value-level: per-capability config constraints (enum choices + ranges)
+    if (val.capability && val.capabilityConfig) {
+      const cfg = val.capabilityConfig;
+      const issue = (field: string, msg: string) =>
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg, path: ['capabilityConfig', field] });
+
+      if (val.capability === 'booking') {
+        if (cfg.variant != null && !['default', 'compact', 'inline'].includes(String(cfg.variant)))
+          issue('variant', "booking.variant must be 'default', 'compact', or 'inline'");
+        if (cfg.displayMode != null && !['calendar', 'list'].includes(String(cfg.displayMode)))
+          issue('displayMode', "booking.displayMode must be 'calendar' or 'list'");
+      }
+      if (val.capability === 'newsletter') {
+        if (cfg.variant != null && !['horizontal', 'vertical', 'minimal'].includes(String(cfg.variant)))
+          issue('variant', "newsletter.variant must be 'horizontal', 'vertical', or 'minimal'");
+      }
+      if (val.capability === 'product_grid') {
+        if (cfg.maxItems != null && (typeof cfg.maxItems !== 'number' || cfg.maxItems < 1 || cfg.maxItems > 12))
+          issue('maxItems', 'product_grid.maxItems must be a number between 1 and 12');
+        if (cfg.columns != null && (typeof cfg.columns !== 'number' || cfg.columns < 2 || cfg.columns > 4))
+          issue('columns', 'product_grid.columns must be a number between 2 and 4');
+      }
+    }
   })
 );
 
@@ -451,11 +557,30 @@ export const AIEditableSchemaSchema = z.object({
   fields: z.array(AIEditableFieldSchema).min(1).max(30),
 });
 
+/**
+ * Capability nodes (type:'capability') are leaf widgets — they are embedded
+ * INSIDE a box container, never placed at the tree root. The tree root must
+ * always be a box. The sanitizer normalises invalid roots to an empty box as
+ * a last resort, but this constraint rejects them earlier at schema validation.
+ */
+const AIRootNodeSchema = (AIPrimitiveNodeSchema as z.ZodTypeAny).superRefine(
+  (val: any, ctx: z.RefinementCtx) => {
+    if (val?.type && val.type !== 'box') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "The tree root must be a box node (type:'box'). Capability nodes are leaf widgets — wrap them in a box container.",
+        path: ['type'],
+      });
+    }
+  }
+);
+
 export const AddCustomComponentMutation = z.object({
   action: z.literal('add_custom_component'),
   pageId: z.string(),
   name: z.string(),
-  tree: AIPrimitiveNodeSchema,
+  tree: AIRootNodeSchema,
   schema: AIEditableSchemaSchema.optional(),
   position: z.number().optional(),
   saveToLibrary: z.boolean().optional(),
@@ -472,7 +597,7 @@ export const UpdateCustomComponentMutation = z.object({
   pageId: z.string(),
   componentId: z.string(),
   name: z.string().optional(),
-  tree: AIPrimitiveNodeSchema.optional(),
+  tree: AIRootNodeSchema.optional(),
   schema: AIEditableSchemaSchema.optional(),
   styles: ComponentStylesSchema.optional(),
 });

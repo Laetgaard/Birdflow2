@@ -32,3 +32,4 @@
 - [Generated page type safety](generated-page-type-safety.md) — never import types from @ts-nocheck renderer in page files (isolatedModules breaks it); use a local loose PageComponentData type instead.
 - [Visual review loop](visual-review-loop.md) — screenshot→Kimi vision→VisualIssue[]; screenshots stored in AgentContext.screenshotCache by UUID, never in tool text; iteration cap via visualReviewCount; Chromium path detection required.
 - [Generative DSL 2.0](generative-dsl2.md) — shared/generative/ module split; new style keys; absolute-pos guard rule 7; structured truncation keeps "exceeds"; 7 node-level AI tools; design-first prompt.
+- [Capability & behavior nodes](capability-behavior-nodes.md) — type:'capability' embeds trusted widgets (leaf, no children); behavior field on box = declarative interaction; sanitizer returns undefined not null; publisher bakes 5 BehaviorXxx components + extractBehaviorLabel before CustomNode.

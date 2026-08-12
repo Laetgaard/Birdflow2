@@ -8,7 +8,12 @@ import {
   PRIMITIVE_TEXT_TAGS,
   effectiveEditableSchema,
   fieldBindingForNode,
+  CAPABILITY_LABELS,
+  CAPABILITY_ICONS,
+  BEHAVIOR_LABELS,
   type PrimitiveNode,
+  type CapabilityType,
+  type BehaviorType,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
 import { TOKEN_FALLBACKS, readableTextOn, resolveDesignTokens } from "@shared/designTokens";
@@ -299,6 +304,27 @@ function NodeRenderer({
       };
       return (
         <div {...dataAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
+          {/* Behavior badge — editor-only indicator showing the interaction type */}
+          {!isPreview && node.behavior && (
+            <div
+              style={{
+                alignSelf: "flex-start",
+                backgroundColor: "#7c3aed",
+                color: "#fff",
+                fontSize: "10px",
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                marginBottom: "4px",
+                lineHeight: "16px",
+                pointerEvents: "none",
+                letterSpacing: "0.03em",
+                flexShrink: 0,
+              }}
+            >
+              {BEHAVIOR_LABELS[(node.behavior as { type: BehaviorType }).type] || (node.behavior as { type: string }).type}
+            </div>
+          )}
           {(node.children ?? []).map((child, childIndex) => (
             <NodeRenderer
               key={child.id}
@@ -506,6 +532,46 @@ function NodeRenderer({
           onClick={handleNodeClick}
           dangerouslySetInnerHTML={{ __html: fitSvg(safe) }}
         />
+      );
+    }
+
+    case "capability": {
+      // Capability nodes embed trusted Birdflow functionality. In the builder
+      // canvas they render as a labelled placeholder — Birdflow owns the full
+      // implementation; the publisher generates it. Clicking selects the node
+      // so the user can reposition or wrap it.
+      const capType = node.capability as CapabilityType | undefined;
+      const label = (capType && CAPABILITY_LABELS[capType]) || String(capType || "Widget");
+      const icon = (capType && CAPABILITY_ICONS[capType]) || "⚙️";
+      return (
+        <div
+          {...dataAttrs}
+          onClick={handleNodeClick}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            minHeight: "100px",
+            padding: "20px 16px",
+            backgroundColor: "#eff6ff",
+            border: "2px dashed #60a5fa",
+            borderRadius: "12px",
+            color: "#1d4ed8",
+            fontWeight: 600,
+            fontSize: "14px",
+            textAlign: "center",
+            cursor: "default",
+            ...selectionStyles,
+          }}
+        >
+          <span style={{ fontSize: "28px", lineHeight: 1 }}>{icon}</span>
+          <span>{label}</span>
+          <span style={{ fontSize: "11px", color: "#3b82f6", fontWeight: 400, opacity: 0.75, marginTop: "2px" }}>
+            Birdflow-widget · kun placering her
+          </span>
+        </div>
       );
     }
 

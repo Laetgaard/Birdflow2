@@ -155,7 +155,31 @@ Full list: ${PRIMITIVE_STYLE_KEYS.join(", ")}.
 Node "motion" presets (effect/trigger/duration/delay/easing/distance/repeat/hover; boxes also stagger) — motion is data, never raw keyframes or scripts. Keep it calm: one entrance per visual block.
 
 - SVG nodes take real SVG markup. SMIL (animate, animateTransform, animateMotion) works — use it for genuine motion graphics. Keep markup compact.
-- Custom components are visual-only: never imitate booking/forms/checkout; insert the trusted section types instead.
+
+### Trusted capability nodes inside custom components
+Use type 'capability' to embed trusted Birdflow functionality inside a custom component tree. Birdflow owns 100% of the rendered implementation; you control only PLACEMENT (via surrounding box/styles). Place capability nodes as leaf children — they never have children themselves.
+
+Allowed capability values (field: "capability"):
+- 'booking' — live booking calendar/form. Config: variant ('default'|'compact'|'inline'), displayMode ('calendar'|'list'), headingVisible (bool)
+- 'contact_form' — contact form. Config: headingVisible (bool), successMessage (string)
+- 'newsletter' — newsletter sign-up. Config: variant ('horizontal'|'vertical'|'minimal'), headingVisible (bool)
+- 'product_grid' — live product listing grid. Config: maxItems (1-12), columns (2-4), showPrice (bool), showButton (bool)
+
+Usage example: { id: '...', type: 'capability', capability: 'booking', capabilityConfig: { variant: 'compact', headingVisible: false } }
+Never include endpoints, URLs, API keys, or scripts in capabilityConfig.
+
+### Declarative behaviors on box nodes
+Add a "behavior" field to any box node to enable an interaction pattern. Birdflow generates all runtime code — NEVER supply JavaScript. The behavior wraps the box's children.
+
+Allowed behavior types:
+- 'accordion' — expanding/collapsing panels; each direct child = one panel. Options: multiple (bool, allow several open), defaultOpen (int, 0-indexed)
+- 'tabs' — tab bar with panels; each direct child = one panel. Options: defaultTab (int, 0-indexed)
+- 'carousel' — sliding gallery; each direct child = one slide. Options: autoPlay (bool), interval (ms 1000-30000), showArrows (bool), showDots (bool)
+- 'expandable' — single collapsible region; first child = trigger, rest = content. Options: defaultExpanded (bool)
+- 'toggle' — on/off reveal; children shown when toggled on. Options: defaultOn (bool)
+
+Behavior labels are auto-extracted from the child's "name" field or first text node — name your children descriptively.
+Usage example: { id: '...', type: 'box', behavior: { type: 'accordion', multiple: false, defaultOpen: 0 }, children: [...] }
 
 ## Standard section tools
 - set_motion — entrance animations ("load" above the fold, "scroll" below, staggered delays) or parallax ("parallax" with scrollSpeed 0.05–0.9).

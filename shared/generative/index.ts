@@ -9,6 +9,8 @@
 
 export * from './styles';
 export * from './nodes';
+export * from './capabilities';
+export * from './behaviors';
 export * from './editable';
 export * from './sanitize';
 export * from './validation';

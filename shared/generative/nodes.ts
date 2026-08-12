@@ -2,17 +2,19 @@
  * Primitive node types, tree utilities and node factories.
  *
  * A "primitive node" is the atomic unit of a custom component: a typed
- * record (box / text / image / button / svg) that both the builder canvas
- * and the published site render identically. Trees of these nodes form the
- * `customTree` prop of every custom component.
+ * record (box / text / image / button / svg / capability) that both the
+ * builder canvas and the published site render identically. Trees of these
+ * nodes form the `customTree` prop of every custom component.
  */
 
 import type { PrimitiveStyles } from './styles';
 import { MOTION_TABLES, hoverPresetStyles, type MotionSpec } from '../motion';
+import type { CapabilityType } from './capabilities';
+import type { BehaviorSpec } from './behaviors';
 
 // ============ Type definitions ============
 
-export type PrimitiveNodeType = 'box' | 'text' | 'image' | 'button' | 'svg';
+export type PrimitiveNodeType = 'box' | 'text' | 'image' | 'button' | 'svg' | 'capability';
 
 export const PRIMITIVE_TEXT_TAGS = ['h1', 'h2', 'h3', 'h4', 'p', 'span', 'blockquote'] as const;
 export type PrimitiveTextTag = (typeof PRIMITIVE_TEXT_TAGS)[number];
@@ -69,6 +71,31 @@ export type PrimitiveNode = {
 
   // box
   children?: PrimitiveNode[];
+
+  /**
+   * Capability nodes (type === 'capability') embed trusted Birdflow
+   * functionality. Birdflow owns the entire rendered implementation;
+   * the AI controls only placement and wrapper styling.
+   *
+   * Allowed values: 'booking' | 'contact_form' | 'newsletter' | 'product_grid'
+   * (product_detail is excluded — it has no embeddable section; use the
+   * /products/[slug] page instead)
+   */
+  capability?: CapabilityType;
+
+  /**
+   * Presentation-only config for capability nodes. All keys are whitelisted
+   * per capability type; no endpoint, URL, or script fields are ever allowed.
+   */
+  capabilityConfig?: Record<string, string | number | boolean>;
+
+  /**
+   * Declarative interaction behavior for box nodes. Birdflow generates all
+   * runtime code from this spec; no user-supplied JavaScript is ever accepted.
+   *
+   * Only valid on type === 'box'. Ignored on all other node types.
+   */
+  behavior?: BehaviorSpec;
 };
 
 /** Hard cap to keep trees renderable and payloads sane. */
@@ -265,6 +292,10 @@ export function createPrimitiveNode(type: PrimitiveNodeType): PrimitiveNode {
         svg: '<svg viewBox="0 0 48 48" width="48" height="48" xmlns="http://www.w3.org/2000/svg"><circle cx="24" cy="24" r="20" fill="#4f46e5" opacity="0.15"/><circle cx="24" cy="24" r="10" fill="#4f46e5"/></svg>',
         styles: { width: '48px', height: '48px' },
       };
+    case 'capability':
+      // Capability nodes are created via add_custom_node with capability/capabilityConfig set.
+      // This factory produces a placeholder; callers must set node.capability before use.
+      return { id, type, name: 'Widget', styles: {} };
   }
 }
 

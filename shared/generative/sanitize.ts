@@ -32,6 +32,8 @@ import {
   PRIMITIVE_BUTTON_VARIANTS,
 } from './nodes';
 import { sanitizeStyleRecord, sanitizeLinkHref, STYLE_KEY_SET } from './styles';
+import { CAPABILITY_TYPE_SET, sanitizeCapabilityConfig, type CapabilityType } from './capabilities';
+import { sanitizeBehavior } from './behaviors';
 import {
   sanitizeEditableSchema,
   coerceEditableSchemaShape,
@@ -438,7 +440,7 @@ export function brandGuideToDesignTokens(guide: BrandGuide): {
 
 // ============ Core sanitization ============
 
-const NODE_TYPE_SET = new Set<string>(['box', 'text', 'image', 'button', 'svg']);
+const NODE_TYPE_SET = new Set<string>(['box', 'text', 'image', 'button', 'svg', 'capability']);
 const TEXT_TAG_SET = new Set<string>(PRIMITIVE_TEXT_TAGS);
 const BUTTON_VARIANT_SET = new Set<string>(PRIMITIVE_BUTTON_VARIANTS);
 
@@ -499,6 +501,32 @@ export function sanitizePrimitiveTree(root: PrimitiveNode): PrimitiveNode {
       node.src = sanitizeImageSrc(node.src);
     }
 
+    // ---- Capability nodes ------------------------------------------------
+    if (node.type === 'capability') {
+      // Reject nodes with an unknown or missing capability type
+      const cap = node.capability;
+      if (!cap || !CAPABILITY_TYPE_SET.has(cap)) return false;
+      // Sanitize config: only whitelisted keys and safe scalar values pass
+      const cleanConfig = sanitizeCapabilityConfig(cap as CapabilityType, node.capabilityConfig);
+      if (cleanConfig) node.capabilityConfig = cleanConfig;
+      else delete node.capabilityConfig;
+      // Capability nodes are leaves — strip any stale children array
+      delete node.children;
+      return true;
+    }
+
+    // ---- Behavior field (box nodes only) ---------------------------------
+    if ((node as PrimitiveNode).behavior !== undefined) {
+      if (node.type === 'box') {
+        const behavior = sanitizeBehavior((node as PrimitiveNode).behavior);
+        if (behavior) (node as PrimitiveNode).behavior = behavior;
+        else delete (node as PrimitiveNode).behavior;
+      } else {
+        // Silently strip behavior on non-box nodes — never reject
+        delete (node as PrimitiveNode).behavior;
+      }
+    }
+
     if (node.children !== undefined) {
       if (!Array.isArray(node.children) || depth + 1 > MAX_CUSTOM_TREE_DEPTH) {
         node.children = [];
@@ -510,7 +538,14 @@ export function sanitizePrimitiveTree(root: PrimitiveNode): PrimitiveNode {
   };
 
   if (!NODE_TYPE_SET.has(cloned.type as string)) cloned.type = 'box';
-  sanitizeNode(cloned, 0);
+  const rootValid = sanitizeNode(cloned, 0);
+  if (!rootValid) {
+    // Root node failed validation (e.g. a capability node with a missing or
+    // unknown capability type). Normalize to an empty box so callers always
+    // get a structurally valid tree instead of silently returning corrupt data.
+    const safeId = typeof cloned.id === 'string' && cloned.id ? cloned.id : generateNodeId();
+    return { id: safeId, type: 'box', styles: {}, children: [] };
+  }
   return cloned;
 }
 

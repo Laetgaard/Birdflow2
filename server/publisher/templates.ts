@@ -5277,7 +5277,7 @@ function ContainerSection({
 
 type PrimitiveNode = {
   id: string;
-  type: 'box' | 'text' | 'image' | 'button' | 'svg';
+  type: 'box' | 'text' | 'image' | 'button' | 'svg' | 'capability';
   name?: string;
   hoverStyles?: Record<string, string>;
   /** Controlled motion presets (shared/motion.ts vocabulary) — data, not CSS. */
@@ -5294,6 +5294,12 @@ type PrimitiveNode = {
   variant?: string;
   svg?: string;
   children?: PrimitiveNode[];
+  /** Trusted Birdflow widget — only on type === 'capability'. Birdflow owns the implementation. */
+  capability?: string;
+  /** Presentation-only config for capability nodes (whitelisted keys, no endpoints/scripts). */
+  capabilityConfig?: Record<string, string | number | boolean>;
+  /** Declarative interaction behavior — only on type === 'box'. Birdflow generates all runtime code. */
+  behavior?: { type: string; multiple?: boolean; defaultOpen?: number; defaultTab?: number; autoPlay?: boolean; interval?: number; showArrows?: boolean; showDots?: boolean; defaultExpanded?: boolean; defaultOn?: boolean; };
 };
 
 function toKebabCase(key: string): string {
@@ -5441,6 +5447,213 @@ function safeCustomHref(href?: string): string {
   return '#';
 }
 
+// Context that threads the host page's product catalogue through
+// ComponentRenderer → CustomComponentSection → CustomNode → capability nodes.
+// Without this an embedded product_grid would always render an empty grid
+// regardless of the site's catalogue. Only set when rendering a custom-type
+// section; all other component types are unaffected.
+const CapabilityProductsCtx = React.createContext<any[]>([]);
+
+// ============ Behavior label extraction ============
+
+function extractBehaviorLabel(node: PrimitiveNode, fallback: string): string {
+  if (node.name && node.name.trim()) return String(node.name).trim().slice(0, 80);
+  const findText = (n: PrimitiveNode): string => {
+    if (n.type === 'text' && n.text) return String(n.text).slice(0, 60);
+    for (const child of (n.children || [])) {
+      const t = findText(child);
+      if (t) return t;
+    }
+    return '';
+  };
+  return findText(node) || fallback;
+}
+
+// ============ Behavior wrapper components ============
+// Birdflow-authored interaction implementations. The AI spec only sets the
+// behavior type + display hints; no user-provided JavaScript is ever used.
+// Keyboard accessibility (tab, Enter/Space, arrow keys) follows WAI-ARIA patterns.
+
+function BehaviorAccordion({ node, staggerParent, multiple, defaultOpen }: { node: PrimitiveNode; staggerParent?: any; multiple?: boolean; defaultOpen?: number }) {
+  const [openSet, setOpenSet] = useState<Set<number>>(function() { return new Set([defaultOpen != null ? defaultOpen : 0]); });
+  const cls = nodeClassName(node);
+  const children = node.children || [];
+  return (
+    <div className={cls}>
+      {children.map(function(child: PrimitiveNode, i: number) {
+        const isOpen = openSet.has(i);
+        const label = extractBehaviorLabel(child, 'Panel ' + (i + 1));
+        return (
+          <div key={child.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
+            <button
+              aria-expanded={isOpen}
+              onClick={function() {
+                setOpenSet(function(prev: Set<number>) {
+                  const next = new Set(prev);
+                  if (next.has(i)) { next.delete(i); }
+                  else { if (!multiple) next.clear(); next.add(i); }
+                  return next;
+                });
+              }}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '16px', textAlign: 'left', color: 'inherit' }}
+            >
+              {label}
+              <span aria-hidden="true" style={{ transition: 'transform 0.2s ease', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>{'▾'}</span>
+            </button>
+            {isOpen && (
+              <div role="region" style={{ paddingBottom: '16px' }}>
+                <CustomNode node={child} staggerParent={staggerParent} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BehaviorTabs({ node, staggerParent, defaultTab }: { node: PrimitiveNode; staggerParent?: any; defaultTab?: number }) {
+  const [active, setActive] = useState(defaultTab != null ? defaultTab : 0);
+  const cls = nodeClassName(node);
+  const children = node.children || [];
+  const primary = (theme as any).primaryColor || '#4f46e5';
+  return (
+    <div className={cls}>
+      <div role="tablist" style={{ display: 'flex', gap: '4px', marginBottom: '24px', borderBottom: '2px solid rgba(0,0,0,0.06)', flexWrap: 'wrap' as const }}>
+        {children.map(function(child: PrimitiveNode, i: number) {
+          const label = extractBehaviorLabel(child, 'Tab ' + (i + 1));
+          const isActive = active === i;
+          return (
+            <button
+              key={child.id}
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={'tab-panel-' + node.id + '-' + i}
+              id={'tab-btn-' + node.id + '-' + i}
+              tabIndex={isActive ? 0 : -1}
+              onClick={function() { setActive(i); }}
+              style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '15px', background: 'transparent', borderBottom: isActive ? '2px solid ' + primary : '2px solid transparent', marginBottom: '-2px', color: isActive ? primary : 'inherit', transition: 'color 0.15s, border-color 0.15s' }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {children.map(function(child: PrimitiveNode, i: number) {
+        return (
+          <div
+            key={child.id}
+            role="tabpanel"
+            id={'tab-panel-' + node.id + '-' + i}
+            aria-labelledby={'tab-btn-' + node.id + '-' + i}
+            hidden={active !== i}
+          >
+            <CustomNode node={child} staggerParent={staggerParent} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BehaviorCarousel({ node, staggerParent, showArrows, showDots, autoPlay, interval: intervalMs }: { node: PrimitiveNode; staggerParent?: any; showArrows?: boolean; showDots?: boolean; autoPlay?: boolean; interval?: number }) {
+  const [current, setCurrent] = useState(0);
+  const children = node.children || [];
+  const total = children.length;
+  const cls = nodeClassName(node);
+  const primary = (theme as any).primaryColor || '#4f46e5';
+  const showA = showArrows !== false;
+  const showD = showDots !== false;
+
+  useEffect(function() {
+    if (!autoPlay || total < 2) return undefined;
+    const id = setInterval(function() { setCurrent(function(c: number) { return (c + 1) % total; }); }, intervalMs != null ? intervalMs : 4000);
+    return function() { clearInterval(id); };
+  }, [autoPlay, intervalMs, total]);
+
+  return (
+    <div className={cls} style={{ position: 'relative', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', transition: 'transform 0.35s ease', transform: 'translateX(-' + (current * 100) + '%)' }}>
+        {children.map(function(child: PrimitiveNode) {
+          return (
+            <div key={child.id} style={{ flex: '0 0 100%', minWidth: '100%' }}>
+              <CustomNode node={child} staggerParent={staggerParent} />
+            </div>
+          );
+        })}
+      </div>
+      {showA && total > 1 && (
+        <React.Fragment>
+          <button aria-label="Forrige" onClick={function() { setCurrent(function(c: number) { return (c - 1 + total) % total; }); }} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', zIndex: 1 }}>{'‹'}</button>
+          <button aria-label="Næste" onClick={function() { setCurrent(function(c: number) { return (c + 1) % total; }); }} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', zIndex: 1 }}>{'›'}</button>
+        </React.Fragment>
+      )}
+      {showD && total > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '16px' }}>
+          {children.map(function(_: PrimitiveNode, i: number) {
+            return (
+              <button key={i} aria-label={'Slide ' + (i + 1)} onClick={function() { setCurrent(i); }} style={{ width: '8px', height: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer', backgroundColor: current === i ? primary : 'rgba(0,0,0,0.2)', padding: 0, transition: 'background-color 0.2s' }} />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BehaviorExpandable({ node, staggerParent, defaultExpanded }: { node: PrimitiveNode; staggerParent?: any; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded === true);
+  const cls = nodeClassName(node);
+  const children = node.children || [];
+  const trigger = children[0];
+  const content = children.slice(1);
+  const label = trigger ? extractBehaviorLabel(trigger, 'Vis mere') : 'Vis mere';
+  return (
+    <div className={cls}>
+      <button
+        aria-expanded={expanded}
+        onClick={function() { setExpanded(function(e: boolean) { return !e; }); }}
+        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '16px', padding: '0 0 12px 0', color: 'inherit' }}
+      >
+        {label}
+        <span aria-hidden="true" style={{ transition: 'transform 0.2s ease', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>{'▾'}</span>
+      </button>
+      {expanded && (
+        <div>
+          {content.map(function(child: PrimitiveNode) { return <CustomNode key={child.id} node={child} staggerParent={staggerParent} />; })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BehaviorToggle({ node, staggerParent, defaultOn }: { node: PrimitiveNode; staggerParent?: any; defaultOn?: boolean }) {
+  const [on, setOn] = useState(defaultOn === true);
+  const cls = nodeClassName(node);
+  const children = node.children || [];
+  const primary = (theme as any).primaryColor || '#4f46e5';
+  return (
+    <div className={cls}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+        <button
+          role="switch"
+          aria-checked={on}
+          onClick={function() { setOn(function(v: boolean) { return !v; }); }}
+          style={{ position: 'relative', display: 'inline-flex', width: '44px', height: '24px', borderRadius: '12px', backgroundColor: on ? primary : 'rgba(0,0,0,0.15)', border: 'none', cursor: 'pointer', transition: 'background-color 0.2s', padding: 0 }}
+        >
+          <span style={{ position: 'absolute', top: '3px', left: on ? '22px' : '3px', width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#ffffff', transition: 'left 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+        </button>
+        <span style={{ fontWeight: 600 }}>{on ? 'Til' : 'Fra'}</span>
+      </div>
+      {on && (
+        <div>
+          {children.map(function(child: PrimitiveNode) { return <CustomNode key={child.id} node={child} staggerParent={staggerParent} />; })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Entrance motion per node, from the same shared model as sections: a box
 // with 'stagger' hands its entrance to its children (one after another);
 // a child with its OWN entrance opts out. Direct children animate as whole
@@ -5466,8 +5679,27 @@ function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParen
   const m = useMotionPhase(resolvedMotion, '');
   const motionProps: any = m.active ? { ref: m.ref, 'data-motion': '', style: m.style } : {};
   const cls = nodeClassName(node);
+  // Consume the products context so capability/product_grid nodes can render
+  // live catalogue data from the host page's ComponentRenderer. Calling this
+  // unconditionally satisfies the React hooks-at-top-level rule.
+  const capabilityProducts = React.useContext(CapabilityProductsCtx);
   switch (node.type) {
-    case 'box':
+    case 'box': {
+      const behavior = node.behavior;
+      if (behavior && typeof behavior.type === 'string') {
+        switch (behavior.type) {
+          case 'accordion':
+            return <BehaviorAccordion node={node} staggerParent={staggerParent} multiple={behavior.multiple} defaultOpen={behavior.defaultOpen} />;
+          case 'tabs':
+            return <BehaviorTabs node={node} staggerParent={staggerParent} defaultTab={behavior.defaultTab} />;
+          case 'carousel':
+            return <BehaviorCarousel node={node} staggerParent={staggerParent} showArrows={behavior.showArrows} showDots={behavior.showDots} autoPlay={behavior.autoPlay} interval={behavior.interval} />;
+          case 'expandable':
+            return <BehaviorExpandable node={node} staggerParent={staggerParent} defaultExpanded={behavior.defaultExpanded} />;
+          case 'toggle':
+            return <BehaviorToggle node={node} staggerParent={staggerParent} defaultOn={behavior.defaultOn} />;
+        }
+      }
       return (
         <div className={cls} {...motionProps}>
           {(node.children || []).map((child, childIndex) => (
@@ -5479,6 +5711,7 @@ function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParen
           ))}
         </div>
       );
+    }
     case 'text': {
       const rawTag = node.tag || 'p';
       const Tag = (CUSTOM_TEXT_TAGS.indexOf(rawTag) >= 0 ? rawTag : 'p') as any;
@@ -5498,6 +5731,37 @@ function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParen
     case 'svg':
       if (!node.svg) return null;
       return <div className={cls} {...motionProps} dangerouslySetInnerHTML={{ __html: fitCustomSvg(node.svg) }} />;
+    case 'capability': {
+      // Trusted Birdflow widget embedded inside a custom component tree.
+      // The capability type controls which section component renders; the
+      // capabilityConfig passes whitelisted display hints only — no endpoints
+      // or scripts. Birdflow owns 100% of the rendered implementation.
+      const cap = node.capability;
+      if (!cap) return null;
+      const capProps: any = node.capabilityConfig || {};
+      const capStyles: any = {};
+      switch (cap) {
+        case 'booking':
+          return <div className={cls} {...motionProps}><BookingForm props={capProps} styles={capStyles} /></div>;
+        case 'contact_form':
+          return <div className={cls} {...motionProps}><ContactFormSection props={capProps} styles={capStyles} /></div>;
+        case 'newsletter':
+          return <div className={cls} {...motionProps}><NewsletterSection props={capProps} styles={capStyles} /></div>;
+        case 'product_grid': {
+          // Map capability config keys to the section's internal prop names.
+          // capabilityConfig uses 'maxItems' (the AI/config-facing name);
+          // ProductGridSection reads 'productLimit' from props.
+          const gridProps: any = { ...capProps };
+          if (typeof capProps.maxItems === 'number') {
+            gridProps.productLimit = Math.max(1, Math.min(12, Math.floor(capProps.maxItems)));
+            delete gridProps.maxItems;
+          }
+          return <div className={cls} {...motionProps}><ProductGridSection props={gridProps} styles={capStyles} products={capabilityProducts} /></div>;
+        }
+        default:
+          return null;
+      }
+    }
     default:
       return null;
   }
@@ -5616,7 +5880,13 @@ export default function ComponentRenderer({
           />
         );
       case 'custom':
-        return <CustomComponentSection props={component.props} styles={component.styles} />;
+        // Provide the page's product catalogue to any embedded product_grid
+        // capability nodes. Context is scoped to each custom section render.
+        return (
+          <CapabilityProductsCtx.Provider value={products}>
+            <CustomComponentSection props={component.props} styles={component.styles} />
+          </CapabilityProductsCtx.Provider>
+        );
       case 'booking':
       case 'booking-form':
         // Single booking implementation: the same BookingForm used for
