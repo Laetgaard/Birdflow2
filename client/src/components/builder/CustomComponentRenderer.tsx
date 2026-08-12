@@ -340,9 +340,15 @@ function NodeRenderer({
 
     case "text": {
       const isHeading = node.tag && ["h1", "h2", "h3", "h4"].includes(node.tag);
+      // Use the token-resolved stacks ('Lato, sans-serif', 'Playfair Display, serif')
+      // rather than raw fontPair strings ('Lato', 'Playfair Display') so the builder
+      // preview matches the published site and the font-pairing parity tests hold.
+      // svgTokens is optional when NodeRenderer is called without a token map.
       const fontFamily =
         resolved.fontFamily ||
-        (isHeading ? globalStyles?.fontPair?.heading : globalStyles?.fontPair?.body) ||
+        (isHeading
+          ? (svgTokens?.['font.heading'] as string | undefined)
+          : (svgTokens?.['font.body'] as string | undefined)) ||
         undefined;
       const field = `node:${node.id}:text`;
       const inlineEditable = !canInlineEdit || canInlineEdit(node.id);
@@ -555,10 +561,15 @@ export default function CustomComponentRenderer({
     };
   }, [component.props, tree, isPreview]);
 
+  // Use the token-resolved body font so paired-font sites get 'Lato, sans-serif'
+  // rather than the stored fontFamily literal — the same resolution that every
+  // other section runs via resolveFontFamily(styles, globalStyles) in
+  // ComponentRenderer.tsx, which reads fontPair.body first.
+  // svgTokens is optional when the renderer is called without a token map.
   const wrapperStyle: React.CSSProperties = {
     backgroundColor: sectionStyles.backgroundColor || "transparent",
     padding: sectionStyles.padding || "0px",
-    fontFamily: globalStyles?.fontFamily,
+    fontFamily: (svgTokens?.['font.body'] as string | undefined) || globalStyles?.fontFamily,
     color: globalStyles?.textColor,
     position: "relative",
   };

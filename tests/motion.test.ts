@@ -24,6 +24,7 @@ import {
   sanitizeMotionSpec,
   hoverPresetStyles,
   motionRuntimeSources,
+  resolveParallaxSettings,
   MOTION_EFFECTS,
 } from '@shared/motion';
 import {
@@ -394,7 +395,9 @@ describe('parallax effect', () => {
   });
 
   it("computeMotion returns null for 'parallax' — it is not an entrance animation", () => {
-    expect(computeMotion({ effect: 'parallax', scrollSpeed: 0.3 } as any)).toBeNull();
+    // 'parallax' is absent from MOTION_TABLES.effects so computeMotion correctly
+    // returns null; the publisher handles it via resolveParallaxSettings instead.
+    expect(computeMotion(MOTION_TABLES, { effect: 'parallax', scrollSpeed: 0.3 })).toBeNull();
   });
 
   it('sanitizeMotionSpec preserves scrollSpeed for parallax', () => {
@@ -416,6 +419,60 @@ describe('parallax effect', () => {
   it('MotionSpecSchema rejects scrollSpeed outside 0.05–0.9', () => {
     expect(MotionSpecSchema.safeParse({ effect: 'parallax', scrollSpeed: 1.5 }).success).toBe(false);
     expect(MotionSpecSchema.safeParse({ effect: 'parallax', scrollSpeed: 0 }).success).toBe(false);
+  });
+});
+
+/**
+ * Contract test: every entry in MOTION_EFFECTS must be handled by exactly one
+ * runtime — either an entrance animation (MOTION_TABLES.effects) or a scroll
+ * effect (currently only 'parallax', handled via resolveParallaxSettings).
+ *
+ * If a new effect string is added to MOTION_EFFECTS but not wired up on
+ * either side, this test fails immediately rather than silently dropping the
+ * animation on published sites.
+ */
+describe('vocabulary/runtime coverage contract', () => {
+  const SCROLL_EFFECTS = new Set(['parallax'] as const);
+
+  it('every MOTION_EFFECT except none routes to exactly one runtime handler', () => {
+    for (const effect of MOTION_EFFECTS) {
+      if (effect === 'none') continue;
+      const isEntrance = MOTION_TABLES.effects.indexOf(effect) >= 0;
+      const isScrollEffect = SCROLL_EFFECTS.has(effect as any);
+      expect(
+        isEntrance || isScrollEffect,
+        `'${effect}' is in MOTION_EFFECTS but has no runtime handler — ` +
+          `add it to MOTION_TABLES.effects (entrance) or handle it in the ` +
+          `scroll-effects set and in resolveParallaxSettings`
+      ).toBe(true);
+      // Guard against accidentally claiming both.
+      expect(
+        !(isEntrance && isScrollEffect),
+        `'${effect}' is registered as both an entrance AND a scroll effect — pick one`
+      ).toBe(true);
+    }
+  });
+
+  it('every entrance in MOTION_TABLES.effects resolves to a non-null ResolvedMotion', () => {
+    for (const effect of MOTION_TABLES.effects) {
+      const result = computeMotion(MOTION_TABLES, { effect });
+      expect(result, `MOTION_TABLES.effects entry '${effect}' should resolve to motion`).not.toBeNull();
+    }
+  });
+
+  it('resolveParallaxSettings returns speed for parallax and null for entrances', () => {
+    expect(resolveParallaxSettings({ effect: 'parallax', scrollSpeed: 0.4 })).toEqual({
+      scrollSpeed: 0.4,
+    });
+    // Uses the default scrollSpeed when none is provided.
+    const defaulted = resolveParallaxSettings({ effect: 'parallax' });
+    expect(defaulted).not.toBeNull();
+    expect(typeof defaulted?.scrollSpeed).toBe('number');
+    // Every entrance effect must return null — parallax is the only scroll path.
+    for (const effect of MOTION_TABLES.effects) {
+      expect(resolveParallaxSettings({ effect })).toBeNull();
+    }
+    expect(resolveParallaxSettings({ effect: 'none' })).toBeNull();
   });
 });
 

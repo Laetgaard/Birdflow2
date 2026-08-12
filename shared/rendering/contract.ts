@@ -47,23 +47,6 @@ export function maxWidthMediaQuery(breakpoint: BreakpointName): string {
 }
 
 /**
- * Names of the CSS animations both renderers define, keyed by the
- * `animationType` a component stores. A type missing from this map is not
- * animated — in either renderer.
- */
-export const ANIMATION_NAMES: Record<string, string> = {
-  'fade-in': 'fadeIn',
-  'slide-up': 'slideUp',
-  'slide-down': 'slideDown',
-  'slide-left': 'slideLeft',
-  'slide-right': 'slideRight',
-  'zoom-in': 'zoomIn',
-  'zoom-out': 'zoomOut',
-  bounce: 'bounce',
-  flip: 'flip',
-};
-
-/**
  * The media query behind "I would rather not have things moving".
  *
  * Both renderers check it. A customer who has asked their operating system

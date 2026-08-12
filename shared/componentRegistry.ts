@@ -1644,7 +1644,43 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     type: 'custom',
     name: 'Egen komponent',
     icon: 'puzzle',
-    defaultProps: {},
+    defaultProps: {
+      // Fixed-ID tree so componentFor('custom') renders the same output on
+      // every call and parity tests can compare builder vs publisher output
+      // for a filled custom component. IDs are stable (not random) by design.
+      // The tree uses only layout/typography styles — no colour literals —
+      // so migrateStateToTokens leaves it unchanged and the "migrating to
+      // tokens changes nothing" parity test holds.
+      customTree: {
+        id: 'default-custom-root',
+        type: 'box',
+        styles: {
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: '64px 24px',
+        },
+        tabletStyles: { padding: '48px 20px' },
+        mobileStyles: { padding: '32px 16px' },
+        children: [
+          {
+            id: 'default-custom-heading',
+            type: 'text',
+            tag: 'h3',
+            text: 'Din egen komponent',
+            styles: { fontSize: '28px', fontWeight: '700', lineHeight: '1.2' },
+          },
+          {
+            id: 'default-custom-btn',
+            type: 'button',
+            label: 'Kom i gang',
+            href: '#',
+            variant: 'primary',
+            styles: { alignSelf: 'flex-start' },
+          },
+        ],
+      },
+    } as Record<string, unknown>,
     defaultStyles: {
       backgroundColor: 'transparent',
       padding: '0px',
@@ -1672,8 +1708,11 @@ export function getComponentTypes(): ComponentType[] {
 export function createComponent(type: ComponentType): BuilderComponentData {
   const def = componentRegistry[type];
   const props = { ...def.defaultProps };
-  // Each custom component instance gets its own fresh node tree (unique ids)
-  if (type === 'custom' && !props.customTree) {
+  // Always regenerate the custom tree so every created instance has unique
+  // node IDs. The registry carries a static default tree only for parity
+  // tests (componentFor/componentRegistry reads); real creation always gets
+  // a fresh deep clone with newly generated IDs via createDefaultCustomTree().
+  if (type === 'custom') {
     props.customTree = createDefaultCustomTree();
   }
   return {

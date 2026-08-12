@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   componentRegistry,
+  createComponent,
   type BuilderComponentData,
   type ComponentType,
 } from '@shared/componentRegistry';
@@ -53,7 +54,8 @@ const NOT_COMPARABLE_BY_DEFAULTS: Partial<Record<ComponentType, string>> = {
   'product-grid': 'shows live products; the two sides differ only in their loading/empty placeholder',
   booking: 'the published site renders its own BookingForm client component',
   container: 'empty in both; the builder adds a drop hint that is editor chrome (covered below)',
-  custom: 'empty in both; the builder adds a "missing content" hint (covered below)',
+  // custom is no longer excluded: componentRegistry.custom.defaultProps now carries a
+  // fixed-ID tree so componentFor('custom') renders the same visible content on both sides.
 };
 
 function componentFor(type: ComponentType): BuilderComponentData {
@@ -294,6 +296,35 @@ describe('custom components', () => {
     // A stale reference must degrade to the fallback, never crash.
     const orphan = structuredClone(component);
     expect(() => renderBuilder(orphan, [orphan], undefined, undefined, {})).not.toThrow();
+  });
+
+  it('createComponent("custom") gives each instance a unique node-ID tree — no shared IDs', () => {
+    // The registry carries a static default tree for parity tests; createComponent
+    // must still produce a fresh deep clone so two instances never share node IDs.
+    const a = createComponent('custom');
+    const b = createComponent('custom');
+
+    function collectIds(node: unknown): string[] {
+      if (!node || typeof node !== 'object') return [];
+      const n = node as Record<string, unknown>;
+      const ids: string[] = typeof n['id'] === 'string' ? [n['id']] : [];
+      for (const child of (n['children'] as unknown[] | undefined) ?? []) {
+        ids.push(...collectIds(child));
+      }
+      return ids;
+    }
+
+    const idsA = new Set(collectIds(a.props.customTree));
+    const idsB = new Set(collectIds(b.props.customTree));
+
+    // Every node ID must be unique within one tree
+    const rawA = collectIds(a.props.customTree);
+    expect(rawA.length, 'duplicate IDs within tree A').toBe(idsA.size);
+
+    // The two trees must not share any node IDs
+    for (const id of idsA) {
+      expect(idsB, `ID "${id}" is shared between two createComponent instances`).not.toContain(id);
+    }
   });
 });
 
