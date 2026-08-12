@@ -1,0 +1,1751 @@
+# Birdflow Generative Website Runtime — Lovable-level creative AI with Birdflow editability, reuse and reliable publishing
+
+## Mission
+
+Upgrade Birdflow from an AI-assisted component builder into a true generative website system where Kimi K3 can design highly customized, premium websites with substantially more creative freedom while Birdflow guarantees:
+
+* editability
+* responsive behavior
+* reusable account components
+* safe interactions
+* brand awareness without creative imprisonment
+* visual verification
+* builder/publisher parity
+* secure publishing
+* undo/version safety
+
+The target experience is closer to Lovable-level design flexibility, but without abandoning Birdflow's structured builder.
+
+Kimi should control:
+
+**design reasoning, architecture, creative direction and composition**
+
+Birdflow should control:
+
+**component contracts, security, editability, responsiveness, capabilities, persistence, preview and publishing**
+
+Do NOT solve this by allowing arbitrary untrusted React/JS generation.
+
+The existing safe component DSL should evolve into Birdflow's generative design runtime.
+
+---
+
+# Product decisions — treat these as locked
+
+## Component reuse
+
+Every genuinely new AI-created section should normally become a reusable component definition and be saved to the customer's **account-level component library**.
+
+It must not remain trapped inside one website's `builder_state`.
+
+---
+
+## Master vs instance behavior
+
+Placed components are independent instances by default.
+
+Editing one instance changes that instance only.
+
+The UI and AI should additionally support explicit operations equivalent to:
+
+* Update master component
+* Update all linked instances
+
+Do not silently propagate instance edits.
+
+---
+
+## Cross-site reuse
+
+When a component from Website A is inserted into Website B with another brand identity, Birdflow should offer:
+
+* **Use original design**
+* **Adapt to this website's brand**
+
+Do not automatically destroy the original visual identity.
+
+---
+
+## Creative exploration
+
+The brand guide is the default design context, NOT an absolute creative restriction.
+
+Support three creative intents:
+
+```ts
+brand_aligned
+brand_evolution
+experimental
+```
+
+Kimi may proactively propose improvements outside the existing brand when there is a strong design reason.
+
+Significant deviation requires user approval before replacing the active design.
+
+For normal work, show one actual alternative preview when useful.
+
+For onboarding/full redesign, support 2–3 directions such as:
+
+* Brand Safe
+* Brand Evolution
+* Bold / Experimental
+
+The user may combine ideas from several directions.
+
+---
+
+## Embedded product capabilities
+
+Custom AI-designed sections must be able to contain trusted Birdflow functionality such as:
+
+* booking
+* contact form
+* newsletter
+* product grid
+* product detail where appropriate
+
+Kimi must NOT implement those capabilities by generating arbitrary backend or JavaScript code.
+
+Birdflow provides trusted capability nodes and runtime implementations.
+
+---
+
+## Advanced design freedom
+
+Expand the safe design DSL to support controlled versions of:
+
+* relative positioning
+* absolute positioning
+* sticky positioning where appropriate
+* inset/top/right/bottom/left
+* z-index/layers
+* transforms
+* rotation
+* scale
+* overlap
+* aspect ratio
+* clip-path
+* masks where safely supportable
+* advanced responsive visibility
+* decorative layers
+* pseudo-element-like decoration through explicit nodes
+* richer image placement
+* responsive layout transformations
+
+Everything must pass through typed allowlists and sanitization.
+
+---
+
+## Safe interaction system
+
+Kimi should eventually be able to create interactions such as:
+
+* accordion
+* tabs
+* carousel
+* expandable cards
+* interactive timeline
+* modal
+* disclosure
+* before/after
+* simple toggles
+
+Do NOT allow arbitrary JavaScript.
+
+Create a declarative behavior DSL interpreted by Birdflow.
+
+---
+
+## Node-level editing
+
+Users and the AI must be able to work inside generated components:
+
+```text
+section
+  → layout
+     → card
+        → heading
+        → body
+        → image
+        → button
+```
+
+Nodes should be individually selectable and editable.
+
+AI mutations should be able to update one node without replacing the entire custom tree.
+
+---
+
+## Standard vs custom components
+
+Remove the design philosophy:
+
+> Prefer standard components.
+
+Replace it with:
+
+> Use the representation that produces the strongest result while preserving editability and reliability.
+
+Rules:
+
+* If an existing standard/custom component is already excellent → reuse it.
+* If it only needs modification → adapt it.
+* If it limits the design → create a new component.
+* Existing components are resources, not creative constraints.
+
+---
+
+## Autonomous site building
+
+After the user approves the overall site/design plan, normal implementation should run autonomously:
+
+```text
+build
+→ render
+→ screenshot
+→ visually review
+→ fix
+→ verify
+→ continue
+```
+
+Do not require approval for ordinary design decisions.
+
+Pause only for:
+
+* destructive changes
+* material brand deviation
+* genuinely sensitive/global changes
+* actions already covered by Birdflow's approval rules
+
+---
+
+## Version history
+
+True multi-version website history is wanted, but it may be Phase 2.
+
+Do not block the core generative-runtime work on this.
+
+Preserve the existing build snapshot/undo behavior during migration.
+
+---
+
+# Architectural finding that must be solved first
+
+Birdflow currently has two independent visual render paths:
+
+### Builder
+
+```text
+ComponentRenderer.tsx
+→ hardcoded React standard components
+
+CustomComponentRenderer.tsx
+→ recursive custom DSL renderer
+```
+
+### Publisher
+
+```text
+templates.ts
+→ separate JSX/string generation implementations
+→ separate custom renderer
+→ separate responsive handling
+→ separately embedded motion/runtime logic
+```
+
+This is the largest architectural blocker.
+
+Every new visual feature currently risks requiring implementation twice.
+
+Do NOT dramatically expand the generative DSL on top of this duplicated architecture first.
+
+The first major milestone must be to establish a shared rendering/runtime contract that builder and published websites both consume.
+
+---
+
+# MASTER ROADMAP
+
+Implement this as separate tasks with explicit migration gates.
+
+Recommended sequence:
+
+```text
+#163 Shared Rendering Runtime
+
+#164 Generative Component DSL 2.0
+
+#165 Account Component Library + Master/Instance Model
+
+#166 Capabilities + Safe Interaction Runtime
+
+#167 Creative Director + Brand Exploration
+
+#168 Autonomous Build + Visual QA
+
+#169 Version History / Generative Runtime Hardening
+```
+
+Do NOT implement all seven as one giant code change.
+
+Each task must leave Birdflow in a working, tested state.
+
+---
+
+# TASK #163 — Shared Rendering Runtime
+
+## Objective
+
+Eliminate the architectural drift between builder preview and published websites.
+
+Establish one canonical rendering contract.
+
+---
+
+## Audit first
+
+Before implementation identify:
+
+* what parts of standard component rendering can genuinely be shared
+* what code depends on editor-only callbacks
+* what runtime dependencies published Next sites may use
+* what logic can move out of `ComponentRenderer.tsx`
+* what logic can move out of `templates.ts`
+* how token resolution differs
+* how responsive rendering differs
+* how motion differs
+* how custom component rendering differs
+* how booking/forms require publisher-specific behavior
+
+Do not blindly move the entire current builder renderer into `shared`.
+
+---
+
+## Target architecture
+
+Aim toward something equivalent to:
+
+```text
+BuilderState
+    │
+    ▼
+Shared component/render specification
+    │
+    ├── standard component definitions
+    ├── custom primitive renderer
+    ├── styles
+    ├── responsive resolution
+    ├── design tokens
+    ├── motion
+    └── trusted capabilities
+              │
+        ┌─────┴─────┐
+        ▼           ▼
+ Builder adapter   Publisher adapter
+```
+
+Editor-only functionality must remain in the builder adapter.
+
+Backend/runtime-only functionality remains in publisher capability adapters.
+
+Visual rendering rules should not be independently rewritten.
+
+---
+
+## Important rule
+
+The source of truth should become:
+
+```text
+Component definition + shared visual runtime
+```
+
+not:
+
+```text
+Builder implementation
+PLUS
+Publisher imitation
+```
+
+---
+
+## Migration strategy
+
+Do this incrementally.
+
+Start with custom components because their DSL is already structured.
+
+Then migrate standard components in groups.
+
+Do not perform a high-risk all-at-once rewrite.
+
+---
+
+## Shared runtime responsibilities
+
+Centralize:
+
+* style normalization
+* design token resolution
+* responsive resolution
+* motion definitions
+* custom primitive rendering contract
+* shape/SVG resolution
+* component visual schemas
+* capability placeholders
+* sanitization rules
+
+Publisher generation may still copy runtime source into the standalone project if necessary.
+
+The crucial requirement is that the source copied into publisher output originates from the same implementation/contracts used by preview.
+
+---
+
+## Fix known parallax mismatch during migration
+
+The audit identified `parallax` as existing in schema vocabulary but missing from the active resolver.
+
+Fix this and add contract tests so motion vocabulary cannot contain runtime-unimplemented effects.
+
+---
+
+## Tests
+
+Expand parity tests.
+
+Custom components must no longer be excluded merely because their renderers differ.
+
+Add tests proving:
+
+```text
+same BuilderComponentData
+→ same meaningful DOM/styles/content
+```
+
+for builder and publisher adapters.
+
+Also test:
+
+* responsive variants
+* SVG assets
+* tokens
+* motion
+* images
+* nested custom trees
+
+---
+
+## Done when
+
+A new visual primitive can normally be added to ONE shared visual contract and become available in:
+
+* builder preview
+* screenshots
+* publisher output
+
+without separately recreating its rendering semantics in `templates.ts`.
+
+---
+
+# TASK #164 — Generative Component DSL 2.0
+
+## Objective
+
+Turn the current safe custom component tree into Birdflow's primary generative layout language.
+
+Keep it data-only.
+
+Do not add arbitrary JS/React.
+
+---
+
+# Primitive architecture
+
+Refactor the custom component code if necessary instead of adding more responsibilities into the current giant file.
+
+Consider modules equivalent to:
+
+```text
+shared/generative/
+  nodes.ts
+  styles.ts
+  responsive.ts
+  editable.ts
+  sanitize.ts
+  validation.ts
+  capabilities.ts
+  behaviors.ts
+  migrations.ts
+```
+
+Avoid continuing to grow a ~2000-line monolithic custom-component file.
+
+---
+
+## New safe style capabilities
+
+Add strongly typed support for a safe subset of:
+
+```text
+position
+top
+right
+bottom
+left
+inset
+zIndex
+transform
+translate
+rotate
+scale
+aspectRatio
+objectFit
+objectPosition
+clipPath
+mask-related safe presets
+isolation
+pointer-events where safe
+visibility
+```
+
+Do not accept unrestricted CSS strings without validation.
+
+---
+
+## Absolute positioning rules
+
+Absolute positioning creates substantial responsive risk.
+
+Require:
+
+* positioned ancestor detection
+* safe overflow handling
+* responsive overrides
+* mobile guard checks
+* viewport screenshot verification for generated layouts
+
+Kimi must not use absolute positioning for basic layouts that should use flex/grid.
+
+It is intended for intentional compositions and decorative layering.
+
+---
+
+# Responsive component model
+
+Generated components must have explicit responsive behavior.
+
+Every AI-created section should support:
+
+```text
+desktop/base
+tablet
+mobile
+```
+
+Kimi should think about structure, not merely shrink values.
+
+Allow transformations such as:
+
+```text
+2 columns → 1 column
+horizontal → vertical
+image left → image below
+decorative layer visible → hidden
+grid 4 → 2 → 1
+overlap desktop → normal flow mobile
+```
+
+Use CSS ordering/visibility where possible instead of maintaining three unrelated component trees.
+
+---
+
+# Node-level AI mutation tools
+
+Add dedicated tools such as:
+
+```text
+get_custom_component_tree
+get_custom_node
+
+add_custom_node
+update_custom_node
+update_custom_node_styles
+update_custom_node_content
+move_custom_node
+duplicate_custom_node
+remove_custom_node
+```
+
+Naming can differ according to existing conventions.
+
+Do NOT require Kimi to replace the entire component tree just to change one nested element.
+
+---
+
+## Stable node addressing
+
+Every node needs a stable ID.
+
+Node mutations should include:
+
+```text
+pageId
+componentId
+nodeId
+```
+
+and use current website revision/CAS protection.
+
+Return the changed node and resulting revision/state summary.
+
+---
+
+# Editability
+
+Generated components should automatically produce a meaningful editable schema.
+
+For example, Kimi creates:
+
+```text
+Hero
+├── eyebrow
+├── heading
+├── description
+├── image
+└── CTA
+```
+
+Birdflow should expose those fields in the properties panel without requiring a manually coded standard-component registry entry.
+
+Also support direct node selection for advanced editing.
+
+---
+
+## Property editing levels
+
+Support:
+
+### Simple customer controls
+
+* text
+* image
+* link
+* color slots
+* commonly useful spacing
+* alignment
+
+### Advanced controls
+
+When the user selects an individual node:
+
+* layout
+* typography
+* spacing
+* sizing
+* border
+* radius
+* shadow
+* responsive
+* motion
+* layering where applicable
+
+Do not overwhelm normal users with every primitive property by default.
+
+---
+
+# Tree complexity
+
+The existing 400-node hard cap can silently truncate complex AI trees.
+
+Replace silent truncation behavior.
+
+If the safe limit is exceeded:
+
+* reject before save
+* return a structured error
+* tell Kimi how many nodes are allowed
+* encourage component decomposition
+
+Do not silently alter the generated design.
+
+Consider allowing nested reusable subcomponents rather than simply increasing the cap dramatically.
+
+---
+
+# TASK #165 — Account Component Library + Master/Instance Model
+
+## Objective
+
+Move reusable AI-created components from website-local JSON storage to a true account-level library.
+
+---
+
+## Data model
+
+Introduce a normalized persistence layer equivalent to:
+
+```text
+account_components
+```
+
+with fields conceptually including:
+
+```ts
+id
+ownerId
+name
+description
+category
+tags
+
+definition
+editableSchema
+designMetadata
+
+origin
+createdFromWebsiteId
+
+version
+
+createdAt
+updatedAt
+```
+
+Use the actual Birdflow database conventions.
+
+Do not store secrets or website runtime state here.
+
+---
+
+# Component instances
+
+Placed page components should reference their originating library definition when appropriate.
+
+Conceptually:
+
+```ts
+libraryRef: {
+  componentId,
+  version
+}
+```
+
+but instances must remain editable independently.
+
+---
+
+## Default behavior
+
+When Kimi creates a genuinely new high-quality section:
+
+```text
+create
+→ validate
+→ insert into page
+→ save reusable definition to account library
+```
+
+Avoid auto-saving trivial temporary/debug components.
+
+---
+
+# Instance editing
+
+Editing an instance:
+
+```text
+changes instance only
+```
+
+Additional actions:
+
+```text
+Update master
+Update all linked instances
+```
+
+must be explicit.
+
+---
+
+## Updating master
+
+Updating the master should create a new component version rather than destructively overwriting history.
+
+Existing instances do not automatically change unless requested.
+
+---
+
+# Cross-site reuse
+
+When inserting into another website:
+
+```text
+Use original design
+OR
+Adapt to this brand
+```
+
+### Original
+
+Preserve original component visual tokens/values.
+
+### Adapt
+
+Kimi receives:
+
+* component structure
+* source design intent
+* target brand guide
+
+and produces a derived version/instance suited to the new website.
+
+Never alter the original master merely because it was adapted elsewhere.
+
+---
+
+# Component library UI
+
+Create a clear section in the builder such as:
+
+```text
+Components
+
+Birdflow components
+...
+
+My components
+  Heroes
+  Services
+  CTA
+  Content
+  Interactive
+  Other
+```
+
+Allow:
+
+* preview
+* insert
+* rename
+* duplicate
+* delete
+* inspect origin
+* inspect version
+* adapt to current brand
+
+Do not expose implementation JSON to normal users.
+
+---
+
+# TASK #166 — Trusted Capabilities + Safe Behavior Runtime
+
+## Objective
+
+Allow bespoke generative designs to contain real Birdflow functionality without allowing arbitrary code generation.
+
+---
+
+# Capability nodes
+
+Extend the generative tree with a node equivalent to:
+
+```ts
+{
+  type: "capability",
+  capability: "booking",
+  ...
+}
+```
+
+Initial trusted capabilities:
+
+```text
+booking
+contact_form
+newsletter
+product_grid
+product_detail where structurally valid
+```
+
+Reuse the existing trusted implementations.
+
+Do not duplicate booking logic inside custom components.
+
+---
+
+## Architecture
+
+Conceptually:
+
+```text
+Custom design
+      │
+Capability node: booking
+      │
+      ▼
+Birdflow capability registry
+      │
+      ├── builder preview adapter
+      └── publisher/runtime adapter
+```
+
+Kimi controls placement and styling wrapper.
+
+Birdflow controls behavior.
+
+---
+
+## Capability configuration
+
+Expose only safe supported configuration.
+
+For booking that may include:
+
+* variant
+* display mode
+* heading visibility
+* local style slots
+* contextual layout options
+
+It must not expose arbitrary endpoint configuration.
+
+---
+
+# Safe Behavior DSL
+
+Create a declarative interaction system.
+
+Possible model:
+
+```ts
+behavior: {
+  type: "accordion",
+  ...
+}
+```
+
+or explicit behavior nodes.
+
+Initial behaviors can include:
+
+```text
+accordion
+tabs
+expandable
+carousel
+modal
+timeline
+toggle
+before_after
+```
+
+Implement only interactions that can be safely represented.
+
+---
+
+## No arbitrary JavaScript
+
+Kimi must NEVER provide:
+
+```text
+onclick JS
+eval
+script
+runtime imports
+arbitrary event code
+```
+
+The behavior registry maps validated declarative data to Birdflow-owned implementations.
+
+---
+
+## Publish parity
+
+Each capability/behavior requires:
+
+```text
+builder
+publisher
+screenshot renderer
+```
+
+support through the shared runtime from #163.
+
+No capability is considered implemented until all paths work.
+
+---
+
+# TASK #167 — Creative Director + Brand Exploration
+
+## Objective
+
+Turn Kimi into a creative web-design partner rather than a brand-guide-compliance bot.
+
+---
+
+# Change brand system instruction
+
+Remove:
+
+> The brand guide is LAW.
+
+Replace the design philosophy with:
+
+> The brand guide describes the customer's current identity and is the default design direction. Preserve it when appropriate, but do not treat existing choices as creative limitations. You may propose thoughtful evolution or experimental alternatives when they plausibly improve differentiation, emotional impact, usability or visual quality.
+
+---
+
+# Design intent
+
+Introduce:
+
+```ts
+type DesignIntent =
+  | "brand_aligned"
+  | "brand_evolution"
+  | "experimental";
+```
+
+Each significant design proposal should understand its intent.
+
+---
+
+# Brand deviation metadata
+
+When Kimi intentionally deviates, return something equivalent to:
+
+```ts
+brandDeviation: {
+  level: "none" | "low" | "medium" | "high";
+  changes: [];
+  rationale: string;
+}
+```
+
+Examples:
+
+```text
+new accent color
+new heading font
+new layout language
+more expressive motion
+different imagery direction
+new shape language
+```
+
+---
+
+# Approval rules
+
+### No approval required
+
+Small/local brand-consistent creative decisions.
+
+### Approval recommended/required
+
+Material changes such as:
+
+* new main color
+* replacing typography system
+* significantly different imagery language
+* fundamentally new style direction
+* major global visual rebrand
+
+Use Birdflow's scoped approval system rather than inventing an unrelated approval architecture.
+
+---
+
+# Creative proposals
+
+Kimi should be allowed to proactively identify:
+
+```text
+"This works, but it looks generic."
+```
+
+and propose a stronger alternative.
+
+For a normal page:
+
+```text
+Current direction
++
+one actual creative alternative
+```
+
+For onboarding/full redesign:
+
+Generate 2–3 directions.
+
+Example:
+
+```text
+A — Calm Clinical
+brand aligned
+
+B — Organic Editorial
+brand evolution
+
+C — Modern Sanctuary
+experimental
+```
+
+Show actual visual previews where infrastructure allows, not only textual descriptions.
+
+---
+
+# Proposal isolation
+
+Experimental proposals must not overwrite the active page before approval.
+
+Use temporary proposal state/snapshot/branch-like data.
+
+The user should be able to:
+
+```text
+Approve
+Reject
+Ask for changes
+Mix direction A with C
+```
+
+Only approved proposals become active website state.
+
+---
+
+# Brand guide evolution
+
+After approving an experimental component, keep the change local by default.
+
+Offer:
+
+```text
+Keep only here
+
+Apply this direction across website
+
+Add this choice to brand guide
+```
+
+Do not automatically rewrite global brand rules.
+
+---
+
+# TASK #168 — Autonomous Website Generation + Visual QA
+
+## Objective
+
+Make full-site generation operate like an autonomous design/build/review process.
+
+---
+
+# Target flow
+
+After plan approval:
+
+```text
+Site plan
+↓
+Page build
+↓
+Render
+↓
+Desktop/mobile review
+↓
+Correct
+↓
+Verify
+↓
+Next page
+↓
+...
+↓
+Full-site consistency review
+↓
+Final completion
+```
+
+---
+
+# Visual review policy
+
+The existing screenshot/K3 vision infrastructure should become policy-driven.
+
+Do not rely entirely on the model remembering to call it.
+
+---
+
+## Suggested triggers
+
+### No automatic review
+
+* typo
+* tiny text update
+* simple link change
+
+### Targeted review
+
+* major section styling
+* new custom component
+* responsive changes
+* motion/layout changes
+
+Capture relevant viewports.
+
+### Mandatory multi-viewport review
+
+* new page
+* full redesign
+* page architecture change
+* overlapping/absolute design
+* experimental proposal
+
+Capture:
+
+```text
+desktop
+mobile
+```
+
+and tablet where useful.
+
+---
+
+# Visual quality criteria
+
+Kimi should review both bugs and design quality.
+
+Review:
+
+* clipping
+* overflow
+* broken responsive layout
+* text wrapping
+* hierarchy
+* typography
+* spacing
+* alignment
+* image crop
+* CTA prominence
+* contrast
+* consistency
+* SVG transitions
+* decorative layering
+* excessive card repetition
+* generic/template feeling
+* brand coherence
+* overall intentionality
+
+The agent should be able to say:
+
+> Technically valid, but visually generic.
+
+and redesign when justified.
+
+---
+
+# Corrective loop
+
+Use:
+
+```text
+review
+→ structured issues
+→ targeted mutations
+→ new screenshot
+→ verify
+```
+
+Do not assume a successful mutation solved the visual problem.
+
+---
+
+## Automatic continuation
+
+Build steps should keep using existing bounded execution rules.
+
+Visual review/fix must obey:
+
+* turn budget
+* spend budget
+* image budget
+* visual-pass limit
+* repeated-tool detection
+
+No infinite pixel-perfection loops.
+
+---
+
+# Multi-page consistency
+
+Later pages must know enough about earlier built pages to maintain:
+
+* typography hierarchy
+* section rhythm
+* CTA language
+* visual motifs
+* component reuse
+* spacing rhythm
+* navigation behavior
+
+Do not make each page feel independently AI-generated.
+
+---
+
+# Full-site final review
+
+Before declaring a substantial full-site build complete:
+
+* inspect representative screenshots
+* validate navigation
+* run deterministic self-check
+* verify no unresolved high severity visual issues
+* verify responsive safety
+* verify publisher compatibility
+
+Only then call `finish`.
+
+---
+
+# TASK #169 — Version History + Runtime Hardening
+
+This can follow once #163–#168 are stable.
+
+---
+
+# Website revisions
+
+Add persistent website versions/checkpoints.
+
+Conceptually:
+
+```text
+Version 12 — before redesign
+Version 13 — AI redesign
+Version 14 — hero adjustment
+```
+
+Allow customers to restore an earlier version.
+
+Do not confuse CAS revision numbers with historical versions.
+
+---
+
+# AI build versions
+
+Record:
+
+* build ID
+* website version before
+* website version after
+* major changes
+* components created
+* creative direction
+* date/model where appropriate
+
+---
+
+# Component versions
+
+Account library master changes should produce versions.
+
+Allow:
+
+```text
+restore old master
+compare metadata
+insert old version
+```
+
+---
+
+# Additional hardening
+
+Address remaining architecture debt:
+
+* overly loose string style schemas
+* save-time backfills
+* legacy motion fields
+* giant shared files
+* publisher validation gaps
+* schema migration strategy
+* browser breakpoint tests
+* runtime feature contract tests
+
+---
+
+# AI GENERATION PHILOSOPHY
+
+Update Kimi's builder system instructions around these principles.
+
+## 1. Design first, components second
+
+Do not begin by asking:
+
+> Which existing Birdflow component matches this?
+
+Ask:
+
+> What should this page look and feel like?
+
+Then select/create the correct component representation.
+
+---
+
+## 2. Existing components are resources
+
+Reuse them when good.
+
+Do not allow them to constrain the final composition.
+
+---
+
+## 3. Custom does not mean throwaway
+
+A new section should become:
+
+```text
+validated
+editable
+responsive
+reusable
+publish-safe
+visually reviewed
+```
+
+---
+
+## 4. Responsiveness is part of design
+
+Do not make desktop first and mechanically shrink it.
+
+Explicitly design mobile behavior.
+
+---
+
+## 5. Creative freedom must remain understandable
+
+If Kimi significantly departs from the brand:
+
+* explain why
+* show it
+* ask approval
+* preserve the old version
+
+---
+
+## 6. See before declaring success
+
+For significant visual work:
+
+```text
+build
+→ render
+→ inspect
+→ correct
+→ verify
+```
+
+Do not call `finish` based only on JSON/tool success.
+
+---
+
+# TARGET USER EXPERIENCE
+
+A customer should eventually be able to provide:
+
+* business information
+* logo
+* images
+* brand guide if available
+* reference sites/screenshots
+* desired feeling
+* requested pages
+
+and say:
+
+> Build my website.
+
+Birdflow should then:
+
+1. understand the business
+2. understand the existing brand
+3. identify opportunities beyond the existing brand
+4. propose design directions where appropriate
+5. receive approval
+6. create page architecture
+7. reuse strong existing components where useful
+8. create bespoke sections where needed
+9. automatically turn bespoke sections into Birdflow components
+10. generate desktop/tablet/mobile behavior
+11. integrate trusted booking/forms/etc.
+12. make every relevant element editable
+13. save reusable components to the customer's account
+14. visually inspect the rendered pages
+15. fix quality/responsive issues
+16. run final checks
+17. publish through the same rendering contract
+
+---
+
+# Example
+
+User:
+
+> Build a premium website for my psychology clinic. I want it calm but not like every beige therapy website.
+
+Expected reasoning:
+
+```text
+Existing brand
+→ calm blue + soft shapes
+
+Opportunity
+→ current identity is safe but visually generic
+
+Proposal A
+→ evolved editorial version of current identity
+
+Proposal B
+→ bolder concept using dark forest, oversized typography,
+   asymmetrical imagery and organic linework
+
+User chooses A with some elements from B.
+```
+
+Kimi then creates:
+
+```text
+Custom Hero
+├── editorial heading
+├── image composition
+├── SVG decorative layer
+├── CTA
+└── trusted booking trigger
+
+Services
+├── bespoke asymmetrical layout
+└── responsive mobile stack
+
+Process
+├── timeline behavior
+└── custom illustration
+
+Booking
+└── trusted Birdflow booking capability
+```
+
+Every bespoke section:
+
+```text
+→ validated
+→ editable
+→ responsive
+→ account-library saved
+→ screenshot reviewed
+→ publisher safe
+```
+
+---
+
+# MIGRATION SAFETY
+
+This is production architecture.
+
+Do not break existing websites.
+
+Every schema change must include:
+
+* backward compatibility strategy
+* migration/backfill strategy
+* existing website tests
+* publish regression tests
+
+Old websites must remain renderable while new capabilities are rolled out.
+
+---
+
+# TEST STRATEGY
+
+The new architecture needs significantly stronger contracts.
+
+Add tests for:
+
+### Shared runtime
+
+* preview/publish output parity
+* custom trees
+* styles
+* tokens
+* responsive
+* motion
+* SVG
+
+### DSL
+
+* nested nodes
+* positioning
+* z-index
+* transform
+* invalid styles rejected
+* node mutation tools
+* stable IDs
+* no silent node truncation
+
+### Responsive
+
+Browser/device tests:
+
+```text
+1440 desktop
+834 tablet
+390 mobile
+```
+
+Test:
+
+* grids stack
+* overlap doesn't clip
+* ordering works
+* hidden decorations behave
+* typography remains usable
+
+### Capabilities
+
+* booking in custom section
+* contact form
+* newsletter
+* publisher runtime
+* malicious capability data rejected
+
+### Behaviors
+
+* accordion
+* tabs
+* carousel/etc. as introduced
+* keyboard/accessibility behavior
+* publisher parity
+
+### Library
+
+* account ownership
+* cross-website reuse
+* independent instance editing
+* master version updates
+* update-all explicit behavior
+
+### Creative proposals
+
+* experimental design does not overwrite active state
+* approval applies exact proposal
+* rejection leaves site untouched
+* brand guide does not automatically mutate
+
+### Visual QA
+
+* major build triggers screenshot review
+* small copy edit does not
+* high severity finding prevents premature finish
+* corrected screenshot is reverified
+
+---
+
+# PERFORMANCE / COST RULES
+
+More creative freedom must not mean uncontrolled AI spend.
+
+Continue using:
+
+* bounded agent turns
+* spend budgets
+* repeated-call detection
+* screenshot pass ceilings
+* image-generation limits
+
+Improve context efficiency through:
+
+* targeted node reads
+* targeted mutations
+* component summaries
+* cached brand context
+* library search
+* avoiding whole-tree rewrites
+
+---
+
+# SUCCESS CRITERIA
+
+This project is successful when Kimi can create a visually bespoke page that did NOT exist as a predefined Birdflow template and the result:
+
+* renders correctly in builder
+* is editable down to useful node-level controls
+* has dedicated mobile/tablet behavior
+* may use overlap/layers/advanced compositions safely
+* may embed trusted booking/forms
+* is reusable from the customer's account library
+* can adapt to another website's brand
+* is visually reviewed by K3
+* publishes without a separate hand-written implementation
+* survives refresh/reload
+* passes sanitization
+* can be undone
+* does not require adding a new React component type manually
+
+The final quality bar should be:
+
+> Kimi is limited primarily by its design ability — not by a small fixed library of Birdflow layouts.
+
+while Birdflow still owns the safety and runtime contract.
+
+---
+
+# IMPLEMENTATION PROCESS
+
+For each numbered task:
+
+1. Audit relevant existing architecture.
+2. Produce the implementation plan.
+3. Identify migration risks.
+4. Implement only that task.
+5. Run targeted tests.
+6. Run full suite.
+7. Perform realistic builder smoke test.
+8. Perform publish smoke test.
+9. Report remaining gaps.
+10. Only then begin the next task.
+
+Do NOT mark a task complete because the schema exists.
+
+A feature counts only when it works through:
+
+```text
+Kimi tool
+→ saved state
+→ builder preview
+→ manual editing
+→ responsive behavior
+→ screenshot
+→ publisher
+```
+
+where applicable.
+
+---
+
+# First action
+
+Start with **Task #163 only**.
+
+Before changing code, give me:
+
+1. the concrete renderer-unification design you recommend,
+2. which current files/functions move or become adapters,
+3. how generated Next.js sites can reuse the runtime without importing unavailable Birdflow server/editor dependencies,
+4. migration stages,
+5. backwards compatibility approach,
+6. testing strategy,
+7. biggest risks.
+
+Do not implement #164–#169 until #163's architecture is settled and its tests pass.
