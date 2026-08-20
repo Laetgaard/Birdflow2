@@ -31,6 +31,7 @@ export const PUBLISH_JOB_DDL: SchemaStatement[] = [
       idempotency_key text,
       vercel_project_id    text,
       vercel_deployment_id text,
+      snapshot_hash        text,
       deployment_url  text,
       production_url  text,
       error_code      text,
@@ -40,6 +41,10 @@ export const PUBLISH_JOB_DDL: SchemaStatement[] = [
       completed_at  timestamp,
       updated_at    timestamp NOT NULL DEFAULT now()
     )`,
+  },
+  {
+    label: 'publish_jobs_snapshot_hash_col',
+    sql: `ALTER TABLE publish_jobs ADD COLUMN IF NOT EXISTS snapshot_hash text`,
   },
   {
     label: 'publish_jobs_website_status_idx',

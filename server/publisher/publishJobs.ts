@@ -10,6 +10,7 @@
 import { sql } from 'drizzle-orm';
 import { db } from '../storage';
 import type { BuilderStateData } from '../../shared/schema';
+import { hashCanonicalSnapshot } from './deploymentIdentity';
 
 /**
  * Recorded when this module is first imported — i.e. when the server process
@@ -75,6 +76,7 @@ export interface PublishJob {
   idempotencyKey: string | null;
   vercelProjectId: string | null;
   vercelDeploymentId: string | null;
+  snapshotHash: string | null;
   deploymentUrl: string | null;
   productionUrl: string | null;
   errorCode: string | null;
@@ -99,6 +101,7 @@ function toJob(row: Record<string, unknown>): PublishJob {
     idempotencyKey: (row.idempotency_key as string) ?? null,
     vercelProjectId: (row.vercel_project_id as string) ?? null,
     vercelDeploymentId: (row.vercel_deployment_id as string) ?? null,
+    snapshotHash: (row.snapshot_hash as string) ?? null,
     deploymentUrl: (row.deployment_url as string) ?? null,
     productionUrl: (row.production_url as string) ?? null,
     errorCode: (row.error_code as string) ?? null,
@@ -425,13 +428,15 @@ export async function createPublishJobWithSnapshot(params: {
   content: BuilderStateData;
 }): Promise<{ job: PublishJob; versionId: string }> {
   return await db.transaction(async (tx) => {
+    const snapshotHash = hashCanonicalSnapshot(params.content);
     const jobResult = await tx.execute(
-      sql`INSERT INTO publish_jobs (website_id, requested_by, status, idempotency_key)
+      sql`INSERT INTO publish_jobs (website_id, requested_by, status, idempotency_key, snapshot_hash)
           VALUES (
             ${params.websiteId},
             ${params.requestedBy},
             'queued',
-            ${params.idempotencyKey ?? null}
+            ${params.idempotencyKey ?? null},
+            ${snapshotHash}
           )
           RETURNING *`
     );

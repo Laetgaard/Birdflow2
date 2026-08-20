@@ -20,6 +20,11 @@
  */
 
 import {
+  createDeploymentIdentity,
+  DeploymentIdentityError,
+  verifyRemoteDeploymentIdentity,
+} from './deploymentIdentity';
+import {
   updatePublishJobStatus,
   completePublishJobIfNewest,
   claimPublishActivation,
@@ -65,6 +70,7 @@ export type WorkerConfig = {
   platformUrl: string;
   language?: SiteLanguage;
   requestedBy: string;
+  snapshotHash: string;
 };
 
 const ACTIVATION_LEASE_MS = 2 * 60_000;
@@ -152,6 +158,34 @@ export async function reconcileExpiredPublishActivations(
     const domains = await storage.getCustomDomains(job.websiteId).catch(() => []);
     const activeDomain = domains.find((domain) => domain.status === 'active');
     const customerFacingUrl = activeDomain ? `https://${activeDomain.domain}` : stableUrl;
+    if (!job.snapshotHash) {
+      await failPublishJob(job.id, {
+        errorCode: 'ACTIVATION_DEPLOYMENT_MISMATCH',
+        errorMessage: 'The interrupted publish has no snapshot identity and cannot be verified safely.',
+      });
+      continue;
+    }
+    try {
+      const identity = createDeploymentIdentity({
+        siteId: job.websiteId,
+        publishJobId: job.id,
+        snapshotHash: job.snapshotHash,
+      });
+      await verifyRemoteDeploymentIdentity(stableUrl, identity);
+      if (activeDomain) {
+        await verifyRemoteDeploymentIdentity(customerFacingUrl, identity);
+      }
+    } catch (error) {
+      if (error instanceof DeploymentIdentityError) {
+        await failPublishJob(job.id, {
+          errorCode: error.code,
+          errorMessage: error.message,
+          failureDetails: { stage: 'verification', errorMessage: error.message, timestamp: new Date().toISOString() },
+        });
+        continue;
+      }
+      throw error;
+    }
     const { applied } = await completePublishJobIfNewest(job.id, job.websiteId, {
       productionUrl: customerFacingUrl,
       deploymentUrl: stableUrl,
@@ -228,6 +262,11 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       customDomain: cfg.customDomain,
       birdflowApiUrl: cfg.platformUrl,
       language: cfg.language ?? DEFAULT_SITE_LANGUAGE,
+      deploymentIdentity: createDeploymentIdentity({
+        siteId: websiteId,
+        publishJobId: jobId,
+        snapshotHash: cfg.snapshotHash,
+      }),
       // publishWebsite calls this as it advances through uploading → deploying → waiting_for_alias
       onStatusUpdate: async (status: PublishJobStatus, extra?) => {
         await updatePublishJobStatus(jobId, status, extra ?? {});
@@ -243,7 +282,7 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
     });
 
     if (!result.success || !result.deploymentUrl) {
-      if (activationClaimed) {
+      if (activationClaimed && result.errorCode !== 'ACTIVATION_DEPLOYMENT_MISMATCH') {
         // Promotion may have reached Vercel just before a timeout or process
         // failure. Keep the durable activating reservation for reconciliation;
         // do not falsely report that production was left untouched.
@@ -255,7 +294,7 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
         return;
       }
       await failPublishJob(jobId, {
-        errorCode: 'PUBLISH_FAILED',
+        errorCode: result.errorCode ?? 'PUBLISH_FAILED',
         errorMessage: result.error ?? 'Publisher returned no URL',
         failureDetails: result.failureDetails,
       });

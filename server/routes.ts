@@ -3007,6 +3007,7 @@ export async function registerRoutes(
         websiteId: req.params.id,
         siteName: website.name,
         snapshotContent: canonicalState,
+        snapshotHash: job.snapshotHash!,
         supabaseUrl,
         supabaseAnonKey,
         supabaseServiceRoleKey,

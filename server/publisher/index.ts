@@ -21,6 +21,12 @@ import {
   migrateSiteStateToCurrent,
   PublishCompatibilityError,
 } from './migrations';
+import {
+  createDeploymentIdentity,
+  DeploymentIdentityError,
+  verifyLocalDeploymentIdentity,
+  verifyRemoteDeploymentIdentity,
+} from './deploymentIdentity';
 
 export type PublishConfig = {
   websiteId: string;
@@ -40,6 +46,13 @@ export type PublishConfig = {
   birdflowApiUrl: string; // Required: BirdFlow platform URL for email callbacks
   /** Language the site is written in - drives document lang and baked-in copy. */
   language?: SiteLanguage;
+  /** Persisted identity of the immutable snapshot deployed by this worker. */
+  deploymentIdentity?: {
+    schemaVersion: 1;
+    siteId: string;
+    publishJobId: string;
+    snapshotHash: string;
+  };
   /**
    * Called as the pipeline advances through stages so a job record can be
    * kept in sync. Optional — callers that don't need status tracking can omit.
@@ -69,6 +82,8 @@ export type PublishResult = {
   rawDeploymentUrl?: string;
   deploymentId?: string;
   vercelProjectId?: string;
+  /** Stable machine-readable error code for publish job recovery decisions. */
+  errorCode?: string;
   error?: string;
   /**
    * Structured failure metadata — populated on every failure path so the
@@ -147,6 +162,12 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     }
 
     currentStage = 'generating';
+    const deploymentIdentity = config.deploymentIdentity;
+    if (!deploymentIdentity) {
+      throw new DeploymentIdentityError(
+        'This publish job has no immutable deployment identity. The deployment was not started.',
+      );
+    }
     projectDir = await generateNextJsProject({
       websiteId: config.websiteId,
       siteName: config.siteName,
@@ -154,6 +175,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       supabaseUrl: config.supabaseUrl,
       supabaseAnonKey: config.supabaseAnonKey,
       language: config.language ?? DEFAULT_SITE_LANGUAGE,
+      deploymentIdentity,
     });
 
     // Type-check the generated source before uploading to Vercel. This catches
@@ -161,6 +183,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     // as an opaque Vercel build failure minutes later.
     currentStage = 'type_check';
     await runTscGate(projectDir);
+    await verifyLocalDeploymentIdentity(projectDir, deploymentIdentity);
 
     currentStage = 'upload';
     const vercelConfig: VercelConfig = {
@@ -223,6 +246,8 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       websiteId: config.websiteId,
       deploymentId: readyDeployment.id,
     });
+    currentStage = 'verification';
+    await verifyRemoteDeploymentIdentity(readyDeployment.url, deploymentIdentity);
 
     await config.onStatusUpdate?.('waiting_for_alias', {
       vercelProjectId: projectId,
@@ -336,6 +361,10 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
         },
       };
     }
+    await verifyRemoteDeploymentIdentity(stableUrl, deploymentIdentity);
+    if (config.customDomain) {
+      await verifyRemoteDeploymentIdentity(`https://${config.customDomain}`, deploymentIdentity);
+    }
 
     return {
       success: true,
@@ -358,6 +387,12 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
         componentId: error.details.componentId,
         componentType: error.details.componentType,
         pageName: error.details.pageName,
+        timestamp: new Date().toISOString(),
+      };
+    } else if (error instanceof DeploymentIdentityError) {
+      failureDetails = {
+        stage: 'verification',
+        errorMessage: error.message,
         timestamp: new Date().toISOString(),
       };
     } else if (error instanceof PublishTypeError) {
@@ -383,6 +418,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
 
     return {
       success: false,
+      errorCode: error instanceof DeploymentIdentityError ? error.code : undefined,
       error: errMsg,
       failureDetails,
     };

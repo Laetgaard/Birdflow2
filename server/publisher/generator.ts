@@ -67,6 +67,13 @@ export type GeneratorConfig = {
   builderState: BuilderStateData;
   supabaseUrl: string;
   supabaseAnonKey: string;
+  /** Immutable publish identity embedded in the artifact when called by the publisher. */
+  deploymentIdentity?: {
+    schemaVersion: 1;
+    siteId: string;
+    publishJobId: string;
+    snapshotHash: string;
+  };
   /** Language the published site is written in. Danish when omitted. */
   language?: SiteLanguage;
 };
@@ -347,6 +354,12 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'theme.json', content: generateThemeJson(theme) },
     { path: '.env.example', content: generateEnvExample() },
     { path: '.nvmrc', content: generateNvmrc() },
+    ...(config.deploymentIdentity
+      ? [{
+          path: 'public/birdflow-deployment.json',
+          content: `${JSON.stringify(config.deploymentIdentity)}\n`,
+        }]
+      : []),
     { path: 'lib/supabase.ts', content: generateSupabaseClient(websiteId) },
     { path: 'lib/supabase-admin.ts', content: generateServerSupabase(websiteId) },
     { path: 'components/WebsiteProvider.tsx', content: generateWebsiteProvider() },
