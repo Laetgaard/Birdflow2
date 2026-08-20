@@ -1,0 +1,118 @@
+#191 — Prove and harden #190 with real Supabase + staged-production Vercel publishing
+
+Goal
+
+Do not consider #190 complete until the historical-site publishing path has been exercised against the real database and Vercel deployment APIs.
+
+1. Diagnose the current Supabase database hostname failure from the actual Replit runtime.
+
+Determine whether the failure is:
+- DNS/ENOTFOUND
+- invalid Supabase project hostname
+- IPv6-only direct DB connection
+- connection timeout
+- authentication
+- SSL/configuration
+
+Do not label it an external issue until the exact failure has been identified.
+
+If DATABASE_URL currently points to db.<project-ref>.supabase.co and the runtime cannot reach the IPv6 direct endpoint, switch the Birdflow application runtime to the Supabase Supavisor connection appropriate for the persistent Express backend.
+
+Audit all server, worker, migration and publisher database configuration so there is one intentional runtime database configuration and no hidden hardcoded direct-host connection.
+
+2. Audit the Vercel deployment lifecycle implemented by #190.
+
+Important:
+Do not verify a normal Preview deployment and then rely on a promotion operation that creates a different Production build.
+
+Birdflow's required invariant is:
+
+THE EXACT DEPLOYMENT THAT PASSES VERIFICATION MUST BE THE DEPLOYMENT THAT RECEIVES PRODUCTION TRAFFIC.
+
+Use Vercel's staged-production model:
+- create a production-target deployment without assigning production domains
+- wait for that deployment to become READY
+- verify the exact deployment
+- claim Birdflow's activation fence
+- promote that same staged production deployment
+- verify the production domain now resolves to that deployment
+- only then commit Birdflow's published state
+
+Confirm the exact behavior against the current Vercel API version used by server/publisher/vercel.ts rather than assuming Preview promotion is artifact-preserving.
+
+3. Add deployment identity verification.
+
+Persist:
+- publishJobId
+- siteId
+- canonical snapshot hash
+- Vercel project ID
+- Vercel deployment ID
+
+Generate a small Birdflow deployment marker/health endpoint or static file containing:
+- siteId
+- publishJobId
+- snapshotHash
+
+During verification, fetch it directly from the staged Vercel deployment and require all values to match the current publish job.
+
+After production activation, fetch the production URL and require it to return the same identity.
+
+If staged deployment identity and production identity differ, fail with ACTIVATION_DEPLOYMENT_MISMATCH and do not commit new publication metadata.
+
+4. Run a real historical-project E2E publish.
+
+Use a real/sanitized Birdflow project created before the recent publisher changes.
+
+Record before publishing:
+- page structure
+- components
+- navigation
+- assets
+- live URL
+- Vercel project ID
+- current deployment ID
+
+Publish through the actual route → DB → worker → migration → generator → build → Vercel → activation flow.
+
+Verify:
+- all historical content survives
+- same Vercel project is reused
+- no duplicate project is created
+- all expected routes return successfully
+- production points to the verified deployment
+- stable/custom domain remains correct
+
+5. Run failure E2E tests.
+
+At minimum:
+A. unsupported historical component
+B. generator/build failure
+C. Vercel deployment failure
+D. verification failure
+E. activation/promotion failure
+F. stale worker attempt
+G. collaborator-triggered publish
+
+For A-E prove the previous successful production deployment and published metadata remain untouched.
+
+6. Permission E2E.
+
+Verify:
+- owner can publish and inspect job
+- authorized admin collaborator can publish and inspect job
+- owner can inspect collaborator-created job
+- collaborator can inspect owner-created job
+- unrelated user receives 403
+- collaborator does not gain owner-only billing/domain/paid-AI permissions
+
+7. Completion criteria
+
+#190 is only considered fully production-verified when:
+- Supabase connectivity works from the actual runtime
+- at least one real historical project publishes successfully
+- the exact verified Vercel deployment becomes production
+- the existing project/domain is reused
+- failure injection proves the old live site is preserved
+- collaborator publishing succeeds end-to-end
+- tests, TypeScript and diff checks remain green
