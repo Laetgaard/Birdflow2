@@ -748,6 +748,7 @@ export default function BuilderPage() {
       uploading: 'Uploading files…',
       deploying: 'Deploying…',
       waiting_for_alias: 'Finalising URL…',
+      activating: 'Making the new version live…',
     };
 
     const intervalId = setInterval(async () => {

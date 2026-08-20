@@ -19,6 +19,7 @@ import {
 import { missingRendererCases, unrenderableComponents, describeUnrenderable } from './coverage';
 import { validateBuilderStateForPublish } from './validate';
 import { normalizePages } from './normalize';
+import { migrateSiteStateToCurrent } from './migrations';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
   generatePackageJson,
@@ -196,7 +197,10 @@ async function downloadAndSaveImages(
 }
 
 export async function generateNextJsProject(config: GeneratorConfig): Promise<string> {
-  const { websiteId, siteName, builderState, supabaseUrl, supabaseAnonKey } = config;
+  const { websiteId, siteName, builderState: sourceBuilderState, supabaseUrl, supabaseAnonKey } = config;
+  // Defensive boundary: all generator inputs are canonical, even when a
+  // caller bypasses the normal publish route in a test or a future worker.
+  const { state: builderState } = migrateSiteStateToCurrent(sourceBuilderState);
   const language = config.language ?? DEFAULT_SITE_LANGUAGE;
   
   const outputDir = path.join('/tmp', 'publish', websiteId, Date.now().toString());

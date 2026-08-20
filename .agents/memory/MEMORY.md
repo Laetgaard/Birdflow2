@@ -26,6 +26,7 @@
 - [Kimi K3 provider routing](kimi-provider-routing.md) — provider field on AiRoleConfig, client selection in aiCall, $1.00/M pricing estimate, test seam (mock both clients), repeat-call detection, AgentRunMeta.
 - [Preview vs published parity](renderer-parity.md) — render both sides from registry defaults; escape generated literals (comments too) and compile output; runtime checks are three-valued (unavailable ≠ failed).
 - [Async publish pipeline](async-publish-pipeline.md) — 202+jobId flow; BIRDFLOW_PUBLIC_PLATFORM_URL required (no REPLIT_DEPLOYMENT); alias retry; never store hashed URL; worker pattern.
+- [Publish legacy compatibility](publish-legacy-compatibility.md) — canonical snapshots migrate old state safely; shared-site publishing uses central permissions and stable Vercel identities.
 - [Builder motion system](builder-motion.md) — motion specs are data, resolvers stay stringifiable, done-phase = {} so hover wins, stagger is box-only, reduced-motion needs the baked CSS unhide rule.
 - [Invented-claims gate](invented-claims-gate.md) — mutations judge against facts+site copy, whole-state scrubs against facts only; forbidden ≠ evidence; scrub again after registry defaults.
 - [Marketing SEO head injection](marketing-seo-head-injection.md) — initial-response metadata on both servers; `index:false` doesn't stop GET /index.html; managed-tag list for SPA head sync; SSR tests need reactEscape.

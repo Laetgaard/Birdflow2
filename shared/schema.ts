@@ -559,6 +559,12 @@ export type DesignTokens = {
 };
 
 export type BuilderStateData = {
+  /**
+   * Explicit version of the persisted site-state format. Historical records
+   * may omit this; the publish migration layer detects and upgrades those
+   * records in memory before they reach the generated-site pipeline.
+   */
+  schemaVersion?: number;
   pages: BuilderPage[];
   activePage: string;
   globalStyles: DesignTokens;

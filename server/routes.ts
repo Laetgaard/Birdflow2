@@ -10,7 +10,7 @@ import { collectReferencedSvgAssetIds } from "@shared/svgAssets";
 import { migrateSiteStructure } from "@shared/siteStructure";
 import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { getPlatformCalendar } from "./platformCalendar";
-import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
+import { requireWebsitePermission, getWebsiteAccess, getAuthedUser, resolveWebsiteAccess } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
 import { isAllowedMediaStoragePath } from "./mediaPaths";
@@ -24,9 +24,11 @@ import {
   getPublishJob,
   getActivePublishJob,
   getPublishJobByDeploymentId,
+  getLatestPublishedVercelProjectId,
   completePublishJob,
   failPublishJob,
 } from "./publisher/publishJobs";
+import { migrateSiteStateToCurrent, PublishCompatibilityError } from "./publisher/migrations";
 import { isPublishJobSchemaReady } from "./publisher/publishJobSchema";
 import { runPublishJob } from "./publisher/worker";
 import type { WorkerConfig } from "./publisher/worker";
@@ -55,7 +57,11 @@ import {
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
+import {
+  checkDomainAvailability,
+  purchaseDomain,
+  recoverVerifiedProjectForLiveUrl,
+} from "./publisher/vercel";
 import {
   getVercelConfig,
   projectNameForWebsite,
@@ -2862,17 +2868,14 @@ export async function registerRoutes(
   // Publishing no longer depends on REPLIT_DEPLOYMENT or a live Replit
   // production deployment — it works from the dev workspace, locally, and
   // from any future host, as long as BIRDFLOW_PUBLIC_PLATFORM_URL is set.
-  app.post("/api/websites/:id/publish", requireAuth, async (req, res) => {
+  app.post("/api/websites/:id/publish", requireAuth, requireWebsitePermission("publish"), async (req, res) => {
     try {
-      const user = (req as any).user;
+      const access = getWebsiteAccess(req);
+      const website = access.website;
 
       if (!isPublishJobSchemaReady()) {
         return res.status(503).json({ message: "Publish system is starting up. Please try again in a moment." });
       }
-
-      const website = await storage.getWebsite(req.params.id);
-      if (!website) return res.status(404).json({ message: "Website not found" });
-      if (website.ownerId !== user.id) return res.status(403).json({ message: "Access denied" });
 
       const builderState = await storage.getBuilderState(req.params.id);
       if (!builderState) return res.status(400).json({ message: "No builder state found" });
@@ -2881,7 +2884,8 @@ export async function registerRoutes(
       if (!vercelToken) {
         return res.status(400).json({ message: "Vercel token not configured. Please add VERCEL_TOKEN to secrets." });
       }
-      if (!supabaseUrl || !supabaseAnonKey) {
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
         return res.status(400).json({ message: "Supabase not configured" });
       }
 
@@ -2895,6 +2899,18 @@ export async function registerRoutes(
             "BirdFlow platform URL is not configured. Set BIRDFLOW_PUBLIC_PLATFORM_URL (e.g. https://bird-flow.app) so published sites can deliver analytics and emails.",
         });
       }
+
+      // Upgrade historical data before the immutable snapshot is created.
+      // This gives the worker a single canonical state shape and, crucially,
+      // means a migration failure cannot disturb the currently live site.
+      const compatibility = migrateSiteStateToCurrent(builderState.state);
+      const canonicalState = compatibility.state;
+      console.log("[Publish] state_migrated", {
+        websiteId: req.params.id,
+        sourceVersion: compatibility.report.sourceVersion,
+        targetVersion: compatibility.report.targetVersion,
+        migrationsApplied: compatibility.report.migrationsApplied,
+      });
 
       // Idempotency: check for an already-running job before inserting.
       // createPublishJob will still throw a unique-constraint error (23505) if
@@ -2933,12 +2949,35 @@ export async function registerRoutes(
 
       // Active custom domain (if any) — passed to the worker so it can attach it.
       let activeCustomDomain: string | undefined;
+      let recoveredVercelProjectId: string | undefined =
+        (await getLatestPublishedVercelProjectId(req.params.id)) ?? undefined;
       try {
         const customDomains = await storage.getCustomDomains(req.params.id);
         const activeDomain = customDomains.find(d => d.status === 'active');
-        if (activeDomain) activeCustomDomain = activeDomain.domain;
+        if (activeDomain) {
+          activeCustomDomain = activeDomain.domain;
+          // Older sites sometimes only have the project reference on their
+          // connected domain row. It is a recovery hint after the successful
+          // publish-job record, never a generated name.
+          recoveredVercelProjectId ??= activeDomain.vercelProjectId || undefined;
+        }
       } catch (domainErr) {
         console.error('[Publish] Failed to fetch custom domains:', domainErr);
+      }
+      if (!recoveredVercelProjectId && website.deploymentUrl) {
+        recoveredVercelProjectId =
+          (await recoverVerifiedProjectForLiveUrl(
+            projectNameForWebsite(req.params.id),
+            website.deploymentUrl,
+            { token: vercelToken, teamId: process.env.VERCEL_TEAM_ID },
+          )) ?? undefined;
+        if (!recoveredVercelProjectId) {
+          return res.status(409).json({
+            code: "VERCEL_PROJECT_RECOVERY_REQUIRED",
+            message:
+              "This older live website has no verified Vercel project record. Publishing was stopped to avoid creating a duplicate project. Reconnect the original Vercel project before publishing again.",
+          });
+        }
       }
 
       // Create the publish job and its immutable content snapshot atomically.
@@ -2946,9 +2985,9 @@ export async function registerRoutes(
       // never leaves an orphaned queued job that would block future publishes.
       const { job } = await createPublishJobWithSnapshot({
         websiteId: req.params.id,
-        requestedBy: user.id,
+        requestedBy: access.actorUserId,
         idempotencyKey,
-        content: builderState.state as BuilderStateData,
+        content: canonicalState,
       });
 
       console.log('[Publish] snapshot_created', { websiteId: req.params.id, publishJobId: job.id });
@@ -2967,25 +3006,33 @@ export async function registerRoutes(
         jobId: job.id,
         websiteId: req.params.id,
         siteName: website.name,
-        snapshotContent: builderState.state as BuilderStateData,
+        snapshotContent: canonicalState,
         supabaseUrl,
         supabaseAnonKey,
-        supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+        supabaseServiceRoleKey,
         stripeSecretKey,
         stripePublishableKey,
         stripeWebhookSecret,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
+        existingVercelProjectId: recoveredVercelProjectId ?? undefined,
         customDomain: activeCustomDomain,
         platformUrl,
         language: normalizeSiteLanguage(website.language),
-        requestedBy: user.id,
+        requestedBy: access.actorUserId,
       };
       setImmediate(() => { void runPublishJob(workerCfg); });
     } catch (error: any) {
       // Unique-constraint violation on the one-active-per-site index means two
       // simultaneous requests raced through the pre-check and both tried to insert.
       // The second insert loses with code 23505 → return 409 instead of 500.
+      if (error instanceof PublishCompatibilityError) {
+        return res.status(400).json({
+          code: error.code,
+          message: error.message,
+          failureDetails: { stage: error.stage, ...error.details },
+        });
+      }
       if (error?.code === '23505' || /unique.*publish_jobs_one_active/i.test(error?.message ?? '')) {
         return res.status(409).json({ message: "A publish is already in progress for this site." });
       }
@@ -2999,13 +3046,11 @@ export async function registerRoutes(
       if (!isPublishJobSchemaReady()) {
         return res.status(503).json({ message: "Publish system is starting up." });
       }
-      const user = (req as any).user;
       const job = await getPublishJob(req.params.jobId);
       if (!job) return res.status(404).json({ message: "Publish job not found" });
-      // Authorization: only the owner of the website may read this job
-      const website = await storage.getWebsite(job.websiteId);
-      if (!website || website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
+      const access = await resolveWebsiteAccess(req, job.websiteId, "publish");
+      if ("failure" in access) {
+        return res.status(access.failure.status).json({ message: access.failure.message });
       }
       res.json({
         jobId: job.id,

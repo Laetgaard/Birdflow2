@@ -32,6 +32,14 @@ import type {
   SiteNavigation,
 } from './schema';
 
+/**
+ * The one canonical persisted builder-state shape accepted by current
+ * publishing. Historical states are upgraded in server/publisher/migrations
+ * before publishing; this module tags normal builder migrations as current so
+ * the next ordinary save carries an explicit version too.
+ */
+export const CURRENT_SITE_SCHEMA_VERSION = 2;
+
 /** Every role a page can have. Later rules key off these. */
 export const PAGE_ROLES: PageRole[] = ['home', 'service', 'legal', 'booking', 'landing', 'draft'];
 
@@ -302,7 +310,11 @@ function consolidateLegacyProps(component: BuilderComponentData): BuilderCompone
  */
 export function migrateSiteStructure(state: BuilderStateData): BuilderStateData {
   const pages = state.pages ?? [];
-  if (pages.length === 0) return state;
+  if (pages.length === 0) {
+    return state.schemaVersion === CURRENT_SITE_SCHEMA_VERSION
+      ? state
+      : { ...state, schemaVersion: CURRENT_SITE_SCHEMA_VERSION };
+  }
 
   let changed = false;
   let nextPages: BuilderPage[] = pages.map((page) => {
@@ -415,10 +427,11 @@ export function migrateSiteStructure(state: BuilderStateData): BuilderStateData 
     changed = true;
   }
 
-  if (!changed) return state;
+  if (!changed && state.schemaVersion === CURRENT_SITE_SCHEMA_VERSION) return state;
 
   return {
     ...state,
+    schemaVersion: CURRENT_SITE_SCHEMA_VERSION,
     pages: nextPages,
     navigation,
     ...(chrome ? { siteChrome: chrome } : {}),

@@ -38,42 +38,59 @@ async function vercelFetch(
 
 export async function getOrCreateProject(
   projectName: string,
-  config: VercelConfig
+  config: VercelConfig,
+  existingProjectId?: string,
 ): Promise<string> {
-  const res = await vercelFetch(`/v9/projects/${projectName}`, config);
-  
-  if (res.ok) {
-    const project = await res.json();
-    
-    // Update project settings to ensure Node 20.x is used, and disable
-    // Vercel SSO deployment protection so visitors can reach the site at its
-    // deployment URLs (protection would redirect them to a Vercel login).
-    // Note: the v9 project PATCH only accepts top-level fields (sending a
-    // `projectSettings` object is rejected with 400).
+  async function configureProject(project: { id: string }): Promise<string> {
+    // Update project settings to ensure Node 20.x is used, and disable Vercel
+    // SSO deployment protection. A settings failure is a hard pre-deployment
+    // failure: continuing could make a newly "published" website unreachable.
     const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
       method: 'PATCH',
-      body: JSON.stringify({
-        ssoProtection: null,
-        nodeVersion: '20.x',
-      }),
+      body: JSON.stringify({ ssoProtection: null, nodeVersion: '20.x' }),
     });
-    
     if (!patchRes.ok) {
-      const errorText = await patchRes.text();
-      console.error('Failed to update project nodeVersion:', errorText);
-      // Continue anyway - the deployment might still work
-    } else {
-      const updatedProject = await patchRes.json();
-      const newNodeVersion = updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion;
-      console.log('Updated project nodeVersion to:', newNodeVersion);
-      if (newNodeVersion !== '20.x') {
-        console.warn('NodeVersion not updated to 20.x, deployment may fail');
-      }
+      throw new Error(
+        `Could not prepare Vercel project ${project.id}: ${await patchRes.text()}`,
+      );
     }
-    
+    const updatedProject = await patchRes.json();
+    const nodeVersion = updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion;
+    if (nodeVersion && nodeVersion !== '20.x') {
+      throw new Error(`Vercel project ${project.id} did not accept Node 20.x.`);
+    }
     return project.id;
   }
-  
+
+  // A successful prior publish records Vercel's stable project identity.
+  // Never create a lookalike project when that reference cannot be resolved:
+  // it would split the customer's domains and live history across projects.
+  if (existingProjectId) {
+    const existingRes = await vercelFetch(
+      `/v9/projects/${encodeURIComponent(existingProjectId)}`,
+      config,
+    );
+    if (!existingRes.ok) {
+      throw new Error(
+        `Could not access the existing Vercel project (${existingProjectId}, HTTP ${existingRes.status}). ` +
+          "Publishing was stopped to avoid creating a duplicate project.",
+      );
+    }
+    return configureProject(await existingRes.json());
+  }
+
+  // A generated name is deliberately only a recovery hint for sites that have
+  // never stored a project id. Any Vercel error other than an explicit 404 is
+  // ambiguous, so fail instead of trying to create another project.
+  const res = await vercelFetch(`/v9/projects/${encodeURIComponent(projectName)}`, config);
+  if (res.ok) return configureProject(await res.json());
+  if (res.status !== 404) {
+    throw new Error(
+      `Could not look up Vercel project ${projectName} (HTTP ${res.status}). ` +
+        "Publishing was stopped to avoid creating a duplicate project.",
+    );
+  }
+
   const createRes = await vercelFetch('/v9/projects', config, {
     method: 'POST',
     body: JSON.stringify({
@@ -88,26 +105,7 @@ export async function getOrCreateProject(
   }
   
   const project = await createRes.json();
-  
-  // Update nodeVersion after creation and disable SSO deployment protection
-  // so the published site is publicly reachable. Only top-level fields are
-  // accepted by the v9 project PATCH.
-  const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      ssoProtection: null,
-      nodeVersion: '20.x',
-    }),
-  });
-  
-  if (!patchRes.ok) {
-    console.warn('Failed to set nodeVersion on new project:', await patchRes.text());
-  } else {
-    const updatedProject = await patchRes.json();
-    console.log('Set nodeVersion on new project to:', updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion);
-  }
-  
-  return project.id;
+  return configureProject(project);
 }
 
 export async function setProjectEnvVars(
@@ -199,7 +197,9 @@ export async function deployProject(
       name: projectName,
       project: projectId,
       files,
-      target: 'production',
+      // Deliberately omit target: this is a preview/staging deployment. It
+      // must build and pass all activation checks before it is allowed to
+      // replace traffic on the customer's current production URL.
       projectSettings: {
         framework: 'nextjs',
         buildCommand: 'npm run build',
@@ -222,6 +222,90 @@ export async function deployProject(
     url: `https://${deployment.url}`,
     readyState: deployment.readyState,
   };
+}
+
+/**
+ * Atomically point a project's production traffic at an already-ready preview
+ * deployment. This endpoint does not rebuild; the caller has already waited
+ * for the deployment and performed all pre-activation checks.
+ */
+export async function promoteDeployment(
+  projectId: string,
+  deploymentId: string,
+  config: VercelConfig,
+): Promise<void> {
+  const res = await vercelFetch(
+    `/v10/projects/${encodeURIComponent(projectId)}/promote/${encodeURIComponent(deploymentId)}`,
+    config,
+    { method: 'POST' },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `Could not activate the ready Vercel deployment: ${await res.text()}`,
+    );
+  }
+}
+
+/**
+ * Returns whether Vercel reports this deployment as production traffic.
+ * `unknown` deliberately does not release an activation reservation: treating
+ * an inconclusive API response as "not production" could permit a second job
+ * to overwrite traffic that was actually promoted just before a crash.
+ */
+export async function getDeploymentProductionState(
+  deploymentId: string,
+  config: VercelConfig,
+): Promise<'production' | 'preview' | 'failed' | 'unknown'> {
+  const res = await vercelFetch(
+    `/v13/deployments/${encodeURIComponent(deploymentId)}`,
+    config,
+  );
+  if (!res.ok) return 'unknown';
+  const deployment = await res.json();
+  if (deployment.target === 'production') return 'production';
+  if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
+    return 'failed';
+  }
+  if (deployment.target === 'preview') return 'preview';
+  return 'unknown';
+}
+
+/**
+ * Safe fallback for a live legacy site that predates publish_jobs. A generated
+ * project name alone is never proof of ownership: only reuse it when Vercel
+ * reports the website's already-live host as one of that project's aliases.
+ */
+export async function recoverVerifiedProjectForLiveUrl(
+  projectName: string,
+  liveUrl: string,
+  config: VercelConfig,
+): Promise<string | null> {
+  let liveHost: string;
+  try {
+    liveHost = new URL(liveUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+
+  const res = await vercelFetch(`/v9/projects/${encodeURIComponent(projectName)}`, config);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(
+      `Could not verify the legacy Vercel project (HTTP ${res.status}). ` +
+        'Publishing was stopped to avoid creating a duplicate project.',
+    );
+  }
+  const project = await res.json();
+  const aliases = [
+    ...(Array.isArray(project.alias) ? project.alias : []),
+    ...(Array.isArray(project.targets?.production?.alias)
+      ? project.targets.production.alias
+      : []),
+  ].map((alias: unknown) => String(alias).toLowerCase());
+
+  return aliases.includes(liveHost) && typeof project.id === 'string'
+    ? project.id
+    : null;
 }
 
 /** Pick the shortest stable *.vercel.app entry from a list of alias strings,

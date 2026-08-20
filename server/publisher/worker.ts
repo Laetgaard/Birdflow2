@@ -22,11 +22,20 @@
 import {
   updatePublishJobStatus,
   completePublishJobIfNewest,
+  claimPublishActivation,
   failPublishJob,
+  getExpiredActivatingPublishJobs,
+  SERVER_START_TIME,
   type PublishFailureDetails,
 } from './publishJobs';
 import { publishWebsite } from './index';
 import { PublishTypeError } from './tscGate';
+import {
+  getDeploymentProductionState,
+  getProductionAliasUrlWithRetry,
+  promoteDeployment,
+  type VercelConfig,
+} from './vercel';
 import type { SiteLanguage } from '../../shared/siteLanguage';
 import { DEFAULT_SITE_LANGUAGE } from '../../shared/siteLanguage';
 import { storage } from '../storage';
@@ -49,12 +58,142 @@ export type WorkerConfig = {
   stripeWebhookSecret?: string;
   vercelToken: string;
   vercelTeamId?: string;
+  /** Existing project recovered by the request preflight, if this is a republish. */
+  existingVercelProjectId?: string;
   customDomain?: string;
   /** BIRDFLOW_PUBLIC_PLATFORM_URL — baked into the published site for analytics/emails. */
   platformUrl: string;
   language?: SiteLanguage;
   requestedBy: string;
 };
+
+const ACTIVATION_LEASE_MS = 2 * 60_000;
+
+/**
+ * Reconcile activation reservations whose durable lease has expired.
+ * A job is released only when Vercel definitively reports that its deployment
+ * is not production. If it is production, we finish the durable job/website
+ * metadata commit. A preview state is also retained: it can mean the original
+ * promote HTTP request is still in flight. Reconciliation retries promotion
+ * only for the same deployment, which is safe and cannot activate another
+ * version. Only a terminal Vercel deployment failure releases the reservation.
+ */
+export async function reconcileExpiredPublishActivations(
+  config: VercelConfig,
+  leaseCutoff: Date = new Date(Date.now() - ACTIVATION_LEASE_MS),
+): Promise<void> {
+  const jobs = await getExpiredActivatingPublishJobs(leaseCutoff);
+  for (const job of jobs) {
+    if (!job.vercelProjectId || !job.vercelDeploymentId) {
+      await failPublishJob(job.id, {
+        errorCode: 'ACTIVATION_METADATA_MISSING',
+        errorMessage: 'The interrupted publish had no Vercel activation metadata. You can publish again.',
+      });
+      continue;
+    }
+
+    const state = await getDeploymentProductionState(job.vercelDeploymentId, config);
+    if (state === 'unknown') {
+      console.warn('[Publish] activation reconciliation deferred', {
+        publishJobId: job.id,
+        reason: 'Vercel did not confirm the deployment target',
+      });
+      continue;
+    }
+    if (state === 'failed') {
+      await failPublishJob(job.id, {
+        errorCode: 'ACTIVATION_NOT_PROMOTED',
+        errorMessage:
+          'Vercel marked the reserved version as failed before it could be made live. Your existing website was not changed; you can publish again.',
+      });
+      continue;
+    }
+    if (state === 'preview') {
+      try {
+        // Never release a preview reservation: an earlier promote call can
+        // still arrive at Vercel after a local timeout. Repeating promotion
+        // for this exact deployment is idempotent from the website's point of
+        // view and preserves the ordering fence.
+        await promoteDeployment(job.vercelProjectId, job.vercelDeploymentId, config);
+      } catch (error) {
+        console.warn('[Publish] activation promotion retry deferred', {
+          publishJobId: job.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+      const afterRetry = await getDeploymentProductionState(job.vercelDeploymentId, config);
+      if (afterRetry === 'failed') {
+        await failPublishJob(job.id, {
+          errorCode: 'ACTIVATION_NOT_PROMOTED',
+          errorMessage:
+            'Vercel marked the reserved version as failed before it could be made live. Your existing website was not changed; you can publish again.',
+        });
+        continue;
+      }
+      if (afterRetry !== 'production') {
+        console.warn('[Publish] activation reconciliation deferred', {
+          publishJobId: job.id,
+          reason: 'promotion has not been confirmed by Vercel yet',
+        });
+        continue;
+      }
+    }
+
+    const stableUrl = await getProductionAliasUrlWithRetry(job.vercelProjectId, config);
+    if (!stableUrl) {
+      console.warn('[Publish] activation reconciliation deferred', {
+        publishJobId: job.id,
+        reason: 'production alias not yet available',
+      });
+      continue;
+    }
+
+    const domains = await storage.getCustomDomains(job.websiteId).catch(() => []);
+    const activeDomain = domains.find((domain) => domain.status === 'active');
+    const customerFacingUrl = activeDomain ? `https://${activeDomain.domain}` : stableUrl;
+    const { applied } = await completePublishJobIfNewest(job.id, job.websiteId, {
+      productionUrl: customerFacingUrl,
+      deploymentUrl: stableUrl,
+      vercelProjectId: job.vercelProjectId,
+      vercelDeploymentId: job.vercelDeploymentId,
+    });
+    if (applied) {
+      try {
+        await storage.updateWebsiteAdmin(job.websiteId, {
+          status: 'published',
+          deploymentUrl: customerFacingUrl,
+          deploymentId: job.vercelDeploymentId,
+        } as any);
+      } catch (metadataError) {
+        // The publish job is already the source of truth. Keep it published
+        // and log the mirror repair instead of turning a live site into a
+        // misleading failed job.
+        console.error('[Publish] activation reconciliation metadata mirror failed', metadataError);
+      }
+      console.log('[Publish] activation reconciliation completed', {
+        publishJobId: job.id,
+        websiteId: job.websiteId,
+      });
+    }
+  }
+}
+
+/** Retry previously reserved activations until Vercel gives a definite answer. */
+export function startPublishActivationReconciler(config: VercelConfig): void {
+  const run = (leaseCutoff: Date) =>
+    reconcileExpiredPublishActivations(config, leaseCutoff).catch((error) =>
+      console.error('[Publish] activation reconciliation failed:', error),
+    );
+  // Any activation predating this process has no live worker and can be
+  // reconciled immediately. Later passes respect a short persisted lease so
+  // a current worker has time to make its Vercel promotion call.
+  void run(SERVER_START_TIME);
+  const timer = setInterval(() => {
+    void run(new Date(Date.now() - ACTIVATION_LEASE_MS));
+  }, 60_000);
+  timer.unref?.();
+}
 
 /**
  * Run the full publish pipeline for a queued job. Updates job status at each
@@ -65,6 +204,7 @@ export type WorkerConfig = {
  */
 export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
   const { jobId, websiteId } = cfg;
+  let activationClaimed = false;
 
   console.log('[Publish] publish_requested', { websiteId, publishJobId: jobId });
 
@@ -84,6 +224,7 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       stripeWebhookSecret: cfg.stripeWebhookSecret,
       vercelToken: cfg.vercelToken,
       vercelTeamId: cfg.vercelTeamId,
+      existingVercelProjectId: cfg.existingVercelProjectId,
       customDomain: cfg.customDomain,
       birdflowApiUrl: cfg.platformUrl,
       language: cfg.language ?? DEFAULT_SITE_LANGUAGE,
@@ -91,9 +232,28 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       onStatusUpdate: async (status: PublishJobStatus, extra?) => {
         await updatePublishJobStatus(jobId, status, extra ?? {});
       },
+      onBeforeActivation: async (details) => {
+        activationClaimed = await claimPublishActivation({
+          jobId,
+          websiteId,
+          ...details,
+        });
+        return activationClaimed;
+      },
     });
 
     if (!result.success || !result.deploymentUrl) {
+      if (activationClaimed) {
+        // Promotion may have reached Vercel just before a timeout or process
+        // failure. Keep the durable activating reservation for reconciliation;
+        // do not falsely report that production was left untouched.
+        console.error('[Publish] activation outcome needs reconciliation', {
+          websiteId,
+          publishJobId: jobId,
+          error: result.error,
+        });
+        return;
+      }
       await failPublishJob(jobId, {
         errorCode: 'PUBLISH_FAILED',
         errorMessage: result.error ?? 'Publisher returned no URL',
@@ -140,36 +300,54 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       vercelDeploymentId,
     });
 
-    if (applied) {
-      await storage.updateWebsite(websiteId, cfg.requestedBy, {
+    if (!applied) {
+      console.error('[Publish] activation completion needs reconciliation', {
+        websiteId,
+        publishJobId: jobId,
+      });
+      return;
+    }
+
+    // Request-time permission was already checked. This is an internal
+    // completion write, so it must not be scoped to the actor's owner id:
+    // authorized collaborators are allowed to publish a client site too.
+    let website;
+    try {
+      website = await storage.getWebsite(websiteId);
+      await storage.updateWebsiteAdmin(websiteId, {
         status: 'published',
         deploymentUrl: customerFacingUrl,
         deploymentId: vercelDeploymentId,
       } as any);
-
-      // Notification email — best-effort; never blocks or throws to the caller
-      try {
-        const ownerProfile = await storage.getProfile(cfg.requestedBy);
-        if (ownerProfile?.email && customerFacingUrl) {
-          await emailService.sendWebsitePublished(
-            ownerProfile.email,
-            websiteId,
-            cfg.siteName,
-            customerFacingUrl
-          );
-        }
-      } catch (emailErr) {
-        console.error('[Publish] Failed to send published notification email:', emailErr);
-      }
-
-      console.log('[Publish] publish_completed', {
-        websiteId,
-        publishJobId: jobId,
-        customerFacingUrl,
-        vercelAlias,
-        deploymentId: vercelDeploymentId,
-      });
+    } catch (metadataError) {
+      // The job is already durably published. Do not turn it into a failed
+      // result after traffic was activated; the website-row mirror can be
+      // reconciled separately.
+      console.error('[Publish] activation metadata mirror needs reconciliation', metadataError);
     }
+
+    // Notification email — best-effort; never blocks or throws to the caller
+    try {
+      const ownerProfile = await storage.getProfile(website?.ownerId ?? cfg.requestedBy);
+      if (ownerProfile?.email && customerFacingUrl) {
+        await emailService.sendWebsitePublished(
+          ownerProfile.email,
+          websiteId,
+          cfg.siteName,
+          customerFacingUrl
+        );
+      }
+    } catch (emailErr) {
+      console.error('[Publish] Failed to send published notification email:', emailErr);
+    }
+
+    console.log('[Publish] publish_completed', {
+      websiteId,
+      publishJobId: jobId,
+      customerFacingUrl,
+      vercelAlias,
+      deploymentId: vercelDeploymentId,
+    });
   } catch (err: any) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[Publish] publish_failed', { websiteId, publishJobId: jobId, error: msg });
@@ -193,6 +371,16 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       };
     }
 
+    if (activationClaimed) {
+      // A post-claim Vercel outcome is uncertain. The activating row keeps the
+      // deployment identity available for explicit reconciliation and blocks a
+      // newer job from silently racing it.
+      console.error('[Publish] activation outcome needs reconciliation', {
+        websiteId,
+        publishJobId: jobId,
+      });
+      return;
+    }
     try {
       await failPublishJob(jobId, {
         errorCode: 'WORKER_ERROR',

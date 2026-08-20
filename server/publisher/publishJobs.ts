@@ -29,6 +29,7 @@ export type PublishJobStatus =
   | 'uploading'
   | 'deploying'
   | 'waiting_for_alias'
+  | 'activating'
   | 'published'
   | 'failed';
 
@@ -38,6 +39,7 @@ export const ACTIVE_STATUSES: PublishJobStatus[] = [
   'uploading',
   'deploying',
   'waiting_for_alias',
+  'activating',
 ];
 
 export const TERMINAL_STATUSES: PublishJobStatus[] = ['published', 'failed'];
@@ -139,12 +141,52 @@ export async function getActivePublishJob(
   const result = await db.execute(
     sql`SELECT * FROM publish_jobs
         WHERE website_id = ${websiteId}
-          AND status = ANY(ARRAY['queued','generating','uploading','deploying','waiting_for_alias'])
+          AND status = ANY(ARRAY['queued','generating','uploading','deploying','waiting_for_alias','activating'])
         ORDER BY created_at DESC
         LIMIT 1`
   );
   const rows = result.rows as Record<string, unknown>[];
   return rows.length > 0 ? toJob(rows[0]) : null;
+}
+
+/**
+ * Stable project identity recovered from the last successful activation.
+ * This is the authoritative first lookup for an older/shared site; the
+ * generated project name is only used when no trusted historic reference
+ * exists.
+ */
+export async function getLatestPublishedVercelProjectId(
+  websiteId: string,
+): Promise<string | null> {
+  const result = await db.execute(
+    sql`SELECT vercel_project_id
+        FROM publish_jobs
+        WHERE website_id = ${websiteId}
+          AND status = 'published'
+          AND vercel_project_id IS NOT NULL
+        ORDER BY completed_at DESC NULLS LAST, created_at DESC
+        LIMIT 1`,
+  );
+  const row = (result.rows as Array<{ vercel_project_id?: string }>)[0];
+  return row?.vercel_project_id ?? null;
+}
+
+/**
+ * Activations whose durable lease has expired and can be reconciled. The claim
+ * itself updates updated_at, giving a current worker a short exclusive window
+ * to call Vercel before a scheduler is allowed to inspect/release the claim.
+ */
+export async function getExpiredActivatingPublishJobs(
+  leaseCutoff: Date,
+): Promise<PublishJob[]> {
+  const result = await db.execute(
+    sql`SELECT *
+        FROM publish_jobs
+        WHERE status = 'activating'
+          AND updated_at < ${leaseCutoff.toISOString()}
+        ORDER BY created_at ASC`,
+  );
+  return (result.rows as Record<string, unknown>[]).map(toJob);
 }
 
 // ── Write ─────────────────────────────────────────────────────────────────────
@@ -202,6 +244,40 @@ export async function updatePublishJobStatus(
           WHERE id = ${jobId}`
     );
   }
+}
+
+/**
+ * Single-use activation reservation. A job may switch Vercel production
+ * traffic only after it atomically transitions from waiting_for_alias to
+ * activating. The unique active-job index then prevents a newer job from being
+ * created, and a duplicate/stale worker cannot claim the same job.
+ */
+export async function claimPublishActivation(params: {
+  jobId: string;
+  websiteId: string;
+  vercelProjectId: string;
+  vercelDeploymentId: string;
+  deploymentUrl: string;
+}): Promise<boolean> {
+  const result = await db.execute(
+    sql`UPDATE publish_jobs AS current_job
+        SET status               = 'activating',
+            vercel_project_id    = ${params.vercelProjectId},
+            vercel_deployment_id = ${params.vercelDeploymentId},
+            deployment_url       = ${params.deploymentUrl},
+            updated_at           = now()
+        WHERE current_job.id = ${params.jobId}
+          AND current_job.website_id = ${params.websiteId}
+          AND current_job.status = 'waiting_for_alias'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM publish_jobs AS newer_job
+            WHERE newer_job.website_id = ${params.websiteId}
+              AND newer_job.created_at > current_job.created_at
+          )
+        RETURNING current_job.id`,
+  );
+  return (result.rows as unknown[]).length === 1;
 }
 
 /** Mark the job as successfully published. */
@@ -265,25 +341,24 @@ export async function completePublishJobIfNewest(
     vercelDeploymentId: string;
   }
 ): Promise<{ applied: boolean }> {
-  // Is there a newer *published* job?
-  const newer = await db.execute(
-    sql`SELECT 1 FROM publish_jobs
-        WHERE website_id = ${websiteId}
-          AND status = 'published'
-          AND id != ${jobId}
-          AND created_at > (
-            SELECT created_at FROM publish_jobs WHERE id = ${jobId}
-          )
-        LIMIT 1`
+  // The activation claim is the ordering boundary. A job that did not claim
+  // activation must never become the recorded publication after another worker
+  // has taken over, even if it finishes its network work later.
+  const result = await db.execute(
+    sql`UPDATE publish_jobs
+        SET status               = 'published',
+            production_url       = ${params.productionUrl},
+            deployment_url       = ${params.deploymentUrl},
+            vercel_project_id    = ${params.vercelProjectId},
+            vercel_deployment_id = ${params.vercelDeploymentId},
+            completed_at         = now(),
+            updated_at           = now()
+        WHERE id = ${jobId}
+          AND website_id = ${websiteId}
+          AND status = 'activating'
+        RETURNING id`,
   );
-  if ((newer.rows as unknown[]).length > 0) {
-    console.warn(
-      `[PublishJobs] job ${jobId} skipped — a newer publish already completed for site ${websiteId}`
-    );
-    return { applied: false };
-  }
-  await completePublishJob(jobId, params);
-  return { applied: true };
+  return { applied: (result.rows as unknown[]).length === 1 };
 }
 
 // ── Startup recovery ─────────────────────────────────────────────────────────
@@ -321,7 +396,11 @@ export async function failStalePublishJobs(
             publish_failure_details = ${staleDetailsJson}::jsonb,
             completed_at            = now(),
             updated_at              = now()
-        WHERE status NOT IN ('published', 'failed')
+        -- An activating job has made a durable pre-promotion reservation.
+        -- Do not relabel it failed on startup: its final Vercel promotion may
+        -- have succeeded just before a process/database interruption, so it
+        -- must remain available for explicit reconciliation.
+        WHERE status NOT IN ('published', 'failed', 'activating')
           AND created_at < ${cutoff}
         RETURNING id`
   );

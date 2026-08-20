@@ -1,12 +1,26 @@
 import { generateNextJsProject, cleanupProject } from './generator';
 import { runTscGate, PublishTypeError } from './tscGate';
-import { getOrCreateProject, setProjectEnvVars, deployProject, waitForDeployment, addCustomDomain, getProductionAliasUrlWithRetry, type VercelConfig } from './vercel';
+import {
+  getOrCreateProject,
+  setProjectEnvVars,
+  deployProject,
+  waitForDeployment,
+  addCustomDomain,
+  getProjectDomain,
+  getProductionAliasUrlWithRetry,
+  promoteDeployment,
+  type VercelConfig,
+} from './vercel';
 import type { BuilderStateData } from '../../shared/schema';
 import { DEFAULT_SITE_LANGUAGE, type SiteLanguage } from '../../shared/siteLanguage';
 import { collectReferencedSvgAssetIds, resolveSvgAssetsInState, type SvgAssetLike } from '../../shared/svgAssets';
 import { resolveDesignTokens } from '../../shared/designTokens';
 import { storage } from '../storage';
 import type { PublishJobStatus, PublishFailureDetails } from './publishJobs';
+import {
+  migrateSiteStateToCurrent,
+  PublishCompatibilityError,
+} from './migrations';
 
 export type PublishConfig = {
   websiteId: string;
@@ -20,6 +34,8 @@ export type PublishConfig = {
   stripeWebhookSecret?: string;
   vercelToken: string;
   vercelTeamId?: string;
+  /** Stable Vercel project id/name recovered from a prior successful publish. */
+  existingVercelProjectId?: string;
   customDomain?: string;
   birdflowApiUrl: string; // Required: BirdFlow platform URL for email callbacks
   /** Language the site is written in - drives document lang and baked-in copy. */
@@ -32,6 +48,15 @@ export type PublishConfig = {
     status: PublishJobStatus,
     extra?: { vercelProjectId?: string; vercelDeploymentId?: string; deploymentUrl?: string }
   ) => Promise<void>;
+  /**
+   * Atomic job reservation called immediately before the irreversible Vercel
+   * promotion. Returning false leaves production traffic untouched.
+   */
+  onBeforeActivation?: (details: {
+    vercelProjectId: string;
+    vercelDeploymentId: string;
+    deploymentUrl: string;
+  }) => Promise<boolean>;
 };
 
 export type PublishResult = {
@@ -75,9 +100,19 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     // actionable Danish error instead. Sites that reference no assets never
     // touch the store at all. Dangling references that live only in unused
     // library entries don't block — the published site never renders those.
-    let stateForPublish = config.builderState;
+    // The worker receives a route-time immutable snapshot, but keep this
+    // defensive migration here too: a restarted worker or direct caller must
+    // never send a historical shape to the generator.
+    const compatibility = migrateSiteStateToCurrent(config.builderState);
+    console.log('[Publisher] compatibility_migrated', {
+      websiteId: config.websiteId,
+      sourceVersion: compatibility.report.sourceVersion,
+      targetVersion: compatibility.report.targetVersion,
+      migrationsApplied: compatibility.report.migrationsApplied,
+    });
+    let stateForPublish = compatibility.state;
     const referencedSvgIds = collectReferencedSvgAssetIds(
-      config.builderState as Parameters<typeof collectReferencedSvgAssetIds>[0]
+      stateForPublish as Parameters<typeof collectReferencedSvgAssetIds>[0]
     );
     if (referencedSvgIds.size > 0) {
       let assets: SvgAssetLike[];
@@ -89,7 +124,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
           'Webstedets illustrationer kunne ikke hentes fra grafikbiblioteket, så udgivelsen blev stoppet. Prøv igen om et øjeblik.'
         );
       }
-      stateForPublish = structuredClone(config.builderState);
+      stateForPublish = structuredClone(stateForPublish);
       const tokens = resolveDesignTokens((stateForPublish as { globalStyles?: unknown }).globalStyles ?? {} as never);
       const assetMap = new Map<string, SvgAssetLike>(assets.map((asset) => [asset.id, asset]));
       const { resolved, missing } = resolveSvgAssetsInState(
@@ -133,7 +168,11 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       teamId: config.vercelTeamId,
     };
     
-    const projectId = await getOrCreateProject(projectName, vercelConfig);
+    const projectId = await getOrCreateProject(
+      projectName,
+      vercelConfig,
+      config.existingVercelProjectId,
+    );
     
     const envVars: Record<string, string> = {
       NEXT_PUBLIC_SUPABASE_URL: config.supabaseUrl,
@@ -191,8 +230,25 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       deploymentUrl: readyDeployment.url,
     });
     
+    currentStage = 'alias';
     if (config.customDomain) {
-      await addCustomDomain(projectId, config.customDomain, vercelConfig);
+      // Active domains are normally already connected; do not treat a
+      // duplicate attach as a successful no-op. If it is absent, attachment
+      // must succeed before production traffic is changed.
+      const existingDomain = await getProjectDomain(projectId, config.customDomain, vercelConfig);
+      if (!existingDomain.ok && !existingDomain.notFound) {
+        throw new Error(
+          `Could not verify the custom domain ${config.customDomain}: ${existingDomain.error ?? 'unknown Vercel error'}`,
+        );
+      }
+      if (existingDomain.notFound) {
+        const attached = await addCustomDomain(projectId, config.customDomain, vercelConfig);
+        if (!attached.success) {
+          throw new Error(
+            `Could not attach the custom domain ${config.customDomain}: ${attached.error ?? 'unknown Vercel error'}`,
+          );
+        }
+      }
     }
     
     // Resolve the stable public alias. For new projects Vercel assigns the
@@ -206,15 +262,17 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     // success:false. We NEVER fall back to readyDeployment.url because that
     // hashed per-deployment URL is SSO-protected and would make the customer
     // site unreachable.
-    const stableUrl = await getProductionAliasUrlWithRetry(projectId, vercelConfig, {
+    let stableUrl = await getProductionAliasUrlWithRetry(projectId, vercelConfig, {
       deploymentAliases: readyDeployment.aliases,
     });
-    
-    if (!stableUrl) {
+    // Existing projects must have a stable URL before activation. If we cannot
+    // prove that current production traffic has a public stable alias, leave it
+    // untouched rather than promoting a deployment we cannot surface safely.
+    if (!stableUrl && config.existingVercelProjectId) {
       return {
         success: false,
         error:
-          'Website deployed, but Vercel did not finish assigning its public URL. Try publishing again.',
+          'Vercel could not verify the current public URL before activation. Your existing website has not been changed.',
         rawDeploymentUrl: readyDeployment.url,
         deploymentId: readyDeployment.id,
         vercelProjectId: projectId,
@@ -222,6 +280,57 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
           stage: 'alias',
           errorMessage:
             'Vercel did not finish assigning the public URL after deployment completed.',
+          vercelDeploymentId: readyDeployment.id,
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+
+    // Only this explicit Vercel action activates the already-ready preview
+    // deployment. Every migration, generation, build, custom-domain and
+    // existing-alias check above has completed first.
+    const activationClaimed = await config.onBeforeActivation?.({
+      vercelProjectId: projectId,
+      vercelDeploymentId: readyDeployment.id,
+      deploymentUrl: stableUrl ?? readyDeployment.url,
+    }) ?? true;
+    if (!activationClaimed) {
+      return {
+        success: false,
+        error:
+          'This publish is no longer the newest eligible job, so your existing website was left unchanged.',
+        rawDeploymentUrl: readyDeployment.url,
+        deploymentId: readyDeployment.id,
+        vercelProjectId: projectId,
+        failureDetails: {
+          stage: 'alias',
+          errorMessage: 'The publish activation reservation was not available.',
+          vercelDeploymentId: readyDeployment.id,
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+    await promoteDeployment(projectId, readyDeployment.id, vercelConfig);
+
+    // A first publish has no prior production alias to check. Resolve it only
+    // after promotion; there is no previously live project traffic to replace.
+    if (!stableUrl) {
+      stableUrl = await getProductionAliasUrlWithRetry(projectId, vercelConfig, {
+        deploymentAliases: readyDeployment.aliases,
+      });
+    }
+    if (!stableUrl) {
+      return {
+        success: false,
+        error:
+          'Website was activated, but Vercel did not finish assigning its public URL. Try publishing again.',
+        rawDeploymentUrl: readyDeployment.url,
+        deploymentId: readyDeployment.id,
+        vercelProjectId: projectId,
+        failureDetails: {
+          stage: 'alias',
+          errorMessage:
+            'Vercel did not finish assigning the public URL after activation completed.',
           vercelDeploymentId: readyDeployment.id,
           timestamp: new Date().toISOString(),
         },
@@ -242,7 +351,16 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     // Build structured failure details so the worker can persist them and the
     // builder can surface a more specific error to the customer.
     let failureDetails: PublishFailureDetails;
-    if (error instanceof PublishTypeError) {
+    if (error instanceof PublishCompatibilityError) {
+      failureDetails = {
+        stage: error.stage,
+        errorMessage: error.message,
+        componentId: error.details.componentId,
+        componentType: error.details.componentType,
+        pageName: error.details.pageName,
+        timestamp: new Date().toISOString(),
+      };
+    } else if (error instanceof PublishTypeError) {
       // Gate failure: at least one implicit-any or type error in ComponentRenderer.
       const firstErr = error.tscErrors[0];
       failureDetails = {

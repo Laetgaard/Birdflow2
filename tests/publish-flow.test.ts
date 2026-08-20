@@ -12,8 +12,15 @@
  * All DB and Vercel interactions are mocked. No live network calls.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { resolvePlatformUrl, resolveBirdflowApiUrl } from '../server/publisher/platformUrl';
-import { getProductionAliasUrlWithRetry } from '../server/publisher/vercel';
+import {
+  getProductionAliasUrlWithRetry,
+  getOrCreateProject,
+  promoteDeployment,
+  recoverVerifiedProjectForLiveUrl,
+} from '../server/publisher/vercel';
 import {
   ensurePublishJobSchema,
   resetPublishJobSchemaState,
@@ -216,6 +223,114 @@ describe('getProductionAliasUrlWithRetry', () => {
     });
     expect(result).toBeNull();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('getOrCreateProject', () => {
+  const baseConfig = { token: 'test-token', teamId: undefined };
+
+  it('reuses a recorded Vercel project id before attempting a name lookup or create', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 'stable-project-id' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 'stable-project-id', nodeVersion: '20.x' }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      getOrCreateProject('site-reconstructed-name', baseConfig, 'stable-project-id'),
+    ).resolves.toBe('stable-project-id');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v9/projects/stable-project-id');
+    expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  it('stops if a recorded project cannot be accessed instead of creating a duplicate', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      getOrCreateProject('site-reconstructed-name', baseConfig, 'missing-project-id'),
+    ).rejects.toThrow(/avoid creating a duplicate/i);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('safe production activation', () => {
+  const baseConfig = { token: 'test-token', teamId: undefined };
+
+  it('promotes only an already-ready deployment through Vercel’s explicit project endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await promoteDeployment('project-id', 'deployment-id', baseConfig);
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      '/v10/projects/project-id/promote/deployment-id',
+    );
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+    vi.unstubAllGlobals();
+  });
+
+  it('recovers a legacy project only when Vercel confirms the existing live host is its alias', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'verified-project',
+        targets: { production: { alias: ['old-site.vercel.app'] } },
+      }),
+    }));
+
+    await expect(
+      recoverVerifiedProjectForLiveUrl(
+        'site-hint',
+        'https://old-site.vercel.app/some-page',
+        baseConfig,
+      ),
+    ).resolves.toBe('verified-project');
+    vi.unstubAllGlobals();
+  });
+
+  it('refuses a same-named project when its aliases do not match the old live host', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'wrong-project',
+        targets: { production: { alias: ['another-site.vercel.app'] } },
+      }),
+    }));
+
+    await expect(
+      recoverVerifiedProjectForLiveUrl('site-hint', 'https://old-site.vercel.app', baseConfig),
+    ).resolves.toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps SVG resolution on the canonical migrated state and stages deployment before promotion', () => {
+    const publisherSource = readFileSync(join(process.cwd(), 'server/publisher/index.ts'), 'utf8');
+    const vercelSource = readFileSync(join(process.cwd(), 'server/publisher/vercel.ts'), 'utf8');
+    const workerSource = readFileSync(join(process.cwd(), 'server/publisher/worker.ts'), 'utf8');
+    const jobsSource = readFileSync(join(process.cwd(), 'server/publisher/publishJobs.ts'), 'utf8');
+
+    expect(publisherSource).toMatch(
+      /collectReferencedSvgAssetIds\(\s*stateForPublish/,
+    );
+    expect(publisherSource).not.toContain('structuredClone(config.builderState)');
+    expect(publisherSource).toContain('await promoteDeployment(projectId, readyDeployment.id, vercelConfig)');
+    expect(publisherSource.indexOf('onBeforeActivation')).toBeLessThan(
+      publisherSource.indexOf('await promoteDeployment(projectId, readyDeployment.id, vercelConfig)'),
+    );
+    expect(vercelSource).not.toContain("target: 'production'");
+    expect(workerSource).toContain('claimPublishActivation');
+    expect(jobsSource).toContain("status = 'activating'");
   });
 });
 

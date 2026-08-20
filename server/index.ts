@@ -16,6 +16,7 @@ import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
 import { startSvgAssetSchema } from "./svgAssetSchema";
 import { startPublishJobSchema } from "./publisher/publishJobSchema";
 import { failStalePublishJobs, getPublishJobByDeploymentId, completePublishJob, failPublishJob } from "./publisher/publishJobs";
+import { startPublishActivationReconciler } from "./publisher/worker";
 import { resumeOrphanedBuilds } from "./buildWorker";
 import { storage as appStorage } from "./storage";
 import { registerSeoRoutes } from "./seo";
@@ -289,6 +290,13 @@ app.use((req, res, next) => {
       void failStalePublishJobs().catch(err =>
         console.error('[PublishJobs] Stale job recovery failed:', err)
       );
+      const vercelToken = process.env.VERCEL_TOKEN;
+      if (vercelToken) {
+        startPublishActivationReconciler({
+          token: vercelToken,
+          teamId: process.env.VERCEL_TEAM_ID,
+        });
+      }
     }
   });
 
