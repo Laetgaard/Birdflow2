@@ -825,6 +825,38 @@ export const insertBookingSchema = createInsertSchema(bookings).omit({
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookings.$inferSelect;
 
+// Session invoices — created by a practitioner for a client, typically
+// after a completed booking. Linked to a booking row via booking_id when
+// the invoice covers a specific appointment; standalone otherwise.
+// Status flow: draft → sent → paid | cancelled.
+export const invoices = pgTable("invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  bookingId: varchar("booking_id"),        // nullable: some invoices are standalone
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  amountCents: integer("amount_cents").notNull().default(0),
+  currency: text("currency").notNull().default("DKK"),
+  /** draft | sent | paid | cancelled */
+  status: text("status").notNull().default("draft"),
+  description: text("description"),
+  dueDate: timestamp("due_date"),
+  sentAt: timestamp("sent_at"),
+  paidAt: timestamp("paid_at"),
+  reminderSentAt: timestamp("reminder_sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type Invoice = typeof invoices.$inferSelect;
+
 // Form submissions table
 export const formSubmissions = pgTable("form_submissions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

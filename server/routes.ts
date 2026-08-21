@@ -8,13 +8,13 @@ import { saveBuilderStateGuarded } from "./builderStateWriter";
 import { createSvgAssetSafe } from "./svgAssetStore";
 import { collectReferencedSvgAssetIds } from "@shared/svgAssets";
 import { migrateSiteStructure } from "@shared/siteStructure";
-import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, orders as ordersTable, invoices as invoicesTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { getPlatformCalendar } from "./platformCalendar";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser, resolveWebsiteAccess } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
 import { isAllowedMediaStoragePath } from "./mediaPaths";
-import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp } from "drizzle-orm";
+import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp, lt as ltOp } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
@@ -30,6 +30,7 @@ import {
 } from "./publisher/publishJobs";
 import { migrateSiteStateToCurrent, PublishCompatibilityError } from "./publisher/migrations";
 import { isPublishJobSchemaReady } from "./publisher/publishJobSchema";
+import { isInvoiceSchemaReady } from "./invoiceSchema";
 import { runPublishJob } from "./publisher/worker";
 import type { WorkerConfig } from "./publisher/worker";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
@@ -81,6 +82,8 @@ import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
 import { emailService } from "./email/service";
+import { getUncachableResendClient } from "./replit_integrations/resendClient";
+import { parseBookingPriceCents } from "./parseBookingPrice";
 import { handleOnboardingStripeEvent, shouldProcessStripeEvent } from "./onboardingWebhooks";
 import { registerOnboardingDecisionRoutes } from "./onboardingDecisionRoutes";
 import { updateDecisionByUser, bumpSiteRevision, markGenerationComplete } from "./onboardingDecision";
@@ -6237,6 +6240,379 @@ export async function registerRoutes(
       res.status(500).json({ message: "Kunne ikke hente enheds-statistik" });
     }
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Economics tab — revenue from bookings + orders, session invoices
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // parseBookingPriceCents is imported from server/parseBookingPrice.ts for testability.
+
+  app.get("/api/websites/:id/economics", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      const websiteId = req.params.id;
+      const website = getWebsiteAccess(req).website;
+      const currency = (website as any).currency || "DKK";
+
+      const now = new Date();
+      // Overdue = sent invoice whose due_date is at least 7 days in the past.
+      const sevenDaysAgo  = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const currentYear   = now.getFullYear();
+      const year = Math.max(2020, Math.min(currentYear + 1,
+        parseInt(req.query.year as string) || currentYear));
+      const yearStart = new Date(year, 0, 1);
+      const yearEnd   = new Date(year + 1, 0, 1);
+      // KPI cards always reflect the actual current month, not the selected year's month.
+      const monthStart = new Date(currentYear, now.getMonth(), 1);
+      const monthEnd   = new Date(currentYear, now.getMonth() + 1, 1);
+
+      // ── bookings + orders for the selected year (bar chart + session list) ──
+      const [yearBookings, yearOrders] = await Promise.all([
+        // Customer-site bookings only (excludes platform_onboarding meetings)
+        db.select().from(bookingsTable).where(
+          andOp(
+            eq(bookingsTable.websiteId, websiteId),
+            eq(bookingsTable.context, "customer_site"),
+            gteOp(bookingsTable.date, yearStart),
+            ltOp(bookingsTable.date, yearEnd),
+          )
+        ),
+        db.select().from(ordersTable).where(
+          andOp(
+            eq(ordersTable.websiteId, websiteId),
+            gteOp(ordersTable.createdAt, yearStart),
+            ltOp(ordersTable.createdAt, yearEnd),
+          )
+        ),
+      ]);
+
+      // ── current-month data for KPI cards ──────────────────────────────────
+      // When year === currentYear, yearBookings/yearOrders already span the current
+      // month; reuse them. For a past year, fetch the current month separately so
+      // the KPI cards always reflect today's month rather than reporting zero.
+      let cmBookings: Array<typeof bookingsTable.$inferSelect>;
+      let cmOrders:   Array<typeof ordersTable.$inferSelect>;
+      if (year === currentYear) {
+        cmBookings = yearBookings;
+        cmOrders   = yearOrders;
+      } else {
+        [cmBookings, cmOrders] = await Promise.all([
+          db.select().from(bookingsTable).where(
+            andOp(
+              eq(bookingsTable.websiteId, websiteId),
+              eq(bookingsTable.context, "customer_site"),
+              gteOp(bookingsTable.date, monthStart),
+              ltOp(bookingsTable.date, monthEnd),
+            )
+          ),
+          db.select().from(ordersTable).where(
+            andOp(
+              eq(ordersTable.websiteId, websiteId),
+              gteOp(ordersTable.createdAt, monthStart),
+              ltOp(ordersTable.createdAt, monthEnd),
+            )
+          ),
+        ]);
+      }
+
+      // ── invoices — all for this site (for booking→invoice map + overdue) ──
+      // Gracefully degrade if the table hasn't been created yet on this DB.
+      let allInvoices: Array<typeof invoicesTable.$inferSelect> = [];
+      let overdueInvoices: Array<typeof invoicesTable.$inferSelect> = [];
+
+      if (isInvoiceSchemaReady()) {
+        [allInvoices, overdueInvoices] = await Promise.all([
+          db.select().from(invoicesTable)
+            .where(eq(invoicesTable.websiteId, websiteId)),
+          // Overdue = status='sent' AND due_date ≤ 7 days ago
+          db.select().from(invoicesTable).where(
+            andOp(
+              eq(invoicesTable.websiteId, websiteId),
+              eq(invoicesTable.status, "sent"),
+              ltOp(invoicesTable.dueDate, sevenDaysAgo),
+            )
+          ),
+        ]);
+      } else {
+        // Schema init in progress; try anyway and silently swallow table-not-found.
+        try {
+          [allInvoices, overdueInvoices] = await Promise.all([
+            db.select().from(invoicesTable)
+              .where(eq(invoicesTable.websiteId, websiteId)),
+            db.select().from(invoicesTable).where(
+              andOp(
+                eq(invoicesTable.websiteId, websiteId),
+                eq(invoicesTable.status, "sent"),
+                ltOp(invoicesTable.dueDate, sevenDaysAgo),
+              )
+            ),
+          ]);
+        } catch {
+          // Table not yet created; degrade to empty — no invoice data yet.
+        }
+      }
+
+      // booking_id → invoice lookup map
+      const invoiceByBookingId = new Map(
+        allInvoices
+          .filter(inv => inv.bookingId)
+          .map(inv => [inv.bookingId!, inv])
+      );
+
+      // ── monthly aggregates — completed sessions only ───────────────────────
+      const monthly = Array.from({ length: 12 }, (_, i) => ({
+        month: i + 1,
+        label: new Intl.DateTimeFormat("da-DK", { month: "short" })
+          .format(new Date(year, i, 1)),
+        bookingRevenueCents: 0,
+        orderRevenueCents: 0,
+        totalCents: 0,
+      }));
+
+      for (const b of yearBookings) {
+        if (b.status !== "completed") continue;  // only count completed sessions
+        const cents = parseBookingPriceCents(b.price);
+        if (!cents) continue;
+        const m = new Date(b.date).getMonth();
+        monthly[m].bookingRevenueCents += cents;
+        monthly[m].totalCents += cents;
+      }
+
+      for (const o of yearOrders) {
+        if (o.status === "cancelled" || o.paymentStatus === "refunded") continue;
+        const m = new Date(o.createdAt).getMonth();
+        monthly[m].orderRevenueCents += o.totalAmountCents;
+        monthly[m].totalCents += o.totalAmountCents;
+      }
+
+      // ── this-month summary (always the actual current month) ───────────────
+      const thisMonthBookings = cmBookings.filter(b => {
+        const d = new Date(b.date);
+        return d >= monthStart && d < monthEnd && b.status === "completed";
+      });
+      const thisMonthOrders = cmOrders.filter(o => {
+        const d = new Date(o.createdAt);
+        return d >= monthStart && d < monthEnd
+          && o.status !== "cancelled" && o.paymentStatus !== "refunded";
+      });
+
+      const thisMonthBookingCents = thisMonthBookings
+        .reduce((s, b) => s + parseBookingPriceCents(b.price), 0);
+      const thisMonthOrderCents = thisMonthOrders
+        .reduce((s, o) => s + o.totalAmountCents, 0);
+      const thisMonthPaidOrderCents = thisMonthOrders
+        .filter(o => o.paymentStatus === "paid")
+        .reduce((s, o) => s + o.totalAmountCents, 0);
+      // Paid invoices this month — money actually received from session invoices.
+      // These are NOT double-counted with bookingRevenueCents (which reflects billing
+      // amounts from booking.price, not invoice payment receipts).
+      const thisMonthPaidInvoiceCents = allInvoices
+        .filter(inv => {
+          if (inv.status !== "paid" || !inv.paidAt) return false;
+          const d = new Date(inv.paidAt);
+          return d >= monthStart && d < monthEnd;
+        })
+        .reduce((s, inv) => s + inv.amountCents, 0);
+      // Outstanding = ALL sent (unpaid) invoices for this site, regardless of age.
+      // The 7-day age cutoff applies only to the overdue-list shown for reminders.
+      const outstandingInvoicesCents = allInvoices
+        .filter(inv => inv.status === "sent")
+        .reduce((s, inv) => s + inv.amountCents, 0);
+      // Keep overdueInvoicesCents for the overdue-list section total.
+      const overdueInvoicesCents = overdueInvoices
+        .reduce((s, inv) => s + inv.amountCents, 0);
+
+      // ── per-session list: completed bookings with price + invoice status ────
+      // Show all completed sessions — including those without a price so practitioners
+      // can see which sessions still need an invoice or have no price set.
+      const recentBookings = [...yearBookings]
+        .filter(b => b.status === "completed")
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 25)
+        .map(b => {
+          const inv = invoiceByBookingId.get(b.id);
+          return {
+            id: b.id,
+            date: b.date,
+            customerName: b.customerName,
+            customerEmail: b.customerEmail,
+            service: b.service,
+            status: b.status,
+            price: b.price,
+            currency: b.currency || currency,
+            priceCents: parseBookingPriceCents(b.price),
+            // null when no invoice has been issued for this session yet
+            invoiceId:      inv?.id         ?? null,
+            invoiceStatus:  inv?.status     ?? null,
+            invoiceDueDate: inv?.dueDate    ?? null,
+          };
+        });
+
+      // ── overdue invoices (status=sent, due_date ≥ 7 days ago) ─────────────
+      const overdueList = [...overdueInvoices]
+        .sort((a, b) =>
+          new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()
+        )
+        .slice(0, 20)
+        .map(inv => ({
+          id:            inv.id,
+          bookingId:     inv.bookingId,
+          customerName:  inv.customerName,
+          customerEmail: inv.customerEmail,
+          amountCents:   inv.amountCents,
+          currency:      inv.currency || currency,
+          dueDate:       inv.dueDate,
+          sentAt:        inv.sentAt,
+          reminderSentAt: inv.reminderSentAt,
+          description:   inv.description,
+        }));
+
+      res.json({
+        currency,
+        year,
+        monthly,
+        thisMonth: {
+          totalCents:              thisMonthBookingCents + thisMonthOrderCents,
+          bookingRevenueCents:     thisMonthBookingCents,
+          orderRevenueCents:       thisMonthOrderCents,
+          paidOrdersCents:         thisMonthPaidOrderCents,
+          paidInvoicesCents:       thisMonthPaidInvoiceCents,
+          // receivedCents = money actually collected: paid invoices + paid orders
+          receivedCents:           thisMonthPaidInvoiceCents + thisMonthPaidOrderCents,
+          outstandingInvoicesCents,
+          overdueInvoicesCents,
+          bookingsCount:           thisMonthBookings.length,
+          completedBookingsCount:  thisMonthBookings.filter(b => b.status === "completed").length,
+        },
+        recentBookings,
+        overdueInvoices: overdueList,
+      });
+    } catch (error: any) {
+      console.error("Economics error:", error);
+      res.status(500).json({ message: "Kunne ikke hente økonomidata" });
+    }
+  });
+
+  // Send a payment reminder for an invoice that is at least 7 days overdue.
+  // Eligibility: status='sent' AND due_date ≤ 7 days ago (matches GET query).
+  // Returns 422 for ineligible invoices, 503 when Resend is unconfigured,
+  // 502 when delivery fails. reminderSentAt is stamped only after confirmed delivery.
+  app.post("/api/websites/:id/economics/remind-invoice/:invoiceId",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("invoice.remind", "invoice", "invoiceId"),
+    async (req, res) => {
+      const websiteId = req.params.id;
+      const invoiceId = req.params.invoiceId;
+      const website   = getWebsiteAccess(req).website;
+
+      // 7-day overdue cutoff — matches the GET endpoint query.
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      /** Escape customer-supplied text before interpolating into email HTML. */
+      function escapeHtml(str: string | null | undefined): string {
+        if (!str) return "";
+        return str
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#x27;");
+      }
+
+      // ── look up invoice ──────────────────────────────────────────────────
+      let invoice: typeof invoicesTable.$inferSelect | undefined;
+      try {
+        [invoice] = await db.select().from(invoicesTable).where(
+          andOp(
+            eq(invoicesTable.websiteId, websiteId),
+            eq(invoicesTable.id, invoiceId),
+          )
+        ).limit(1);
+      } catch (dbErr: any) {
+        console.error("Remind-invoice DB error:", dbErr);
+        return res.status(503).json({ message: "Databasen er ikke klar endnu. Prøv igen om lidt." });
+      }
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Faktura ikke fundet" });
+      }
+
+      // ── eligibility: sent + at least 7 days past due_date ───────────────
+      if (invoice.status !== "sent") {
+        return res.status(422).json({
+          message: invoice.status === "paid"
+            ? "Fakturaen er allerede betalt"
+            : "Fakturaen er ikke sendt endnu og kan ikke minde om betaling",
+        });
+      }
+      if (!invoice.dueDate || new Date(invoice.dueDate) > sevenDaysAgo) {
+        return res.status(422).json({
+          message: "Fakturaen er ikke mindst 7 dage forfalden endnu",
+        });
+      }
+
+      // ── send via the project's Resend integration (connector or env var) ──
+      let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>> | null = null;
+      try {
+        resendClient = await getUncachableResendClient();
+      } catch {
+        // getUncachableResendClient throws when neither connector nor env var is set
+      }
+      if (!resendClient) {
+        return res.status(503).json({
+          message: "E-mailafsendelse er ikke konfigureret på denne konto. Kontakt support.",
+        });
+      }
+
+      const amountStr = new Intl.NumberFormat("da-DK", {
+        style: "currency",
+        currency: invoice.currency || "DKK",
+        minimumFractionDigits: 0,
+      }).format(invoice.amountCents / 100);
+
+      const dueDateStr = invoice.dueDate
+        ? new Intl.DateTimeFormat("da-DK", { day: "numeric", month: "long", year: "numeric" })
+            .format(new Date(invoice.dueDate))
+        : "ukendt forfaldsdato";
+
+      try {
+        const { error: sendError } = await resendClient.client.emails.send({
+          from: resendClient.fromEmail,
+          to: invoice.customerEmail,
+          subject: `Betalingspåmindelse – ${amountStr}`,
+          // All customer-supplied values are HTML-escaped to prevent injection.
+          html: `<p>Hej ${escapeHtml(invoice.customerName)},</p>
+<p>Vi sender dig en venlig påmindelse om en ubetalt faktura på <strong>${amountStr}</strong>, der var forfalden den ${dueDateStr}.</p>
+${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : ""}
+<p>Kontakt os, hvis du har spørgsmål, eller allerede har betalt.</p>
+<p>Med venlig hilsen<br>${escapeHtml((website as any).name)}</p>`,
+        });
+
+        if (sendError) {
+          console.error("Remind-invoice Resend error:", sendError);
+          return res.status(502).json({
+            message: "Påmindelsen kunne ikke sendes. Prøv igen senere.",
+          });
+        }
+      } catch (sendErr: any) {
+        console.error("Remind-invoice send exception:", sendErr);
+        return res.status(502).json({
+          message: "Påmindelsen kunne ikke sendes. Prøv igen senere.",
+        });
+      }
+
+      // ── stamp only after confirmed delivery ───────────────────────────────
+      const nowTs = new Date();
+      await db.update(invoicesTable)
+        .set({ reminderSentAt: nowTs, updatedAt: nowTs })
+        .where(andOp(
+          eq(invoicesTable.websiteId, websiteId),
+          eq(invoicesTable.id, invoiceId),
+        ));
+
+      res.json({ ok: true, sentAt: nowTs.toISOString() });
+    }
+  );
 
   // Manage dashboard - aggregated overview numbers for the home section
   app.get("/api/websites/:id/manage/overview", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {

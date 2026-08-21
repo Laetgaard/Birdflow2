@@ -14,6 +14,7 @@ import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
 import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
 import { startSvgAssetSchema } from "./svgAssetSchema";
+import { startInvoiceSchema } from "./invoiceSchema";
 import { startPublishJobSchema } from "./publisher/publishJobSchema";
 import { failStalePublishJobs, getPublishJobByDeploymentId, completePublishJob, failPublishJob } from "./publisher/publishJobs";
 import { startPublishActivationReconciler } from "./publisher/worker";
@@ -285,6 +286,7 @@ app.use((req, res, next) => {
   // exactly as before.
   void startSvgAssetSchema(db);
   void startAccountComponentSchema(db);
+  void startInvoiceSchema(db);
   startPublishJobSchema(db).then(ready => {
     if (ready) {
       void failStalePublishJobs().catch(err =>
