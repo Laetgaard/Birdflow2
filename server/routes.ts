@@ -8,7 +8,7 @@ import { saveBuilderStateGuarded } from "./builderStateWriter";
 import { createSvgAssetSafe } from "./svgAssetStore";
 import { collectReferencedSvgAssetIds } from "@shared/svgAssets";
 import { migrateSiteStructure } from "@shared/siteStructure";
-import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, orders as ordersTable, invoices as invoicesTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, orders as ordersTable, invoices as invoicesTable, customers as customersTable, formSubmissions as formSubmissionsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { getPlatformCalendar } from "./platformCalendar";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser, resolveWebsiteAccess } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
@@ -1846,6 +1846,139 @@ export async function registerRoutes(
       res.status(500).json({ message: error.message });
     }
   });
+
+  // ── Client detail view: bookings, submissions, and internal note ──────────
+
+  // Returns one customer row (with internalNote from metadata), their
+  // customer-site bookings matched by email, and form submissions whose data
+  // contains a matching email value.
+  app.get(
+    "/api/websites/:id/customers/:customerId",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId  = req.params.id;
+        const customerId = req.params.customerId;
+
+        const [customer] = await db.select().from(customersTable).where(
+          andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
+        );
+        if (!customer) return res.status(404).json({ message: "Kunde ikke fundet" });
+
+        // Customer-site bookings filtered at the DB level:
+        //   – website scoped
+        //   – context = customer_site (excludes platform-onboarding bookings)
+        //   – email case-insensitive match
+        const emailLower = customer.email.toLowerCase();
+        const customerBookings = (await db.select().from(bookingsTable).where(
+          andOp(
+            eq(bookingsTable.websiteId, websiteId),
+            eq(bookingsTable.context, "customer_site"),
+            sql`lower(${bookingsTable.customerEmail}) = ${emailLower}`,
+          )
+        )).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        // Form submissions: match email against any top-level string value in data.
+        // Submissions lack a dedicated email column so this JS filter is intentional;
+        // the set is bounded to one website and is typically small.
+        const allSubmissions = await db.select().from(formSubmissionsTable).where(
+          eq(formSubmissionsTable.websiteId, websiteId)
+        );
+        const customerSubmissions = allSubmissions
+          .filter(s => {
+            const data = (s.data ?? {}) as Record<string, any>;
+            return Object.values(data).some(
+              v => typeof v === "string" && v.toLowerCase() === emailLower
+            );
+          })
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        res.json({
+          customer: {
+            ...customer,
+            internalNote: ((customer.metadata as any)?.internalNote as string) ?? null,
+          },
+          bookings:     customerBookings,
+          submissions:  customerSubmissions,
+        });
+      } catch (err: any) {
+        console.error("Customer detail error:", err);
+        res.status(500).json({ message: "Kunne ikke hente kundedata" });
+      }
+    }
+  );
+
+  // Save an internal admin note for a customer (stored in metadata.internalNote,
+  // max 5000 chars). Clearly not a clinical journal: no audit retention policy.
+  //
+  // Write ordering — the client sends `clientTs: Date.now()` with every PATCH.
+  // The server stores that timestamp as `noteTs` in metadata.
+  //
+  // Race safety: the noteTs comparison lives entirely inside the SQL UPDATE
+  // WHERE clause.  PostgreSQL evaluates it atomically at the row level, so two
+  // concurrent PATCH requests cannot both pass — only the one with the higher
+  // clientTs can commit; the other sees 0 rows updated and gets superseded:true.
+  // A separate application-level read-then-compare would be a TOCTOU race.
+  app.patch(
+    "/api/websites/:id/customers/:customerId/note",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("customer.note", "customer", "customerId"),
+    async (req, res) => {
+      try {
+        const websiteId  = req.params.id;
+        const customerId = req.params.customerId;
+        const { note, clientTs } = req.body;
+
+        if (typeof note !== "string") {
+          return res.status(400).json({ message: "note skal være en tekststreng" });
+        }
+
+        // Read once to verify the customer exists and to merge existing metadata
+        // fields.  The timestamp guard itself is in the UPDATE WHERE — not here.
+        const [customer] = await db.select().from(customersTable).where(
+          andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
+        );
+        if (!customer) return res.status(404).json({ message: "Kunde ikke fundet" });
+
+        const existingMeta = ((customer.metadata as Record<string, any>) ?? {});
+        const trimmed = note.trim().slice(0, 5000);
+        const ts = typeof clientTs === "number" ? clientTs : Date.now();
+
+        const updatedMeta = {
+          ...existingMeta,
+          internalNote: trimmed || null,
+          // Store the winning timestamp so subsequent PATCHes can be compared.
+          noteTs: ts,
+        };
+
+        // Atomic compare-and-set: the WHERE predicate `noteTs IS NULL OR noteTs < ts`
+        // is evaluated inside a single DB statement, so two concurrent PATCHes cannot
+        // both win — whichever arrives first with the higher ts wins; the other sees
+        // 0 rows in RETURNING and receives superseded:true.
+        const updated = await db.update(customersTable)
+          .set({ metadata: updatedMeta, updatedAt: new Date() })
+          .where(andOp(
+            eq(customersTable.id, customerId),
+            eq(customersTable.websiteId, websiteId),
+            sql`(${customersTable.metadata}->>'noteTs' IS NULL
+                 OR (${customersTable.metadata}->>'noteTs')::bigint < ${ts})`
+          ))
+          .returning({ id: customersTable.id });
+
+        if (updated.length === 0) {
+          // A later-timestamped write already committed — this write is a no-op.
+          return res.json({ ok: true, superseded: true });
+        }
+
+        res.json({ ok: true });
+      } catch (err: any) {
+        console.error("Customer note error:", err);
+        res.status(500).json({ message: "Kunne ikke gemme notat" });
+      }
+    }
+  );
 
   // Update order status
   app.patch("/api/websites/:id/orders/:orderId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("order.update", "order", "orderId"), async (req, res) => {

@@ -141,6 +141,11 @@ export type Customer = {
   totalSpentCents: number;
   bookingsCount: number;
   lastActivityAt: string | null;
+  /**
+   * Plain-text internal admin note stored in customers.metadata.internalNote.
+   * Only present when fetched via the single-customer endpoint.
+   */
+  internalNote?: string | null;
 };
 
 export type ProductVariantOption = {
