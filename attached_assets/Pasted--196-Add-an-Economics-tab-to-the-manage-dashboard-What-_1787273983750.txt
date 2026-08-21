@@ -1,0 +1,31 @@
+#196 - Add an Economics tab to the manage dashboard
+What & Why
+Therapists and other solo practitioners using Birdflow need a simple financial overview in one place — how much they have earned, what's paid, what's outstanding, and a monthly/annual summary. Currently none of this exists in the manage dashboard. An Economics tab gives practitioners clarity without needing a separate accounting app.
+
+Done looks like
+A new "Økonomi" tab appears in the manage dashboard navigation alongside Bookinger, Kunder, etc.
+The tab shows:
+Monthly revenue summary — total billed this month, total received, outstanding (sent but unpaid invoices).
+Per-session revenue list — a table of completed bookings with their linked invoice status (paid / unpaid / no invoice).
+Annual overview — bar chart showing revenue per month for the current year.
+Outstanding payments — list of unpaid invoices older than 7 days with a "Send reminder" action per row.
+Numbers come from the existing bookings, invoices, and orders tables — no new external accounting integration required.
+Currency respects the website's currency setting (DKK default).
+The tab is read-only in this version; creating invoices from here is out of scope (that happens from the client detail view in the Kunder tab).
+Out of scope
+Integration with e-conomic, Billy, or external accounting software.
+VAT/moms calculation and reporting.
+Payroll or team member earnings split.
+Exporting to CSV/Excel (can be a follow-up).
+Steps
+Design the tab shell — add an EconomicsSection.tsx component under client/src/pages/manage/ following the pattern of AnalyticsSection.tsx.
+Server aggregation endpoint — add GET /api/websites/:id/economics?year=YYYY that returns monthly revenue totals, outstanding invoice amounts, and completed-booking counts from existing tables.
+Wire up the monthly summary cards and the annual bar chart — use Recharts (already in the project) for the chart.
+Outstanding payments list — fetch invoices with status = 'sent' and due_date < now() from the invoices table; add a "Send reminder" button that triggers the existing payment-reminder email.
+Register the tab in the manage shell (client/src/pages/manage/index.tsx).
+Relevant files
+client/src/pages/manage/index.tsx — manage shell and tab registration
+client/src/pages/manage/AnalyticsSection.tsx — pattern to follow
+client/src/pages/manage/types.ts — shared types
+server/routes.ts — add the aggregation endpoint
+shared/schema.ts — invoices, bookings, orders table shapes
