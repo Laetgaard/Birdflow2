@@ -3983,11 +3983,13 @@ function FooterSection({ props, styles }: { props: ComponentProps; styles: Compo
             </div>
           ))}
         </div>
-        {copyright && (
-          <div style={{ borderTop: '1px solid ' + dividerColor, paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <p style={{ fontSize: '13px', opacity: 0.45 }}>{copyright}</p>
+        <div style={{ borderTop: '1px solid ' + dividerColor, paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          {copyright && <p style={{ fontSize: '13px', opacity: 0.45 }}>{copyright}</p>}
+          <div style={{ display: 'flex', gap: '16px', marginLeft: 'auto' }}>
+            <a href="/privacy" style={{ fontSize: '13px', opacity: 0.45, textDecoration: 'none', color: 'inherit' }}>${jsx(t.legalPrivacy)}</a>
+            <a href="/terms" style={{ fontSize: '13px', opacity: 0.45, textDecoration: 'none', color: 'inherit' }}>${jsx(t.legalTerms)}</a>
           </div>
-        )}
+        </div>
       </div>
     </footer>
   );
@@ -6602,6 +6604,10 @@ export default function BookingForm({ styles, props }: Props) {
                       <textarea data-testid="input-booking-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={${lit(t.bookingNotesPlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '16px', resize: 'none' }} />
                     </div>
                     {status === 'error' && <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{errorMessage || ${lit(t.bookingErrorRequired)}}</div>}
+                    <p style={{ fontSize: '12px', opacity: 0.5, textAlign: 'center', margin: '4px 0 0' }}>
+                      ${jsx(t.bookingDataNoticePre)}{' '}
+                      <a href="/privacy" style={{ textDecoration: 'underline', color: 'inherit' }}>${jsx(t.legalPrivacy)}</a>.
+                    </p>
                     <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
                       <button type="button" data-testid="button-back-details" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>${jsx(t.bookingBack)}</button>
                       <button type="submit" data-testid="button-confirm-booking" disabled={status === 'loading' || !name || !email} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: status === 'loading' || !name || !email ? 'default' : 'pointer', opacity: status === 'loading' || !name || !email ? 0.6 : 1 }}>{status === 'loading' ? ${lit(t.bookingSubmitting)} : (props.buttonText || ${lit(t.bookingSubmit)})}</button>

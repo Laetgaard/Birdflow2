@@ -1,5 +1,6 @@
-// Per-client detail panel: booking history, form submissions, and an internal
-// admin note. Opens as a right-side Sheet so the customer list stays visible.
+// Per-client detail panel: booking history, form submissions, an internal
+// admin note, GDPR data export, and a deletion-request flag.
+// Opens as a right-side Sheet so the customer list stays visible.
 // This is an operational workspace view — NOT a clinical journal or health record.
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -12,6 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,6 +27,9 @@ import {
   Clock,
   Loader2,
   Lock,
+  Download,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import type { SectionProps, Booking, FormSubmission } from "./types";
 import {
@@ -45,6 +50,8 @@ type ClientDetail = {
     phone: string | null;
     createdAt: string;
     internalNote: string | null;
+    /** ISO timestamp set when the operator has acknowledged a deletion request. */
+    deletionRequestedAt?: string | null;
   };
   bookings: Booking[];
   submissions: FormSubmission[];
@@ -109,6 +116,12 @@ export function ClientDetailPanel({
   const [savedNote, setSavedNote]   = useState("");
   const [noteStatus, setNoteStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
+  // ── GDPR action state ─────────────────────────────────────────────────────
+  const [deletionRequestedAt, setDeletionRequestedAt] = useState<string | null>(null);
+  const [deletionBusy, setDeletionBusy]               = useState(false);
+  const [deletionConfirm, setDeletionConfirm]         = useState(false);
+  const [exportBusy, setExportBusy]                   = useState(false);
+
   // One abort controller per outstanding GET, one per outstanding PATCH.
   const fetchAbortRef = useRef<AbortController | null>(null);
   const noteAbortRef  = useRef<AbortController | null>(null);
@@ -134,6 +147,8 @@ export function ClientDetailPanel({
     setNoteStatus("idle");
     setDetail(null);
     setLoadError(null);
+    setDeletionRequestedAt(null);
+    setDeletionConfirm(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, customerId]);
 
@@ -163,9 +178,10 @@ export function ClientDetailPanel({
       setNote(initial);
       setSavedNote(initial);
       setNoteStatus("idle");
+      setDeletionRequestedAt(data.customer.deletionRequestedAt ?? null);
     } catch (err: any) {
       if (err.name === "AbortError") return; // silently superseded
-      setLoadError(err.message || "Kunde ikke hente kundedata");
+      setLoadError(err.message || "Kunne ikke hente kundedata");
     } finally {
       // Only clear the loading flag if this fetch is still the active one.
       if (!controller.signal.aborted) setIsLoading(false);
@@ -241,6 +257,61 @@ export function ClientDetailPanel({
       saveNote(note);
     }
   };
+
+  // ── GDPR: JSON export (Art. 20 data portability) ──────────────────────────
+  const handleExport = useCallback(async () => {
+    if (!customerId || !websiteId || !accessToken || exportBusy) return;
+    setExportBusy(true);
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/customers/${customerId}/export`,
+        { headers: authHeaders(accessToken) }
+      );
+      if (!res.ok) throw new Error(`Eksport fejlede (${res.status})`);
+
+      // Derive filename from Content-Disposition or fall back.
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match ? match[1] : `kunde-export.json`;
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Export error:", err);
+    } finally {
+      setExportBusy(false);
+    }
+  }, [customerId, websiteId, accessToken, exportBusy]);
+
+  // ── GDPR: deletion request flag (Art. 17) ────────────────────────────────
+  const handleDeletionRequest = useCallback(async () => {
+    if (!customerId || !websiteId || !accessToken || deletionBusy) return;
+    setDeletionBusy(true);
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/customers/${customerId}/deletion-request`,
+        {
+          method: "POST",
+          headers: jsonAuthHeaders(accessToken),
+        }
+      );
+      if (!res.ok) throw new Error(`Anmodning fejlede (${res.status})`);
+      const body = await res.json();
+      setDeletionRequestedAt(body.requestedAt ?? new Date().toISOString());
+      setDeletionConfirm(false);
+    } catch (err: any) {
+      console.error("Deletion request error:", err);
+    } finally {
+      setDeletionBusy(false);
+    }
+  }, [customerId, websiteId, accessToken, deletionBusy]);
 
   // ── render ────────────────────────────────────────────────────────────────
 
@@ -392,6 +463,89 @@ export function ClientDetailPanel({
                   Dette er et praktisk arbejdsnotat. Det er ikke et klinisk journal eller
                   patientjournal, og er ikke underlagt særlig databeskyttelse.
                 </p>
+              </div>
+
+              {/* ── Dataadministration (GDPR) ────────────────────── */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Dataadministration
+                </h3>
+
+                {/* Export */}
+                <div className="flex items-start justify-between gap-3 p-3 border rounded-lg">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Eksporter data</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Download en JSON-fil med kundens bookinger og henvendelser (GDPR art. 20).
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={handleExport}
+                    disabled={exportBusy}
+                    data-testid="button-export-customer"
+                  >
+                    {exportBusy
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Download className="w-3.5 h-3.5" />}
+                    <span className="ml-1.5">Eksporter</span>
+                  </Button>
+                </div>
+
+                {/* Deletion request */}
+                <div className="flex items-start justify-between gap-3 p-3 border rounded-lg">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Sletningsanmodning</p>
+                    {deletionRequestedAt ? (
+                      <p className="text-xs text-amber-600 mt-0.5">
+                        Anmodet {formatDateDa(deletionRequestedAt)} — behandles manuelt.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Registrer at kunden har bedt om sletning (GDPR art. 17). Sletter ikke data automatisk.
+                      </p>
+                    )}
+                  </div>
+                  {deletionRequestedAt ? (
+                    <Badge variant="outline" className="shrink-0 text-amber-600 border-amber-200">
+                      <AlertTriangle className="w-3 h-3 mr-1" />
+                      Registreret
+                    </Badge>
+                  ) : deletionConfirm ? (
+                    <div className="flex gap-1.5 shrink-0">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleDeletionRequest}
+                        disabled={deletionBusy}
+                        data-testid="button-confirm-deletion-request"
+                      >
+                        {deletionBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : "Bekræft"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeletionConfirm(false)}
+                        disabled={deletionBusy}
+                      >
+                        Annuller
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 text-destructive hover:text-destructive"
+                      onClick={() => setDeletionConfirm(true)}
+                      data-testid="button-request-deletion"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="ml-1.5">Anmod om sletning</span>
+                    </Button>
+                  )}
+                </div>
               </div>
             </TabsContent>
 

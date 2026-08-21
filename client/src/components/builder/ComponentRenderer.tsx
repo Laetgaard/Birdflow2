@@ -1623,12 +1623,14 @@ function FooterComponent({ props, styles, isSelected, onClick, isPreview, onText
             </div>
           ))}
         </div>
-        {/* Bottom copyright row */}
-        {copyright && (
-          <div style={{ borderTop: `1px solid ${hexToRgba(styles.textColor || '#000', 0.07)}`, paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <p style={{ fontSize: '13px', opacity: 0.45 }}>{copyright}</p>
+        {/* Bottom copyright + legal row — always shown */}
+        <div style={{ borderTop: `1px solid ${hexToRgba(styles.textColor || '#000', 0.07)}`, paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          {copyright && <p style={{ fontSize: '13px', opacity: 0.45 }}>{copyright}</p>}
+          <div style={{ display: 'flex', gap: '16px', marginLeft: 'auto' }}>
+            <a href={isPreview ? '/privacy' : '#'} style={{ fontSize: '13px', opacity: 0.45, textDecoration: 'none', color: 'inherit' }}>Privatlivspolitik</a>
+            <a href={isPreview ? '/terms' : '#'} style={{ fontSize: '13px', opacity: 0.45, textDecoration: 'none', color: 'inherit' }}>Handelsbetingelser</a>
           </div>
-        )}
+        </div>
       </div>
     </footer>
   );

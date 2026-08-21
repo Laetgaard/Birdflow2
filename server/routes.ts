@@ -1894,10 +1894,12 @@ export async function registerRoutes(
           })
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+        const meta = (customer.metadata as Record<string, any>) ?? {};
         res.json({
           customer: {
             ...customer,
-            internalNote: ((customer.metadata as any)?.internalNote as string) ?? null,
+            internalNote:         (meta.internalNote as string)         ?? null,
+            deletionRequestedAt:  (meta.deletionRequestedAt as string)  ?? null,
           },
           bookings:     customerBookings,
           submissions:  customerSubmissions,
@@ -1935,30 +1937,33 @@ export async function registerRoutes(
           return res.status(400).json({ message: "note skal være en tekststreng" });
         }
 
-        // Read once to verify the customer exists and to merge existing metadata
-        // fields.  The timestamp guard itself is in the UPDATE WHERE — not here.
-        const [customer] = await db.select().from(customersTable).where(
-          andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
-        );
-        if (!customer) return res.status(404).json({ message: "Kunde ikke fundet" });
+        // Existence check only — we do NOT read metadata here for merging.
+        // Using a targeted JSONB merge in the UPDATE means we never overwrite
+        // concurrent writes to other metadata fields (e.g. deletionRequestedAt).
+        const [exists] = await db.select({ id: customersTable.id })
+          .from(customersTable)
+          .where(andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId)));
+        if (!exists) return res.status(404).json({ message: "Kunde ikke fundet" });
 
-        const existingMeta = ((customer.metadata as Record<string, any>) ?? {});
         const trimmed = note.trim().slice(0, 5000);
         const ts = typeof clientTs === "number" ? clientTs : Date.now();
+        const noteVal = trimmed || null;
 
-        const updatedMeta = {
-          ...existingMeta,
-          internalNote: trimmed || null,
-          // Store the winning timestamp so subsequent PATCHes can be compared.
-          noteTs: ts,
-        };
-
-        // Atomic compare-and-set: the WHERE predicate `noteTs IS NULL OR noteTs < ts`
-        // is evaluated inside a single DB statement, so two concurrent PATCHes cannot
-        // both win — whichever arrives first with the higher ts wins; the other sees
-        // 0 rows in RETURNING and receives superseded:true.
+        // Atomic compare-and-set using the JSONB || merge operator.
+        //
+        // Only `internalNote` and `noteTs` are touched — all other metadata
+        // fields (e.g. `deletionRequestedAt`) survive untouched even if they
+        // were written concurrently between this request's arrival and the UPDATE.
+        //
+        // The WHERE predicate `noteTs IS NULL OR noteTs < ts` is evaluated
+        // atomically at the row level: two concurrent PATCHes cannot both pass;
+        // only the one with the higher ts wins.
         const updated = await db.update(customersTable)
-          .set({ metadata: updatedMeta, updatedAt: new Date() })
+          .set({
+            metadata: sql`COALESCE(${customersTable.metadata}, '{}'::jsonb)
+                          || jsonb_build_object('internalNote', ${noteVal}::text, 'noteTs', ${ts}::bigint)`,
+            updatedAt: new Date(),
+          })
           .where(andOp(
             eq(customersTable.id, customerId),
             eq(customersTable.websiteId, websiteId),
@@ -1976,6 +1981,159 @@ export async function registerRoutes(
       } catch (err: any) {
         console.error("Customer note error:", err);
         res.status(500).json({ message: "Kunne ikke gemme notat" });
+      }
+    }
+  );
+
+  // GDPR Article 20 — structured data export for a single customer.
+  // Returns a machine-readable JSON attachment with the customer's profile,
+  // bookings, and form submissions scoped to this website.
+  // Excludes: internal admin notes (operator-generated), raw metadata fields.
+  app.get(
+    "/api/websites/:id/customers/:customerId/export",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId  = req.params.id;
+        const customerId = req.params.customerId;
+
+        const [customer] = await db.select().from(customersTable).where(
+          andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
+        );
+        if (!customer) return res.status(404).json({ message: "Kunde ikke fundet" });
+
+        const emailLower = customer.email.toLowerCase();
+
+        const customerBookings = (await db.select().from(bookingsTable).where(
+          andOp(
+            eq(bookingsTable.websiteId, websiteId),
+            eq(bookingsTable.context, "customer_site"),
+            sql`lower(${bookingsTable.customerEmail}) = ${emailLower}`,
+          )
+        )).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        const allSubmissions = await db.select().from(formSubmissionsTable).where(
+          eq(formSubmissionsTable.websiteId, websiteId)
+        );
+        const customerSubmissions = allSubmissions
+          .filter(s => {
+            const data = (s.data ?? {}) as Record<string, any>;
+            return Object.values(data).some(
+              v => typeof v === "string" && v.toLowerCase() === emailLower
+            );
+          })
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        const exportData = {
+          exportedAt: new Date().toISOString(),
+          dataController: {
+            note: "This export was generated by the website operator in response to a data portability request (GDPR Art. 20).",
+          },
+          customer: {
+            id: customer.id,
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone ?? null,
+            firstSeen: customer.createdAt,
+          },
+          bookings: customerBookings.map(b => ({
+            id: b.id,
+            service: b.service,
+            date: b.date,
+            time: b.time,
+            status: b.status,
+            price: b.price ?? null,
+            currency: b.currency ?? null,
+            notes: b.notes ?? null,
+            createdAt: b.createdAt,
+          })),
+          formSubmissions: customerSubmissions.map(s => ({
+            id: s.id,
+            formName: s.formName ?? null,
+            data: s.data ?? {},
+            createdAt: s.createdAt,
+          })),
+        };
+
+        const safeName = customer.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 40);
+        const dateStr  = new Date().toISOString().slice(0, 10);
+        const filename = `kunde-${safeName}-${dateStr}.json`;
+
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.json(exportData);
+      } catch (err: any) {
+        console.error("Customer export error:", err);
+        res.status(500).json({ message: "Kunne ikke eksportere kundedata" });
+      }
+    }
+  );
+
+  // Flag a deletion request for a customer (GDPR Art. 17).
+  // This records the operator's acknowledgement of the request in the customer
+  // metadata — it does NOT auto-delete data.  The operator must process
+  // the deletion manually; the flag surfaces in the customer detail panel.
+  // Idempotent: re-requesting returns the original timestamp.
+  app.post(
+    "/api/websites/:id/customers/:customerId/deletion-request",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("customer.deletion_request", "customer", "customerId"),
+    async (req, res) => {
+      try {
+        const websiteId  = req.params.id;
+        const customerId = req.params.customerId;
+
+        // Read only the fields needed for the idempotency check.
+        const [customer] = await db.select({
+          id: customersTable.id,
+          metadata: customersTable.metadata,
+        }).from(customersTable).where(
+          andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
+        );
+        if (!customer) return res.status(404).json({ message: "Kunde ikke fundet" });
+
+        const existingMeta = ((customer.metadata as Record<string, any>) ?? {});
+
+        // Idempotent: if already flagged, return the original timestamp immediately.
+        if (existingMeta.deletionRequestedAt) {
+          return res.json({ ok: true, alreadyRequested: true, requestedAt: existingMeta.deletionRequestedAt });
+        }
+
+        const requestedAt = new Date().toISOString();
+
+        // Atomic targeted JSONB merge — only `deletionRequestedAt` is set;
+        // internalNote, noteTs, and any future metadata fields are never
+        // clobbered even when written concurrently.
+        // WHERE guard: only fires when no flag exists yet, handling the race
+        // where two requests pass the idempotency check above simultaneously.
+        const updated = await db.update(customersTable)
+          .set({
+            metadata: sql`COALESCE(${customersTable.metadata}, '{}'::jsonb)
+                          || jsonb_build_object('deletionRequestedAt', ${requestedAt}::text)`,
+            updatedAt: new Date(),
+          })
+          .where(andOp(
+            eq(customersTable.id, customerId),
+            eq(customersTable.websiteId, websiteId),
+            sql`${customersTable.metadata}->>'deletionRequestedAt' IS NULL`
+          ))
+          .returning({ id: customersTable.id });
+
+        if (updated.length === 0) {
+          // A concurrent write won the race — re-read to surface its timestamp.
+          const [refreshed] = await db.select({ metadata: customersTable.metadata })
+            .from(customersTable)
+            .where(andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId)));
+          const rm = ((refreshed?.metadata as Record<string, any>) ?? {});
+          return res.json({ ok: true, alreadyRequested: true, requestedAt: rm.deletionRequestedAt });
+        }
+
+        res.json({ ok: true, requestedAt });
+      } catch (err: any) {
+        console.error("Customer deletion request error:", err);
+        res.status(500).json({ message: "Kunne ikke registrere sletningsanmodning" });
       }
     }
   );

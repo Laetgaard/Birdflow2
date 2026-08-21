@@ -21,6 +21,7 @@ import {
   migrateSiteStateToCurrent,
   PublishCompatibilityError,
 } from './migrations';
+import { addLegalPagesToBuilderState, type LegalPlaceholders } from '../../shared/legalPages';
 import {
   createDeploymentIdentity,
   DeploymentIdentityError,
@@ -46,6 +47,12 @@ export type PublishConfig = {
   birdflowApiUrl: string; // Required: BirdFlow platform URL for email callbacks
   /** Language the site is written in - drives document lang and baked-in copy. */
   language?: SiteLanguage;
+  /**
+   * Real business identifiers to substitute into the auto-generated Privacy and
+   * Terms pages (company name, contact email, business address, website name).
+   * When omitted the pages contain legible placeholder text in brackets.
+   */
+  legalPlaceholders?: Partial<LegalPlaceholders>;
   /** Persisted identity of the immutable snapshot deployed by this worker. */
   deploymentIdentity?: {
     schemaVersion: 1;
@@ -159,6 +166,19 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
           `${stillDangling.size} ${stillDangling.size === 1 ? 'illustration' : 'illustrationer'} på webstedet mangler i grafikbiblioteket, så udgivelsen blev stoppet. Åbn byggeren, erstat eller fjern de berørte illustrationer, og udgiv igen.`
         );
       }
+    }
+
+    // Ensure every published site has a Privacy and Terms page.
+    // addLegalPagesToBuilderState is idempotent: it only adds pages whose ids
+    // ('privacy', 'terms') are not already present in the builder state, so
+    // custom legal pages crafted by the owner are never overwritten.
+    {
+      const withLegal = addLegalPagesToBuilderState(
+        stateForPublish as Parameters<typeof addLegalPagesToBuilderState>[0],
+        config.legalPlaceholders,
+        config.language ?? DEFAULT_SITE_LANGUAGE,
+      );
+      stateForPublish = withLegal as typeof stateForPublish;
     }
 
     currentStage = 'generating';

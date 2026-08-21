@@ -43,6 +43,7 @@ import {
 } from './vercel';
 import type { SiteLanguage } from '../../shared/siteLanguage';
 import { DEFAULT_SITE_LANGUAGE } from '../../shared/siteLanguage';
+import type { LegalPlaceholders } from '../../shared/legalPages';
 import { storage } from '../storage';
 import { emailService } from '../email/service';
 import type { BuilderStateData } from '../../shared/schema';
@@ -71,6 +72,8 @@ export type WorkerConfig = {
   language?: SiteLanguage;
   requestedBy: string;
   snapshotHash: string;
+  /** Business identifiers substituted into auto-generated Privacy/Terms pages. */
+  legalPlaceholders?: Partial<LegalPlaceholders>;
 };
 
 const ACTIVATION_LEASE_MS = 2 * 60_000;
@@ -246,6 +249,29 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
     // Stage 1: generating (resolving SVGs, generating Next.js source files)
     await updatePublishJobStatus(jobId, 'generating', { startedAt: true });
 
+    // Fetch the site's legal settings to populate the auto-generated Privacy and
+    // Terms pages with real business data (company name, contact email, etc.).
+    // Failure is non-fatal — legal pages still publish with placeholder text.
+    let legalPlaceholders: Partial<LegalPlaceholders> | undefined = cfg.legalPlaceholders;
+    if (!legalPlaceholders) {
+      try {
+        const settings = await storage.getLegalSettings(websiteId);
+        if (settings) {
+          legalPlaceholders = {
+            websiteName:     settings.websiteName     ?? cfg.siteName,
+            companyName:     settings.companyName     ?? undefined,
+            contactEmail:    settings.contactEmail    ?? undefined,
+            businessAddress: settings.businessAddress ?? undefined,
+          };
+        } else {
+          legalPlaceholders = { websiteName: cfg.siteName };
+        }
+      } catch (legalErr) {
+        console.warn('[Publish] Could not fetch legal settings — legal pages will use placeholder text:', legalErr);
+        legalPlaceholders = { websiteName: cfg.siteName };
+      }
+    }
+
     const result = await publishWebsite({
       websiteId,
       siteName: cfg.siteName,
@@ -262,6 +288,7 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
       customDomain: cfg.customDomain,
       birdflowApiUrl: cfg.platformUrl,
       language: cfg.language ?? DEFAULT_SITE_LANGUAGE,
+      legalPlaceholders,
       deploymentIdentity: createDeploymentIdentity({
         siteId: websiteId,
         publishJobId: jobId,
