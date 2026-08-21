@@ -1,0 +1,524 @@
+1. #194 is probably NOT a launch blocker
+
+Replit says:
+
+“Fix live DB connection (#194) — publishing silently fails without this”
+
+But you already established that the failed Supabase hostname is inside the temporary Replit environment, while production Birdflow runs on Vercel with its own credentials.
+
+So #194 should only stay critical if you have evidence that:
+
+Birdflow production on Vercel
+→ cannot reach Supabase
+
+Otherwise don't spend Friday debugging a development-workspace limitation.
+
+2. #192 IS potentially extremely critical
+
+This is different:
+
+snapshot_hash column missing in live DB.
+
+If the new publisher now writes or reads snapshot_hash and production Supabase genuinely doesn't have that migration, this can break the first publish.
+
+I would put this at P0.
+
+Before Monday:
+
+production schema
+        ↓
+expected migrations
+        ↓
+publisher code expectations
+
+must match.
+
+And I would make migrations backwards-safe:
+
+deploy DB migration
+↓
+verify
+↓
+deploy application relying on it
+
+rather than deploying code first and hoping migration happens.
+
+Replit seriously underrates #86
+
+Mobile pages can break out of screen.
+
+For your market this is absolutely launch-blocking.
+
+The practitioner may configure Birdflow on desktop.
+
+Their client will probably encounter the website and booking flow from their phone.
+
+So the customer's experience isn't:
+
+therapist → Birdflow builder
+
+It's also:
+
+person struggling with something
+→ Google / link
+→ therapist website on phone
+→ understand therapist
+→ trust therapist
+→ book
+
+If sections overflow horizontally, text gets clipped or booking breaks on mobile, the product is broken where it matters most.
+
+I would move #86 from:
+
+“makes product better”
+
+to:
+
+Must pass before customer #1 goes live.
+
+You do not need every possible custom component perfected.
+
+You need a deterministic check for:
+
+375px
+~430px
+tablet
+desktop
+
+covering generated homepage, navigation, forms and booking.
+
+#134 is also more important than Replit thinks
+
+Build progress polling can stop mid-build.
+
+Imagine the first customer:
+
+20 minutes onboarding
+↓
+click create website
+↓
+"Vi bygger din hjemmeside..."
+↓
+spinner
+↓
+spinner
+↓
+spinner
+
+That's catastrophic.
+
+It makes something that actually succeeded look broken.
+
+Before Monday, onboarding jobs need three outcomes:
+
+working
+completed
+failed/recoverable
+
+Never:
+
+unknown forever
+
+I'd fix #134 alongside #195.
+
+#57 booking emails are P0/P1
+
+This also worries me:
+
+Booking confirmation emails can silently fail.
+
+If Birdflow's main operational feature is booking, then:
+
+client books
+↓
+practitioner never learns about it
+
+or:
+
+client books
+↓
+no confirmation
+↓
+they don't know whether booking worked
+
+damages trust immediately.
+
+You don't necessarily need some enormous email-observability system this weekend.
+
+But you need:
+
+booking DB transaction succeeds
+↓
+email queued
+↓
+send attempted
+↓
+send status recorded
+
+If sending fails:
+
+booking MUST remain saved
+
+and Manage should show:
+
+⚠ Bekræftelsesmail kunne ikke sendes
+
+with retry.
+
+No silent failures.
+
+#60 webshop: remove it from Monday unless customer #1 needs it
+
+Replit says:
+
+Confirm checkout works (#60)
+
+Why?
+
+If Monday's target is a psychologist/therapist selling sessions, webshop checkout is not part of the core journey.
+
+Don't test:
+
+products
+shipping
+fulfilment
+cart
+abandoned cart
+
+just because Birdflow happens to contain those features.
+
+Hide or mark them beta if necessary.
+
+Your first user should judge Birdflow on what you're promising them.
+
+I would postpone #196 completely
+
+Economics isn't needed.
+
+And I'd be careful because the deeper Birdflow goes into maintaining financial transaction records and bookkeeping, the closer you get to regulatory requirements around digital bookkeeping systems. Erhvervsstyrelsen defines digital bookkeeping systems around registration/storage of transactions and supporting records, with requirements around audit trails, security, backups, etc.
+
+That doesn't mean a simple invoice feature automatically makes Birdflow a regulated standard bookkeeping system.
+
+It means:
+
+don't accidentally build accounting software this weekend.
+
+Use integration/export to actual accounting software later if that's the better product choice.
+
+I would reduce #197 dramatically
+
+Replit says:
+
+Session notes / journal per client — therapists legally need this.
+
+That's too broad.
+
+For example, Styrelsen for Patientsikkerhed has specific journal requirements for psychologists performing healthcare tasks.
+
+But your wider target includes different practitioner types. You shouldn't encode:
+
+all Birdflow users
+=
+same journal requirement
+
+into the product.
+
+For Monday I would make #197:
+
+Client workspace v1
+Customer
+├── Overview
+├── Bookings
+└── Contact/form history
+
+That's enough.
+
+Maybe also:
+
+internal general admin note
+
+ONLY if you've established it won't be used as clinical health documentation.
+
+But I would not market Birdflow as a journal/patient-record system yet.
+
+That's a separate security/compliance milestone.
+
+I would also cut #198 down
+
+Replit's statement:
+
+“GDPR/privacy policy generator — without this they can't legally take on clients”
+
+is misleading.
+
+A privacy notice is important. Datatilsynet says organizations must tell people how their information is processed and that this can be provided through a privacy policy when collecting information.
+
+But generating a privacy policy does not make the practitioner GDPR compliant.
+
+Particularly when Birdflow processes mental-health information: Datatilsynet classifies physical and mental health data as sensitive personal data, and such processing needs an applicable exception for sensitive information in addition to the general lawful-processing framework.
+
+So don't add:
+
+✅ GDPR compliant
+
+because Birdflow generated three paragraphs.
+
+For Monday I'd build only:
+
+#198A — Privacy baseline
+✓ Birdflow privacy/DPA setup
+✓ practitioner privacy page
+✓ link beside booking/contact collection
+✓ clear information about collected data
+✓ data minimisation
+✓ sensitive fields excluded from analytics
+✓ sensitive fields excluded from AI unless explicitly designed for it
+✓ tenant authorization reviewed
+✓ deletion/export request workflow foundation
+
+Then later:
+
+#198B
+clinical journals
+health-data model
+clinical consent
+audit history
+retention locking
+record access history
+Article 6/9 configuration
+practice-type rules
+The actual Monday priority stack I recommend
+Priority	Work	Why
+P0	#192 production DB migration compatibility	Could kill every publish
+P0	#195 onboarding/signup/payment recovery	Customer conversion
+P0	#134 onboarding/build job recovery	Prevent dead spinner
+P0	#86 generated-site mobile QA	End-client experience
+P0	#57 booking + email reliability	Core practitioner workflow
+P0	Real publish E2E	Prove the entire promise
+P1	Basic #198A privacy flow	Safe data collection
+P1	Client detail/booking history from #197	Useful daily workflow
+P1	AI cost hard ceilings #37	Avoid nasty surprise
+P2	#60 webshop	Only if first customer needs it
+P2	invoices	After actual customer demand
+P3	#196 Economics	Later
+P3	clinical journal system	Dedicated project
+I would create ONE new task now: #199
+
+Instead of adding another feature, make Replit prove Birdflow.
+
+Call it:
+
+#199 — First Paying Customer Release Gate
+
+It should use a completely fresh account.
+
+Run this exact journey:
+
+NEW PRACTITIONER
+       ↓
+Landing
+       ↓
+Start onboarding
+       ↓
+AI interview
+       ↓
+Sign up
+       ↓
+onboarding survives auth
+       ↓
+AI generates website
+       ↓
+generation completes
+       ↓
+desktop preview
+       ↓
+mobile preview
+       ↓
+approve
+       ↓
+Stripe payment
+       ↓
+webhook confirms payment
+       ↓
+publish starts
+       ↓
+Vercel deployment verified
+       ↓
+website becomes live
+       ↓
+Manage opens
+       ↓
+configure service
+       ↓
+configure availability
+       ↓
+log out
+
+
+
+
+REAL CLIENT / INCOGNITO
+       ↓
+open published website on phone
+       ↓
+navigate pages
+       ↓
+open booking
+       ↓
+select service
+       ↓
+select available time
+       ↓
+enter details
+       ↓
+book
+
+
+
+
+PRACTITIONER
+       ↓
+booking appears
+       ↓
+client appears
+       ↓
+confirmation email visible
+       ↓
+practitioner notification visible
+       ↓
+reschedule
+       ↓
+cancel
+       ↓
+correct emails sent
+
+That is your product right now.
+
+If that entire loop passes without you touching Supabase manually:
+
+I would be comfortable putting customer #1 through Birdflow.
+
+And test failures, not just happy path
+
+For #199 I want these deliberately tested:
+
+refresh onboarding
+refresh during AI generation
+close and reopen browser
+login on second device
+
+
+Stripe payment declined
+Stripe success redirect refreshed twice
+Stripe webhook arrives twice
+
+
+publish fails after payment
+publish retry
+
+
+booking same slot from two browsers
+email provider fails
+invalid contact email
+
+
+very long therapist name
+very long service description
+missing logo
+no images
+no CVR
+
+
+375px phone
+430px phone
+tablet
+desktop
+
+Every failure needs either:
+
+automatic recovery
+
+or:
+
+clear user recovery action
+
+Never a spinner or generic "Something went wrong".
+
+One feature I think you're missing entirely
+Onboarding → launch checklist
+
+After payment/publish, don't dump the practitioner into a giant Manage system.
+
+Give them:
+
+Din hjemmeside er live 🎉
+
+4 ting før du er klar til din første booking.
+
+Something like:
+
+✓ Website published
+✓ Contact information
+○ Check your booking availability
+○ Make a test booking
+○ Check privacy information
+○ Connect your own domain
+
+Then:
+
+“Åbn min hjemmeside”
+
+and:
+
+“Lav en testbooking”
+
+That last button could open their own site in a new tab.
+
+That gives the practitioner confidence:
+
+“Okay. This actually works.”
+
+Far more valuable for customer #1 than an Economics chart.
+
+And I would add a tiny health/status system
+
+You don't need a sophisticated support platform.
+
+In your admin view:
+
+Amalie's practice
+
+
+Account        ✓
+Onboarding     ✓
+Payment        ✓
+Website        ✓
+Published      ✓
+Domain         ✓
+Booking        ✓
+Last email     ✓
+AI build       ✓
+
+If something fails for customer #1, you know where immediately.
+
+For the first 10 customers, this is an enormous advantage.
+
+The product positioning matters now
+
+If you tell Monday's customer:
+
+“Birdflow replaces your website builder, booking system, journal system, invoicing, accounting, GDPR tools, email system and business software.”
+
+Then yes: you're nowhere near finished.
+
+But if you tell them:
+
+“Birdflow gives therapists a professional website that is easy to maintain, connected directly to booking, client management and automated communication—without having to piece five different systems together.”
+
+Then you're much closer.
+
+And importantly, that promise appears to match the parts of Birdflow that are currently strongest.
+
+I would therefore stop expanding the product until you've run #199. Every issue discovered by that test outranks #196/#197/full #198.
+
+If #199 passes this weekend, get the user Monday. The first practitioner's actual friction should decide what you build next—not Replit guessing that they desperately need a revenue bar chart.
