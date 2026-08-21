@@ -85,9 +85,10 @@ function Router() {
         {() => <ProtectedRoute requireAdmin><AdminPage /></ProtectedRoute>}
       </Route>
       
-      {/* Onboarding - requires auth + verified email but NOT onboarding */}
+      {/* Onboarding - requires auth + verified email but NOT onboarding.
+          New users arrive here first, so redirect to signup not signin. */}
       <Route path="/onboarding">
-        {() => <ProtectedRoute requireOnboarding={false}><OnboardingPage /></ProtectedRoute>}
+        {() => <ProtectedRoute requireOnboarding={false} authMode="signup"><OnboardingPage /></ProtectedRoute>}
       </Route>
 
       {/* Read-only preview of the generated site, embedded by /onboarding */}

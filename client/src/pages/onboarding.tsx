@@ -596,11 +596,15 @@ export default function OnboardingPage() {
     if (!authLoading && !user) navigate("/auth?mode=signup");
   }, [authLoading, user, navigate]);
 
+  // Only redirect away after the boot effect has run. Without the `!booting`
+  // guard, a paid user who navigates to /onboarding gets bounced to /dashboard
+  // before applyStage() can set view = "decision", so the condition
+  // `view !== "decision"` incorrectly fires on the default "chat" value.
   useEffect(() => {
-    if (!authLoading && profile?.onboardingCompleted && view !== "decision") {
+    if (!authLoading && !booting && profile?.onboardingCompleted && view !== "decision") {
       navigate("/dashboard");
     }
-  }, [authLoading, profile, navigate, view]);
+  }, [authLoading, booting, profile, navigate, view]);
 
   /* ---- The server decides where the customer lands ----
      Reload, sign-out/sign-in, back-navigation and a cancelled checkout all
@@ -1602,11 +1606,48 @@ export default function OnboardingPage() {
               )}
 
               {decision.stage === "paid" && (
-                <div className="mt-5 flex justify-center">
-                  <Button size="lg" className="h-12" onClick={() => navigate("/dashboard")} data-testid="button-go-dashboard">
-                    {t.goToDashboard}
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
+                <div className="mt-5 rounded-3xl border-2 border-emerald-200 bg-emerald-50 p-6" data-testid="launch-checklist">
+                  <p className="text-xl font-extrabold text-emerald-900">
+                    Din hjemmeside er din 🎉
+                  </p>
+                  <p className="mt-1 text-sm text-emerald-800">
+                    Gør klar til din første booking:
+                  </p>
+                  <ul className="mt-4 space-y-2.5 text-sm text-emerald-900">
+                    <li className="flex items-center gap-2.5">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                      Betalingen er registreret
+                    </li>
+                    <li className="flex items-center gap-2.5">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500" />
+                      Publicer din hjemmeside i kontrolpanelet
+                    </li>
+                    <li className="flex items-center gap-2.5">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500" />
+                      Sæt dine bookingstider og services
+                    </li>
+                    <li className="flex items-center gap-2.5">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500" />
+                      Lav en testbooking for at sikre alt virker
+                    </li>
+                  </ul>
+                  <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      size="lg"
+                      className="h-12 flex-1"
+                      onClick={() =>
+                        navigate(
+                          decision.website?.id
+                            ? `/manage/${decision.website.id}`
+                            : "/dashboard"
+                        )
+                      }
+                      data-testid="button-go-manage"
+                    >
+                      {t.goToDashboard}
+                      <ArrowRight className="ml-2 h-5 w-5" />
+                    </Button>
+                  </div>
                 </div>
               )}
 

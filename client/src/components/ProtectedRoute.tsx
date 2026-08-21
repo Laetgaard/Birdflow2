@@ -7,12 +7,17 @@ interface ProtectedRouteProps {
   children: React.ReactNode;
   requireAdmin?: boolean;
   requireOnboarding?: boolean;
+  /** Which auth mode to land on when the user isn't signed in. Defaults to
+   *  "signin" so existing users get the sign-in form; pass "signup" for routes
+   *  that new (not-yet-registered) users are most likely to hit first. */
+  authMode?: "signin" | "signup";
 }
 
 export default function ProtectedRoute({ 
   children, 
   requireAdmin = false,
-  requireOnboarding = true 
+  requireOnboarding = true,
+  authMode = "signin",
 }: ProtectedRouteProps) {
   const { user, profile, isLoading, isEmailVerified } = useAuth();
   const [, setLocation] = useLocation();
@@ -21,7 +26,7 @@ export default function ProtectedRoute({
     if (isLoading) return;
 
     if (!user) {
-      setLocation("/auth?mode=signin");
+      setLocation(`/auth?mode=${authMode}`);
       return;
     }
 

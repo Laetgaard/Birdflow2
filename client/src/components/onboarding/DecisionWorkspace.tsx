@@ -416,8 +416,11 @@ function DecisionArea({
         <ActionButton variant="primary" onClick={onApprove} disabled={busy} testId="button-approve-and-pay">
           Godkend og betal
         </ActionButton>
-        <ActionButton variant="secondary" onClick={onCustomise} disabled={busy} testId="button-request-customisation">
-          Jeg vil have den tilpasset
+        <ActionButton variant="secondary" onClick={onCustomise} disabled={busy} testId="button-book-meeting">
+          <span className="flex items-center justify-center gap-1.5">
+            <CalendarHeart className="h-4 w-4 shrink-0" />
+            Book et møde med os
+          </span>
         </ActionButton>
       </div>
       <p className="mt-2 text-xs leading-snug text-neutral-600">{copy.meetingPitch}</p>

@@ -226,6 +226,16 @@ describe('publisher contract — failure details wiring', () => {
         .spyOn(tscGateModule, 'runTscGate')
         .mockRejectedValueOnce(new PublishTypeError(fakeErrors));
 
+      // A minimal but valid deployment identity is required since the hardened
+      // publisher rejects calls without one. The tests don't reach Vercel so
+      // any syntactically-correct identity is fine here.
+      const testIdentity = {
+        schemaVersion: 1 as const,
+        siteId: 'contract-failure-test',
+        publishJobId: 'test-job-type-check',
+        snapshotHash: 'aaaa'.repeat(16),
+      };
+
       try {
         const result = await publishWebsite({
           websiteId: 'contract-failure-test',
@@ -237,6 +247,7 @@ describe('publisher contract — failure details wiring', () => {
           vercelToken: 'test-token-not-reached',
           birdflowApiUrl: 'https://test.example.com',
           language: 'en',
+          deploymentIdentity: testIdentity,
         });
 
         expect(result.success).toBe(false);
@@ -291,6 +302,12 @@ describe('publisher contract — failure details wiring', () => {
         vercelToken: 'test-token-not-reached',
         birdflowApiUrl: 'https://test.example.com',
         language: 'en',
+        deploymentIdentity: {
+          schemaVersion: 1 as const,
+          siteId: 'contract-validation-failure-test',
+          publishJobId: 'test-job-validation',
+          snapshotHash: 'bbbb'.repeat(16),
+        },
       });
 
       expect(result.success).toBe(false);
