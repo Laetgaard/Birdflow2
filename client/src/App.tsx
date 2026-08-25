@@ -33,12 +33,13 @@ import PrivacyPage from "@/pages/privacy";
 import TermsPage from "@/pages/terms";
 import ProfessionPage from "@/pages/profession";
 import { SeoHead } from "@/lib/seoHead";
+import HomepageRedesign from "@/pages/homepage-redesign";
 
 function Router() {
   return (
     <Switch>
       {/* Public routes */}
-      <Route path="/" component={BirdflowLandingPage} />
+      <Route path="/" component={HomepageRedesign} />
       <Route path="/dfy" component={LandingPage} />
       <Route path="/diy" component={DIYPage} />
       <Route path="/services" component={ServicesPage} />
