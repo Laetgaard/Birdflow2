@@ -1,0 +1,1405 @@
+Birdflow Homepage Redesign — Full Replit Plan
+Objective
+
+Redesign only the Birdflow homepage / to closely reproduce the supplied desktop and mobile Figma/PDF designs.
+
+The redesign must preserve Birdflow’s existing functionality and must not visually redesign any other page.
+
+The two supplied designs should be treated as independent responsive references:
+
+Desktop PDF = desktop source of truth.
+Mobile PDF = mobile source of truth.
+Tablet = intentionally interpolate between them.
+
+The existing content hierarchy includes the hero, workflow, customer experience, Birdflow expectations/features, product demonstration, pricing and footer.
+
+1. Hard scope rule
+
+This task changes:
+
+Homepage only.
+
+Primarily:
+
+/
+
+Do not redesign:
+
+/pricing
+/services
+/platform
+/privacy
+/terms
+/auth
+or any other existing page
+
+If the homepage currently uses global/shared components, Replit must check where they are used before changing them.
+
+For example, if this exists:
+
+<Header />
+
+and it is shared across several pages, do not globally redesign it.
+
+Instead use something such as:
+
+<Header variant="home-redesign" />
+
+or:
+
+<HomeHeader />
+
+Same rule for:
+
+footer
+buttons
+typography
+backgrounds
+section containers
+CSS variables
+2. First task: audit the existing implementation
+
+Before changing code, Replit must identify:
+
+homepage route
+homepage component
+navbar/header
+mobile menu
+footer
+language selector
+login button/action
+signup/onboarding CTA
+existing sticky CTA
+animations
+localization system
+current asset folders
+current font setup
+shared components
+responsive breakpoints
+
+Create a short implementation map before coding.
+
+Example:
+
+Homepage
+├── Header
+├── Hero
+├── Workflow
+├── Testimonial
+├── Features
+├── Product
+├── Pricing
+└── Footer
+
+Also identify which of these are shared by other routes.
+
+3. Import and organize the supplied assets
+
+Do not keep filenames such as:
+
+image 84.png
+image 84-1.png
+Skærmbillede ...
+
+Copy/import them into a dedicated homepage asset directory and rename them semantically.
+
+Recommended:
+
+client/public/assets/home-redesign/
+
+or equivalent for Birdflow's current structure.
+
+4. Mobile ZIP asset mapping
+
+From the first ZIP:
+
+Female cloud person
+
+Current:
+
+Skærmbillede 2026-08-22 kl. 15.02.14 1.png
+
+Rename:
+
+hero-woman-cloud.png
+
+Use primarily in:
+
+mobile hero
+
+Male cloud person
+
+There are two male-on-cloud exports.
+
+Prefer the larger one:
+
+Skærmbillede 2026-08-22 kl. 14.55.38 2.png
+
+Rename:
+
+hero-man-cloud-mobile.png
+
+The smaller export can be ignored unless there is a performance/use case for it.
+
+Laptop + phone website mockup
+
+Current:
+
+image 89.png
+
+Rename:
+
+website-device-mockup-mobile.png
+
+Use around:
+
+customer experience/testimonial section
+
+Birdflow website/brand editor
+
+Current:
+
+image 62.png
+
+Rename:
+
+brand-editor-mobile.png
+
+Use around:
+
+Hvad du kan forvente af Birdflow
+
+or whichever exact position matches the Figma reference.
+
+Overview/dashboard
+
+Current:
+
+image 84-1.png
+
+Rename:
+
+dashboard-overview-mobile.png
+Website builder/editor crop
+
+Current:
+
+image 84.png
+
+Rename:
+
+builder-editor-mobile.png
+Headline export
+
+Current:
+
+Din praksis online. Uden at blive webdesigner.png
+
+Do not use this asset in the final website.
+
+It should only serve as a visual reference.
+
+Build the heading with actual text and Instrument Serif.
+
+5. Desktop ZIP asset mapping
+
+From the second ZIP:
+
+Hero product screenshot
+
+Current:
+
+Skærmbillede 2026-08-22 kl. 12.16.03 1.png
+
+Rename:
+
+hero-product-desktop.png
+
+This appears to be the strongest candidate for the desktop hero because it already contains the website and floating Birdflow automation/notification cards.
+
+Use in:
+
+desktop hero right side
+
+Laptop + phone composition
+
+Current:
+
+image 88.png
+
+Rename:
+
+website-device-mockup-desktop.png
+
+Use in:
+
+customer testimonial section
+
+Male cloud person
+
+Current:
+
+Skærmbillede 2026-08-22 kl. 14.55.38 1.png
+
+Rename:
+
+workflow-man-cloud-desktop.png
+
+Use in:
+
+Sådan fungerer det
+
+Brand/editor screenshot
+
+Current:
+
+image 85.png
+
+Rename:
+
+brand-editor-desktop.png
+
+Use around:
+
+Hvad du kan forvente af Birdflow
+
+Dashboard overview
+
+Current:
+
+image 86.png
+
+Rename:
+
+dashboard-overview-desktop.png
+Builder editor
+
+Current:
+
+image 87.png
+
+Rename:
+
+builder-editor-desktop.png
+Automation / feature interface
+
+Current:
+
+image 84.png
+
+Rename:
+
+automation-settings-desktop.png
+
+Use as one of the secondary product screenshots where the desktop Figma places it.
+
+6. Do not merge desktop/mobile assets unnecessarily
+
+Replit should not assume one image must serve both breakpoints.
+
+We deliberately have:
+
+hero-product-desktop
+hero-woman-cloud
+hero-man-cloud-mobile
+
+because the mobile hero and desktop hero have different visual compositions.
+
+That difference is intentional.
+
+7. Typography
+
+Use:
+
+Instrument Serif
+
+for large display headings.
+
+Especially:
+
+Din praksis online.
+
+and likely other large editorial-style section headings where the redesign uses the same serif treatment.
+
+Do not render headings as PNGs.
+
+Use actual:
+
+<h1>
+
+and:
+
+<h2>
+
+elements.
+
+Load Instrument Serif through Birdflow's existing font system if possible.
+
+Avoid adding a duplicate font-loading implementation.
+
+8. Body typography
+
+Keep the existing Birdflow sans-serif/body font unless the design clearly specifies another one.
+
+So the identity becomes roughly:
+
+Display / big headings:
+Instrument Serif
+
+Navigation / body / buttons:
+existing Birdflow sans-serif
+
+This contrast is important to the new design.
+
+9. Create homepage-specific design tokens
+
+Instead of random colors throughout the stylesheet, define tokens.
+
+Example:
+
+.birdflow-home {
+  --home-purple: ...;
+  --home-blue: ...;
+  --home-lime: ...;
+  --home-cream: ...;
+  --home-text: ...;
+
+  --home-container: ...;
+  --home-mobile-gutter: ...;
+  --home-desktop-gutter: ...;
+}
+
+Use existing Birdflow colors if equivalent variables already exist.
+
+Do not create a new global design system for this task.
+
+10. Homepage root isolation
+
+Wrap everything in something like:
+
+<main className="birdflow-home birdflow-home-redesign">
+
+Then scope styles appropriately.
+
+The purpose is preventing:
+
+h1 {}
+button {}
+section {}
+
+from changing the rest of Birdflow.
+
+Avoid new broad global selectors.
+
+11. Desktop header
+
+Desktop reference shows a horizontal navigation including:
+
+Platformen
+Ydelser
+Priser
+Sådan virker det
+Kundeoplevelser
+Log ind
+DK / EN
+
+Implement the new visual design while preserving existing actions.
+
+Do not hardcode replacement routes if routing already exists.
+
+12. Mobile header
+
+Mobile should follow the mobile design:
+
+Birdflow
+Log ind
+hamburger
+
+The language selector still needs to remain available.
+
+The mobile PDF reduces the full navigation compared with desktop.
+
+Reuse existing:
+
+menu state
+close behavior
+route navigation
+login functionality
+
+Change presentation, not underlying behavior.
+
+13. Hero content
+
+Use real HTML copy.
+
+Eyebrow
+
+Til behandlere og klinikker - indenfor psykisk/mental sundhed
+
+Main heading
+
+Din praksis online.
+
+Secondary statement
+
+Uden at blive webdesigner
+
+Description
+
+Use the supplied wording around:
+
+Hjemmeside, booking, henvendelser og automatiske mails - samlet ét sted og sat op omkring din praksis.
+
+Primary CTA:
+
+Kom i gang
+
+14. Desktop hero implementation
+
+Structure:
+
+------------------------------------------------
+| COPY                     | PRODUCT VISUAL     |
+|                          |                    |
+| Din praksis online.      | Birdflow product   |
+| Uden at blive...         | screenshot/cards   |
+| Description              |                    |
+| CTA                      |                    |
+------------------------------------------------
+
+Use:
+
+hero-product-desktop.png
+
+on the right.
+
+Do not stretch it.
+
+Use something like:
+
+object-fit: contain;
+
+if appropriate.
+
+15. Mobile hero implementation
+
+Do not show the desktop hero screenshot by default.
+
+Mobile should reproduce the more playful cloud composition from the Figma design.
+
+Use:
+
+hero-woman-cloud.png
+hero-man-cloud-mobile.png
+
+The mobile layout can be:
+
+Eyebrow
+
+Din praksis online.
+Uden at blive webdesigner
+
+Description
+
+       woman
+ man             cloud artwork
+
+[         Kom i gang         ]
+
+benefit points
+
+Exact positioning should follow the supplied Figma/PDF.
+
+16. Mobile artwork implementation
+
+The two people can live within one artwork wrapper:
+
+<div className="hero-mobile-artwork">
+  <img className="hero-man" ... />
+  <img className="hero-woman" ... />
+</div>
+
+Inside this wrapper, relative/absolute positioning is appropriate.
+
+Do not absolutely position the entire webpage.
+
+17. Hero responsiveness
+
+Use fluid values where possible.
+
+Example concept:
+
+font-size: clamp(...);
+
+for the headline.
+
+Do not just create:
+
+1440px layout
+scaled down to 390px
+
+The compositions actually change.
+
+18. Primary CTA
+
+Pricing/marketing updates do not change the current signup flow.
+
+The Kom i gang button must retain Birdflow’s existing destination/action.
+
+If it currently starts onboarding:
+
+keep that.
+
+If it requires signup:
+
+keep that.
+
+No dummy href="#".
+
+19. Purple wave separators
+
+The purple wave transitions are a major visual identifier of the redesign.
+
+Do not export the whole wave area as a screenshot.
+
+Create responsive SVG wave components.
+
+Example:
+
+<HomeWave
+  edge="bottom"
+  shape="hero"
+/>
+
+Potential variants:
+
+hero
+workflow
+features
+pricing
+
+Match:
+
+direction
+angle
+height
+thickness
+
+to the Figma/PDF rather than using the same generic wave everywhere.
+
+20. Section 2 — Sådan fungerer det
+
+Heading:
+
+Sådan fungerer det
+
+Supporting message:
+
+Din opmærksomhed skal ligge hos klienterne - ikke i det digitale bagved.
+
+The workflow then communicates:
+
+Du er hos dine klienter
+Bekræftelsen - sendt for dig
+Kalenderen - opdateret for dig
+Henvendelsen - fulgt op for dig
+Påmindelsen - planlagt for dig
+Overblikket venter, når du er klar
+21. Workflow visual
+
+Desktop:
+
+Use:
+
+workflow-man-cloud-desktop.png
+
+on the right.
+
+Mobile:
+
+Use the appropriate mobile man/cloud export where the Figma shows it.
+
+Do not create another AI version of the person.
+
+22. Workflow sequence graphic
+
+The purple decorative sequence graphic shown along the workflow should preferably be implemented with:
+
+CSS
+SVG
+icons
+
+rather than as a large raster image.
+
+It should remain sharp and responsive.
+
+Keep the interaction minimal unless it already exists.
+
+23. Customer experience section
+
+Heading:
+
+Kunders oplevelser med Birdflow
+
+Use the testimonial from the design as supplied.
+
+Do not rewrite the customer's quote during this task.
+
+Desktop:
+
+testimonial                      device mockup
+
+Use:
+
+website-device-mockup-desktop.png
+
+Mobile:
+
+Use:
+
+website-device-mockup-mobile.png
+
+and stack appropriately.
+
+24. Rating visual
+
+The birds/stars under the testimonial can remain as a testimonial design element if already intended.
+
+But do not label it:
+
+Trustpilot 5/5
+
+unless Birdflow actually has that rating.
+
+The Figma itself still contains a placeholder referring to a possible Trustpilot rating.
+
+25. “Hvad du kan forvente af Birdflow”
+
+This section should keep the green/lime visual background.
+
+The current design includes a placeholder that must not ship.
+
+I recommend these three points:
+
+1
+
+Brug mindre tid på administration
+
+I prefer this over the current hard claim:
+
+spare 12 timer pr. uge
+
+unless Birdflow later has evidence supporting the exact number.
+
+2
+
+Vælg de funktioner, din praksis har brug for
+
+Supports the plug-and-play concept.
+
+3
+
+Tilpas design og indhold uden at kode
+
+This is the bullet I recommend for the unfinished third item.
+
+It also connects directly to the builder/brand interface shown in the screenshot.
+
+26. Do not use the “12 hours” claim for now
+
+Change:
+
+Du kan spare 12 timer pr. uge...
+
+to something defensible such as:
+
+Brug mindre tid på administration og digitale rutineopgaver.
+
+Unless you later have data supporting 12 hours.
+
+This makes the homepage stronger rather than weaker because it removes an easily challenged claim.
+
+27. Expectations screenshot
+
+Desktop:
+
+Use:
+
+brand-editor-desktop.png
+
+Mobile:
+
+Use:
+
+brand-editor-mobile.png
+
+Match the Figma's width, orientation, shadow and whitespace.
+
+28. Section — Sådan fungerer Birdflow
+
+Use the supplied copy around:
+
+Plug and play med dit eget præg uden at skulle forstå systemet bagved.
+
+and:
+
+Design din hjemmeside, som du ønsker den, og se resultatet undervejs.
+
+The product should be the visual proof here.
+
+29. Desktop product composition
+
+Use the desktop assets:
+
+dashboard-overview-desktop.png
+builder-editor-desktop.png
+automation-settings-desktop.png
+
+Follow the Figma positioning.
+
+Do not force all three into equal cards if that is not how the design looks.
+
+Some can:
+
+overlap
+appear wider
+appear as supporting screenshots
+30. Mobile product composition
+
+Use:
+
+dashboard-overview-mobile.png
+builder-editor-mobile.png
+
+and other mobile exports where appropriate.
+
+On narrow screens, avoid showing an entire desktop UI at 300px wide if it becomes illegible.
+
+Use intentional cropping/container behavior based on the Figma.
+
+31. Pricing section
+
+The old PDF says:
+
+Fra 49,95 kr./md.
+
+Do not implement that price.
+
+The current Starter positioning is now:
+
+999,95 kr./mdr.
+
+That should be the dominant visual number.
+
+32. Starter pricing hierarchy
+
+Recommended hierarchy:
+
+Large
+
+999,95 kr./mdr.
+
+Smaller directly below
+
++ 3.500 kr. i opstart
+
+Explanation
+
+Inkl. en professionel hjemmeside på 3–4 sider
+
+Audience label
+
+Starter — til dig, der starter egen solo-praksis
+
+This makes the monthly number visually dominant while still being transparent about setup cost.
+
+33. What Starter communicates
+
+The current page can position the Starter package as the easy way to launch your practice digitally.
+
+For example, conceptually:
+
+Starter
+
+Til dig, der vil starte din egen praksis
+uden selv at skulle bygge det digitale fundament.
+
+999,95 kr./mdr.
++ 3.500 kr. i opstart
+
+Do not let Replit significantly rewrite the rest of the site around this unless explicitly instructed.
+
+34. Keep visual pricing layout from Figma
+
+Important distinction:
+
+Update the commercial content.
+
+Do not redesign the Figma pricing section from scratch.
+
+Keep its:
+
+background
+blue pricing pill/area
+typography
+spacing
+purple/footer transition
+CTA hierarchy
+
+Only replace the old pricing information.
+
+35. Footer
+
+The Figma currently contains placeholders such as:
+
+contact information
+company address
+possible Trustpilot rating
+
+Do not publish placeholder text.
+
+Use real existing Birdflow data if it already exists in the current codebase.
+
+If it doesn't:
+
+omit the optional field.
+
+Do not invent:
+
+address
+rating
+review count
+36. DK / EN language behavior
+
+The redesign is Danish, but Birdflow already has DK/EN switching.
+
+Do not break it.
+
+If the project uses translation files, all new/changed content must go there.
+
+Example:
+
+home.hero.title
+home.hero.subtitle
+home.features...
+home.pricing...
+
+Provide equivalent English strings if needed.
+
+Do not leave:
+
+half English
+half Danish
+
+after changing language.
+
+37. Responsive breakpoints
+
+Use these as testing groups rather than hard architectural requirements:
+
+Mobile
+320–767px
+Tablet
+768–1099px
+Desktop
+1100px+
+Wide desktop
+1440px+
+38. Tablet must be intentional
+
+Tablet does not have its own Figma design.
+
+Therefore Replit may interpolate between desktop and mobile.
+
+Priorities:
+
+no hero collisions
+no tiny screenshot UI
+no excessive whitespace
+readable headings
+balanced illustrations
+
+The mobile navbar may be appropriate well before 768px if desktop navigation becomes cramped.
+
+Use actual available space rather than blindly following one breakpoint.
+
+39. Exact viewport QA
+
+Test screenshots at:
+
+320
+360
+375
+390
+430
+
+Then:
+
+768
+820
+1024
+
+Then:
+
+1100
+1280
+1440
+1728
+1920
+40. Specifically inspect mobile at 390px
+
+The mobile Figma/PDF should serve as the reference around typical iPhone width.
+
+At approximately 390px compare:
+
+hero headline line breaks
+illustration placement
+CTA width
+header spacing
+section padding
+device mockup size
+pricing card
+footer
+41. Do not hide responsive bugs
+
+Avoid simply adding:
+
+body {
+  overflow-x: hidden;
+}
+
+to hide layout problems.
+
+Horizontal overflow should be fixed at the offending element.
+
+Only use clipping where the design intentionally has artwork extending beyond the viewport.
+
+42. Images
+
+All Figma exports appear to contain transparent imagery or prepared screenshot compositions.
+
+Preserve transparency.
+
+Do not add black backgrounds.
+
+The dark/black backgrounds visible when inspecting some exports are just how transparent image areas may be displayed by preview software.
+
+43. Image optimization
+
+Keep originals during development.
+
+Before production, optimize appropriately:
+
+WebP where useful
+responsive dimensions
+lazy loading below fold
+eager/preload only important hero artwork
+preserve alpha transparency where needed
+
+Do not visibly degrade the artwork.
+
+44. Desktop hero image loading
+
+The desktop hero asset is above the fold and contributes to the initial design.
+
+It should not lazy-load so aggressively that the right side flashes empty.
+
+Use proper preload/eager behavior based on the current stack.
+
+45. Below-the-fold images
+
+Assets in:
+
+testimonials
+product section
+feature section
+
+can generally lazy-load.
+
+46. Animation rules
+
+Preserve current useful homepage animation functionality.
+
+If animations need modification to match the redesign:
+
+use subtle motion only:
+
+fade
+translate
+gentle floating if already part of Birdflow identity
+
+Do not add:
+
+excessive parallax
+bouncing buttons
+constant text movement
+large moving backgrounds
+
+Also honor:
+
+prefers-reduced-motion
+47. Sticky mobile CTA
+
+If the current homepage already has a sticky mobile CTA:
+
+preserve its functionality.
+
+Visually adapt it to the redesign if necessary.
+
+Do not remove it just because it is not fully represented in the Figma.
+
+48. Existing links
+
+Everything must continue working:
+
+Platformen
+Ydelser
+Priser
+Sådan virker det
+Kundeoplevelser
+Log ind
+DK
+EN
+Kom i gang
+Se kundeoplevelser
+Læs mere om systemet
+Se priser
+
+Preserve current route/anchor targets wherever they already exist.
+
+49. Accessibility
+
+Ensure:
+
+semantic h1
+logical h2 order
+buttons are buttons where appropriate
+links remain links
+keyboard navigation
+visible focus styles
+hamburger accessibility label
+alt text
+decorative artwork alt=""
+reasonable contrast
+
+Instrument Serif must remain readable, especially on mobile.
+
+50. Component architecture
+
+Do not put everything inside a 2,000-line Home.tsx.
+
+Recommended:
+
+HomePage
+│
+├── HomeHeader
+├── HomeHero
+├── HomeWorkflow
+├── HomeTestimonial
+├── HomeExpectations
+├── HomeProductDemo
+├── HomePricing
+├── HomeFooter
+└── HomeWave
+
+This is enough modularity.
+
+Do not over-componentize individual sentences.
+
+51. Recommended hero component structure
+
+For example:
+
+<HomeHero>
+  <HomeHeroCopy />
+
+  <DesktopHeroVisual />
+  <MobileHeroVisual />
+</HomeHero>
+
+CSS controls which composition is shown.
+
+This is preferable to attempting to force one DOM structure to match both Figma versions.
+
+52. Content architecture
+
+If Birdflow already has a translations/content configuration, continue using it.
+
+If not, a small homepage object can reduce hardcoded text:
+
+const homepage = {
+  hero: {},
+  workflow: {},
+  testimonial: {},
+  expectations: {},
+  pricing: {}
+};
+
+But don't introduce an unnecessary CMS architecture during this redesign.
+
+53. Visual comparison process
+
+After each major section:
+
+Run homepage.
+Capture screenshot.
+Compare against Figma/PDF.
+Adjust.
+Only then continue.
+
+Do not build all sections approximately and leave visual matching to the very end.
+
+54. Comparison priority
+
+Prioritize visual accuracy in this order:
+
+1. Overall composition
+
+Section heights and content distribution.
+
+2. Typography
+
+Size, line wrapping, font and weight.
+
+3. Artwork
+
+Scale and position.
+
+4. Spacing
+
+Margins, padding, gaps.
+
+5. Shapes
+
+Waves, button radii and section transitions.
+
+6. Micro polish
+
+Shadows, small alignment differences, decorative details.
+
+55. Hero acceptance criteria
+
+Desktop hero should:
+
+look immediately recognizable as the Figma redesign
+use Instrument Serif
+display product visual on right
+preserve CTA
+have the intended pale lime background
+transition into the next section with the purple wave
+
+Mobile hero should:
+
+use the cloud people composition
+keep headline dominant
+use full/near-full width CTA according to Figma
+not use the desktop product screenshot as the main art
+56. Workflow acceptance criteria
+all six steps fit comfortably
+man-on-cloud art matches reference
+decorative timeline remains recognizable
+no collision at tablet widths
+copy remains readable
+57. Testimonial acceptance criteria
+testimonial has strong visual emphasis
+device mockup retains correct aspect ratio
+mobile stacks intentionally
+no fake Trustpilot information
+58. Feature section acceptance criteria
+
+Use:
+
+Brug mindre tid på administration
+Vælg de funktioner, din praksis har brug for
+Tilpas design og indhold uden at kode
+
+No internal Figma notes.
+
+No unsupported 12-hour claim.
+
+59. Product section acceptance criteria
+
+Desktop screenshots should be large enough to communicate that Birdflow is a real product.
+
+Do not make every screenshot microscopic just to fit them side-by-side.
+
+Mobile should prioritize one screenshot at a time if necessary.
+
+60. Pricing acceptance criteria
+
+The main visible figure must be:
+
+999,95 kr./mdr.
+
+With secondary:
+
++ 3.500 kr. i opstart
+
+And explain:
+
+3–4 siders hjemmeside
+
+The old 49,95 price must not survive anywhere on the homepage.
+
+61. Other-page regression check
+
+This is mandatory.
+
+Before modifying the site, note the appearance of key routes.
+
+After redesign:
+
+compare again.
+
+Specifically make sure changes did not alter:
+
+global navbar
+global footer
+typography
+buttons
+background colors
+container width
+links
+
+outside /.
+
+62. Functional regression check
+
+After redesign click-test:
+
+Login
+Signup
+DK → EN
+EN → DK
+Hamburger open
+Hamburger close
+Navigation
+Pricing
+Customer experiences
+Platform/system link
+Primary CTA
+Sticky CTA
+
+No visual task should break application behavior.
+
+63. Build test
+
+Before task completion:
+
+run:
+
+lint if project uses it
+typecheck
+tests
+production build
+
+Resolve new errors introduced by the homepage work.
+
+Do not suppress errors with:
+
+@ts-ignore
+@ts-nocheck
+
+just to make the redesign build.
+
+64. Performance test
+
+Ensure the homepage does not suddenly load several megabytes of unoptimized PNGs.
+
+Target:
+
+appropriate responsive image dimensions
+optimized exports
+below-fold lazy loading
+no unnecessary duplicate image requests
+
+But visual fidelity comes before aggressive image compression.
+
+65. Final before/after inspection
+
+Create screenshots of:
+
+Desktop
+
+Approximately:
+
+1440px
+Mobile
+
+Approximately:
+
+390px
+
+Compare them directly against the supplied designs.
+
+The goal should be:
+
+very high visual similarity, not merely same colors/content.
+
+66. Do NOT do any of the following
+
+Replit must not:
+
+redesign other pages
+use the PDFs as giant background images
+convert entire Figma sections into screenshots
+use exported heading image instead of live text
+invent new people/cloud artwork
+invent copy where Figma says placeholder
+invent Trustpilot reviews
+use old 49,95 pricing
+remove existing interactions
+replace working auth
+replace routing
+rebuild localization
+make major backend changes
+redesign the builder
+rewrite Birdflow architecture
+use absolute positioning for the whole webpage
+stop after only testing 390px and 1440px
+67. Implementation order I want Replit to follow
+Phase 1 — Safety
+Audit current homepage.
+Map shared dependencies.
+Identify routes/actions.
+Capture current other-page appearance.
+Phase 2 — Assets
+Import both asset folders.
+Rename assets.
+Set up Instrument Serif.
+Define homepage tokens.
+Phase 3 — Main layout
+Homepage wrapper.
+Desktop header.
+Mobile header.
+Desktop hero.
+Mobile hero.
+SVG waves.
+Phase 4 — Content
+Workflow.
+Testimonial.
+Expectations/features.
+Product demo.
+Pricing.
+Footer.
+Phase 5 — Responsive
+Mobile refinement.
+Tablet refinement.
+Wide-desktop refinement.
+Phase 6 — Quality
+Functional testing.
+DK/EN testing.
+Accessibility.
+Image optimization.
+Visual comparison.
+Other-page regression test.
+Production build.
+Final instruction to Replit
+
+I would put this prominently at the end of the task:
+
+Do not redesign Birdflow based on your interpretation of the references. Reproduce the supplied homepage designs with high visual fidelity while preserving the existing Birdflow application underneath. Desktop and mobile are separate design references, not simply responsive versions generated from one another. Use the supplied Figma assets, live HTML text with Instrument Serif, existing routing/auth/language functionality, and homepage-scoped components/styles. No other page should change.
+
+And:
+
+If a design decision in the Figma conflicts with working application functionality, preserve the functionality and adapt the visual implementation around it instead of removing the functionality.
