@@ -35,6 +35,7 @@ import ProfessionPage from "@/pages/profession";
 import { SeoHead } from "@/lib/seoHead";
 import HomepageRedesign from "@/pages/homepage-redesign";
 import SaadanVirkerDetPage from "@/pages/saadan-virker-det";
+import AboutPage from "@/pages/about";
 
 function Router() {
   return (
@@ -45,6 +46,7 @@ function Router() {
       <Route path="/diy" component={DIYPage} />
       <Route path="/services" component={ServicesPage} />
       <Route path="/saadan-virker-det" component={SaadanVirkerDetPage} />
+      <Route path="/about" component={AboutPage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/terms" component={TermsPage} />
