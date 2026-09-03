@@ -24,8 +24,6 @@ import { useLocale, pick, type Lang } from "@/lib/locale";
    `href` and they become real links with no other change.
    ───────────────────────────────────────────────────────────── */
 
-const PORTRAIT = "/assets/home-redesign/about-founder";
-
 /** Add `href` when the URLs exist — the render already handles it. */
 const SOCIALS: Array<{ label: string; href?: string }> = [
   { label: "LinkedIn" },
@@ -37,7 +35,6 @@ type Copy = {
   heroKicker: string;
   heroTitle: string;
   heroBody: string;
-  portraitAlt: string;
   storyKicker: string;
   story: string[];
   methodKicker: string;
@@ -61,7 +58,6 @@ const COPY: Record<Lang, Copy> = {
     heroTitle: "Manden bag Birdflow",
     heroBody:
       "Birdflow bygges af én person, der arbejder tæt sammen med hver enkelt praksis. Det er også derfor, hjemmesiderne ikke ligner hinanden.",
-    portraitAlt: "Illustration af udvikleren bag Birdflow ved sit skrivebord",
     storyKicker: "MIN HISTORIE",
     story: [
       "En passioneret webudvikler og AI-entusiast med en unik rejse formet af neurodivergence. Min historie begynder med nysgerrighed om digitale oplevelser og udvikler sig til en mission: at transformere idéer til virkelighed gennem innovative teknologiløsninger.",
@@ -95,7 +91,6 @@ const COPY: Record<Lang, Copy> = {
     heroTitle: "The person behind Birdflow",
     heroBody:
       "Birdflow is built by one person, working closely with each individual practice. That is also why no two of the websites look alike.",
-    portraitAlt: "Illustration of the developer behind Birdflow at his desk",
     storyKicker: "MY STORY",
     story: [
       "A passionate web developer and AI enthusiast on a journey shaped by neurodivergence. My story starts with curiosity about digital experiences and grows into a mission: turning ideas into reality through inventive technology.",
@@ -177,27 +172,28 @@ export default function AboutPage() {
                 </ul>
               </div>
 
-              <div className="flex-[0_1_380px] min-w-[min(100%,260px)]">
-                <picture>
-                  <source
-                    type="image/webp"
-                    srcSet={`${PORTRAIT}-420.webp 420w, ${PORTRAIT}-840.webp 840w`}
-                    sizes="(max-width: 640px) 88vw, 380px"
-                  />
-                  <img
-                    src={`${PORTRAIT}-840.png`}
-                    alt={t.portraitAlt}
-                    width={840}
-                    height={840}
-                    decoding="async"
-                    className="block w-full h-auto"
-                    style={{
-                      borderRadius: "999px 999px 28px 28px",
-                      border: "3px solid rgba(255,255,255,0.35)",
-                      boxShadow: "0 26px 62px rgba(10,2,25,0.35)",
-                    }}
-                  />
-                </picture>
+              {/* The design's curved portrait frame, kept — but figure-less.
+                  The photoreal cut-out figures are the only illustration style
+                  on the site and no founder portrait exists in it; the 3D
+                  cartoon that used to sit here was a second style. The frame
+                  carries the bird mark until a portrait in the right style
+                  exists. Nothing dashed, nothing labelled "placeholder". */}
+              <div className="flex-[0_1_380px] min-w-[min(100%,260px)] hidden sm:block" aria-hidden="true">
+                <div
+                  className="relative w-full flex items-end justify-center overflow-hidden"
+                  style={{
+                    aspectRatio: "1 / 1",
+                    borderRadius: "999px 999px 28px 28px",
+                    border: "3px solid rgba(255,255,255,0.35)",
+                    background:
+                      "radial-gradient(120% 90% at 50% 20%, rgba(255,255,255,0.22), rgba(255,255,255,0.04) 60%, rgba(0,0,0,0.12) 100%)",
+                    boxShadow: "0 26px 62px rgba(10,2,25,0.35)",
+                  }}
+                >
+                  <svg viewBox="0 0 83 68" className="w-[42%] h-auto mb-[16%] text-white/90" aria-hidden="true">
+                    <use href="#bfbird" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
