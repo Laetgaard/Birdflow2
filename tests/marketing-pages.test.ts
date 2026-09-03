@@ -81,10 +81,14 @@ describe("bf2 design kit extraction", () => {
     expect(nav).toContain("export function bookHref");
   });
 
-  it("the landing footer uses NavLink so route entries do not full-reload", () => {
-    const idx = landing.indexOf("navLinks.map");
-    expect(idx).toBeGreaterThan(-1);
-    expect(landing.slice(idx, idx + 400)).toContain("<NavLink");
+  it("the landing uses the shared footer, whose route entries are wouter Links", () => {
+    // The page-local footer row and its NavLink loop are gone; MarketingFooter
+    // renders every route through wouter's Link, so entries still never
+    // full-reload.
+    expect(landing).toContain("<MarketingFooter />");
+    expect(landing).not.toContain("navLinks.map");
+    const footer = read("client", "src", "components", "bf2", "MarketingFooter.tsx");
+    expect(footer).toContain('import { Link } from "wouter"');
   });
 });
 
@@ -122,8 +126,10 @@ describe("pricing page", () => {
   it("quotes the same entry price the homepage does", () => {
     // The homepage says "fra 999,95 kr./mdr."; that is the Starter tier.
     // If either number moves without the other, visitors get two answers.
-    const home = read("client", "src", "pages", "homepage-redesign.tsx");
-    expect(home).toContain("999,95");
+    // The routed homepage's price card is PricingTeaser in bf2/AudienceSections.
+    const teaser = read("client", "src", "components", "bf2", "AudienceSections.tsx");
+    expect(teaser).toContain('"999,95"');
+    expect(teaser).not.toContain("49,95");
     expect(pricing).toContain('"999,95"');
   });
 
@@ -172,7 +178,9 @@ describe("routing", () => {
 });
 
 describe("homepage", () => {
-  const home = read("client", "src", "pages", "homepage-redesign.tsx");
+  // "/" is served by birdflow-landing.tsx again (pass 2); homepage-redesign.tsx
+  // is no longer routed.
+  const home = read("client", "src", "pages", "birdflow-landing.tsx");
 
   it("renders the FAQ that the FAQPage schema describes", () => {
     // jsonLdForRoute() emits faqPageLd(HOME_FAQ_DA) for "/". Before this
@@ -184,9 +192,8 @@ describe("homepage", () => {
   });
 
   it("builds the FAQ from buttons, not clickable divs", () => {
-    expect(home).toContain("aria-expanded={isOpen}");
-    expect(home).toContain("aria-controls={`bh-faq-panel-${i}`}");
-    expect(home).toContain("aria-labelledby={`bh-faq-button-${i}`}");
+    expect(home).toContain("aria-expanded={open}");
+    expect(home).toContain('data-testid={`button-faq-${i}`}');
   });
 
   it("uses the shared marketing chrome", () => {
@@ -195,6 +202,7 @@ describe("homepage", () => {
     expect(home).toContain("<MarketingFooter />");
     expect(home).not.toContain("function HomeHeader");
     expect(home).not.toContain("function HomeFooter");
+    expect(home).not.toContain("useNavLinks()");
   });
 
   it("tells the client-journey story the design calls for", () => {

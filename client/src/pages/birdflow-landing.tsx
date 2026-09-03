@@ -23,10 +23,10 @@ import {
 import {
   useInView, RevealOnView, BirdDefs, Bird, BandWave, EdgeWave, WaveB, ScaleToFit,
 } from "@/components/bf2/primitives";
-import { Nav, NavLink, SIGNUP_HREF, useNavLinks, useSignupLabel } from "@/components/bf2/Nav";
-import {
-  Professions, SoloClinic, DiyDfy, PricingTeaser, ProfessionFooterLinks,
-} from "@/components/bf2/AudienceSections";
+import { Nav, SIGNUP_HREF, useSignupLabel } from "@/components/bf2/Nav";
+import { PricingTeaser, ProfessionFooterLinks } from "@/components/bf2/AudienceSections";
+import { MarketingFooter } from "@/components/bf2/MarketingFooter";
+import { HOME_FAQ_DA, HOME_FAQ_EN } from "@shared/marketingSeo";
 import { useLocale, pick, type Lang } from "@/lib/locale";
 
 /* ─────────────────────────────────────────────────────────────
@@ -852,24 +852,24 @@ function ImgWithFallback({
   );
 }
 
-/** The clinic photo inside the example practice-site mockups (the design's
-    klinik image, cropped to the bare room — the original had a decorative
-    gold blob outline and cream border baked into the pixels, which fought
-    with the rounded frames these mockups draw around it). Falls back to the
-    illustrated portrait until it loads. */
+/** The picture frame inside the example practice-site mockups.
+    Deliberately figure-less: the photoreal cut-out figures are the only
+    illustration style on the site, no practitioner portrait exists in
+    that style, and the clinic photograph this used to show was a third
+    style. A calm panel keeps the mock plausible until one exists. */
 function PortraitSlot({ className }: { className?: string }) {
-  const { lang } = useLocale();
-  const alt =
-    lang === "en"
-      ? "A calm clinic room with sofas and skylights"
-      : "Roligt klinikrum med sofaer og ovenlysvinduer";
   return (
-    <ImgWithFallback
-      src="/landing/klinik-room.webp"
-      alt={alt}
-      className={`${className ?? ""} object-cover`}
-      fallback={<PortraitArt className={className} />}
-    />
+    <div
+      className={`${className ?? ""} overflow-hidden`}
+      style={{ background: "linear-gradient(160deg, #EFE8DA 0%, #E3DCCB 62%, #D9CFBC 100%)" }}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 200 260" preserveAspectRatio="xMidYMid slice" className="w-full h-full" aria-hidden="true">
+        <circle cx="100" cy="150" r="88" fill="#E9E1D0" opacity="0.9" />
+        <path d="M30 60 C60 38 140 38 170 60" fill="none" stroke="#B96D4A" strokeWidth="2" opacity="0.35" />
+        <path d="M146 222 c10 -10 16 -26 14 -40" fill="none" stroke="#B96D4A" strokeWidth="2.5" strokeLinecap="round" opacity="0.5" />
+      </svg>
+    </div>
   );
 }
 
@@ -1170,65 +1170,27 @@ function Hero() {
 
         {/* The finished practice website, powered by Birdflow */}
 
-        {/* Phones: the same example site as a proportional miniature, so the
-            whole website is visible at once instead of reflowing into a very
-            tall stack. The workflow notes sit under it rather than floating
-            over its corners, where they would cover most of the miniature. */}
-        <div className="lg:hidden min-w-0">
-          <div
-            className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
-            style={{ boxShadow: "0 20px 50px rgba(20,5,40,0.16)", ...fadeUp(heroIn, 0.35) }}
-          >
-            <ScaleToFit designWidth={700}>
-              <PracticeSiteMock demo={demo} />
-            </ScaleToFit>
-          </div>
-
-          <div className="mt-3.5 flex flex-col gap-2.5" aria-hidden="true">
-            <div style={popIn(heroIn, 0.95)}>
-              <div
-                className="flex items-center gap-3 bg-white rounded-[14px] border border-black/[0.07] px-3.5 py-2.5"
-                style={{
-                  boxShadow: `0 14px 32px rgba(20,5,40,0.14), 0 0 0 3px ${demo >= 1 ? "rgba(48,109,218,0.4)" : "rgba(48,109,218,0)"}`,
-                  transition: "box-shadow 0.45s",
-                }}
-              >
-                <span
-                  className="w-9 h-9 flex-none rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(48,109,218,0.12)" }}
-                >
-                  <Bird className="w-[17px] h-3.5" style={{ color: BLUE }} />
-                </span>
-                <span>
-                  <span className="block text-[13px] font-extrabold">{HERO_FLOW_NOTES[0].title}</span>
-                  <span className="block mt-[2px] text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-                    {HERO_FLOW_NOTES[0].sub}
-                  </span>
-                </span>
-              </div>
-            </div>
-            <div style={popIn(heroIn, 1.1)}>
-              <div
-                className="flex items-center gap-3 bg-white rounded-[14px] border border-black/[0.07] px-3.5 py-2.5"
-                style={{
-                  boxShadow: `0 14px 32px rgba(20,5,40,0.14), 0 0 0 3px ${demo >= 2 ? "rgba(46,125,79,0.4)" : "rgba(46,125,79,0)"}`,
-                  transition: "box-shadow 0.45s",
-                }}
-              >
-                <span
-                  className="w-9 h-9 flex-none rounded-full flex items-center justify-center text-[15px] font-black"
-                  style={{ background: "rgba(46,125,79,0.12)", color: GREEN }}
-                >
-                  {demo >= 2 ? "✓" : "…"}
-                </span>
-                <span>
-                  <span className="block text-[13px] font-extrabold">{HERO_FLOW_NOTES[1].title}</span>
-                  <span className="block mt-[2px] text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-                    {HERO_FLOW_NOTES[1].sub}
-                  </span>
-                </span>
-              </div>
-            </div>
+        {/* Phones: the two cloud figures side by side, as the design's
+            phone hero and your latest mockup draw it. The example site is a
+            desktop composition and stays there. */}
+        <div className="lg:hidden min-w-0" aria-hidden="true">
+          <div className="flex items-end justify-center gap-3 mt-2" style={fadeUp(heroIn, 0.35)}>
+            <img
+              src="/assets/home-redesign/hero-man-cloud-mobile.png"
+              alt=""
+              width={920}
+              height={920}
+              decoding="async"
+              className="block w-[48%] max-w-[230px] h-auto"
+            />
+            <img
+              src="/assets/home-redesign/hero-woman-cloud.png"
+              alt=""
+              width={920}
+              height={920}
+              decoding="async"
+              className="block w-[48%] max-w-[230px] h-auto"
+            />
           </div>
         </div>
 
@@ -1649,7 +1611,7 @@ function ClientJourney() {
   ];
 
   return (
-    <section data-testid="section-journey" style={{ background: BLUSH }}>
+    <section id="klientens-vej" data-testid="section-journey" style={{ background: BLUSH }}>
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-24 lg:pb-[130px]">
         {/* ── mobile / tablet ── */}
         <div className="lg:hidden">
@@ -2403,6 +2365,83 @@ function StickyStory() {
   );
 }
 
+/* ─────────── HVAD DU KAN FORVENTE ─────────── */
+
+const EXPECT_COPY: Record<Lang, { title: string; bullets: string[]; note: string; alt: string }> = {
+  da: {
+    title: "Hvad du kan forvente af Birdflow",
+    bullets: [
+      "Brug mindre tid på administration og digitale rutineopgaver",
+      "Vælg de funktioner, din praksis har brug for",
+      "Tilpas design og indhold uden at kode",
+    ],
+    note: "Her vælger du typografi og farver til din hjemmeside",
+    alt: "Birdflow editor til typografi og farver",
+  },
+  en: {
+    title: "What you can expect from Birdflow",
+    bullets: [
+      "Spend less time on administration and digital routines",
+      "Choose the functions your practice needs",
+      "Adjust design and content without code",
+    ],
+    note: "Choose typography and colours for your website here",
+    alt: "Birdflow editor for typography and colours",
+  },
+};
+
+/** One of the two real product screenshots we hold with practitioner
+    branding ("Psykolog Sofie Lund"), so this section uses it rather than
+    a reconstruction. */
+function Expectations() {
+  const { lang } = useLocale();
+  const t = pick(EXPECT_COPY, lang);
+  return (
+    <section id="forvente" data-testid="section-expectations" style={{ background: LIME }}>
+      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-12 pb-14 lg:pt-20 lg:pb-24">
+        <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr] gap-10 lg:gap-14 items-center">
+          <RevealOnView>
+            <h2 className="m-0 text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.15] font-black tracking-[-0.01em]">
+              {t.title}
+            </h2>
+            <ul className="m-0 mt-7 p-0 list-none max-w-[480px]">
+              {t.bullets.map((b) => (
+                <li
+                  key={b}
+                  className="flex items-start gap-3 py-3 text-[15.5px] lg:text-[17px] font-semibold"
+                  style={{ borderTop: "1.5px solid rgba(0,0,0,0.1)" }}
+                >
+                  <Bird className="w-5 h-4 mt-1 shrink-0" style={{ color: PURPLE }} />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          </RevealOnView>
+          <RevealOnView delay={0.1}>
+            <figure className="m-0">
+              <picture>
+                <source media="(max-width: 767px)" srcSet="/assets/home-redesign/brand-editor-mobile.png" />
+                <img
+                  src="/assets/home-redesign/brand-editor-desktop.png"
+                  alt={t.alt}
+                  loading="lazy"
+                  decoding="async"
+                  className="block w-full h-auto rounded-[18px] border border-black/[0.08]"
+                  style={{ boxShadow: "0 30px 76px rgba(20,5,40,0.18)" }}
+                />
+              </picture>
+              <figcaption className="mt-3.5 flex items-center gap-2 text-[13.5px] font-extrabold" style={{ color: PURPLE }}>
+                <span className="w-2 h-2 rounded-full" style={{ background: GREEN }} aria-hidden="true" />
+                {t.note}
+              </figcaption>
+            </figure>
+          </RevealOnView>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ─────────── PROCESS (sådan virker det) ─────────── */
 
 /** the Birdflow workspace mockup (visual identity + finished site) */
@@ -2986,9 +3025,12 @@ function CaseStudy() {
 
 function Faq() {
   const [openIdx, setOpenIdx] = useState(-1);
-  const faq = useLandingCopy().faq;
+  const { lang } = useLocale();
+  // Heading and intro are this page's; the questions come from the same
+  // list that feeds the FAQPage JSON-LD for "/", so the two cannot drift.
+  const faq = { ...useLandingCopy().faq, items: lang === "en" ? HOME_FAQ_EN : HOME_FAQ_DA };
   return (
-    <section data-testid="section-faq" style={{ background: LIME }}>
+    <section id="faq" data-testid="section-faq" style={{ background: LIME }}>
       <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-8 pb-16 lg:pb-[120px]">
         <div className="grid grid-cols-1 lg:grid-cols-[4fr_8fr] gap-8 lg:gap-14">
           <div>
@@ -3047,7 +3089,6 @@ function Faq() {
 /* ─────────── FINAL CTA + FOOTER ─────────── */
 
 function FinalCta() {
-  const navLinks = useNavLinks();
   const signupLabel = useSignupLabel();
   const fc = useLandingCopy().finalCta;
 
@@ -3075,44 +3116,7 @@ function FinalCta() {
           <Bird className="w-[34px] h-7 text-white" />
         </div>
       </div>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9">
-        <div
-          className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-10 pt-7 pb-10"
-          style={{ borderTop: "1.5px solid rgba(255,255,255,0.25)" }}
-        >
-          <div className="flex items-center gap-2.5">
-            <Bird className="w-7 h-[23px] text-white" />
-            <span className="bf2-display text-[20px] text-white">Birdflow</span>
-          </div>
-          <p className="m-0 text-[14px] font-bold" style={{ color: "rgba(255,255,255,0.75)" }}>
-            {fc.footerTagline}
-          </p>
-          {/* min-h gives the footer links a 44px tap target on touch sizes;
-              the row is a single line from lg up, where it is unchanged */}
-          <nav className="md:ml-auto flex flex-wrap gap-x-[26px] gap-y-0 sm:gap-y-2">
-            {navLinks.map(([href, label]) => (
-              <NavLink
-                key={href}
-                href={href}
-                className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[14px] font-extrabold hover:opacity-100"
-                style={{ color: "rgba(255,255,255,0.85)" }}
-              >
-                {label}
-              </NavLink>
-            ))}
-            <Link
-              href="/auth?mode=signin"
-              className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[14px] font-extrabold"
-              style={{ color: "rgba(255,255,255,0.85)" }}
-              data-testid="link-login-footer"
-            >
-              {fc.login}
-            </Link>
-          </nav>
-          <p className="m-0 text-[13.5px] font-bold" style={{ color: "rgba(255,255,255,0.6)" }}>
-            {fc.copyright}
-          </p>
-        </div>
+      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-4">
         {/* crawlable links to the six profession pages */}
         <ProfessionFooterLinks />
       </div>
@@ -3234,32 +3238,27 @@ export default function BirdflowLandingPage() {
         <StickyStory />
         {/* lime → blush */}
         <WaveB compact />
-        <SoloClinic />
-        {/* blush → lime */}
-        <BandWave top={BLUSH} bottom={LIME} compact />
-        <Professions />
-        {/* lime → blush (mirrored) */}
-        <BandWave top={LIME} bottom={BLUSH} flip compact />
         <CaseStudy />
         {/* blush → lime */}
         <BandWave top={BLUSH} bottom={LIME} compact />
-        <DiyDfy />
-        {/* lime → blush (mirrored) */}
-        <BandWave top={LIME} bottom={BLUSH} flip compact />
-        <ClientJourney />
-        {/* blush → lime (mirrored) */}
-        <BandWave top={BLUSH} bottom={LIME} flip compact />
+        <Expectations />
+        {/* lime → lime: Process also sits on lime */}
+        <BandWave top={LIME} bottom={LIME} flip compact />
         <Process />
         {/* lime → blush */}
         <BandWave top={LIME} bottom={BLUSH} compact />
         <PricingTeaser />
-        {/* blush → lime */}
-        <BandWave top={BLUSH} bottom={LIME} compact />
+        {/* blush → blush: Klientens vej also sits on blush */}
+        <BandWave top={BLUSH} bottom={BLUSH} flip compact />
+        <ClientJourney />
+        {/* blush → lime (mirrored) */}
+        <BandWave top={BLUSH} bottom={LIME} flip compact />
         <Faq />
         {/* lime → purple, into the final CTA */}
         <EdgeWave other={LIME} flip="x" compact />
         <FinalCta />
       </main>
+      <MarketingFooter />
       <MobileStickyCta />
     </div>
   );

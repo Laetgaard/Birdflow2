@@ -22,6 +22,7 @@ import ProfilePage from "@/pages/profile";
 import OnboardingPage from "@/pages/onboarding";
 import OnboardingPreviewPage from "@/pages/onboarding-preview";
 import AdminPage from "@/pages/admin";
+import BirdflowLandingPage from "@/pages/birdflow-landing";
 import PricingPage from "@/pages/pricing";
 import ServicesPage from "@/pages/services";
 import { LocaleProvider } from "@/lib/locale";
@@ -32,7 +33,6 @@ import PrivacyPage from "@/pages/privacy";
 import TermsPage from "@/pages/terms";
 import ProfessionPage from "@/pages/profession";
 import { SeoHead } from "@/lib/seoHead";
-import HomepageRedesign from "@/pages/homepage-redesign";
 import SaadanVirkerDetPage from "@/pages/saadan-virker-det";
 import AboutPage from "@/pages/about";
 
@@ -40,7 +40,7 @@ function Router() {
   return (
     <Switch>
       {/* Public routes */}
-      <Route path="/" component={HomepageRedesign} />
+      <Route path="/" component={BirdflowLandingPage} />
       <Route path="/dfy" component={LandingPage} />
       <Route path="/diy" component={DIYPage} />
       <Route path="/services" component={ServicesPage} />

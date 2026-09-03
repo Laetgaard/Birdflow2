@@ -157,10 +157,10 @@ describe("resolved SEO per route", () => {
     // for some time — so the schema could describe an FAQ no visitor could
     // see, and did. Follow the route instead of a filename.
     const app = read("client/src/App.tsx");
-    expect(app).toContain('<Route path="/" component={HomepageRedesign} />');
-    expect(app).toContain('import HomepageRedesign from "@/pages/homepage-redesign"');
+    expect(app).toContain('<Route path="/" component={BirdflowLandingPage} />');
+    expect(app).toContain('import BirdflowLandingPage from "@/pages/birdflow-landing"');
 
-    const home = read("client/src/pages/homepage-redesign.tsx");
+    const home = read("client/src/pages/birdflow-landing.tsx");
     expect(HOME_FAQ_DA.length).toBeGreaterThanOrEqual(4);
     // The page renders the constant rather than restating the strings, which
     // is what makes the schema and the page impossible to drift apart.

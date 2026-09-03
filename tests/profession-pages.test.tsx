@@ -210,9 +210,12 @@ describe("wiring", () => {
     }
   });
 
-  it("the landing page presents the audience sections and links to every profession page", () => {
+  it("the landing page keeps the price teaser and links to every profession page", () => {
+    // Pass 2 put the homepage back on the approved design's section order,
+    // which has no audience trio (SoloClinic / Professions / DiyDfy). The
+    // crawl path to the six profession pages survives in the footer links.
     const landing = read("client/src/pages/birdflow-landing.tsx");
-    for (const section of ["<SoloClinic />", "<Professions />", "<DiyDfy />", "<PricingTeaser />", "<ProfessionFooterLinks />"]) {
+    for (const section of ["<PricingTeaser />", "<ProfessionFooterLinks />"]) {
       expect(landing).toContain(section);
     }
     const audience = read("client/src/components/bf2/AudienceSections.tsx");

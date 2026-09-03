@@ -1,6 +1,7 @@
 import { Link } from "wouter";
-import { BLUE, BLUSH, LIME, PURPLE } from "./theme";
+import { BLUE, BLUSH, LIME, OLIVE, PURPLE } from "./theme";
 import { Bird, RevealOnView } from "./primitives";
+import { TierCard } from "@/components/marketing/TierCard";
 import { useLocale, pick, type Lang } from "@/lib/locale";
 import { PROFESSION_ROUTES } from "@shared/marketingSeo";
 
@@ -370,7 +371,11 @@ export function DiyDfy() {
 type PricingTeaserCopy = {
   heading: string;
   body: string;
+  /** Entry price, digits only — TierCard adds the period. */
   from: string;
+  tierName: string;
+  period: string;
+  tagline: string;
   cta: string;
   includes: string[];
 };
@@ -379,14 +384,20 @@ const PRICING_TEASER_COPY: Record<Lang, PricingTeaserCopy> = {
   da: {
     heading: "Priser, der passer til en praksis.",
     body: "Ét abonnement dækker hjemmeside, booking, hosting og vedligeholdelse — uden tekniske tillæg undervejs.",
-    from: "Fra 49,95 kr./md.",
+    from: "999,95",
+    tierName: "Starter",
+    period: "kr/mdr.",
+    tagline: "Til dig der skal til at starte",
     cta: "Se priser og pakker",
     includes: ["Hjemmeside og online booking", "Hosting, domæne-tilkobling og HTTPS", "Automatiske bekræftelser og påmindelser"],
   },
   en: {
     heading: "Pricing that fits a practice.",
     body: "One subscription covers website, booking, hosting and maintenance — with no technical add-ons along the way.",
-    from: "From 49.95 kr./month",
+    from: "999.95",
+    tierName: "Starter",
+    period: "kr/mo.",
+    tagline: "For getting your practice started",
     cta: "See pricing and packages",
     includes: ["Website and online booking", "Hosting, domain connection and HTTPS", "Automatic confirmations and reminders"],
   },
@@ -420,23 +431,27 @@ export function PricingTeaser() {
             </ul>
           </div>
           <RevealOnView>
-            <div
-              className="bg-white rounded-2xl border border-black/[0.08] p-7 lg:p-9 text-center"
-              style={{ boxShadow: "0 18px 44px rgba(20,5,40,0.10)" }}
-            >
-              <p className="m-0 text-[13px] font-extrabold uppercase tracking-[0.12em]" style={{ color: PURPLE }}>
-                BirdFlow
-              </p>
-              <p className="bf2-display mt-3 mb-0 text-[34px] lg:text-[40px] leading-[1.1]">{t.from}</p>
-              <Link
-                href="/pricing"
-                className="inline-block w-full sm:w-auto mt-6 text-white no-underline text-[16.5px] font-extrabold px-[30px] py-[14px] rounded-[10px] hover:brightness-110 transition"
-                style={{ background: BLUE, boxShadow: "0 6px 18px rgba(10,2,25,0.25)" }}
-                data-testid="button-pricing-teaser"
-              >
-                {t.cta}
-              </Link>
-            </div>
+            {/* The Starter tier exactly as /pricing draws it, so the homepage
+                quotes the same entry price in the same shape. */}
+            <TierCard
+              name={t.tierName}
+              price={t.from}
+              period={t.period}
+              tagline={t.tagline}
+              color={OLIVE}
+              points={t.includes}
+              testId="tier-teaser-starter"
+              cta={
+                <Link
+                  href="/pricing"
+                  className="block text-center text-white no-underline text-[15px] font-extrabold px-5 py-3 rounded-[10px] hover:brightness-110 transition"
+                  style={{ background: BLUE, boxShadow: "0 6px 16px rgba(48,109,218,0.3)" }}
+                  data-testid="button-pricing-teaser"
+                >
+                  {t.cta}
+                </Link>
+              }
+            />
           </RevealOnView>
         </div>
       </div>
