@@ -110,11 +110,27 @@ describe("services page", () => {
 describe("pricing page", () => {
   const pricing = read("client", "src", "pages", "pricing.tsx");
 
-  it("shows the four tiers at the agreed prices", () => {
-    expect(pricing).toContain('"49,95"');
-    expect(pricing).toContain('"749,95"');
-    expect(pricing).toContain('"1.999"');
-    expect(pricing).toContain('name: "Enterprise"');
+  it("shows the three tiers at the approved prices", () => {
+    expect(pricing).toContain('name: "Starter"');
+    expect(pricing).toContain('"999,95"');
+    expect(pricing).toContain('name: "Praksissen"');
+    expect(pricing).toContain('"1999,95"');
+    expect(pricing).toContain('name: "Klinikken"');
+    expect(pricing).toContain('"4999,95"');
+  });
+
+  it("quotes the same entry price the homepage does", () => {
+    // The homepage says "fra 999,95 kr./mdr."; that is the Starter tier.
+    // If either number moves without the other, visitors get two answers.
+    const home = read("client", "src", "pages", "homepage-redesign.tsx");
+    expect(home).toContain("999,95");
+    expect(pricing).toContain('"999,95"');
+  });
+
+  it("routes clinics with bespoke needs to a meeting", () => {
+    // The Enterprise tier was dropped, so this block carries that path.
+    expect(pricing).toContain("section-pricing-clinic");
+    expect(pricing).toContain("button-pricing-clinic");
   });
 
   it("shows the one-off website packages with their savings", () => {
@@ -129,7 +145,9 @@ describe("pricing page", () => {
     // checkout button here would charge an amount the page never showed.
     expect(pricing).not.toContain("user-checkout");
     expect(pricing).not.toContain("checkoutMutation");
-    expect(pricing).not.toContain("subscriptionPlans");
+    // Match the import, not the bare word — the file's header comment
+    // names subscriptionPlans deliberately, to explain the split.
+    expect(pricing).not.toContain('from "@shared/subscriptionPlans"');
   });
 
   it("is bilingual", () => {

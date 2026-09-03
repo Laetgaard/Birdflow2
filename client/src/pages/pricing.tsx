@@ -3,18 +3,26 @@ import { Check, Minus } from "lucide-react";
 import { BLUE, BLUSH, LIME, PAGE_CSS, PURPLE } from "@/components/bf2/theme";
 import { BandWave, Bird, BirdDefs, EdgeWave, RevealOnView } from "@/components/bf2/primitives";
 import { Nav, bookHref } from "@/components/bf2/Nav";
+import { MarketingFooter } from "@/components/bf2/MarketingFooter";
 import { useLocale, pick, type Lang } from "@/lib/locale";
 
 /* ─────────────────────────────────────────────────────────────
    /pricing — plans and what's included.
 
-   IMPORTANT: this page is presentation only. The prices below come
-   from the product's pricing sheet and are NOT the amounts wired
-   into Stripe (PLATFORM_PLANS in shared/schema.ts still defines
-   69/149/249 kr). That is why no button here starts a checkout:
-   every CTA goes to signup or to booking a meeting. Wiring real
-   payment requires updating PLATFORM_PLANS and the Stripe price
-   IDs together, which is a separate, deliberate change.
+   Tiers and the matrix below come from the approved design:
+   Starter 999,95 / Praksissen 1999,95 / Klinikken 4999,95 kr per
+   month. The homepage quotes "fra 999,95 kr./mdr.", which is this
+   Starter tier — the two now agree.
+
+   IMPORTANT: this page is presentation only. These are NOT the
+   amounts wired into Stripe — PLATFORM_PLANS in shared/schema.ts
+   still defines 69/149/249 kr, and subscriptionPlans.ts (the
+   logged-in upgrade dialog in profile.tsx and billing.tsx) offers
+   Basis at 69 kr. That is why no button here starts a checkout:
+   every CTA goes to signup or to booking a meeting. Aligning the
+   charged amounts means updating PLATFORM_PLANS, subscriptionPlans
+   and the Stripe price IDs together — a separate, deliberate
+   change, and one a customer will notice at signup until it lands.
    ───────────────────────────────────────────────────────────── */
 
 type Tier = {
@@ -24,15 +32,20 @@ type Tier = {
   period: string;
   tagline: string;
   featured?: boolean;
+  /** Ribbon over the featured card. */
+  badge?: string;
+  points: string[];
   cta: string;
   /** Empty means "book a meeting" rather than a route. */
   ctaHref: string;
 };
 
-/** A feature row across all four tiers. `true`/`false` render as icons. */
+/** A feature row across the three tiers. `true`/`false` render as icons. */
 type Row = {
   label: string;
-  values: [string | boolean, string | boolean, string | boolean, string | boolean];
+  /** Small print under the label (e.g. the support surcharge). */
+  note?: string;
+  values: [string | boolean, string | boolean, string | boolean];
 };
 
 type Package = { pages: string; price: string; saving?: string };
@@ -53,6 +66,12 @@ const COPY: Record<Lang, {
   customTitle: string;
   customBody: string;
   customCta: string;
+  clinicKicker: string;
+  clinicTitle: string;
+  clinicBody: string;
+  clinicHow: string;
+  clinicCta: string;
+  clinicNote: string;
   answerWithin: string;
   noteTitle: string;
   noteBody: string;
@@ -68,26 +87,29 @@ const COPY: Record<Lang, {
     heroBody:
       "Alle abonnementer indeholder hosting, vedligeholdelse, HTTPS og GDPR-venlig drift. Du betaler kun ekstra for det, du rent faktisk sender.",
     tiers: [
-      { id: "basic", name: "Basic", price: "49,95", period: "kr/md.", tagline: "Til dig der skal i gang", cta: "Kom i gang", ctaHref: "/auth?mode=signup" },
-      { id: "starter", name: "Starter", price: "749,95", period: "kr/md.", tagline: "Til praksis med booking", featured: true, cta: "Kom i gang", ctaHref: "/auth?mode=signup" },
-      { id: "professional", name: "Professional", price: "1.999", period: "kr/md.", tagline: "Til klinikker med flere behandlere", cta: "Kom i gang", ctaHref: "/auth?mode=signup" },
-      { id: "enterprise", name: "Enterprise", price: "Custom", period: "", tagline: "Skræddersyet til jer", cta: "Book 20 min. gratis", ctaHref: "" },
+      { id: "starter", name: "Starter", price: "999,95", period: "kr/mdr.", tagline: "Til dig der skal til at starte", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
+        points: ["Hjemmeside bygget omkring din praksis", "Booking og kontaktformular sat op", "1 mailkonto · 5 GB", "Support kl. 14.00–16.00"] },
+      { id: "praksissen", name: "Praksissen", price: "1999,95", period: "kr/mdr.", tagline: "Til den praktiserende der er i gang", featured: true, badge: "MEST EFTERSPURGTE", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
+        points: ["Alt i Starter", "Gratis domæne (op til 200 kr/år)", "3 mailkonti · 15 GB", "Support kl. 09.00–20.00"] },
+      { id: "klinikken", name: "Klinikken", price: "4999,95", period: "kr/mdr.", tagline: "Til klinikker med flere behandlere", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
+        points: ["Alt i Praksissen", "Op til 10 i teamet", "10 mailkonti · 50 GB", "Laveste booking- og betalingssatser"] },
     ],
-    matrixTitle: "Hvad er inkluderet",
+    matrixTitle: "Hvad er med i hvert abonnement",
     rows: [
-      { label: "Hosting", values: [true, true, true, true] },
-      { label: "Vedligeholdelse", values: [true, true, true, true] },
-      { label: "Support", values: ["14–16", "10–16", "24/7", "Dedikeret"] },
-      { label: "Domæne", values: ["Tilbud", "Gratis", "Eget domæne", "Efter aftale"] },
-      { label: "Mailkonti", values: ["1", "3", "10", "Efter aftale"] },
-      { label: "HTTPS-sikkerhed", values: [true, true, true, true] },
-      { label: "GDPR-sikker", values: [true, true, true, true] },
-      { label: "Datalagring", values: ["5 år", "5 år", "op til 10 år", "Efter aftale"] },
-      { label: "Bookingsystem", values: ["Med gebyr", "0,5 %", "0,01 %", "Efter aftale"] },
-      { label: "Eksterne kalendere", values: [false, "5", "50", "Efter aftale"] },
-      { label: "SMS-påmindelse", values: ["3 kr/stk.", "1 kr/stk.", "0,5 kr/stk.", "Efter aftale"] },
-      { label: "Automatisk mail", values: ["3 kr/stk.", "3 kr/stk.", "0,25 kr/stk.", "Efter aftale"] },
-      { label: "Lagerplads", values: ["5 GB", "15 GB", "50 GB", "Efter aftale"] },
+      { label: "Hosting", values: [true, true, true] },
+      { label: "Vedligeholdelse", values: [true, true, true] },
+      { label: "Support", note: "Ved behov for andet end rådgivning: 500 kr. pr. påbegyndt time", values: ["kl. 14.00–16.00", "kl. 09.00–20.00", "kl. 09.00–20.00"] },
+      { label: "Domæne", values: ["Tilbud", "Gratis (op til 200 kr/år)", "Gratis (op til 500 kr/år)"] },
+      { label: "Mailkonti", values: ["1", "3", "10"] },
+      { label: "HTTPS-sikkerhed", values: [true, true, true] },
+      { label: "GDPR-sikker", values: [true, true, true] },
+      { label: "Datalagring", values: ["5 år", "7 år", "Op til 10 år"] },
+      { label: "Bookingsystem", values: ["0,5 % pr. booking", "0,25 % pr. booking", "0,1 % pr. booking"] },
+      { label: "Ekstra team", values: [false, false, "Op til 10"] },
+      { label: "SMS sendt", values: [false, "50 stk. (derefter 2 kr/stk.)", "250 stk. (derefter 0,5 kr/stk.)"] },
+      { label: "Automatiske mails", values: ["Gratis til 100 stk. (0,5 kr/stk. efter)", "Gratis til 1.500 stk./mdr.", "Gratis til 5.000 stk."] },
+      { label: "Lagerplads", values: ["5 GB (mere koster ekstra)", "15 GB (mere koster ekstra)", "50 GB (mere koster ekstra)"] },
+      { label: "Betaling / transaktion", values: ["2 % pr. stk.", "1 % pr. stk.", "0,5 % pr. stk."] },
     ],
     packagesKicker: "Hjemmesidepakker",
     packagesTitle: "Skal vi bygge siden for dig?",
@@ -102,6 +124,14 @@ const COPY: Record<Lang, {
     customTitle: "Speciel størrelse?",
     customBody: "Beskriv hvad du har brug for, så vender vi tilbage med en pris.",
     customCta: "Beskriv dit projekt",
+    clinicKicker: "Custom løsning",
+    clinicTitle: "Er I en klinik med særlige behov?",
+    clinicBody:
+      "Er I en klinik med behov for en særlig løsning, kan I booke et møde med konsulenten. Her forklarer I klinikkens behov, og vi laver en løsning skræddersyet til jer.",
+    clinicHow:
+      "I booker en tid, der passer jer — og vi ringer op eller sender en mail med link til et Teams-møde.",
+    clinicCta: "Book møde",
+    clinicNote: "30 minutter · Uforpligtende og gratis",
     answerWithin: "Svar inden for 24 timer",
     noteTitle: "Godt at vide",
     noteBody:
@@ -118,26 +148,29 @@ const COPY: Record<Lang, {
     heroBody:
       "Every plan includes hosting, maintenance, HTTPS and GDPR-friendly operation. You only pay extra for what you actually send.",
     tiers: [
-      { id: "basic", name: "Basic", price: "49.95", period: "kr/mo.", tagline: "For getting started", cta: "Get started", ctaHref: "/auth?mode=signup" },
-      { id: "starter", name: "Starter", price: "749.95", period: "kr/mo.", tagline: "For practices with booking", featured: true, cta: "Get started", ctaHref: "/auth?mode=signup" },
-      { id: "professional", name: "Professional", price: "1,999", period: "kr/mo.", tagline: "For clinics with several practitioners", cta: "Get started", ctaHref: "/auth?mode=signup" },
-      { id: "enterprise", name: "Enterprise", price: "Custom", period: "", tagline: "Tailored to you", cta: "Book 20 min. free", ctaHref: "" },
+      { id: "starter", name: "Starter", price: "999.95", period: "kr/mo.", tagline: "For getting your practice started", cta: "Get started", ctaHref: "/auth?mode=signup",
+        points: ["A website built around your practice", "Booking and contact form set up", "1 mailbox · 5 GB", "Support 14.00–16.00"] },
+      { id: "praksissen", name: "Praksissen", price: "1999.95", period: "kr/mo.", tagline: "For the practitioner already running", featured: true, badge: "MOST CHOSEN", cta: "Get started", ctaHref: "/auth?mode=signup",
+        points: ["Everything in Starter", "Free domain (up to 200 kr/yr)", "3 mailboxes · 15 GB", "Support 09.00–20.00"] },
+      { id: "klinikken", name: "Klinikken", price: "4999.95", period: "kr/mo.", tagline: "For clinics with several practitioners", cta: "Get started", ctaHref: "/auth?mode=signup",
+        points: ["Everything in Praksissen", "Up to 10 in the team", "10 mailboxes · 50 GB", "Lowest booking and payment rates"] },
     ],
-    matrixTitle: "What's included",
+    matrixTitle: "What each plan includes",
     rows: [
-      { label: "Hosting", values: [true, true, true, true] },
-      { label: "Maintenance", values: [true, true, true, true] },
-      { label: "Support", values: ["14–16", "10–16", "24/7", "Dedicated"] },
-      { label: "Domain", values: ["Offer", "Free", "Own domain", "By agreement"] },
-      { label: "Mailboxes", values: ["1", "3", "10", "By agreement"] },
-      { label: "HTTPS security", values: [true, true, true, true] },
-      { label: "GDPR compliant", values: [true, true, true, true] },
-      { label: "Data retention", values: ["5 years", "5 years", "up to 10 years", "By agreement"] },
-      { label: "Booking system", values: ["With fee", "0.5 %", "0.01 %", "By agreement"] },
-      { label: "External calendars", values: [false, "5", "50", "By agreement"] },
-      { label: "SMS reminder", values: ["3 kr/ea.", "1 kr/ea.", "0.5 kr/ea.", "By agreement"] },
-      { label: "Automatic email", values: ["3 kr/ea.", "3 kr/ea.", "0.25 kr/ea.", "By agreement"] },
-      { label: "Storage", values: ["5 GB", "15 GB", "50 GB", "By agreement"] },
+      { label: "Hosting", values: [true, true, true] },
+      { label: "Maintenance", values: [true, true, true] },
+      { label: "Support", note: "For anything beyond advice: 500 kr. per started hour", values: ["14.00–16.00", "09.00–20.00", "09.00–20.00"] },
+      { label: "Domain", values: ["Offer", "Free (up to 200 kr/yr)", "Free (up to 500 kr/yr)"] },
+      { label: "Mailboxes", values: ["1", "3", "10"] },
+      { label: "HTTPS security", values: [true, true, true] },
+      { label: "GDPR compliant", values: [true, true, true] },
+      { label: "Data retention", values: ["5 years", "7 years", "Up to 10 years"] },
+      { label: "Booking system", values: ["0.5 % per booking", "0.25 % per booking", "0.1 % per booking"] },
+      { label: "Extra team", values: [false, false, "Up to 10"] },
+      { label: "SMS sent", values: [false, "50 (then 2 kr/ea.)", "250 (then 0.5 kr/ea.)"] },
+      { label: "Automatic emails", values: ["Free up to 100 (0.5 kr/ea. after)", "Free up to 1,500/mo.", "Free up to 5,000"] },
+      { label: "Storage", values: ["5 GB (more costs extra)", "15 GB (more costs extra)", "50 GB (more costs extra)"] },
+      { label: "Payment / transaction", values: ["2 % per item", "1 % per item", "0.5 % per item"] },
     ],
     packagesKicker: "Website packages",
     packagesTitle: "Want us to build it for you?",
@@ -152,6 +185,14 @@ const COPY: Record<Lang, {
     customTitle: "Special size?",
     customBody: "Describe what you need and we'll come back with a price.",
     customCta: "Describe your project",
+    clinicKicker: "Custom solution",
+    clinicTitle: "Are you a clinic with particular needs?",
+    clinicBody:
+      "If you are a clinic that needs something bespoke, book a meeting with the consultant. You explain what the clinic needs, and we build a solution tailored to you.",
+    clinicHow:
+      "You pick a time that suits you — and we call, or send a mail with a link to a Teams meeting.",
+    clinicCta: "Book a meeting",
+    clinicNote: "30 minutes · No obligation, free of charge",
     answerWithin: "Answer within 24 hours",
     noteTitle: "Good to know",
     noteBody:
@@ -210,7 +251,7 @@ export default function PricingPage() {
         {/* Tier cards */}
         <section style={{ background: LIME }} data-testid="section-pricing-tiers">
           <div className="max-w-[1240px] mx-auto px-5 md:px-9 pb-4 lg:pb-8">
-            <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-5">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
               {t.tiers.map((tier, i) => (
                 <RevealOnView key={tier.id} delay={0.05 * i}>
                   <div
@@ -223,6 +264,17 @@ export default function PricingPage() {
                     }}
                     data-testid={`tier-${tier.id}`}
                   >
+                    {/* Rendered on every card, hidden where there is no badge,
+                        so the three prices stay on one line. */}
+                    <p
+                      className={`m-0 mb-3 inline-block self-start text-[11px] font-extrabold uppercase tracking-[0.1em] rounded-full px-3 py-1 ${
+                        tier.badge ? "" : "invisible"
+                      }`}
+                      style={{ background: "rgba(255,255,255,0.2)" }}
+                      aria-hidden={tier.badge ? undefined : true}
+                    >
+                      {tier.badge ?? "\u00a0"}
+                    </p>
                     <p className="text-[13px] font-extrabold uppercase tracking-[0.12em] m-0 opacity-70">
                       {tier.name}
                     </p>
@@ -234,7 +286,19 @@ export default function PricingPage() {
                         <span className="text-[14px] font-extrabold opacity-70">{tier.period}</span>
                       )}
                     </div>
-                    <p className="mt-3 text-[14.5px] leading-[1.55] opacity-75 flex-1">{tier.tagline}</p>
+                    <p className="mt-3 text-[14.5px] leading-[1.55] opacity-75">{tier.tagline}</p>
+                    <ul className="mt-4 mb-0 p-0 list-none flex-1 flex flex-col gap-2">
+                      {tier.points.map((point) => (
+                        <li key={point} className="flex items-start gap-2.5 text-[14px] font-semibold">
+                          <Check
+                            className="w-4 h-4 mt-0.5 shrink-0"
+                            style={{ color: tier.featured ? "#FFFFFF" : BLUE }}
+                            aria-hidden="true"
+                          />
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
                     {tier.ctaHref ? (
                       <Link
                         href={tier.ctaHref}
@@ -292,8 +356,13 @@ export default function PricingPage() {
                 <tbody>
                   {t.rows.map((row) => (
                     <tr key={row.label} style={{ borderTop: "1.5px solid rgba(0,0,0,0.08)" }}>
-                      <th scope="row" className="px-4 py-3 text-[14.5px] font-bold whitespace-nowrap">
-                        {row.label}
+                      <th scope="row" className="px-4 py-3 text-[14.5px] font-bold align-top">
+                        <span className="whitespace-nowrap">{row.label}</span>
+                        {row.note && (
+                          <span className="block mt-1 text-[12px] font-semibold opacity-55 max-w-[220px] whitespace-normal">
+                            {row.note}
+                          </span>
+                        )}
                       </th>
                       {row.values.map((value, i) => (
                         <td key={i} className="px-4 py-3 text-center">
@@ -308,6 +377,45 @@ export default function PricingPage() {
             <p className="mt-4 text-[13.5px] leading-[1.6] opacity-65 max-w-[720px]">
               <strong>{t.noteTitle}:</strong> {t.noteBody}
             </p>
+          </div>
+        </section>
+
+        {/* Custom solution — the bespoke route for clinics, which is what the
+            removed Enterprise tier used to offer. */}
+        <section style={{ background: LIME }} data-testid="section-pricing-clinic">
+          <div className="max-w-[1240px] mx-auto px-5 md:px-9 pb-12 lg:pb-16">
+            <RevealOnView>
+              <div
+                className="rounded-[18px] px-6 py-8 lg:px-10 lg:py-10 flex flex-col lg:flex-row lg:items-center gap-6 lg:gap-10"
+                style={{ background: PURPLE, color: "#FFFFFF" }}
+              >
+                <div className="lg:flex-1">
+                  <p className="m-0 text-[12px] font-extrabold uppercase tracking-[0.14em] text-white/70">
+                    {t.clinicKicker}
+                  </p>
+                  <h2 className="bf2-display m-0 mt-3 text-[26px] lg:text-[34px] leading-[1.2]">
+                    {t.clinicTitle}
+                  </h2>
+                  <p className="mt-4 mb-0 max-w-[560px] text-[16px] lg:text-[17.5px] leading-[1.65] text-white/85">
+                    {t.clinicBody}
+                  </p>
+                  <p className="mt-3 mb-0 max-w-[560px] text-[15px] leading-[1.6] text-white/70">
+                    {t.clinicHow}
+                  </p>
+                </div>
+                <div className="lg:flex-none lg:text-center">
+                  <a
+                    href={book}
+                    className="inline-block no-underline text-[16.5px] font-extrabold px-7 py-4 rounded-[10px] hover:brightness-105 transition"
+                    style={{ background: "#FFFFFF", color: PURPLE }}
+                    data-testid="button-pricing-clinic"
+                  >
+                    {t.clinicCta}
+                  </a>
+                  <p className="mt-3 mb-0 text-[13px] font-bold text-white/70">{t.clinicNote}</p>
+                </div>
+              </div>
+            </RevealOnView>
           </div>
         </section>
 
@@ -416,6 +524,8 @@ export default function PricingPage() {
           </div>
         </section>
       </main>
+
+      <MarketingFooter />
     </div>
   );
 }
