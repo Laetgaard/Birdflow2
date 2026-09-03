@@ -14,11 +14,12 @@ import {
   AnalyticsMock,
   AnalyticsPhone,
   BookingMock,
+  BookingPhone,
   EconomyMock,
   EconomyPhone,
-  EditorMock,
   MailEditorMock,
   MailsMock,
+  MailsPhone,
   OverviewMock,
   OverviewPhone,
   ShopMock,
@@ -81,6 +82,8 @@ type Copy = {
   mailsListTitle: string;
   mailsListBody: string;
   mailsEditorCaption: string;
+  /** Alt for the real editor screenshot in chapter 02. */
+  editorAlt: string;
   butikClosing: string;
   ctaTitle: string;
   ctaBody: string;
@@ -120,7 +123,7 @@ const COPY: Record<Lang, Copy> = {
         body: [
           "Du redigerer hjemmesiden direkte på siden. Klik på en tekst og skriv. Skift skriftstørrelse, farve og billeder, mens du ser resultatet med det samme.",
         ],
-        caption: "Editoren i Birdflow · og menuen der åbner ved klik på +",
+        caption: "Editoren i Birdflow — en psykologs side under redigering",
       },
       booking: {
         id: "booking",
@@ -211,6 +214,7 @@ const COPY: Record<Lang, Copy> = {
     mailsListBody:
       "Bookingbekræftelse, ændring, aflysning, besked om ny henvendelse og påmindelse før aftalen. Du sætter selv, hvor mange timer før påmindelsen skal gå ud.",
     mailsEditorCaption: "Redigering af en enkelt mail — med live forhåndsvisning",
+    editorAlt: "Birdflow-editoren med en psykologs hjemmeside åben — sektioner til venstre, siden i midten, indstillinger til højre",
     butikClosing: "Bruger du det ikke, slår du bare butikken fra — så er den ikke en del af din side.",
     ctaTitle: "Kom i gang med din praksis",
     ctaBody:
@@ -249,7 +253,7 @@ const COPY: Record<Lang, Copy> = {
         body: [
           "You edit the website directly on the page. Click a piece of text and type. Change type size, colour and images while you watch the result.",
         ],
-        caption: "The Birdflow editor · and the menu that opens on +",
+        caption: "The Birdflow editor — a psychologist's site being edited",
       },
       booking: {
         id: "booking",
@@ -339,6 +343,7 @@ const COPY: Record<Lang, Copy> = {
     mailsListBody:
       "Booking confirmation, change, cancellation, notice of a new enquiry, and the reminder before the appointment. You set how many hours ahead the reminder goes out.",
     mailsEditorCaption: "Editing a single email — with live preview",
+    editorAlt: "The Birdflow editor with a psychologist's website open — sections on the left, the page in the middle, settings on the right",
     butikClosing: "If you don't use it, switch the shop off — then it is not part of your site.",
     ctaTitle: "Get started with your practice",
     ctaBody:
@@ -552,9 +557,25 @@ export default function SaadanVirkerDetPage() {
               </>
             }
           >
-            <Visual caption={c.hjemmesiden.caption}>
-              <EditorMock />
-            </Visual>
+            {/* One of the two real product screenshots we hold with practitioner
+                branding ("Psykolog Roskilde") — a real screenshot beats a
+                reconstruction wherever one exists. */}
+            <figure className="m-0">
+              <picture>
+                <source media="(max-width: 767px)" srcSet="/assets/home-redesign/builder-editor-mobile.png" />
+                <img
+                  src="/assets/home-redesign/builder-editor-desktop.png"
+                  alt={t.editorAlt}
+                  loading="lazy"
+                  decoding="async"
+                  className="block w-full h-auto rounded-[16px]"
+                  style={{ border: "1px solid rgba(0,0,0,0.08)", boxShadow: "0 30px 70px rgba(20,5,40,0.2)" }}
+                />
+              </picture>
+              <figcaption className="mt-3.5 ml-0.5 text-[13px] font-extrabold" style={{ color: PURPLE }}>
+                {c.hjemmesiden.caption}
+              </figcaption>
+            </figure>
           </SplitChapter>
         </div>
 
@@ -573,7 +594,7 @@ export default function SaadanVirkerDetPage() {
               <div className="flex flex-wrap gap-10 mt-9 items-start">
                 <div className="flex-[1_1_480px] min-w-[min(100%,280px)]">
                   <div aria-hidden="true">
-                    <BookingMock />
+                    <Responsive full={<BookingMock />} phone={<BookingPhone />} />
                   </div>
                   <h3 className="m-0 mt-3.5 text-[20px] font-black">{t.bookingCalendarTitle}</h3>
                   <p className="m-0 mt-2 max-w-[520px] text-[clamp(16px,1.5vw,17.5px)] leading-[1.6]">
@@ -609,7 +630,7 @@ export default function SaadanVirkerDetPage() {
               <div className="flex flex-wrap gap-10 mt-9 items-start">
                 <div className="flex-[1_1_440px] min-w-[min(100%,280px)]">
                   <div aria-hidden="true">
-                    <MailsMock />
+                    <Responsive full={<MailsMock />} phone={<MailsPhone />} />
                   </div>
                   <h3 className="m-0 mt-3.5 text-[20px] font-black">{t.mailsListTitle}</h3>
                   <p className="m-0 mt-2 max-w-[520px] text-[clamp(16px,1.5vw,17.5px)] leading-[1.6]">

@@ -16,6 +16,10 @@ export const BLUE = "#306DDA";
 export const LIME = "#F6FFD3";
 export const BLUSH = "#FFF7F7";
 export const GREEN = "#2E7D4F";
+/* Pricing-tier accents from the approved Priser design: Starter olive,
+   Klinikken green. Praksissen uses PURPLE. Marketing pages only. */
+export const OLIVE = "#B9CE63";
+export const GREEN_BRIGHT = "#79B93C";
 
 export const EASE = "cubic-bezier(0.22,1,0.36,1)";
 export const POP = "cubic-bezier(0.34,1.45,0.64,1)";
