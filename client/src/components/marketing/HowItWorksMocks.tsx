@@ -1204,6 +1204,131 @@ export function ShopMock() {
   );
 }
 
+/* ─────────── 03 · Booking, phone ─────────── */
+
+const PHONE_WEEK: Array<[string, string, boolean]> = [
+  ["Ma", "13", false],
+  ["Ti", "14", true],
+  ["On", "15", false],
+  ["To", "16", false],
+  ["Fr", "17", false],
+];
+
+const PHONE_UPCOMING: Array<[string, string, string, "booked" | "new" | "open"]> = [
+  ["10.00", "Individuel samtale", "Klinik", "booked"],
+  ["13.30", "Første samtale", "Online", "new"],
+  ["15.00", "Ledig tid", "—", "open"],
+];
+
+/** The booking calendar as the phone app shows it: this week, then today's list. */
+export function BookingPhone() {
+  return (
+    <PhoneFrame title="Bookinger" active="Booking">
+      <div className="flex items-center gap-2">
+        <span className="text-[11.5px] font-extrabold">Uge 42</span>
+        <span className="ml-auto text-[10px] font-extrabold px-2 py-1 rounded-md" style={{ border: LINE, color: "rgba(0,0,0,0.6)" }}>
+          Ny ledig tid
+        </span>
+        <span className="text-[10px] font-extrabold px-2 py-1 rounded-md text-white" style={{ background: BLUE }}>
+          + Booking
+        </span>
+      </div>
+
+      <div className="grid grid-cols-5 gap-1 mt-3 rounded-[11px] px-2 py-2" style={{ border: LINE }}>
+        {PHONE_WEEK.map(([d, n, today]) => (
+          <div key={n} className="text-center">
+            <p className="m-0 text-[9px] font-bold" style={{ color: MUTED }}>
+              {d}
+            </p>
+            <p className="m-0 mt-0.5 text-[12px] font-extrabold leading-tight">
+              {today ? (
+                <span className="inline-grid place-items-center w-[20px] h-[20px] rounded-full text-white" style={{ background: BLUE }}>
+                  {n}
+                </span>
+              ) : (
+                n
+              )}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-[11px] px-3 py-2.5" style={{ border: LINE }}>
+        <p className="m-0 mb-1 text-[9px] font-extrabold tracking-[0.08em]" style={{ color: MUTED }}>
+          I DAG · TIRSDAG
+        </p>
+        {PHONE_UPCOMING.map(([time, what, where, tone], i) => (
+          <div
+            key={time}
+            className="flex items-baseline gap-2.5 py-2"
+            style={i < PHONE_UPCOMING.length - 1 ? { borderBottom: LINE_SOFT } : undefined}
+          >
+            <span
+              className="text-[12.5px] font-extrabold w-[40px] flex-none"
+              style={tone === "new" ? { color: BLUE } : tone === "open" ? { color: MUTED } : undefined}
+            >
+              {time}
+            </span>
+            <span
+              className="text-[12px] font-bold min-w-0 truncate"
+              style={tone === "new" ? { color: BLUE, fontWeight: 800 } : tone === "open" ? { color: MUTED } : undefined}
+            >
+              {what}
+            </span>
+            <span className="ml-auto flex-none text-[10.5px] font-bold" style={{ color: MUTED }}>
+              {where}
+            </span>
+          </div>
+        ))}
+      </div>
+    </PhoneFrame>
+  );
+}
+
+/* ─────────── 04 · Automatiske mails, phone ─────────── */
+
+/** The mail settings list as the phone app shows it — same rows as MailsMock. */
+export function MailsPhone() {
+  return (
+    <PhoneFrame title="E-mails" active="Mere">
+      <p className="m-0 mb-2.5 text-[11px] font-bold" style={{ color: MUTED }}>
+        4 af 5 notifikationer aktive
+      </p>
+      <div className="rounded-[11px] overflow-hidden" style={{ border: LINE }}>
+        {MAIL_ROWS.map((row, i) => {
+          const [name, status, tone] = row;
+          return (
+            <div
+              key={name}
+              className="px-3 py-2.5"
+              style={i < MAIL_ROWS.length - 1 ? { borderBottom: LINE_SOFT } : undefined}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="w-[28px] h-[16px] rounded-full relative flex-none"
+                  style={{ background: tone === "approve" ? "rgba(0,0,0,0.18)" : GREEN }}
+                >
+                  <span
+                    className="absolute top-[2px] w-3 h-3 rounded-full bg-white"
+                    style={tone === "approve" ? { left: "2px" } : { right: "2px" }}
+                  />
+                </span>
+                <span className="text-[12px] font-extrabold min-w-0 truncate">{name}</span>
+              </div>
+              <span
+                className="inline-block mt-1.5 ml-[38px] text-[9.5px] font-extrabold rounded-full px-2 py-[3px]"
+                style={MAIL_TONE[tone]}
+              >
+                {status}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </PhoneFrame>
+  );
+}
+
 export function ShopPhone() {
   return (
     <PhoneFrame title="Produkter" active="Mere">
