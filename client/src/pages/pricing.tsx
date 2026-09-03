@@ -1,9 +1,10 @@
 import { Link } from "wouter";
 import { Check, Minus } from "lucide-react";
-import { BLUE, BLUSH, LIME, PAGE_CSS, PURPLE } from "@/components/bf2/theme";
+import { BLUE, BLUSH, GREEN_BRIGHT, LIME, OLIVE, PAGE_CSS, PURPLE } from "@/components/bf2/theme";
 import { BandWave, Bird, BirdDefs, EdgeWave, RevealOnView } from "@/components/bf2/primitives";
 import { Nav, bookHref } from "@/components/bf2/Nav";
 import { MarketingFooter } from "@/components/bf2/MarketingFooter";
+import { TierCard, inkFor } from "@/components/marketing/TierCard";
 import { useLocale, pick, type Lang } from "@/lib/locale";
 
 /* ─────────────────────────────────────────────────────────────
@@ -34,6 +35,8 @@ type Tier = {
   featured?: boolean;
   /** Ribbon over the featured card. */
   badge?: string;
+  /** Header colour from bf2/theme: OLIVE, PURPLE or GREEN_BRIGHT. */
+  color: string;
   points: string[];
   cta: string;
   /** Empty means "book a meeting" rather than a route. */
@@ -56,6 +59,7 @@ const COPY: Record<Lang, {
   heroTitleEm: string;
   heroBody: string;
   tiers: Tier[];
+  carouselHint: string;
   matrixTitle: string;
   rows: Row[];
   packagesKicker: string;
@@ -87,13 +91,14 @@ const COPY: Record<Lang, {
     heroBody:
       "Alle abonnementer indeholder hosting, vedligeholdelse, HTTPS og GDPR-venlig drift. Du betaler kun ekstra for det, du rent faktisk sender.",
     tiers: [
-      { id: "starter", name: "Starter", price: "999,95", period: "kr/mdr.", tagline: "Til dig der skal til at starte", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
+      { id: "starter", color: OLIVE, name: "Starter", price: "999,95", period: "kr/mdr.", tagline: "Til dig der skal til at starte", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
         points: ["Hjemmeside bygget omkring din praksis", "Booking og kontaktformular sat op", "1 mailkonto · 5 GB", "Support kl. 14.00–16.00"] },
-      { id: "praksissen", name: "Praksissen", price: "1999,95", period: "kr/mdr.", tagline: "Til den praktiserende der er i gang", featured: true, badge: "MEST EFTERSPURGTE", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
+      { id: "praksissen", color: PURPLE, name: "Praksissen", price: "1999,95", period: "kr/mdr.", tagline: "Til den praktiserende der er i gang", featured: true, badge: "MEST EFTERSPURGTE", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
         points: ["Alt i Starter", "Gratis domæne (op til 200 kr/år)", "3 mailkonti · 15 GB", "Support kl. 09.00–20.00"] },
-      { id: "klinikken", name: "Klinikken", price: "4999,95", period: "kr/mdr.", tagline: "Til klinikker med flere behandlere", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
+      { id: "klinikken", color: GREEN_BRIGHT, name: "Klinikken", price: "4999,95", period: "kr/mdr.", tagline: "Til klinikker med flere behandlere", cta: "Kom i gang", ctaHref: "/auth?mode=signup",
         points: ["Alt i Praksissen", "Op til 10 i teamet", "10 mailkonti · 50 GB", "Laveste booking- og betalingssatser"] },
     ],
+    carouselHint: "Alle priser er pr. måned. Swipe for at se alle abonnementer.",
     matrixTitle: "Hvad er med i hvert abonnement",
     rows: [
       { label: "Hosting", values: [true, true, true] },
@@ -148,13 +153,14 @@ const COPY: Record<Lang, {
     heroBody:
       "Every plan includes hosting, maintenance, HTTPS and GDPR-friendly operation. You only pay extra for what you actually send.",
     tiers: [
-      { id: "starter", name: "Starter", price: "999.95", period: "kr/mo.", tagline: "For getting your practice started", cta: "Get started", ctaHref: "/auth?mode=signup",
+      { id: "starter", color: OLIVE, name: "Starter", price: "999.95", period: "kr/mo.", tagline: "For getting your practice started", cta: "Get started", ctaHref: "/auth?mode=signup",
         points: ["A website built around your practice", "Booking and contact form set up", "1 mailbox · 5 GB", "Support 14.00–16.00"] },
-      { id: "praksissen", name: "Praksissen", price: "1999.95", period: "kr/mo.", tagline: "For the practitioner already running", featured: true, badge: "MOST CHOSEN", cta: "Get started", ctaHref: "/auth?mode=signup",
+      { id: "praksissen", color: PURPLE, name: "Praksissen", price: "1999.95", period: "kr/mo.", tagline: "For the practitioner already running", featured: true, badge: "MOST CHOSEN", cta: "Get started", ctaHref: "/auth?mode=signup",
         points: ["Everything in Starter", "Free domain (up to 200 kr/yr)", "3 mailboxes · 15 GB", "Support 09.00–20.00"] },
-      { id: "klinikken", name: "Klinikken", price: "4999.95", period: "kr/mo.", tagline: "For clinics with several practitioners", cta: "Get started", ctaHref: "/auth?mode=signup",
+      { id: "klinikken", color: GREEN_BRIGHT, name: "Klinikken", price: "4999.95", period: "kr/mo.", tagline: "For clinics with several practitioners", cta: "Get started", ctaHref: "/auth?mode=signup",
         points: ["Everything in Praksissen", "Up to 10 in the team", "10 mailboxes · 50 GB", "Lowest booking and payment rates"] },
     ],
+    carouselHint: "All prices are per month. Swipe to see every plan.",
     matrixTitle: "What each plan includes",
     rows: [
       { label: "Hosting", values: [true, true, true] },
@@ -248,84 +254,56 @@ export default function PricingPage() {
 
         <EdgeWave other={LIME} flip="xy" />
 
-        {/* Tier cards */}
+        {/* Tier cards — three-up on desktop; a scroll-snap carousel on phones
+            and tablets, as the design draws it. */}
         <section style={{ background: LIME }} data-testid="section-pricing-tiers">
           <div className="max-w-[1240px] mx-auto px-5 md:px-9 pb-4 lg:pb-8">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
+            <div
+              className="flex gap-4 overflow-x-auto snap-x snap-mandatory bf2-noscrollbar pb-4 -mx-5 px-5 md:-mx-9 md:px-9 lg:mx-0 lg:px-0 lg:pb-0 lg:grid lg:grid-cols-3 lg:gap-5 lg:overflow-visible"
+              data-testid="pricing-tier-track"
+            >
               {t.tiers.map((tier, i) => (
-                <RevealOnView key={tier.id} delay={0.05 * i}>
-                  <div
-                    className="h-full rounded-[18px] p-6 flex flex-col"
-                    style={{
-                      background: tier.featured ? PURPLE : "#FFFFFF",
-                      color: tier.featured ? "#FFFFFF" : "#000000",
-                      border: tier.featured ? "none" : "2px solid rgba(0,0,0,0.10)",
-                      boxShadow: tier.featured ? "0 18px 40px -18px rgba(128,22,195,0.55)" : "none",
-                    }}
-                    data-testid={`tier-${tier.id}`}
-                  >
-                    {/* Rendered on every card, hidden where there is no badge,
-                        so the three prices stay on one line. */}
-                    <p
-                      className={`m-0 mb-3 inline-block self-start text-[11px] font-extrabold uppercase tracking-[0.1em] rounded-full px-3 py-1 ${
-                        tier.badge ? "" : "invisible"
-                      }`}
-                      style={{ background: "rgba(255,255,255,0.2)" }}
-                      aria-hidden={tier.badge ? undefined : true}
-                    >
-                      {tier.badge ?? "\u00a0"}
-                    </p>
-                    <p className="text-[13px] font-extrabold uppercase tracking-[0.12em] m-0 opacity-70">
-                      {tier.name}
-                    </p>
-                    <div className="mt-3 flex items-baseline gap-1.5">
-                      <span className="bf2-display text-[38px] lg:text-[44px] leading-none">
-                        {tier.price}
-                      </span>
-                      {tier.period && (
-                        <span className="text-[14px] font-extrabold opacity-70">{tier.period}</span>
-                      )}
-                    </div>
-                    <p className="mt-3 text-[14.5px] leading-[1.55] opacity-75">{tier.tagline}</p>
-                    <ul className="mt-4 mb-0 p-0 list-none flex-1 flex flex-col gap-2">
-                      {tier.points.map((point) => (
-                        <li key={point} className="flex items-start gap-2.5 text-[14px] font-semibold">
-                          <Check
-                            className="w-4 h-4 mt-0.5 shrink-0"
-                            style={{ color: tier.featured ? "#FFFFFF" : BLUE }}
-                            aria-hidden="true"
-                          />
-                          <span>{point}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    {tier.ctaHref ? (
-                      <Link
-                        href={tier.ctaHref}
-                        className="mt-5 inline-block text-center no-underline text-[15px] font-extrabold px-5 py-3 rounded-[10px] transition hover:brightness-110"
-                        style={
-                          tier.featured
-                            ? { background: "#FFFFFF", color: PURPLE }
-                            : { background: BLUE, color: "#FFFFFF" }
-                        }
-                        data-testid={`tier-cta-${tier.id}`}
-                      >
-                        {tier.cta}
-                      </Link>
-                    ) : (
-                      <a
-                        href={book}
-                        className="mt-5 inline-block text-center no-underline text-[15px] font-extrabold px-5 py-3 rounded-[10px] border-2 transition hover:bg-white/10"
-                        style={{ borderColor: "rgba(0,0,0,0.2)", color: "#000" }}
-                        data-testid={`tier-cta-${tier.id}`}
-                      >
-                        {tier.cta}
-                      </a>
-                    )}
-                  </div>
-                </RevealOnView>
+                <div
+                  key={tier.id}
+                  className="flex-[0_0_min(86vw,340px)] snap-center lg:flex-auto"
+                >
+                  <RevealOnView delay={0.05 * i} className="h-full">
+                    <TierCard
+                      name={tier.name}
+                      price={tier.price}
+                      period={tier.period}
+                      tagline={tier.tagline}
+                      color={tier.color}
+                      badge={tier.badge}
+                      points={tier.points}
+                      testId={`tier-${tier.id}`}
+                      cta={
+                        tier.ctaHref ? (
+                          <Link
+                            href={tier.ctaHref}
+                            className="block text-center no-underline text-white text-[15px] font-extrabold px-5 py-3 rounded-[10px] transition hover:brightness-110"
+                            style={{ background: BLUE, boxShadow: "0 6px 16px rgba(48,109,218,0.3)" }}
+                            data-testid={`tier-cta-${tier.id}`}
+                          >
+                            {tier.cta}
+                          </Link>
+                        ) : (
+                          <a
+                            href={book}
+                            className="block text-center no-underline text-[15px] font-extrabold px-5 py-3 rounded-[10px] border-2 transition hover:bg-black/5"
+                            style={{ borderColor: "rgba(0,0,0,0.2)", color: "#000" }}
+                            data-testid={`tier-cta-${tier.id}`}
+                          >
+                            {tier.cta}
+                          </a>
+                        )
+                      }
+                    />
+                  </RevealOnView>
+                </div>
               ))}
             </div>
+            <p className="m-0 mt-1 text-[13px] font-bold opacity-60 lg:hidden">{t.carouselHint}</p>
           </div>
         </section>
 
@@ -335,7 +313,32 @@ export default function PricingPage() {
             <h2 className="bf2-display text-[28px] lg:text-[38px] leading-[1.2] mb-6">
               {t.matrixTitle}
             </h2>
-            <div className="overflow-x-auto rounded-[16px]" style={{ background: "#FFFFFF" }}>
+            {/* Phones: one card per row, the three plans labelled in their colours. */}
+            <div className="sm:hidden flex flex-col gap-3" data-testid="pricing-matrix-cards">
+              {t.rows.map((row) => (
+                <div key={row.label} className="rounded-[14px] bg-white px-4 py-3.5" style={{ border: "1.5px solid rgba(0,0,0,0.08)" }}>
+                  <p className="m-0 text-[14.5px] font-extrabold">{row.label}</p>
+                  {row.note && (
+                    <p className="m-0 mt-0.5 text-[12px] font-semibold opacity-55">{row.note}</p>
+                  )}
+                  <dl className="m-0 mt-2.5 grid grid-cols-3 gap-2">
+                    {t.tiers.map((tier, i) => (
+                      <div key={tier.id} className="min-w-0">
+                        <dt className="flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-[0.08em] truncate">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: tier.color }} aria-hidden="true" />
+                          {tier.name}
+                        </dt>
+                        <dd className="m-0 mt-1 text-[12.5px] font-semibold leading-snug">
+                          <ValueCell value={row.values[i]} />
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden sm:block overflow-x-auto rounded-[16px]" style={{ background: "#FFFFFF" }}>
               <table className="w-full min-w-[720px] border-collapse text-left">
                 <thead>
                   <tr>
@@ -346,9 +349,14 @@ export default function PricingPage() {
                       <th
                         key={tier.id}
                         className="px-4 py-3 text-center text-[13px] font-extrabold uppercase tracking-[0.1em]"
-                        style={{ color: tier.featured ? PURPLE : "rgba(0,0,0,0.6)" }}
+                        style={{ background: tier.color, color: inkFor(tier.color) }}
                       >
                         {tier.name}
+                        {tier.badge && (
+                          <span className="block mt-0.5 text-[9.5px] font-extrabold normal-case tracking-[0.04em] opacity-85">
+                            {tier.badge}
+                          </span>
+                        )}
                       </th>
                     ))}
                   </tr>
