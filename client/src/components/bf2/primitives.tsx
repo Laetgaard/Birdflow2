@@ -6,7 +6,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { BLUSH, LIME, PURPLE, fadeUp } from "./theme";
+import { BLUSH, LIME, PURPLE, fadeUp, prefersReducedMotion } from "./theme";
 
 /* ─────────────────────────────────────────────────────────────
    bf2 shared primitives: scroll-reveal, the Birdflow bird, and the
@@ -24,19 +24,48 @@ export function useInView<T extends HTMLElement>(threshold = 0.2) {
       setInView(true);
       return;
     }
+    // Someone who asked for less motion gets the content, not the entrance.
+    if (prefersReducedMotion()) {
+      setInView(true);
+      return;
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const show = () => {
+      setInView(true);
+      io.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
-          if (e.isIntersecting) {
-            setInView(true);
-            io.disconnect();
-          }
+          if (e.isIntersecting) show();
         });
       },
       { threshold },
     );
     io.observe(el);
-    return () => io.disconnect();
+
+    // Safety net. A threshold can be missed two ways: an element taller than
+    // the viewport can never reach the required ratio, and a fast scroll can
+    // carry one past the viewport inside a single frame. Either way the
+    // content would sit at opacity 0 for good, so once the element has been
+    // scrolled to at all, reveal it regardless.
+    const sweep = () => {
+      const box = el.getBoundingClientRect();
+      if (box.top < window.innerHeight && box.bottom > 0) show();
+    };
+    window.addEventListener("scroll", sweep, { passive: true });
+    window.addEventListener("resize", sweep);
+    timer = setTimeout(show, 4000);
+
+    return () => {
+      io.disconnect();
+      window.removeEventListener("scroll", sweep);
+      window.removeEventListener("resize", sweep);
+      if (timer) clearTimeout(timer);
+    };
   }, [threshold]);
   return [ref, inView] as const;
 }
@@ -279,6 +308,86 @@ export function WaveB({ compact = false }: { compact?: boolean }) {
       <path
         d="M0 240 C120 175 220 150 370 131 C550 112 750 128 950 122 C1120 112 1300 75 1440 5 L1440 188 C1300 215 1150 250 950 235 C780 224 640 232 480 258 C330 285 140 380 0 449 Z"
         fill={PURPLE}
+      />
+    </svg>
+  );
+}
+
+/* ─────────── how-it-works seams ───────────
+   The /saadan-virker-det design separates its numbered chapters with a
+   narrower seam than BandWave/EdgeWave: a thin purple ribbon threaded
+   between two light grounds, so the purple spine stays visible down the
+   page without a full purple field between every chapter.
+
+   Drawn in a 1440×122 box (vs. EdgeWave's 205 and BandWave's 415), which
+   is why it is its own shape rather than a variant of those. */
+export function SeamWave({
+  top,
+  bottom,
+  ribbon = true,
+}: {
+  /** Ground the seam is coming out of (the section above). */
+  top: string;
+  /** Ground the seam is falling into (the section below). */
+  bottom: string;
+  /** The purple thread. Off for a plain colour change. */
+  ribbon?: boolean;
+}) {
+  return (
+    <svg
+      viewBox="0 0 1440 122"
+      preserveAspectRatio="none"
+      className="block w-full h-[64px] sm:h-[84px] lg:h-[104px]"
+      style={{ marginTop: -1, marginBottom: -1 }}
+      aria-hidden="true"
+    >
+      <rect x="0" y="0" width="1440" height="122" fill={bottom} />
+      <path
+        d="M0 0 L1440 0 L1440 34 C1200 78 980 66 720 52 C480 40 220 58 0 82 Z"
+        fill={top}
+      />
+      {ribbon && (
+        <path
+          d="M0 82 C220 58 480 40 720 52 C980 66 1200 78 1440 34 L1440 62 C1200 106 980 94 720 80 C480 68 220 86 0 110 Z"
+          fill={PURPLE}
+        />
+      )}
+    </svg>
+  );
+}
+
+/** Purple hero field falling into a light ground (viewBox 1440×120). */
+export function HeroExitWave({ into }: { into: string }) {
+  return (
+    <svg
+      viewBox="0 0 1440 120"
+      preserveAspectRatio="none"
+      className="block w-full h-[70px] sm:h-[92px] lg:h-[112px]"
+      style={{ marginBottom: -1 }}
+      aria-hidden="true"
+    >
+      <path
+        d="M0 0 C260 96 520 118 780 106 C1010 96 1240 52 1440 0 L1440 120 L0 120 Z"
+        fill={into}
+      />
+    </svg>
+  );
+}
+
+/** Light ground rising into the closing purple CTA field (viewBox 1440×130). */
+export function CtaEnterWave({ from }: { from: string }) {
+  return (
+    <svg
+      viewBox="0 0 1440 130"
+      preserveAspectRatio="none"
+      className="block w-full h-[74px] sm:h-[98px] lg:h-[120px]"
+      style={{ marginTop: -1 }}
+      aria-hidden="true"
+    >
+      <rect x="0" y="0" width="1440" height="130" fill={PURPLE} />
+      <path
+        d="M0 0 L1440 0 L1440 46 C1200 102 900 114 640 98 C400 84 200 66 0 102 Z"
+        fill={from}
       />
     </svg>
   );

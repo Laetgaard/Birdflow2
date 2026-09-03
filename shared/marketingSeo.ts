@@ -61,7 +61,7 @@ export interface MarketingRoute {
 
 /* ───────────────────────── Home FAQ ─────────────────────────
    MUST mirror the FAQ visible on the landing page (Danish copy in
-   client/src/pages/birdflow-landing.tsx). A test asserts every question
+   client/src/pages/homepage-redesign.tsx). A test asserts every question
    below appears verbatim in that file — structured data may only describe
    what the visitor can see. */
 export const HOME_FAQ_DA: FaqItem[] = [
@@ -93,6 +93,42 @@ export const HOME_FAQ_DA: FaqItem[] = [
 
 /* ───────────────────── Route registry ───────────────────── */
 
+/**
+ * English rendering of HOME_FAQ_DA, for visitors who switched to EN.
+ *
+ * Only the Danish list feeds the FAQPage JSON-LD — the canonical page is
+ * Danish — so this exists purely so the visible FAQ switches language with
+ * the rest of the homepage. Keep the two in the same order and length; a
+ * test asserts that, because a mismatch would show an answer under the
+ * wrong question.
+ */
+export const HOME_FAQ_EN: FaqItem[] = [
+  {
+    q: "Do I have to build the website myself?",
+    a: "No. We build the first version from your practice — who you help, the kinds of sessions you offer, and the tone the site should have. You review all of it, adjust, and approve before anything goes live.",
+  },
+  {
+    q: "Can I change it afterwards?",
+    a: "Yes. Text, sections and pages you edit yourself in Birdflow — directly on the page, with no code and no plugins. You publish when you are ready.",
+  },
+  {
+    q: "I already have a website — can Birdflow still make sense?",
+    a: "Yes — many people arrive from an older WordPress setup. We start from what already works for your practice, and the content can move across.",
+  },
+  {
+    q: "Can I use my own domain?",
+    a: "Yes. Your existing domain is connected to the website and we help you set that up. You still buy and own the domain itself with your current provider.",
+  },
+  {
+    q: "Can clients book directly on the website?",
+    a: "Yes. The client picks a service and a time and fills in their details — directly on your website. The booking is in Birdflow immediately and the confirmation is sent automatically. Which times are open is entirely up to you.",
+  },
+  {
+    q: "What happens when I get started?",
+    a: "You create an account and tell us briefly about your practice — who you help, the sessions you offer, and the tone the site should have. Birdflow then builds the first draft, which you review and correct. Nothing goes live until you say so.",
+  },
+];
+
 export const MARKETING_ROUTES: MarketingRoute[] = [
   {
     path: "/",
@@ -121,6 +157,24 @@ export const MARKETING_ROUTES: MarketingRoute[] = [
     description:
       "Se priser på BirdFlow: professionel hjemmeside, online booking og administration samlet i ét abonnement. Vælg den pakke, der passer til din praksis.",
     shortName: { da: "Priser", en: "Pricing" },
+  },
+  {
+    path: "/saadan-virker-det",
+    kind: "core",
+    title: "Sådan virker det — hele platformen forklaret | BirdFlow",
+    titleEn: "How it works — the whole platform explained | BirdFlow",
+    description:
+      "Se hvordan BirdFlow fungerer: overblik, hjemmeside, booking, automatiske e-mails, analyse, økonomi og butik — gennemgået skærm for skærm.",
+    shortName: { da: "Sådan virker det", en: "How it works" },
+  },
+  {
+    path: "/about",
+    kind: "core",
+    title: "Om os — hvorfor BirdFlow findes | BirdFlow",
+    titleEn: "About us — why BirdFlow exists | BirdFlow",
+    description:
+      "Historien bag BirdFlow og hvordan vi arbejder: en platform bygget omkring behandleres og klinikkers hverdag frem for omkring teknikken.",
+    shortName: { da: "Om os", en: "About" },
   },
   {
     path: "/diy",

@@ -1,12 +1,23 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { ArrowUpRight, Check, ChevronRight, Menu, X } from "lucide-react";
-import { LangToggle } from "@/components/bf2/LangToggle";
+import { ArrowUpRight, Check, ChevronDown, ChevronRight } from "lucide-react";
 import { Bird, BirdDefs } from "@/components/bf2/primitives";
-import { SIGNUP_HREF, useSignupLabel } from "@/components/bf2/Nav";
+import { Nav, SIGNUP_HREF, useSignupLabel } from "@/components/bf2/Nav";
+import { MarketingFooter } from "@/components/bf2/MarketingFooter";
+import { HOME_FAQ_DA, HOME_FAQ_EN } from "@shared/marketingSeo";
 import { pick, useLocale, type Lang } from "@/lib/locale";
 
+type JourneyStep = { kicker: string; title: string; body: string };
+
 type HomeCopy = {
+  journey: {
+    title: string;
+    titleEm: string;
+    body: string;
+    signoff: string;
+    steps: JourneyStep[];
+  };
+  faq: { title: string; body: string };
   aria: {
     home: string;
     primaryNav: string;
@@ -21,15 +32,6 @@ type HomeCopy = {
     dashboard: string;
     builder: string;
     automation: string;
-  };
-  nav: {
-    platform: string;
-    services: string;
-    pricing: string;
-    howItWorks: string;
-    customerStory: string;
-    login: string;
-    menu: string;
   };
   hero: {
     eyebrow: string;
@@ -72,18 +74,42 @@ type HomeCopy = {
     cta: string;
     link: string;
   };
-  footer: {
-    tagline: string;
-    contact: string;
-    address: string;
-    privacy: string;
-    terms: string;
-    copyright: string;
-  };
 };
 
 const COPY: Record<Lang, HomeCopy> = {
   da: {
+    journey: {
+      title: "Klientens vej skal føles tryg.",
+      titleEm: "Også før den første samtale.",
+      body: "Fra det øjeblik en potentiel klient finder din hjemmeside, hjælper Birdflow med at skabe en enkel vej videre — til booking og den praktiske information omkring samtalen.",
+      signoff: "Du tager dig af samtalen. Birdflow holder styr på flowet omkring den.",
+      steps: [
+        {
+          kicker: "01 · KLIENTEN FINDER DIG",
+          title: "Din side svarer på det første spørgsmål",
+          body: "Emma søger efter hjælp til stress og lander på sofielund.dk. Hun kan se, hvem du er, hvad du tilbyder, og hvordan hun kommer videre.",
+        },
+        {
+          kicker: "02 · EMMA BOOKER EN TID",
+          title: "Hun vælger en tid, du har åbnet",
+          body: "Ledige tider vises direkte på siden. Emma vælger tirsdag kl. 13.30, skriver navn og mail, og bekræfter.",
+        },
+        {
+          kicker: "03 · BOOKINGEN ER PÅ PLADS",
+          title: "Aftalen ligger i din kalender",
+          body: "Bookingen dukker op i Birdflow med det samme — bekræftet, med ydelse, tidspunkt og om det er online eller i klinikken.",
+        },
+        {
+          kicker: "04 · DET PRAKTISKE ER SENDT",
+          title: "Bekræftelsen gik ud, uden at du gjorde noget",
+          body: "Emma får bookingbekræftelsen kl. 10.42 med tid, sted og link til samtalen. Påmindelsen er allerede planlagt.",
+        },
+      ],
+    },
+    faq: {
+      title: "Spørgsmål, vi ofte får",
+      body: "Det, de fleste vil vide, inden de går i gang.",
+    },
     aria: {
       home: "Birdflow — hjem",
       primaryNav: "Primær navigation",
@@ -98,15 +124,6 @@ const COPY: Record<Lang, HomeCopy> = {
       dashboard: "Birdflow dashboard med overblik over praksis",
       builder: "Birdflow hjemmesidebygger",
       automation: "Birdflow automatiske mails og indstillinger",
-    },
-    nav: {
-      platform: "Platformen",
-      services: "Ydelser",
-      pricing: "Priser",
-      howItWorks: "Sådan virker det",
-      customerStory: "Kundeoplevelser",
-      login: "Log ind",
-      menu: "Åbn menu",
     },
     hero: {
       eyebrow: "Til behandlere og klinikker · indenfor psykisk/mental sundhed",
@@ -161,16 +178,40 @@ const COPY: Record<Lang, HomeCopy> = {
       cta: "Kom i gang",
       link: "Se mere om priserne",
     },
-    footer: {
-      tagline: "Den digitale platform til behandlere og klinikker — mental sundhed, terapi og trivsel.",
-      contact: "Kontakt Birdflow",
-      address: "Hjemmeside, booking og overblik samlet ét sted.",
-      privacy: "Privatlivspolitik",
-      terms: "Handelsbetingelser",
-      copyright: "© 2026 Birdflow",
-    },
   },
   en: {
+    journey: {
+      title: "The client's path should feel safe.",
+      titleEm: "Before the first session, too.",
+      body: "From the moment a prospective client finds your website, Birdflow helps make the way forward simple — to booking, and to the practical details around the session.",
+      signoff: "You take care of the session. Birdflow keeps track of the flow around it.",
+      steps: [
+        {
+          kicker: "01 · THE CLIENT FINDS YOU",
+          title: "Your site answers the first question",
+          body: "Emma searches for help with stress and lands on sofielund.dk. She can see who you are, what you offer, and how to take the next step.",
+        },
+        {
+          kicker: "02 · EMMA BOOKS A TIME",
+          title: "She picks a time you opened",
+          body: "Open times show directly on the page. Emma picks Tuesday at 13.30, enters her name and email, and confirms.",
+        },
+        {
+          kicker: "03 · THE BOOKING IS IN PLACE",
+          title: "The appointment is in your calendar",
+          body: "The booking appears in Birdflow immediately — confirmed, with the service, the time, and whether it is online or at the clinic.",
+        },
+        {
+          kicker: "04 · THE PRACTICALITIES ARE SENT",
+          title: "The confirmation went out without you lifting a finger",
+          body: "Emma gets the booking confirmation at 10.42 with time, place and a link to the session. The reminder is already scheduled.",
+        },
+      ],
+    },
+    faq: {
+      title: "Questions we are often asked",
+      body: "What most people want to know before getting started.",
+    },
     aria: {
       home: "Birdflow — home",
       primaryNav: "Primary navigation",
@@ -185,15 +226,6 @@ const COPY: Record<Lang, HomeCopy> = {
       dashboard: "Birdflow dashboard with a practice overview",
       builder: "Birdflow website builder",
       automation: "Birdflow automatic emails and settings",
-    },
-    nav: {
-      platform: "The platform",
-      services: "Services",
-      pricing: "Pricing",
-      howItWorks: "How it works",
-      customerStory: "Customer stories",
-      login: "Log in",
-      menu: "Open menu",
     },
     hero: {
       eyebrow: "For practitioners and clinics · mental health and wellbeing",
@@ -248,24 +280,9 @@ const COPY: Record<Lang, HomeCopy> = {
       cta: "Get started",
       link: "See more about pricing",
     },
-    footer: {
-      tagline: "The digital platform for practitioners and clinics — mental health, therapy and wellbeing.",
-      contact: "Contact Birdflow",
-      address: "Website, booking and overview in one place.",
-      privacy: "Privacy policy",
-      terms: "Terms of service",
-      copyright: "© 2026 Birdflow",
-    },
   },
 };
 
-const navItems = [
-  { href: "#platformen", key: "platform" },
-  { href: "/services", key: "services" },
-  { href: "/pricing", key: "pricing" },
-  { href: "#saadan-virker-det", key: "howItWorks" },
-  { href: "#kundecase", key: "customerStory" },
-] as const;
 
 const ASSETS = "/assets/home-redesign";
 
@@ -305,74 +322,6 @@ function HomeWave({
   );
 }
 
-function HomeHeader({ copy }: { copy: HomeCopy }) {
-  const [open, setOpen] = useState(false);
-  const signupLabel = useSignupLabel();
-
-  return (
-    <header className="bh-header">
-      <div className="bh-container bh-header-inner">
-        <Link href="/" className="bh-brand" aria-label={copy.aria.home}>
-          <Bird className="bh-brand-bird" />
-          <span>Birdflow</span>
-        </Link>
-
-        <nav className="bh-desktop-nav" aria-label={copy.aria.primaryNav}>
-          {navItems.map(({ href, key }) => (
-            <a key={href} href={href} className="bh-nav-link">
-              {copy.nav[key]}
-            </a>
-          ))}
-          <LangToggle />
-          <Link href="/auth?mode=signin" className="bh-login" data-testid="button-login-header-home">
-            {copy.nav.login}
-          </Link>
-          <Link href={SIGNUP_HREF} className="bh-header-cta" data-testid="button-signup-header-home">
-            {signupLabel}
-          </Link>
-        </nav>
-
-        <div className="bh-mobile-controls">
-          <Link href="/auth?mode=signin" className="bh-login">
-            {copy.nav.login}
-          </Link>
-          <button
-            type="button"
-            className="bh-menu-button"
-            aria-expanded={open}
-            aria-label={open ? copy.aria.closeMenu : copy.aria.openMenu}
-            onClick={() => setOpen((value) => !value)}
-            data-testid="button-mobile-menu-home"
-          >
-            {open ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
-          </button>
-        </div>
-      </div>
-
-      {open && (
-        <div className="bh-mobile-menu">
-          <nav aria-label={copy.aria.mobileNav}>
-            {navItems.map(({ href, key }) => (
-              <a key={href} href={href} onClick={() => setOpen(false)}>
-                {copy.nav[key]}
-                <ChevronRight aria-hidden="true" />
-              </a>
-            ))}
-          </nav>
-          <div className="bh-mobile-menu-actions">
-            <LangToggle />
-            <Link href="/auth?mode=signin" onClick={() => setOpen(false)} className="bh-mobile-login">
-              {copy.nav.login}
-            </Link>
-            <Link href={SIGNUP_HREF} onClick={() => setOpen(false)} className="bh-mobile-cta">
-              {signupLabel}
-            </Link>
-          </div>
-        </div>
-      )}
-    </header>
-  );
-}
 
 function Hero({ copy }: { copy: HomeCopy }) {
   return (
@@ -602,34 +551,6 @@ function Pricing({ copy }: { copy: HomeCopy }) {
   );
 }
 
-function HomeFooter({ copy }: { copy: HomeCopy }) {
-  return (
-    <footer className="bh-footer">
-      <div className="bh-container bh-footer-grid">
-        <div className="bh-footer-brand">
-          <Link href="/" className="bh-brand" aria-label={copy.aria.home}>
-            <Bird className="bh-brand-bird" />
-            <span>Birdflow</span>
-          </Link>
-          <p>{copy.footer.tagline}</p>
-        </div>
-        <div className="bh-footer-contact">
-          <a href="/dfy#kontakt" className="bh-footer-contact-link">
-            {copy.footer.contact} <ArrowUpRight aria-hidden="true" />
-          </a>
-          <p>{copy.footer.address}</p>
-        </div>
-        <div className="bh-footer-bottom">
-          <span>{copy.footer.copyright}</span>
-          <span className="bh-footer-legal">
-            <Link href="/privacy">{copy.footer.privacy}</Link>
-            <Link href="/terms">{copy.footer.terms}</Link>
-          </span>
-        </div>
-      </div>
-    </footer>
-  );
-}
 
 const HOME_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif&display=swap');
@@ -664,6 +585,38 @@ const HOME_CSS = `
 .bh-mobile-controls, .bh-mobile-menu { display: none; }
 .bh-wave { display: block; width: 100%; height: 94px; margin: -1px 0; }
 .bh-wave-compact { height: 76px; }
+
+/* ── Klientens vej ── */
+.bh-journey { padding: 74px 0 82px; }
+.bh-journey h2 { margin: 0; max-width: 20ch; font-size: clamp(27px, 3.6vw, 42px); line-height: 1.16; font-weight: 900; letter-spacing: -.01em; }
+.bh-journey-em { color: var(--bh-purple); }
+.bh-journey-steps { counter-reset: none; list-style: none; margin: 38px 0 0; padding: 0; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); }
+.bh-journey-steps > li { position: relative; background: white; border: 1.5px solid rgba(130,24,198,.2); border-radius: 18px; padding: 22px 22px 24px; }
+/* The thread that runs between the beats, on wide layouts only. */
+.bh-journey-steps > li::after { content: ""; position: absolute; top: 50px; right: -18px; width: 18px; height: 2px; background: rgba(130,24,198,.28); }
+.bh-journey-steps > li:last-child::after { display: none; }
+.bh-journey-kicker { display: block; color: var(--bh-purple); font-size: 10.5px; font-weight: 900; letter-spacing: .11em; }
+.bh-journey-steps h3 { margin: 12px 0 0; font-size: 17px; line-height: 1.32; font-weight: 900; }
+.bh-journey-steps p { margin: 9px 0 0; font-size: 14.5px; line-height: 1.6; opacity: .76; }
+.bh-journey-signoff { margin: 30px 0 0; max-width: 46ch; color: var(--bh-purple); font-size: clamp(16px, 1.6vw, 18.5px); font-weight: 800; line-height: 1.55; }
+@media (max-width: 700px) { .bh-journey-steps > li::after { display: none; } }
+
+/* ── FAQ ──
+   Rendered from the same list that feeds the FAQPage JSON-LD, so the
+   structured data always describes what is on screen. */
+.bh-faq { padding: 74px 0 84px; }
+.bh-faq h2 { margin: 0; font-size: clamp(27px, 3.6vw, 42px); line-height: 1.16; font-weight: 900; letter-spacing: -.01em; }
+.bh-faq-list { margin: 32px 0 0; max-width: 820px; border-top: 1.5px solid rgba(0,0,0,.11); }
+.bh-faq-item { border-bottom: 1.5px solid rgba(0,0,0,.11); }
+.bh-faq-item h3 { margin: 0; font-size: inherit; font-weight: inherit; }
+.bh-faq-item button { display: flex; align-items: center; gap: 18px; width: 100%; padding: 19px 2px; border: 0; background: none; cursor: pointer; text-align: left; font-family: inherit; font-size: clamp(16px, 1.7vw, 18.5px); font-weight: 800; line-height: 1.4; color: inherit; }
+.bh-faq-item button:hover { color: var(--bh-purple); }
+.bh-faq-item button:focus-visible { outline: 2px solid var(--bh-blue); outline-offset: 3px; border-radius: 6px; }
+.bh-faq-item svg { flex: none; width: 20px; height: 20px; margin-left: auto; color: var(--bh-purple); transition: transform .22s ease; }
+.bh-faq-item svg[data-open] { transform: rotate(180deg); }
+.bh-faq-item > div { padding: 0 2px 22px; }
+.bh-faq-item > div p { margin: 0; max-width: 68ch; font-size: 16px; line-height: 1.68; opacity: .8; }
+
 .bh-section { position: relative; }
 .bh-lime { background: var(--bh-lime); }
 .bh-blush { background: var(--bh-blush); }
@@ -861,6 +814,94 @@ const HOME_CSS = `
 }
 `;
 
+/**
+ * Klientens vej — the four beats between a client finding the site and the
+ * confirmation landing in their inbox.
+ *
+ * The design draws this as absolutely-positioned cards on a fixed 620x1140
+ * canvas. Rebuilt here as a flowing sequence so it composes at every width
+ * instead of being a desktop composition scaled down.
+ */
+function ClientJourney({ copy }: { copy: HomeCopy }) {
+  return (
+    <section className="bh-section bh-blush bh-journey" id="klientens-vej">
+      <div className="bh-container">
+        <h2>
+          {copy.journey.title}
+          <span className="bh-journey-em"> {copy.journey.titleEm}</span>
+        </h2>
+        <p className="bh-section-intro">{copy.journey.body}</p>
+
+        <ol className="bh-journey-steps">
+          {copy.journey.steps.map((step) => (
+            <li key={step.kicker}>
+              <span className="bh-journey-kicker">{step.kicker}</span>
+              <h3>{step.title}</h3>
+              <p>{step.body}</p>
+            </li>
+          ))}
+        </ol>
+
+        <p className="bh-journey-signoff">{copy.journey.signoff}</p>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The FAQ renders HOME_FAQ_DA / HOME_FAQ_EN directly.
+ *
+ * The Danish list is also what feeds the FAQPage JSON-LD for "/", so this is
+ * deliberately the same source: structured data must describe content the
+ * visitor can actually see. Before this section existed the schema described
+ * an FAQ that was not on the page at all.
+ */
+function Faq({ copy }: { copy: HomeCopy }) {
+  const { lang } = useLocale();
+  const items = lang === "en" ? HOME_FAQ_EN : HOME_FAQ_DA;
+  const [open, setOpen] = useState<number | null>(0);
+
+  return (
+    <section className="bh-section bh-lime bh-faq" id="faq">
+      <div className="bh-container">
+        <h2>{copy.faq.title}</h2>
+        <p className="bh-section-intro">{copy.faq.body}</p>
+
+        <div className="bh-faq-list">
+          {items.map((item, i) => {
+            const isOpen = open === i;
+            return (
+              <div key={item.q} className="bh-faq-item">
+                <h3>
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    aria-controls={`bh-faq-panel-${i}`}
+                    id={`bh-faq-button-${i}`}
+                    onClick={() => setOpen(isOpen ? null : i)}
+                    data-testid={`faq-question-${i}`}
+                  >
+                    <span>{item.q}</span>
+                    <ChevronDown aria-hidden="true" data-open={isOpen ? "1" : undefined} />
+                  </button>
+                </h3>
+                <div
+                  id={`bh-faq-panel-${i}`}
+                  role="region"
+                  aria-labelledby={`bh-faq-button-${i}`}
+                  hidden={!isOpen}
+                >
+                  <p>{item.a}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function HomepageRedesign() {
   const { lang } = useLocale();
   const copy = pick(COPY, lang);
@@ -869,7 +910,7 @@ export default function HomepageRedesign() {
     <div className="bh-home">
       <style>{HOME_CSS}</style>
       <BirdDefs />
-      <HomeHeader copy={copy} />
+      <Nav />
       <main>
         <Hero copy={copy} />
         <Workflow copy={copy} />
@@ -877,9 +918,11 @@ export default function HomepageRedesign() {
         <HomeWave from="blush" to="lime" compact />
         <Expectations copy={copy} />
         <ProductDemo copy={copy} />
+        <ClientJourney copy={copy} />
         <Pricing copy={copy} />
+        <Faq copy={copy} />
       </main>
-      <HomeFooter copy={copy} />
+      <MarketingFooter />
     </div>
   );
 }

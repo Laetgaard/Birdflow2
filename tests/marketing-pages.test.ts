@@ -47,9 +47,31 @@ describe("bf2 design kit extraction", () => {
     expect(landing).not.toContain("function BandWave");
   });
 
-  it("navbar links to both new pages, in both languages", () => {
-    expect(nav).toContain('{ href: "/services", label: { da: "Ydelser", en: "Services" } }');
+  it("navbar carries the four approved pages, in both languages", () => {
+    // The redesign trimmed the nav to Forside / Priser / Sådan virker det /
+    // Om os. /services keeps a home in the footer — see the check below.
+    expect(nav).toContain('{ href: "/", label: { da: "Forside", en: "Home" } }');
     expect(nav).toContain('{ href: "/pricing", label: { da: "Priser", en: "Pricing" } }');
+    expect(nav).toContain(
+      '{ href: "/saadan-virker-det", label: { da: "Sådan virker det", en: "How it works" } }',
+    );
+    expect(nav).toContain('{ href: "/about", label: { da: "Om os", en: "About" } }');
+  });
+
+  it("the footer keeps the pages the nav no longer lists reachable", () => {
+    const footer = read("client", "src", "components", "bf2", "MarketingFooter.tsx");
+    // Dropping /services from the nav must not orphan it, and the legal
+    // pages have no other entry point at all.
+    expect(footer).toContain('href="/services"');
+    expect(footer).toContain('href="/privacy"');
+    expect(footer).toContain('href="/terms"');
+  });
+
+  it("the mobile menu is operable without a mouse", () => {
+    expect(nav).toContain("aria-expanded={open}");
+    expect(nav).toContain('aria-controls="bf2-mobile-menu"');
+    expect(nav).toContain('id="bf2-mobile-menu"');
+    expect(nav).toContain('e.key === "Escape"');
   });
 
   it("anchors resolve off the landing page", () => {
@@ -88,11 +110,27 @@ describe("services page", () => {
 describe("pricing page", () => {
   const pricing = read("client", "src", "pages", "pricing.tsx");
 
-  it("shows the four tiers at the agreed prices", () => {
-    expect(pricing).toContain('"49,95"');
-    expect(pricing).toContain('"749,95"');
-    expect(pricing).toContain('"1.999"');
-    expect(pricing).toContain('name: "Enterprise"');
+  it("shows the three tiers at the approved prices", () => {
+    expect(pricing).toContain('name: "Starter"');
+    expect(pricing).toContain('"999,95"');
+    expect(pricing).toContain('name: "Praksissen"');
+    expect(pricing).toContain('"1999,95"');
+    expect(pricing).toContain('name: "Klinikken"');
+    expect(pricing).toContain('"4999,95"');
+  });
+
+  it("quotes the same entry price the homepage does", () => {
+    // The homepage says "fra 999,95 kr./mdr."; that is the Starter tier.
+    // If either number moves without the other, visitors get two answers.
+    const home = read("client", "src", "pages", "homepage-redesign.tsx");
+    expect(home).toContain("999,95");
+    expect(pricing).toContain('"999,95"');
+  });
+
+  it("routes clinics with bespoke needs to a meeting", () => {
+    // The Enterprise tier was dropped, so this block carries that path.
+    expect(pricing).toContain("section-pricing-clinic");
+    expect(pricing).toContain("button-pricing-clinic");
   });
 
   it("shows the one-off website packages with their savings", () => {
@@ -107,7 +145,9 @@ describe("pricing page", () => {
     // checkout button here would charge an amount the page never showed.
     expect(pricing).not.toContain("user-checkout");
     expect(pricing).not.toContain("checkoutMutation");
-    expect(pricing).not.toContain("subscriptionPlans");
+    // Match the import, not the bare word — the file's header comment
+    // names subscriptionPlans deliberately, to explain the split.
+    expect(pricing).not.toContain('from "@shared/subscriptionPlans"');
   });
 
   it("is bilingual", () => {
@@ -128,5 +168,63 @@ describe("routing", () => {
 
   it("wraps the app in LocaleProvider", () => {
     expect(app).toContain("<LocaleProvider>");
+  });
+});
+
+describe("homepage", () => {
+  const home = read("client", "src", "pages", "homepage-redesign.tsx");
+
+  it("renders the FAQ that the FAQPage schema describes", () => {
+    // jsonLdForRoute() emits faqPageLd(HOME_FAQ_DA) for "/". Before this
+    // section existed the schema described an FAQ that was nowhere on the
+    // page — structured data must describe visible content.
+    expect(home).toContain("HOME_FAQ_DA");
+    expect(home).toContain('from "@shared/marketingSeo"');
+    expect(home).toContain('id="faq"');
+  });
+
+  it("builds the FAQ from buttons, not clickable divs", () => {
+    expect(home).toContain("aria-expanded={isOpen}");
+    expect(home).toContain("aria-controls={`bh-faq-panel-${i}`}");
+    expect(home).toContain("aria-labelledby={`bh-faq-button-${i}`}");
+  });
+
+  it("uses the shared marketing chrome", () => {
+    // It used to carry its own header and footer, so it missed shared fixes.
+    expect(home).toContain("<Nav />");
+    expect(home).toContain("<MarketingFooter />");
+    expect(home).not.toContain("function HomeHeader");
+    expect(home).not.toContain("function HomeFooter");
+  });
+
+  it("tells the client-journey story the design calls for", () => {
+    expect(home).toContain('id="klientens-vej"');
+    expect(home).toContain("function ClientJourney");
+  });
+});
+
+describe("home FAQ copy", () => {
+  it("has the same questions in both languages", async () => {
+    // The Danish list feeds the JSON-LD; the English one only renders. If
+    // they fall out of step, an answer shows under the wrong question.
+    const { HOME_FAQ_DA, HOME_FAQ_EN } = await import("../shared/marketingSeo");
+    expect(HOME_FAQ_EN).toHaveLength(HOME_FAQ_DA.length);
+    for (const item of [...HOME_FAQ_DA, ...HOME_FAQ_EN]) {
+      expect(item.q.length).toBeGreaterThan(0);
+      expect(item.a.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("scroll reveal", () => {
+  const primitives = read("client", "src", "components", "bf2", "primitives.tsx");
+
+  it("never leaves content stranded at opacity 0", () => {
+    // A threshold can be missed two ways: an element taller than the viewport
+    // never reaches the ratio, and a fast scroll can carry one past inside a
+    // single frame. Both used to leave the block invisible permanently.
+    expect(primitives).toContain("prefersReducedMotion()");
+    expect(primitives).toContain("const sweep =");
+    expect(primitives).toContain("setTimeout(show,");
   });
 });

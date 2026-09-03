@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { Menu, X } from "lucide-react";
 import { BLUE, PURPLE } from "./theme";
@@ -11,23 +11,20 @@ import { useLocale, type Lang } from "@/lib/locale";
 
    NAV_ITEMS drives three consumers (desktop nav, mobile drawer and
    the landing page footer) through useNavLinks(), so adding an
-   entry here surfaces it in all three. Entries are either in-page
-   anchors ("#platformen") or full routes ("/services"); NavLink
-   handles the difference and rewrites anchors to "/#anchor" when
-   rendered off the landing page, so they still resolve. Every
-   anchor here must exist as an id on the landing page — nothing may
-   point at a deleted section.
+   entry here surfaces it in all three.
 
-   Labels are bilingual: the anchors themselves stay Danish because
-   they are element ids on the landing page, not user-facing text.
+   Every entry is now a real route. NavLink still handles in-page
+   anchors (rewriting "#x" to "/#x" off the landing page) because
+   pages pass their own anchors through it, but the top-level nav no
+   longer depends on ids existing on the landing page — /services
+   moved to the footer when the nav adopted the approved design.
    ───────────────────────────────────────────────────────────── */
 
 const NAV_ITEMS: Array<{ href: string; label: Record<Lang, string> }> = [
-  { href: "#platformen", label: { da: "Platformen", en: "The platform" } },
-  { href: "/services", label: { da: "Ydelser", en: "Services" } },
+  { href: "/", label: { da: "Forside", en: "Home" } },
   { href: "/pricing", label: { da: "Priser", en: "Pricing" } },
-  { href: "#saadan-virker-det", label: { da: "Sådan virker det", en: "How it works" } },
-  { href: "#kundecase", label: { da: "Kundeoplevelse", en: "Customer story" } },
+  { href: "/saadan-virker-det", label: { da: "Sådan virker det", en: "How it works" } },
+  { href: "/about", label: { da: "Om os", en: "About" } },
 ];
 
 /** The nav entries as `[href, label]` pairs in the active language. */
@@ -39,8 +36,8 @@ export function useNavLinks(): Array<[string, string]> {
 /** Primary CTA everywhere: start a website, i.e. create an account. */
 export const SIGNUP_HREF = "/auth?mode=signup";
 export const SIGNUP_LABELS: Record<Lang, string> = {
-  da: "Få din hjemmeside",
-  en: "Get your website",
+  da: "Kom i gang",
+  en: "Get started",
 };
 export function useSignupLabel(): string {
   const { lang } = useLocale();
@@ -70,6 +67,13 @@ export function bookHref(): string {
 export function useOnLanding(): boolean {
   const [location] = useLocation();
   return location === "/";
+}
+
+/** Current route, normalised the same way locale.tsx does, for the active pill. */
+function useCurrentPath(): string {
+  const [location] = useLocation();
+  const clean = (location.split("?")[0] ?? "/").replace(/\/+$/, "");
+  return clean === "" ? "/" : clean;
 }
 
 /**
@@ -115,6 +119,22 @@ export function Nav() {
   const navLinks = useNavLinks();
   const signupLabel = useSignupLabel();
   const chrome = useChromeCopy();
+  const path = useCurrentPath();
+
+  // Escape closes the drawer, and navigating away closes it too — otherwise it
+  // stays open behind the next page after a link is followed.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  useEffect(() => {
+    setOpen(false);
+  }, [path]);
 
   return (
     <header id="top" style={{ background: PURPLE }}>
@@ -131,15 +151,21 @@ export function Nav() {
             language toggle fits on one line without clipping the CTA;
             xl restores the original rhythm. */}
         <nav className="hidden lg:flex gap-3 xl:gap-7 ml-auto items-center">
-          {navLinks.map(([href, label]) => (
-            <NavLink
-              key={href}
-              href={href}
-              className="text-white no-underline whitespace-nowrap text-[14px] xl:text-[16px] font-extrabold hover:opacity-80 transition-opacity"
-            >
-              {label}
-            </NavLink>
-          ))}
+          {navLinks.map(([href, label]) => {
+            const active = href === path;
+            return (
+              <NavLink
+                key={href}
+                href={href}
+                className={`no-underline whitespace-nowrap text-[14px] xl:text-[16px] font-extrabold rounded-lg px-3 py-[7px] transition-opacity ${
+                  active ? "bg-white" : "text-white hover:opacity-80"
+                }`}
+                style={active ? { color: PURPLE } : undefined}
+              >
+                {label}
+              </NavLink>
+            );
+          })}
           <LangToggle />
           <Link
             href="/auth?mode=signin"
@@ -168,9 +194,12 @@ export function Nav() {
             {chrome.login}
           </Link>
           <button
-            className="p-2 -mr-2 text-white"
+            type="button"
+            className="p-2 -mr-2 text-white rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             onClick={() => setOpen(!open)}
             aria-label={chrome.menu}
+            aria-expanded={open}
+            aria-controls="bf2-mobile-menu"
             data-testid="button-mobile-menu"
           >
             {open ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -180,6 +209,7 @@ export function Nav() {
 
       {open && (
         <div
+          id="bf2-mobile-menu"
           className="lg:hidden border-t border-white/20 px-5 pt-2 pb-6"
           style={{ background: PURPLE }}
         >
