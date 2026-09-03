@@ -1,4 +1,14 @@
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
+import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
+import {
+  MOTION_TABLES,
+  computeMotion,
+  motionPhaseStyle,
+  sectionMotionSpec,
+  staggerChildSpec,
+} from '../../shared/motion';
+import { APPROVED_FONTS, DEFAULT_FONT_STACK, googleFontsHref, resolveApprovedFontStack } from '../../shared/fonts';
+import { resolveDesignTokens } from '../../shared/designTokens';
 import {
   CALENDAR_MONTHS,
   CALENDAR_WEEKDAYS,
@@ -135,7 +145,7 @@ export function generateBookingApiRoute(websiteId: string): string {
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const BIRDFLOW_API_URL = process.env.NEXT_PUBLIC_BIRDFLOW_API_URL || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 // Look up website_id from deployment URL or slug stored in database
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
@@ -524,7 +534,7 @@ export function generateBookingServicesApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 // Look up website_id from deployment URL or slug stored in database
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
@@ -614,7 +624,7 @@ export function generateFormSubmissionApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
@@ -709,7 +719,7 @@ export function generateAvailabilityApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
@@ -906,7 +916,7 @@ export function generateSlotsApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
@@ -1162,7 +1172,7 @@ export function generateTeamMembersApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
@@ -1256,7 +1266,7 @@ export function generateCheckoutApiRoute(websiteId: string): string {
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const WEBSITE_ID = '${websiteId}';
+const WEBSITE_ID = ${lit(websiteId)};
 
 export async function POST(request: NextRequest) {
   try {
@@ -1397,7 +1407,7 @@ export function generateCheckoutValidateApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const WEBSITE_ID = '${websiteId}';
+const WEBSITE_ID = ${lit(websiteId)};
 
 export async function POST(request: NextRequest) {
   try {
@@ -1540,7 +1550,7 @@ export function generateCheckoutConfirmApiRoute(websiteId: string): string {
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const WEBSITE_ID = '${websiteId}';
+const WEBSITE_ID = ${lit(websiteId)};
 
 export async function POST(request: NextRequest) {
   try {
@@ -1740,7 +1750,7 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const WEBSITE_ID = '${websiteId}';
+const WEBSITE_ID = ${lit(websiteId)};
 
 export async function POST(request: NextRequest) {
   try {
@@ -1837,7 +1847,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Fallback website ID (hardcoded at build time)
-export const fallbackWebsiteId = '${websiteId}';
+export const fallbackWebsiteId = ${lit(websiteId)};
 
 // Runtime website ID (will be set by WebsiteProvider)
 let runtimeWebsiteId: string | null = null;
@@ -1851,7 +1861,7 @@ export function getWebsiteId(): string {
 }
 
 // For backward compatibility
-export const websiteId = '${websiteId}';
+export const websiteId = ${lit(websiteId)};
 
 // Fetch website by deployment URL or slug from Supabase
 export async function fetchWebsiteByDeploymentUrl(hostname: string): Promise<{ id: string; name: string } | null> {
@@ -1942,7 +1952,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-export const websiteId = '${websiteId}';
+export const websiteId = ${lit(websiteId)};
 
 // Fetch website ID by deployment URL using admin client
 export async function getWebsiteIdByDeploymentUrl(url: string): Promise<string | null> {
@@ -2545,7 +2555,8 @@ export default function CartButton({ color = '#1a1a1a' }: CartButtonProps) {
 
 export function generateComponentRenderer(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
   const t = PUBLISHED_SITE_STRINGS[lang];
-  return `'use client';
+  return `// This file is auto-generated by the BirdFlow publisher. Do not edit manually.
+'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import theme from '@/theme.json';
@@ -2557,6 +2568,13 @@ type BuilderPage = {
   name: string;
   path: string;
   hidden?: boolean;
+};
+
+/** One resolved navigation link, baked into the page by the publisher. */
+type NavItem = {
+  id: string;
+  title: string;
+  href: string;
 };
 
 type ImageValue = string | { url: string; mediaId?: string; crop?: { x: number; y: number; width: number; height: number } };
@@ -2594,10 +2612,13 @@ type StyledText = {
   fontSize?: string;
   fontWeight?: string;
   color?: string;
-  textAlign?: 'left' | 'center' | 'right';
+  // Widened to string so baked-in JSON literals don't widen to a type that
+  // clashes with the strict union in the builder. The renderer only reads
+  // these values at runtime (e.g. style.textAlign = styledProp.textAlign).
+  textAlign?: string;
   letterSpacing?: string;
   lineHeight?: string;
-  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  textTransform?: string;
 };
 
 type ComponentProps = {
@@ -2611,8 +2632,11 @@ type ComponentProps = {
   items?: ComponentItem[];
   stats?: StatItem[];
   formFields?: FormField[];
-  alignment?: 'left' | 'center' | 'right';
-  imageSide?: 'left' | 'right';
+  // Widened to string: the renderer reads these at runtime only. Using strict
+  // literal unions here ("left"|"center"|"right") would cause TypeScript to
+  // reject baked-in JSON literals whose inferred type is widened to string.
+  alignment?: string;
+  imageSide?: string;
   columns?: number;
   productLimit?: number;
   autoPlay?: boolean;
@@ -2705,20 +2729,60 @@ function resolveAccentColor(styles: ComponentStyles): string {
   return (styles.accentColor as string) || theme.primaryColor || '#4f46e5';
 }
 
+// The families this site actually loads (see the stylesheet in app/layout).
+// A stack naming anything else would render as a browser default here while
+// looking right in the builder, so it falls back to the same default the
+// builder shows.
+const APPROVED_FAMILIES = new Set(${JSON.stringify(APPROVED_FONTS.map((f) => f.name.toLowerCase()))});
+const DEFAULT_FONT_STACK = ${JSON.stringify(DEFAULT_FONT_STACK)};
+
+function approvedFontStack(stack?: string): string {
+  if (!stack) return DEFAULT_FONT_STACK;
+  const family = stack.split(',')[0].trim().replace(/^["']|["']$/g, '').toLowerCase();
+  return APPROVED_FAMILIES.has(family) ? stack : DEFAULT_FONT_STACK;
+}
+
 function resolveFontFamily(styles: ComponentStyles): string {
-  return (styles.fontFamily as string) || theme.fontFamily || 'Inter, system-ui, sans-serif';
+  return approvedFontStack((styles.fontFamily as string) || theme.fontFamily);
 }
 
 function resolveButtonColor(styles: ComponentStyles): string {
   return (styles.buttonColor as string) || theme.primaryColor || '#4f46e5';
 }
 
+// Visitors who ask their system for less motion get the finished layout
+// straight away, with no entrance animations - the same rule the builder
+// preview follows, so the two still look alike.
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('${REDUCED_MOTION_QUERY}');
+    setReduced(query.matches);
+    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches);
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', onChange);
+      return () => query.removeEventListener('change', onChange);
+    }
+    query.addListener(onChange);
+    return () => query.removeListener(onChange);
+  }, []);
+
+  return reduced;
+}
+
 // Stagger animation hook for scroll-triggered per-item animations
 function useStaggerAnimation(itemCount: number) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const reduceMotion = usePrefersReducedMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      setIsVisible(true);
+      return;
+    }
     if (!containerRef.current) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -2733,13 +2797,16 @@ function useStaggerAnimation(itemCount: number) {
     );
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [reduceMotion]);
 
-  const getItemStyle = (index: number): React.CSSProperties => ({
-    opacity: isVisible ? 1 : 0,
-    transform: isVisible ? 'translateY(0)' : 'translateY(24px)',
-    transition: 'opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1) ' + (index * 0.08) + 's, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) ' + (index * 0.08) + 's',
-  });
+  const getItemStyle = (index: number): React.CSSProperties =>
+    reduceMotion
+      ? { opacity: 1, transform: 'none' }
+      : {
+          opacity: isVisible ? 1 : 0,
+          transform: isVisible ? 'translateY(0)' : 'translateY(24px)',
+          transition: 'opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1) ' + (index * 0.08) + 's, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) ' + (index * 0.08) + 's',
+        };
 
   return { containerRef, getItemStyle };
 }
@@ -2765,36 +2832,109 @@ function HoverCard({ children, style, accentColor }: { children: React.ReactNode
   );
 }
 
-const animationKeyframes = \`
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes slideDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes slideLeft { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes slideRight { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes zoomIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
-@keyframes zoomOut { from { opacity: 0; transform: scale(1.1); } to { opacity: 1; transform: scale(1); } }
-@keyframes bounce { 
-  0% { opacity: 0; transform: translateY(30px); }
-  60% { opacity: 1; transform: translateY(-10px); }
-  80% { transform: translateY(5px); }
-  100% { transform: translateY(0); }
-}
-@keyframes flip { from { opacity: 0; transform: perspective(400px) rotateX(90deg); } to { opacity: 1; transform: perspective(400px) rotateX(0); } }
-@keyframes staggerFadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-\`;
+// ============ Motion (shared model, baked from shared/motion.ts) ============
+// The generated project cannot import @shared, so the vocabulary tables are
+// baked in as JSON and the resolver functions as their compiled source —
+// the SAME functions the builder preview imports. Motion is data (preset
+// names); unknown names resolve to no motion, never to arbitrary CSS.
+// tests/motion.test.ts holds the stringified sources equivalent to direct
+// calls, and the parity suite renders both sides from them.
+const MOTION_TABLES: any = ${JSON.stringify(MOTION_TABLES)};
+// Explicit any type annotations on the holding constants give TypeScript
+// the parameter types it needs to satisfy noImplicitAny without running the
+// compiled function source through the TypeScript parser again. The function
+// bodies come from shared/motion.ts via .toString() and are pure data (no
+// TypeScript syntax) -- the annotations live on the const, not the body.
+const computeMotion: (tables: any, spec: any, staggerIndex?: number) => any = ${computeMotion.toString()};
+const motionPhaseStyle: (resolved: any, phase: any) => any = ${motionPhaseStyle.toString()};
+const sectionMotionSpec: (styles: any) => any = ${sectionMotionSpec.toString()};
+const staggerChildSpec: (parentSpec: any, childMotion: any) => any = ${staggerChildSpec.toString()};
 
-const animationMap: Record<string, string> = {
-  'fade-in': 'fadeIn',
-  'slide-up': 'slideUp',
-  'slide-down': 'slideDown',
-  'slide-left': 'slideLeft',
-  'slide-right': 'slideRight',
-  'zoom-in': 'zoomIn',
-  'zoom-out': 'zoomOut',
-  'bounce': 'bounce',
-  'flip': 'flip',
-  'stagger-fade-up': 'staggerFadeUp',
-};
+// Drives one entrance through hidden → entering → done. 'done' clears the
+// inline styles so classes and :hover rules win again; repeat 'every-view'
+// swings back to 'hidden' when the element scrolls out. Server-side the
+// phase starts 'hidden' (same initial markup as the builder preview);
+// reduced-motion visitors are unhidden pre-hydration by the [data-motion]
+// rule in globals.css and post-hydration by this hook.
+function useMotionPhase(resolved: any, replayKey: string) {
+  const ref = useRef<any>(null);
+  const reduceMotion = usePrefersReducedMotion();
+  const [phase, setPhase] = useState<string>(resolved ? 'hidden' : 'done');
+  const signature = resolved
+    ? [resolved.effect, resolved.trigger, resolved.durationMs, resolved.delayMs, resolved.easing, resolved.hiddenTransform, resolved.once, replayKey].join('|')
+    : 'none|' + replayKey;
+  useEffect(() => {
+    if (!resolved || reduceMotion) {
+      setPhase('done');
+      return;
+    }
+    setPhase('hidden');
+    if (resolved.trigger === 'load') {
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setPhase('entering'));
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        if (raf2) cancelAnimationFrame(raf2);
+      };
+    }
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setPhase('entering');
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setPhase('entering');
+            if (resolved.once) observer.disconnect();
+          } else if (!resolved.once) {
+            setPhase('hidden');
+          }
+        });
+      },
+      { threshold: 0.15 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [signature, reduceMotion]);
+  useEffect(() => {
+    if (phase !== 'entering' || !resolved || !resolved.once) return;
+    const timer = window.setTimeout(() => setPhase('done'), resolved.durationMs + resolved.delayMs + 80);
+    return () => window.clearTimeout(timer);
+  }, [phase, signature]);
+  return {
+    ref,
+    style: motionPhaseStyle(resolved, reduceMotion ? 'done' : (phase as any)) as React.CSSProperties,
+    active: !!resolved && !reduceMotion,
+  };
+}
+
+// Resolves breakpoint-specific style overrides for the active viewport.
+// SSR renders desktop styles; a client-side effect swaps in the right
+// breakpoint once window.innerWidth is known.
+function useResponsiveOverrides(responsive: any): Record<string, unknown> {
+  const [overrides, setOverrides] = useState<Record<string, unknown>>({});
+  useEffect(() => {
+    if (!responsive) return;
+    function update() {
+      const w = window.innerWidth;
+      if (w <= 640 && responsive.mobile) {
+        setOverrides(responsive.mobile);
+      } else if (w <= 1024 && responsive.tablet) {
+        setOverrides(responsive.tablet);
+      } else {
+        setOverrides({});
+      }
+    }
+    update();
+    window.addEventListener('resize', update, { passive: true });
+    return function() { window.removeEventListener('resize', update); };
+  }, []);
+  return overrides;
+}
 
 function AnimatedWrapper({ 
   children, 
@@ -2803,60 +2943,81 @@ function AnimatedWrapper({
   children: React.ReactNode; 
   styles: ComponentStyles;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const [hasAnimated, setHasAnimated] = useState(false);
-  
-  const animationType = styles.animationType || 'none';
-  const animationTrigger = styles.animationTrigger || 'load';
-  const animationDuration = styles.animationDuration || '0.5s';
-  const animationDelay = styles.animationDelay || '0s';
-  
-  useEffect(() => {
-    if (animationType === 'none' || hasAnimated) return;
-    
-    if (animationTrigger === 'load') {
-      setIsVisible(true);
-      setHasAnimated(true);
-    } else if (animationTrigger === 'scroll') {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting && !hasAnimated) {
-              setIsVisible(true);
-              setHasAnimated(true);
-            }
-          });
-        },
-        { threshold: 0.1 }
-      );
-      
-      if (ref.current) {
-        observer.observe(ref.current);
-      }
-      
-      return () => observer.disconnect();
-    }
-  }, [animationType, animationTrigger, hasAnimated]);
-  
-  if (animationType === 'none' || !animationMap[animationType]) {
+  // Legacy animation* fields plus styles.motion, resolved through the same
+  // shared model the builder preview uses.
+  const spec = sectionMotionSpec(styles);
+  const resolved = computeMotion(MOTION_TABLES, spec);
+  const m = useMotionPhase(resolved, '');
+
+  if (!m.active) {
     return <>{children}</>;
   }
-  
-  const animationName = animationMap[animationType];
-  const shouldAnimate = isVisible;
-  
+
   return (
-    <div
-      ref={ref}
-      style={{
-        opacity: shouldAnimate ? 1 : 0,
-        animation: shouldAnimate 
-          ? \`\${animationName} \${animationDuration} \${animationDelay} ease-out forwards\`
-          : 'none',
-      }}
-    >
+    <div ref={m.ref} data-motion="" style={m.style}>
       {children}
+    </div>
+  );
+}
+
+// Wraps a section with a scroll-speed-reduced parallax effect.
+// The section translates at (speed * 0.5) of the scroll delta, creating depth.
+// Runs only on the client; SSR renders no transform, so initial markup is
+// identical between builder and published (parity maintained).
+function ParallaxWrapper({
+  speed,
+  children,
+}: {
+  speed: number;
+  children: React.ReactNode;
+}) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = usePrefersReducedMotion();
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    let rafId = 0;
+    let visible = false;
+
+    function update() {
+      const rect = outer!.getBoundingClientRect();
+      const viewH = window.innerHeight;
+      const mid = rect.top + rect.height / 2 - viewH / 2;
+      inner!.style.transform = 'translateY(' + String(Math.round(mid * speed * -0.5)) + 'px)';
+    }
+
+    function onScroll() {
+      if (!visible) return;
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(update);
+    }
+
+    const observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        visible = entry.isIntersecting;
+        if (visible) update();
+      });
+    }, { threshold: 0 });
+    observer.observe(outer);
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return function() {
+      observer.disconnect();
+      window.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(rafId);
+    };
+  }, [speed, reduceMotion]);
+
+  return (
+    <div ref={outerRef} data-parallax="" style={{ overflow: 'hidden', position: 'relative' }}>
+      <div ref={innerRef}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -2872,6 +3033,7 @@ type ComponentStyles = {
   animationTrigger?: string;
   animationDuration?: string;
   animationDelay?: string;
+  motion?: any;
   boxShadow?: string;
   backgroundGradient?: string;
   backgroundImage?: string;
@@ -2905,10 +3067,17 @@ type ComponentStyles = {
   scrollBehavior?: string;
   scrolledBackgroundColor?: string;
   hoverColor?: string;
+  responsive?: {
+    tablet?: Record<string, string>;
+    mobile?: Record<string, string>;
+  };
   [key: string]: any;
 };
 
-type ComponentData = {
+// Exported so generated page files can import this type and annotate their
+// baked-in component arrays, giving TypeScript a contextual type to check
+// the data against without needing @ts-nocheck.
+export type ComponentData = {
   id: string;
   type: string;
   props: ComponentProps;
@@ -2923,7 +3092,7 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
     color: styles.textColor,
     padding: styles.padding || '0',
     position: 'relative' as const,
-    fontFamily: styles.fontFamily || undefined,
+    fontFamily: styles.fontFamily ? approvedFontStack(styles.fontFamily as string) : undefined,
     ...(styles.backgroundGradient && styles.backgroundGradient !== 'none' && {
       background: styles.backgroundGradient,
     }),
@@ -3116,17 +3285,27 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
           const stDesc = getStyledText(props.styledDescription, props.description);
           return stDesc.text ? <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', lineHeight: 1.6, maxWidth: '600px', margin: props.alignment === 'center' ? '0 auto 32px' : '0 0 32px', ...stDesc.style }}>{stDesc.text}</p> : null;
         })()}
-        {props.buttonText && (
-          <HoverButtonComponent
-            backgroundColor={buttonColor}
-            hoverBackgroundColor={buttonHoverColor}
-            textColor={buttonTextColor}
-            href={props.buttonLink || '#'}
-            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
-          >
-            {props.buttonText}
-          </HoverButtonComponent>
-        )}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: props.alignment === 'left' ? 'flex-start' : props.alignment === 'right' ? 'flex-end' : 'center' }}>
+          {props.buttonText && (
+            <HoverButtonComponent
+              backgroundColor={buttonColor}
+              hoverBackgroundColor={buttonHoverColor}
+              textColor={buttonTextColor}
+              href={props.buttonLink || '#'}
+              style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
+            >
+              {props.buttonText}
+            </HoverButtonComponent>
+          )}
+          {(props as any).secondaryButtonText && (
+            <a
+              href={(props as any).secondaryButtonLink || '#'}
+              style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '12px', border: '2px solid rgba(255,255,255,0.35)', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', letterSpacing: '0.01em' }}
+            >
+              {(props as any).secondaryButtonText}
+            </a>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -3134,16 +3313,46 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
 
 function ImageSliderSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
-  
+  const images = (props.images || []).filter((img: any) => !!getImageUrl(img));
+  const captions: string[] = (props as any).captions || [];
+  const aspectRatio = (styles as any).aspectRatio || '16/9';
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  if (images.length === 0) return null;
+
+  const prev = () => setCurrentIndex((i: number) => (i - 1 + images.length) % images.length);
+  const next = () => setCurrentIndex((i: number) => (i + 1) % images.length);
+  const caption = captions[currentIndex] || '';
+
   return (
     <section style={baseStyle}>
-      <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', padding: '20px 0' }}>
-        {props.images?.map((img, i) => {
-          const url = getImageUrl(img);
-          return url ? (
-            <img key={i} src={url} alt={\`Slide \${i + 1}\`} style={{ width: '300px', height: '200px', objectFit: 'cover', borderRadius: '8px', flexShrink: 0 }} />
-          ) : null;
-        })}
+      <div style={{ position: 'relative', width: '100%', maxWidth: '1200px', margin: '0 auto', borderRadius: styles.borderRadius || '16px', overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
+        <div style={{ width: '100%', aspectRatio, position: 'relative', backgroundColor: '#0a0a0a' }}>
+          <div key={currentIndex} style={{ position: 'absolute', inset: 0 }}>
+            <img src={getImageUrl(images[currentIndex])} alt={'Slide ' + (currentIndex + 1)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          </div>
+          {images.length > 1 && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 50%)', zIndex: 1 }} />}
+          {caption && (
+            <div style={{ position: 'absolute', bottom: images.length > 1 ? '52px' : '20px', left: 0, right: 0, textAlign: 'center', zIndex: 2, padding: '0 48px' }}>
+              <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.88)', fontStyle: 'italic', textShadow: '0 1px 4px rgba(0,0,0,0.4)', display: 'inline-block', maxWidth: '600px' }}>{caption}</span>
+            </div>
+          )}
+          {images.length > 1 && (
+            <>
+              <button onClick={prev} aria-label="Previous" style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: 'rgba(0,0,0,0.38)', border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              </button>
+              <button onClick={next} aria-label="Next" style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', width: '44px', height: '44px', borderRadius: '50%', backgroundColor: 'rgba(0,0,0,0.38)', border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+              </button>
+              <div style={{ position: 'absolute', bottom: '16px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '6px', zIndex: 2 }}>
+                {images.map((_: any, i: number) => (
+                  <button key={i} onClick={() => setCurrentIndex(i)} aria-label={'Slide ' + (i + 1)} style={{ width: i === currentIndex ? '24px' : '8px', height: '8px', borderRadius: '4px', backgroundColor: i === currentIndex ? '#fff' : 'rgba(255,255,255,0.45)', border: 'none', cursor: 'pointer', padding: 0, transition: 'all 0.3s cubic-bezier(0.16,1,0.3,1)' }} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -3199,17 +3408,27 @@ function CTASection({ props, styles }: { props: ComponentProps; styles: Componen
       <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
         {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         {stDesc.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.9, marginBottom: '32px', lineHeight: 1.6, ...stDesc.style }}>{stDesc.text}</p>}
-        {props.buttonText && (
-          <HoverButtonComponent
-            backgroundColor={buttonColor}
-            hoverBackgroundColor={buttonHoverColor}
-            textColor={buttonTextColor}
-            href={props.buttonLink || '#'}
-            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
-          >
-            {props.buttonText}
-          </HoverButtonComponent>
-        )}
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {props.buttonText && (
+            <HoverButtonComponent
+              backgroundColor={buttonColor}
+              hoverBackgroundColor={buttonHoverColor}
+              textColor={buttonTextColor}
+              href={props.buttonLink || '#'}
+              style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
+            >
+              {props.buttonText}
+            </HoverButtonComponent>
+          )}
+          {(props as any).secondaryButtonText && (
+            <a
+              href={(props as any).secondaryButtonLink || '#'}
+              style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '10px', border: '2px solid ' + hexToRgba(buttonColor, 0.35), color: buttonColor, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              {(props as any).secondaryButtonText}
+            </a>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -3285,9 +3504,30 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
               position: 'relative',
               ...getItemStyle(index),
             }}>
-              <div style={{ fontSize: '48px', lineHeight: 1, color: accentColor, opacity: 0.2, marginBottom: '8px', fontFamily: 'Georgia, serif' }}>"</div>
-              <p style={{ fontSize: '15px', lineHeight: 1.7, marginBottom: '20px', color: styles.textColor }}>{item.description}</p>
-              <p style={{ fontWeight: 600, fontSize: '14px', color: accentColor }}>{item.title}</p>
+              <div style={{ fontSize: '72px', lineHeight: 0.8, color: accentColor, opacity: 0.15, marginBottom: '12px', fontFamily: 'Georgia, "Times New Roman", serif', userSelect: 'none' }}>&ldquo;</div>
+              {(props as any).showStars !== false && (
+                <div style={{ display: 'flex', gap: '3px', marginBottom: '14px' }}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <svg key={star} width="16" height="16" viewBox="0 0 24 24" fill="#fbbf24" stroke="#fbbf24" strokeWidth="0.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                  ))}
+                </div>
+              )}
+              <p style={{ fontSize: '15px', lineHeight: 1.75, marginBottom: '24px', color: styles.textColor, flex: 1 }}>{item.description}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {getImageUrl(item.imageUrl) ? (
+                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid ' + hexToRgba(accentColor, 0.2) }}>
+                    <img src={getImageUrl(item.imageUrl)} alt={item.title || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                ) : (
+                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: hexToRgba(accentColor, 0.12), border: '2px solid ' + hexToRgba(accentColor, 0.2), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '16px', fontWeight: 700, color: accentColor }}>
+                    {(item.title || '?')[0].toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: '14px', display: 'block', lineHeight: 1.3 }}>{item.title}</span>
+                  {(item as any).role && <span style={{ fontSize: '12px', opacity: 0.55 }}>{(item as any).role}</span>}
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -3401,7 +3641,7 @@ function BurgerMenuButton({ isOpen, textColor, hoverColor, onClick }: {
   );
 }
 
-function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles: ComponentStyles; pages?: BuilderPage[] }) {
+function HeaderSection({ props, styles, pages, navItems: providedNavItems }: { props: ComponentProps; styles: ComponentStyles; pages?: BuilderPage[]; navItems?: NavItem[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -3454,9 +3694,16 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
     return () => window.removeEventListener('scroll', handleScroll);
   }, [scrollBehavior]);
 
-  const navItems = pages && pages.length > 0
-    ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
-    : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
+  // The site navigation is resolved by the publisher at generation time, the
+  // same way design tokens are, and handed in - and an empty menu stays
+  // empty, because a customer who removed every link meant it. Deriving from
+  // the page list is the pre-navigation fallback for pages generated before
+  // navigation was stored, which hand in no menu at all.
+  const navItems: NavItem[] = providedNavItems !== undefined
+    ? providedNavItems
+    : pages && pages.length > 0
+      ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
+      : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
   
   const getHeaderStyle = (): React.CSSProperties => {
     const shouldBeTransparent = isTransparent && !isScrolled;
@@ -3680,15 +3927,69 @@ function HeaderSection({ props, styles, pages }: { props: ComponentProps; styles
   );
 }
 
+function FooterSocialIcon({ platform }: { platform: string }) {
+  const icons: Record<string, React.ReactNode> = {
+    twitter: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>,
+    instagram: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" /></svg>,
+    facebook: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" /></svg>,
+    linkedin: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6zM2 9h4v12H2z" /><circle cx="4" cy="4" r="2" /></svg>,
+    youtube: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.6C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.96-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z" /><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02" fill="white" /></svg>,
+  };
+  return <>{icons[platform.toLowerCase()] || <span style={{ fontSize: '12px', fontWeight: 700 }}>{platform[0]}</span>}</>;
+}
+
 function FooterSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
-  const baseStyle = getBaseStyle({ ...styles, padding: '32px 24px' });
+  const baseStyle = getBaseStyle({ ...styles, padding: '56px 24px 32px' });
   const fontFamily = resolveFontFamily(styles);
+  const accentColor = resolveAccentColor(styles);
+  const navItems = (props.items || []).map((item: any) => ({ title: item.title, href: item.description || '#' }));
+  const columns: Array<{ heading: string; links: Array<{ label: string; href: string }> }> = (props as any).footerColumns || [];
+  const socialLinks: Array<{ platform: string; url: string }> = (props as any).socialLinks || [];
+  const copyright = (props as any).copyright || '';
+  const dividerColor = hexToRgba(styles.textColor || '#000', 0.07);
 
   return (
-    <footer style={{ ...baseStyle, fontFamily }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-        <p style={{ fontWeight: 600, marginBottom: '8px' }}>{props.title}</p>
-        <p style={{ opacity: 0.7, fontSize: '14px' }}>{props.description}</p>
+    <footer style={{ ...baseStyle, fontFamily, borderTop: '1px solid ' + hexToRgba(styles.textColor || '#000', 0.08) }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: columns.length > 0 ? '2fr ' + columns.map(() => '1fr').join(' ') : '1fr', gap: '40px', marginBottom: '40px' }}>
+          <div>
+            {props.title && <p style={{ fontWeight: 700, fontSize: '18px', marginBottom: '10px', letterSpacing: '-0.01em' }}>{props.title}</p>}
+            {props.description && <p style={{ opacity: 0.55, fontSize: '14px', lineHeight: 1.65, maxWidth: '280px' }}>{props.description}</p>}
+            {socialLinks.length > 0 && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
+                {socialLinks.map((social, i) => (
+                  <a key={i} href={social.url} style={{ width: '36px', height: '36px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: hexToRgba(styles.textColor || '#000', 0.07), color: styles.textColor || 'inherit', textDecoration: 'none' }}>
+                    <FooterSocialIcon platform={social.platform} />
+                  </a>
+                ))}
+              </div>
+            )}
+            {navItems.length > 0 && columns.length === 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 20px', marginTop: '20px' }}>
+                {navItems.map((item: any, i: number) => (
+                  <a key={i} href={item.href} style={{ fontSize: '14px', opacity: 0.6, textDecoration: 'none', color: 'inherit' }}>{item.title}</a>
+                ))}
+              </div>
+            )}
+          </div>
+          {columns.map((col, ci) => (
+            <div key={ci}>
+              <p style={{ fontWeight: 700, fontSize: '13px', letterSpacing: '0.06em', textTransform: 'uppercase', opacity: 0.4, marginBottom: '14px' }}>{col.heading}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {(col.links || []).map((link, li) => (
+                  <a key={li} href={link.href} style={{ fontSize: '14px', opacity: 0.6, textDecoration: 'none', color: 'inherit' }}>{link.label}</a>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ borderTop: '1px solid ' + dividerColor, paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          {copyright && <p style={{ fontSize: '13px', opacity: 0.45 }}>{copyright}</p>}
+          <div style={{ display: 'flex', gap: '16px', marginLeft: 'auto' }}>
+            <a href="/privacy" style={{ fontSize: '13px', opacity: 0.45, textDecoration: 'none', color: 'inherit' }}>${jsx(t.legalPrivacy)}</a>
+            <a href="/terms" style={{ fontSize: '13px', opacity: 0.45, textDecoration: 'none', color: 'inherit' }}>${jsx(t.legalTerms)}</a>
+          </div>
+        </div>
       </div>
     </footer>
   );
@@ -3696,6 +3997,7 @@ function FooterSection({ props, styles }: { props: ComponentProps; styles: Compo
 
 function ProductGridSection({ props, styles, products }: { props: ComponentProps; styles: ComponentStyles; products: any[] }) {
   const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
   const columns = props.columns || 3;
   const limit = props.productLimit || 6;
   const displayProducts = products.slice(0, limit);
@@ -3819,7 +4121,7 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
   \`;
   
   return (
-    <section style={baseStyle}>
+    <section style={{ ...baseStyle, fontFamily }}>
       <style dangerouslySetInnerHTML={{ __html: responsiveCSS }} />
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {props.title && <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '8px', textAlign: 'center' }}>{props.title}</h2>}
@@ -3884,7 +4186,7 @@ function PricingTableSection({ props, styles }: { props: ComponentProps; styles:
   const baseStyle = getBaseStyle(styles);
   const accentColor = resolveAccentColor(styles);
   const fontFamily = resolveFontFamily(styles);
-  const items = props.items || [];
+  const items = props.items || (props as any).plans || [];
   const cardStyle = (styles.cardStyle as string) || 'elevated';
   const { containerRef, getItemStyle } = useStaggerAnimation(items.length);
   const stTitle = getStyledText(props.styledTitle, props.title);
@@ -3904,29 +4206,60 @@ function PricingTableSection({ props, styles }: { props: ComponentProps; styles:
       <div ref={containerRef} style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
         {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.8, marginBottom: '48px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + (items.length || 1) + ', 1fr)', gap: '24px' }}>
-          {items.map((item: any, index: number) => (
-            <div key={item.id || index} style={{
-              padding: '32px',
-              borderRadius: '16px',
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              ...getCardStyles(),
-              ...getItemStyle(index),
-            }}>
-              {item.icon && <div style={{ fontSize: '40px', marginBottom: '16px' }}>{item.icon}</div>}
-              <h3 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '8px' }}>{item.title}</h3>
-              <p style={{ fontSize: '32px', fontWeight: 700, marginBottom: '16px' }}>{item.description}</p>
-              {item.features && item.features.length > 0 && (
-                <ul style={{ listStyle: 'none', padding: 0, margin: '16px 0 0', textAlign: 'left' }}>
-                  {item.features.map((f: string, fi: number) => (
-                    <li key={fi} style={{ padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,0.05)', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ color: accentColor }}>✓</span> {f}
-                    </li>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + (Math.min(items.length, 3) || 1) + ', 1fr)', gap: '20px', alignItems: 'stretch' }}>
+          {items.map((item: any, index: number) => {
+            const isHighlighted = item.highlighted === true;
+            const price = String(item.price || item.description || '');
+            const period = item.period || '/mo';
+            const features: string[] = item.features || [];
+            const cta = item.ctaText || props.buttonText || 'Get started';
+            const ctaLink = item.ctaLink || props.buttonLink || '#';
+            return (
+              <div key={item.id || index} style={{
+                padding: '36px 32px',
+                borderRadius: '24px',
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column',
+                textAlign: 'left',
+                backgroundColor: isHighlighted ? accentColor : ((styles as any).cardBackground || hexToRgba(accentColor, 0.04)),
+                border: isHighlighted ? 'none' : '1px solid ' + hexToRgba(accentColor, 0.1),
+                boxShadow: isHighlighted ? '0 20px 60px ' + hexToRgba(accentColor, 0.3) : '0 2px 12px rgba(0,0,0,0.05)',
+                color: isHighlighted ? getContrastColor(accentColor) : styles.textColor,
+                transform: isHighlighted ? 'scale(1.03)' : 'scale(1)',
+                ...getCardStyles(),
+                ...getItemStyle(index),
+              }}>
+                {isHighlighted && (
+                  <div style={{ position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#fff', color: accentColor, fontSize: '11px', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '5px 14px', borderRadius: '999px', boxShadow: '0 4px 16px ' + hexToRgba(accentColor, 0.25), whiteSpace: 'nowrap' }}>
+                    ✦ {(props as any).popularBadge || 'Most popular'}
+                  </div>
+                )}
+                <p style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: isHighlighted ? 0.8 : 0.55, marginBottom: '12px' }}>{item.title || item.name}</p>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '48px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.03em' }}>{price}</span>
+                  {period && <span style={{ fontSize: '14px', opacity: 0.6, paddingBottom: '8px' }}>{period}</span>}
+                </div>
+                {item.description && price && item.description !== price && (
+                  <p style={{ fontSize: '14px', opacity: 0.65, marginBottom: '24px', lineHeight: 1.6 }}>{item.description}</p>
+                )}
+                <div style={{ height: '1px', backgroundColor: isHighlighted ? 'rgba(255,255,255,0.2)' : hexToRgba(accentColor, 0.1), margin: '20px 0' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, marginBottom: '28px' }}>
+                  {(features.length > 0 ? features : [item.description].filter(Boolean)).map((feature: string, fi: number) => (
+                    <div key={fi} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', lineHeight: 1.5 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isHighlighted ? 'rgba(255,255,255,0.85)' : accentColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginTop: '1px', flexShrink: 0 }}><polyline points="20 6 9 17 4 12" /></svg>
+                      <span style={{ opacity: isHighlighted ? 0.9 : 0.8 }}>{feature}</span>
+                    </div>
                   ))}
-                </ul>
-              )}
-            </div>
-          ))}
+                </div>
+                <a href={ctaLink} style={{
+                  display: 'block', textAlign: 'center', padding: '14px 24px', borderRadius: '12px', fontWeight: 700, fontSize: '15px', textDecoration: 'none', letterSpacing: '0.01em',
+                  backgroundColor: isHighlighted ? '#fff' : resolveButtonColor(styles),
+                  color: isHighlighted ? accentColor : getContrastColor(resolveButtonColor(styles)),
+                }}>{cta}</a>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -3981,13 +4314,24 @@ function StatsCounterSection({ props, styles }: { props: ComponentProps; styles:
       <div ref={containerRef} style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
         {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.8, marginBottom: '48px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + (stats.length || 1) + ', 1fr)', gap: '32px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '24px', position: 'relative' }}>
           {stats.map((stat: any, index: number) => (
-            <div key={stat.id || index} style={getItemStyle(index)}>
-              <div style={{ fontSize: '48px', fontWeight: 800, marginBottom: '8px' }}>
-                {stat.prefix}{stat.value}{stat.suffix}
+            <div key={stat.id || index} style={{ position: 'relative', ...getItemStyle(index) }}>
+              {index > 0 && (
+                <div style={{ position: 'absolute', left: '-12px', top: '20%', bottom: '20%', width: '1px', backgroundColor: hexToRgba(accentColor, 0.12) }} />
+              )}
+              <div style={{ padding: '28px 20px', borderRadius: '20px', backgroundColor: hexToRgba(accentColor, 0.04), border: '1px solid ' + hexToRgba(accentColor, 0.08), textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '40px', height: '3px', borderRadius: '0 0 3px 3px', backgroundColor: accentColor, opacity: 0.7 }} />
+                {stat.icon ? (
+                  <div style={{ fontSize: '26px', marginBottom: '10px', lineHeight: 1 }}>{stat.icon}</div>
+                ) : stat.suffix ? (
+                  <div style={{ fontSize: '22px', marginBottom: '8px' }}>{String(stat.suffix).includes('%') ? '📊' : '⚡'}</div>
+                ) : null}
+                <div style={{ fontSize: '52px', fontWeight: 800, marginBottom: '6px', lineHeight: 1, letterSpacing: '-0.03em', color: accentColor }}>
+                  {stat.prefix}{stat.value}{stat.suffix}
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.6, lineHeight: 1.4, fontWeight: 500 }}>{stat.label}</div>
               </div>
-              <div style={{ fontSize: '16px', opacity: 0.8 }}>{stat.label}</div>
             </div>
           ))}
         </div>
@@ -3998,6 +4342,7 @@ function StatsCounterSection({ props, styles }: { props: ComponentProps; styles:
 
 function VideoEmbedSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
+  const fontFamily = resolveFontFamily(styles);
   const videoUrl = (props as any).videoUrl || '';
   
   const getEmbedUrl = (url: string) => {
@@ -4017,7 +4362,7 @@ function VideoEmbedSection({ props, styles }: { props: ComponentProps; styles: C
   };
   
   return (
-    <section style={{ ...baseStyle, borderRadius: styles.borderRadius }}>
+    <section style={{ ...baseStyle, borderRadius: styles.borderRadius, fontFamily }}>
       <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
         {(() => { const st = getStyledText(props.styledTitle, props.title); return st.text ? <h2 style={{ fontSize: styles.titleFontSize || '32px', fontWeight: 700, marginBottom: '8px', ...st.style }}>{st.text}</h2> : null; })()}
         {(() => { const st = getStyledText(props.styledDescription, props.description); return st.text ? <p style={{ fontSize: styles.bodyFontSize || '16px', opacity: 0.8, marginBottom: '32px', ...st.style }}>{st.text}</p> : null; })()}
@@ -4118,6 +4463,12 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
             {stSub.text}
           </p>
         )}
+        {(props as any).socialProof && !submitted && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginBottom: '20px', fontSize: '13px', opacity: 0.55 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+            {(props as any).socialProof}
+          </div>
+        )}
         {submitted ? (
           <div style={{ padding: '20px', backgroundColor: '#10b981', color: '#ffffff', borderRadius: '8px' }}>
             <p style={{ fontSize: '16px', fontWeight: '500' }}>
@@ -4129,7 +4480,7 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e: any) => setEmail(e.target.value)}
               placeholder={props.placeholder || ${lit(t.newsletterPlaceholder)}}
               style={{
                 flex: '1 1 250px',
@@ -4156,6 +4507,12 @@ function NewsletterSection({ props, styles }: { props: ComponentProps; styles: C
               {props.buttonText || ${lit(t.newsletterButton)}}
             </HoverButtonComponent>
           </form>
+        )}
+        {(props as any).privacyNote && !submitted && (
+          <p style={{ fontSize: '12px', opacity: 0.4, marginTop: '14px', lineHeight: 1.6 }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }}><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+            {(props as any).privacyNote}
+          </p>
         )}
       </div>
     </section>
@@ -4218,8 +4575,8 @@ function ServicesSection({ props, styles }: { props: ComponentProps; styles: Com
               )}
               <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.3 }}>{item.title || item.name}</h3>
               <p style={{ fontSize: '15px', opacity: 0.7, lineHeight: 1.7 }}>{item.description}</p>
-              {item.price !== undefined && (
-                <p style={{ fontSize: '18px', fontWeight: 700, marginTop: '16px', color: accentColor }}>{item.price} DKK</p>
+              {item.price !== undefined && item.price !== '' && (
+                <p style={{ fontSize: '18px', fontWeight: 700, marginTop: '16px', color: accentColor }}>{item.price}</p>
               )}
             </HoverCard>
           ))}
@@ -4422,9 +4779,14 @@ function ComparisonTableSection({ props, styles }: { props: ComponentProps; styl
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '15px' }}>
             <thead>
               <tr>
-                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600 }}>${jsx(t.comparisonFeature)}</th>
+                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600 }}>{(props as any).featuresLabel || ${lit(t.comparisonFeature)}}</th>
                 {tableColumns.map((col: any, i: number) => (
-                  <th key={i} style={{ padding: '16px', textAlign: 'center', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600, color: accentColor }}>{col}</th>
+                  <th key={col?.id || i} style={{ padding: '16px', textAlign: 'center', borderBottom: '2px solid ' + hexToRgba(accentColor, 0.2), fontWeight: 600, backgroundColor: col?.highlighted ? hexToRgba(accentColor, 0.1) : 'transparent' }}>
+                    <div style={{ fontWeight: 700, fontSize: '18px' }}>{typeof col === 'string' ? col : (col?.name || col?.label)}</div>
+                    {typeof col !== 'string' && col?.price && (
+                      <div style={{ fontSize: '24px', fontWeight: 700, color: accentColor, marginTop: '8px' }}>{col.price}</div>
+                    )}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -4433,8 +4795,8 @@ function ComparisonTableSection({ props, styles }: { props: ComponentProps; styl
                 <tr key={fi} style={{ borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
                   <td style={{ padding: '14px 16px', fontWeight: 500 }}>{feature.name}</td>
                   {(feature.values || []).map((val: any, vi: number) => (
-                    <td key={vi} style={{ padding: '14px 16px', textAlign: 'center' }}>
-                      {val === true ? <span style={{ color: accentColor }}>✓</span> : val === false ? <span style={{ opacity: 0.3 }}>—</span> : val}
+                    <td key={vi} style={{ padding: '14px 16px', textAlign: 'center', backgroundColor: tableColumns[vi]?.highlighted ? hexToRgba(accentColor, 0.05) : 'transparent' }}>
+                      {val === true || val === 'Yes' ? <span style={{ color: accentColor }}>✓</span> : val === false || val === 'No' ? <span style={{ opacity: 0.3 }}>—</span> : val}
                     </td>
                   ))}
                 </tr>
@@ -4451,7 +4813,7 @@ function TabsSection({ props, styles }: { props: ComponentProps; styles: Compone
   const baseStyle = getBaseStyle(styles);
   const accentColor = resolveAccentColor(styles);
   const fontFamily = resolveFontFamily(styles);
-  const items = props.items || [];
+  const items = (props as any).tabs || props.items || [];
   const [activeTab, setActiveTab] = useState(0);
   const stTitle = getStyledText(props.styledTitle, props.title);
 
@@ -4460,9 +4822,9 @@ function TabsSection({ props, styles }: { props: ComponentProps; styles: Compone
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
         {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '32px', textAlign: 'center', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '32px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          {items.map((item, index) => (
+          {items.map((item: any, index: number) => (
             <button
-              key={item.id}
+              key={item.id || index}
               onClick={() => setActiveTab(index)}
               style={{
                 padding: '10px 20px',
@@ -4482,7 +4844,11 @@ function TabsSection({ props, styles }: { props: ComponentProps; styles: Compone
         </div>
         {items[activeTab] && (
           <div style={{ padding: '32px', backgroundColor: hexToRgba(accentColor, 0.03), borderRadius: '16px', border: '1px solid ' + hexToRgba(accentColor, 0.08) }}>
-            <p style={{ fontSize: '16px', lineHeight: 1.7, opacity: 0.85 }}>{items[activeTab].description}</p>
+            <h3 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '16px' }}>{items[activeTab].title}</h3>
+            <p style={{ fontSize: '16px', lineHeight: 1.7, opacity: 0.85 }}>{items[activeTab].content || items[activeTab].description}</p>
+            {items[activeTab].imageUrl && (
+              <img src={getImageUrl(items[activeTab].imageUrl)} alt="" loading="lazy" style={{ width: '100%', borderRadius: '12px', marginTop: '24px' }} />
+            )}
           </div>
         )}
       </div>
@@ -4838,24 +5204,71 @@ function RichTextSection({ props, styles }: { props: ComponentProps; styles: Com
   );
 }
 
-function ContainerSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
-  const baseStyle = getBaseStyle(styles);
+// A container holds other components: its props.children are the ids of
+// components stored alongside it on the page. The page hands the whole list
+// down so the children can be drawn inside the container here, the way the
+// builder does it - previously they were dropped, and the published page
+// showed an empty box with the children loose underneath it.
+function ContainerSection({
+  props,
+  styles,
+  allComponents = [],
+  products = [],
+  pages = [],
+  navItems,
+}: {
+  props: ComponentProps;
+  styles: ComponentStyles;
+  allComponents?: ComponentData[];
+  products?: any[];
+  pages?: BuilderPage[];
+  navItems?: NavItem[];
+}) {
   const layout = props.layout || 'vertical';
-  const gap = props.gap || styles.gap || '24px';
-  const maxWidth = styles.maxWidth || '1200px';
+  const gap = props.gap || '24px';
 
-  const layoutStyles: React.CSSProperties = layout === 'horizontal'
-    ? { display: 'flex', flexDirection: 'row', gap, flexWrap: 'wrap', maxWidth, margin: '0 auto' }
-    : layout.startsWith('grid-')
-    ? { display: 'grid', gridTemplateColumns: \`repeat(\${layout.split('-')[1] || 2}, 1fr)\`, gap, maxWidth, margin: '0 auto' }
-    : { display: 'flex', flexDirection: 'column', gap, maxWidth, margin: '0 auto' };
+  const layoutStyle: React.CSSProperties =
+    layout === 'horizontal'
+      ? { display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap }
+      : layout === 'grid-2'
+      ? { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap }
+      : layout === 'grid-3'
+      ? { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap }
+      : layout === 'grid-4'
+      ? { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap }
+      : { display: 'flex', flexDirection: 'column', gap };
+
+  const containerStyle: React.CSSProperties = {
+    ...layoutStyle,
+    backgroundColor: styles.backgroundColor || 'transparent',
+    color: styles.textColor || '#1a1a1a',
+    padding: styles.padding || '24px',
+    borderRadius: styles.borderRadius || '0',
+    maxWidth: styles.maxWidth || '1200px',
+    margin: styles.margin || '0 auto',
+    position: 'relative',
+  };
+
+  const childIds: string[] = (props.children as string[]) || [];
+  const children = childIds
+    .map((childId) => allComponents.find((c) => c.id === childId))
+    .filter(Boolean) as ComponentData[];
+
+  if (!children.length) return null;
 
   return (
-    <section style={{ ...baseStyle }}>
-      <div style={layoutStyles}>
-        {/* Container children are rendered by the parent page */}
-      </div>
-    </section>
+    <div style={containerStyle} data-container-id={props.containerId || undefined}>
+      {children.map((child) => (
+        <ComponentRenderer
+          key={child.id}
+          component={child}
+          products={products}
+          pages={pages}
+          navItems={navItems}
+          allComponents={allComponents}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -4866,8 +5279,11 @@ function ContainerSection({ props, styles }: { props: ComponentProps; styles: Co
 
 type PrimitiveNode = {
   id: string;
-  type: 'box' | 'text' | 'image' | 'button' | 'svg';
+  type: 'box' | 'text' | 'image' | 'button' | 'svg' | 'capability';
   name?: string;
+  hoverStyles?: Record<string, string>;
+  /** Controlled motion presets (shared/motion.ts vocabulary) — data, not CSS. */
+  motion?: any;
   styles?: Record<string, string>;
   tabletStyles?: Record<string, string>;
   mobileStyles?: Record<string, string>;
@@ -4880,6 +5296,12 @@ type PrimitiveNode = {
   variant?: string;
   svg?: string;
   children?: PrimitiveNode[];
+  /** Trusted Birdflow widget — only on type === 'capability'. Birdflow owns the implementation. */
+  capability?: string;
+  /** Presentation-only config for capability nodes (whitelisted keys, no endpoints/scripts). */
+  capabilityConfig?: Record<string, string | number | boolean>;
+  /** Declarative interaction behavior — only on type === 'box'. Birdflow generates all runtime code. */
+  behavior?: { type: string; multiple?: boolean; defaultOpen?: number; defaultTab?: number; autoPlay?: boolean; interval?: number; showArrows?: boolean; showDots?: boolean; defaultExpanded?: boolean; defaultOn?: boolean; };
 };
 
 function toKebabCase(key: string): string {
@@ -4894,6 +5316,11 @@ function customButtonBaseStyles(variant?: string): Record<string, string> {
   const primary = theme.primaryColor || '#4f46e5';
   const secondary = (theme as any).secondaryColor || '#06b6d4';
   const radius = (theme as any).borderRadius || '8px';
+  // The readable label colour for each of them, decided by the brand rather
+  // than assumed to be white. The builder applies the same rule.
+  const tokens = ((theme as any).tokens || {}) as Record<string, string>;
+  const onPrimary = tokens['color.onPrimary'] || '#ffffff';
+  const onSecondary = tokens['color.onSecondary'] || '#ffffff';
   const base: Record<string, string> = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -4911,7 +5338,7 @@ function customButtonBaseStyles(variant?: string): Record<string, string> {
   };
   switch (variant) {
     case 'secondary':
-      return { ...base, backgroundColor: secondary, color: '#ffffff' };
+      return { ...base, backgroundColor: secondary, color: onSecondary };
     case 'outline':
       return { ...base, backgroundColor: 'transparent', color: primary, borderColor: primary };
     case 'ghost':
@@ -4919,25 +5346,32 @@ function customButtonBaseStyles(variant?: string): Record<string, string> {
     case 'link':
       return { ...base, backgroundColor: 'transparent', color: primary, padding: '0', textDecoration: 'underline' };
     default:
-      return { ...base, backgroundColor: primary, color: '#ffffff' };
+      return { ...base, backgroundColor: primary, color: onPrimary };
   }
 }
 
-// Defaults merged under user styles so per-node overrides always win.
+// Defaults merged under user styles so per-node overrides always win. A
+// hover PRESET from the motion vocabulary contributes the rest-state
+// transition here (unless the node sets its own), exactly as the builder's
+// resolvePrimitiveStyles does.
 function customNodeBaseStyles(node: PrimitiveNode): Record<string, string> {
+  const hoverName = node.motion && typeof node.motion === 'object' ? (node.motion as any).hover : undefined;
+  const hasHoverPreset = typeof hoverName === 'string' && !!MOTION_TABLES.hovers[hoverName];
+  const motionBase: Record<string, string> =
+    hasHoverPreset && !(node.styles || {}).transition ? { transition: MOTION_TABLES.hoverTransition } : {};
   switch (node.type) {
     case 'box':
-      return { display: 'flex', flexDirection: 'column', ...(node.styles || {}) };
+      return { display: 'flex', flexDirection: 'column', ...motionBase, ...(node.styles || {}) };
     case 'text':
-      return { margin: '0', ...(node.styles || {}) };
+      return { margin: '0', ...motionBase, ...(node.styles || {}) };
     case 'image':
-      return { display: 'block', maxWidth: '100%', ...(node.styles || {}) };
+      return { display: 'block', maxWidth: '100%', ...motionBase, ...(node.styles || {}) };
     case 'button':
-      return { ...customButtonBaseStyles(node.variant), ...(node.styles || {}) };
+      return { ...customButtonBaseStyles(node.variant), ...motionBase, ...(node.styles || {}) };
     case 'svg':
-      return { display: 'block', lineHeight: '0', ...(node.styles || {}) };
+      return { display: 'block', lineHeight: '0', ...motionBase, ...(node.styles || {}) };
     default:
-      return node.styles || {};
+      return { ...motionBase, ...(node.styles || {}) };
   }
 }
 
@@ -4968,7 +5402,11 @@ function customStyleBlock(selector: string, styles?: Record<string, string>): st
   return selector + '{' + decls.join('') + '}';
 }
 
-function collectCustomCss(node: PrimitiveNode, base: string[], tablet: string[], mobile: string[]) {
+// Hover is emitted last so it wins over the breakpoint overrides, which is
+// how the builder resolves it too. A hover preset from the motion
+// vocabulary sits UNDER the node's explicit hoverStyles — same merge order
+// as resolvePrimitiveStyles in the builder.
+function collectCustomCss(node: PrimitiveNode, base: string[], tablet: string[], mobile: string[], hover: string[]) {
   const cls = '.' + nodeClassName(node);
   const b = customStyleBlock(cls, customNodeBaseStyles(node));
   if (b) base.push(b);
@@ -4976,7 +5414,12 @@ function collectCustomCss(node: PrimitiveNode, base: string[], tablet: string[],
   if (t) tablet.push(t);
   const m = customStyleBlock(cls, node.mobileStyles);
   if (m) mobile.push(m);
-  (node.children || []).forEach((child) => collectCustomCss(child, base, tablet, mobile));
+  const hoverName = node.motion && typeof node.motion === 'object' ? (node.motion as any).hover : undefined;
+  const hoverPreset = typeof hoverName === 'string' ? MOTION_TABLES.hovers[hoverName] : undefined;
+  const hoverDecls = hoverPreset ? { ...hoverPreset, ...(node.hoverStyles || {}) } : node.hoverStyles;
+  const h = customStyleBlock(cls + ':hover', hoverDecls);
+  if (h) hover.push(h);
+  (node.children || []).forEach((child) => collectCustomCss(child, base, tablet, mobile, hover));
 }
 
 function fitCustomSvg(svg: string): string {
@@ -5006,36 +5449,321 @@ function safeCustomHref(href?: string): string {
   return '#';
 }
 
-function CustomNode({ node }: { node: PrimitiveNode }) {
+// Context that threads the host page's product catalogue through
+// ComponentRenderer → CustomComponentSection → CustomNode → capability nodes.
+// Without this an embedded product_grid would always render an empty grid
+// regardless of the site's catalogue. Only set when rendering a custom-type
+// section; all other component types are unaffected.
+const CapabilityProductsCtx = React.createContext<any[]>([]);
+
+// ============ Behavior label extraction ============
+
+function extractBehaviorLabel(node: PrimitiveNode, fallback: string): string {
+  if (node.name && node.name.trim()) return String(node.name).trim().slice(0, 80);
+  const findText = (n: PrimitiveNode): string => {
+    if (n.type === 'text' && n.text) return String(n.text).slice(0, 60);
+    for (const child of (n.children || [])) {
+      const t = findText(child);
+      if (t) return t;
+    }
+    return '';
+  };
+  return findText(node) || fallback;
+}
+
+// ============ Behavior wrapper components ============
+// Birdflow-authored interaction implementations. The AI spec only sets the
+// behavior type + display hints; no user-provided JavaScript is ever used.
+// Keyboard accessibility (tab, Enter/Space, arrow keys) follows WAI-ARIA patterns.
+
+function BehaviorAccordion({ node, staggerParent, multiple, defaultOpen }: { node: PrimitiveNode; staggerParent?: any; multiple?: boolean; defaultOpen?: number }) {
+  const [openSet, setOpenSet] = useState<Set<number>>(function() { return new Set([defaultOpen != null ? defaultOpen : 0]); });
   const cls = nodeClassName(node);
+  const children = node.children || [];
+  return (
+    <div className={cls}>
+      {children.map(function(child: PrimitiveNode, i: number) {
+        const isOpen = openSet.has(i);
+        const label = extractBehaviorLabel(child, 'Panel ' + (i + 1));
+        return (
+          <div key={child.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
+            <button
+              aria-expanded={isOpen}
+              onClick={function() {
+                setOpenSet(function(prev: Set<number>) {
+                  const next = new Set(prev);
+                  if (next.has(i)) { next.delete(i); }
+                  else { if (!multiple) next.clear(); next.add(i); }
+                  return next;
+                });
+              }}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '16px', textAlign: 'left', color: 'inherit' }}
+            >
+              {label}
+              <span aria-hidden="true" style={{ transition: 'transform 0.2s ease', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>{'▾'}</span>
+            </button>
+            {isOpen && (
+              <div role="region" style={{ paddingBottom: '16px' }}>
+                <CustomNode node={child} staggerParent={staggerParent} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BehaviorTabs({ node, staggerParent, defaultTab }: { node: PrimitiveNode; staggerParent?: any; defaultTab?: number }) {
+  const [active, setActive] = useState(defaultTab != null ? defaultTab : 0);
+  const cls = nodeClassName(node);
+  const children = node.children || [];
+  const primary = (theme as any).primaryColor || '#4f46e5';
+  return (
+    <div className={cls}>
+      <div role="tablist" style={{ display: 'flex', gap: '4px', marginBottom: '24px', borderBottom: '2px solid rgba(0,0,0,0.06)', flexWrap: 'wrap' as const }}>
+        {children.map(function(child: PrimitiveNode, i: number) {
+          const label = extractBehaviorLabel(child, 'Tab ' + (i + 1));
+          const isActive = active === i;
+          return (
+            <button
+              key={child.id}
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={'tab-panel-' + node.id + '-' + i}
+              id={'tab-btn-' + node.id + '-' + i}
+              tabIndex={isActive ? 0 : -1}
+              onClick={function() { setActive(i); }}
+              style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '15px', background: 'transparent', borderBottom: isActive ? '2px solid ' + primary : '2px solid transparent', marginBottom: '-2px', color: isActive ? primary : 'inherit', transition: 'color 0.15s, border-color 0.15s' }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {children.map(function(child: PrimitiveNode, i: number) {
+        return (
+          <div
+            key={child.id}
+            role="tabpanel"
+            id={'tab-panel-' + node.id + '-' + i}
+            aria-labelledby={'tab-btn-' + node.id + '-' + i}
+            hidden={active !== i}
+          >
+            <CustomNode node={child} staggerParent={staggerParent} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BehaviorCarousel({ node, staggerParent, showArrows, showDots, autoPlay, interval: intervalMs }: { node: PrimitiveNode; staggerParent?: any; showArrows?: boolean; showDots?: boolean; autoPlay?: boolean; interval?: number }) {
+  const [current, setCurrent] = useState(0);
+  const children = node.children || [];
+  const total = children.length;
+  const cls = nodeClassName(node);
+  const primary = (theme as any).primaryColor || '#4f46e5';
+  const showA = showArrows !== false;
+  const showD = showDots !== false;
+
+  useEffect(function() {
+    if (!autoPlay || total < 2) return undefined;
+    const id = setInterval(function() { setCurrent(function(c: number) { return (c + 1) % total; }); }, intervalMs != null ? intervalMs : 4000);
+    return function() { clearInterval(id); };
+  }, [autoPlay, intervalMs, total]);
+
+  return (
+    <div className={cls} style={{ position: 'relative', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', transition: 'transform 0.35s ease', transform: 'translateX(-' + (current * 100) + '%)' }}>
+        {children.map(function(child: PrimitiveNode) {
+          return (
+            <div key={child.id} style={{ flex: '0 0 100%', minWidth: '100%' }}>
+              <CustomNode node={child} staggerParent={staggerParent} />
+            </div>
+          );
+        })}
+      </div>
+      {showA && total > 1 && (
+        <React.Fragment>
+          <button aria-label="Forrige" onClick={function() { setCurrent(function(c: number) { return (c - 1 + total) % total; }); }} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', zIndex: 1 }}>{'‹'}</button>
+          <button aria-label="Næste" onClick={function() { setCurrent(function(c: number) { return (c + 1) % total; }); }} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', zIndex: 1 }}>{'›'}</button>
+        </React.Fragment>
+      )}
+      {showD && total > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '16px' }}>
+          {children.map(function(_: PrimitiveNode, i: number) {
+            return (
+              <button key={i} aria-label={'Slide ' + (i + 1)} onClick={function() { setCurrent(i); }} style={{ width: '8px', height: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer', backgroundColor: current === i ? primary : 'rgba(0,0,0,0.2)', padding: 0, transition: 'background-color 0.2s' }} />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BehaviorExpandable({ node, staggerParent, defaultExpanded }: { node: PrimitiveNode; staggerParent?: any; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded === true);
+  const cls = nodeClassName(node);
+  const children = node.children || [];
+  const trigger = children[0];
+  const content = children.slice(1);
+  const label = trigger ? extractBehaviorLabel(trigger, 'Vis mere') : 'Vis mere';
+  return (
+    <div className={cls}>
+      <button
+        aria-expanded={expanded}
+        onClick={function() { setExpanded(function(e: boolean) { return !e; }); }}
+        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '16px', padding: '0 0 12px 0', color: 'inherit' }}
+      >
+        {label}
+        <span aria-hidden="true" style={{ transition: 'transform 0.2s ease', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>{'▾'}</span>
+      </button>
+      {expanded && (
+        <div>
+          {content.map(function(child: PrimitiveNode) { return <CustomNode key={child.id} node={child} staggerParent={staggerParent} />; })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BehaviorToggle({ node, staggerParent, defaultOn }: { node: PrimitiveNode; staggerParent?: any; defaultOn?: boolean }) {
+  const [on, setOn] = useState(defaultOn === true);
+  const cls = nodeClassName(node);
+  const children = node.children || [];
+  const primary = (theme as any).primaryColor || '#4f46e5';
+  return (
+    <div className={cls}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+        <button
+          role="switch"
+          aria-checked={on}
+          onClick={function() { setOn(function(v: boolean) { return !v; }); }}
+          style={{ position: 'relative', display: 'inline-flex', width: '44px', height: '24px', borderRadius: '12px', backgroundColor: on ? primary : 'rgba(0,0,0,0.15)', border: 'none', cursor: 'pointer', transition: 'background-color 0.2s', padding: 0 }}
+        >
+          <span style={{ position: 'absolute', top: '3px', left: on ? '22px' : '3px', width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#ffffff', transition: 'left 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+        </button>
+        <span style={{ fontWeight: 600 }}>{on ? 'Til' : 'Fra'}</span>
+      </div>
+      {on && (
+        <div>
+          {children.map(function(child: PrimitiveNode) { return <CustomNode key={child.id} node={child} staggerParent={staggerParent} />; })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Entrance motion per node, from the same shared model as sections: a box
+// with 'stagger' hands its entrance to its children (one after another);
+// a child with its OWN entrance opts out. Direct children animate as whole
+// units — grandchildren ride along inside them, hidden and moved by their
+// parent's opacity/transform. Inline motion styles exist only
+// while the entrance plays — at 'done' they clear, so the per-node classes
+// and :hover rules take over again.
+function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParent?: any }) {
+  const ownMotion: any = node.motion && typeof node.motion === 'object' ? node.motion : null;
+  const hasOwnEntrance = !!(ownMotion && typeof ownMotion.effect === 'string' && ownMotion.effect !== 'none');
+  const staggerStepMs =
+    node.type === 'box' && ownMotion && typeof ownMotion.stagger === 'string'
+      ? MOTION_TABLES.staggers[ownMotion.stagger] || 0
+      : 0;
+  const isStaggerBox = staggerStepMs > 0;
+  const inheritedSpec = !hasOwnEntrance && staggerParent ? staggerChildSpec(staggerParent.spec, ownMotion) : null;
+  const entranceSpec = isStaggerBox ? null : hasOwnEntrance ? ownMotion : inheritedSpec;
+  const resolvedMotion = computeMotion(
+    MOTION_TABLES,
+    entranceSpec,
+    inheritedSpec && staggerParent ? staggerParent.index : undefined
+  );
+  const m = useMotionPhase(resolvedMotion, '');
+  const motionProps: any = m.active ? { ref: m.ref, 'data-motion': '', style: m.style } : {};
+  const cls = nodeClassName(node);
+  // Consume the products context so capability/product_grid nodes can render
+  // live catalogue data from the host page's ComponentRenderer. Calling this
+  // unconditionally satisfies the React hooks-at-top-level rule.
+  const capabilityProducts = React.useContext(CapabilityProductsCtx);
   switch (node.type) {
-    case 'box':
+    case 'box': {
+      const behavior = node.behavior;
+      if (behavior && typeof behavior.type === 'string') {
+        switch (behavior.type) {
+          case 'accordion':
+            return <BehaviorAccordion node={node} staggerParent={staggerParent} multiple={behavior.multiple} defaultOpen={behavior.defaultOpen} />;
+          case 'tabs':
+            return <BehaviorTabs node={node} staggerParent={staggerParent} defaultTab={behavior.defaultTab} />;
+          case 'carousel':
+            return <BehaviorCarousel node={node} staggerParent={staggerParent} showArrows={behavior.showArrows} showDots={behavior.showDots} autoPlay={behavior.autoPlay} interval={behavior.interval} />;
+          case 'expandable':
+            return <BehaviorExpandable node={node} staggerParent={staggerParent} defaultExpanded={behavior.defaultExpanded} />;
+          case 'toggle':
+            return <BehaviorToggle node={node} staggerParent={staggerParent} defaultOn={behavior.defaultOn} />;
+        }
+      }
       return (
-        <div className={cls}>
-          {(node.children || []).map((child) => (
-            <CustomNode key={child.id} node={child} />
+        <div className={cls} {...motionProps}>
+          {(node.children || []).map((child, childIndex) => (
+            <CustomNode
+              key={child.id}
+              node={child}
+              staggerParent={isStaggerBox ? { spec: ownMotion, index: childIndex } : undefined}
+            />
           ))}
         </div>
       );
+    }
     case 'text': {
       const rawTag = node.tag || 'p';
       const Tag = (CUSTOM_TEXT_TAGS.indexOf(rawTag) >= 0 ? rawTag : 'p') as any;
-      return <Tag className={cls}>{node.text || ''}</Tag>;
+      return <Tag className={cls} {...motionProps}>{node.text || ''}</Tag>;
     }
     case 'image': {
       const src = node.src ? safeCustomHref(node.src) : '';
       if (!src || src === '#') return null;
-      return <img className={cls} src={src} alt={node.alt || ''} />;
+      return <img className={cls} {...motionProps} src={src} alt={node.alt || ''} />;
     }
     case 'button':
       return (
-        <a className={cls} href={safeCustomHref(node.href)}>
+        <a className={cls} {...motionProps} href={safeCustomHref(node.href)}>
           {node.label || ''}
         </a>
       );
     case 'svg':
       if (!node.svg) return null;
-      return <div className={cls} dangerouslySetInnerHTML={{ __html: fitCustomSvg(node.svg) }} />;
+      return <div className={cls} {...motionProps} dangerouslySetInnerHTML={{ __html: fitCustomSvg(node.svg) }} />;
+    case 'capability': {
+      // Trusted Birdflow widget embedded inside a custom component tree.
+      // The capability type controls which section component renders; the
+      // capabilityConfig passes whitelisted display hints only — no endpoints
+      // or scripts. Birdflow owns 100% of the rendered implementation.
+      const cap = node.capability;
+      if (!cap) return null;
+      const capProps: any = node.capabilityConfig || {};
+      const capStyles: any = {};
+      switch (cap) {
+        case 'booking':
+          return <div className={cls} {...motionProps}><BookingForm props={capProps} styles={capStyles} /></div>;
+        case 'contact_form':
+          return <div className={cls} {...motionProps}><ContactFormSection props={capProps} styles={capStyles} /></div>;
+        case 'newsletter':
+          return <div className={cls} {...motionProps}><NewsletterSection props={capProps} styles={capStyles} /></div>;
+        case 'product_grid': {
+          // Map capability config keys to the section's internal prop names.
+          // capabilityConfig uses 'maxItems' (the AI/config-facing name);
+          // ProductGridSection reads 'productLimit' from props.
+          const gridProps: any = { ...capProps };
+          if (typeof capProps.maxItems === 'number') {
+            gridProps.productLimit = Math.max(1, Math.min(12, Math.floor(capProps.maxItems)));
+            delete gridProps.maxItems;
+          }
+          return <div className={cls} {...motionProps}><ProductGridSection props={gridProps} styles={capStyles} products={capabilityProducts} /></div>;
+        }
+        default:
+          return null;
+      }
+    }
     default:
       return null;
   }
@@ -5048,11 +5776,13 @@ function CustomComponentSection({ props, styles }: { props: ComponentProps; styl
   const base: string[] = [];
   const tablet: string[] = [];
   const mobile: string[] = [];
-  collectCustomCss(tree, base, tablet, mobile);
+  const hover: string[] = [];
+  collectCustomCss(tree, base, tablet, mobile, hover);
 
   let css = base.join('\\n');
-  if (tablet.length) css += '\\n@media (max-width: 1024px){' + tablet.join('') + '}';
-  if (mobile.length) css += '\\n@media (max-width: 640px){' + mobile.join('') + '}';
+  if (tablet.length) css += '\\n@media (max-width: ${BREAKPOINTS.tablet}px){' + tablet.join('') + '}';
+  if (mobile.length) css += '\\n@media (max-width: ${BREAKPOINTS.mobile}px){' + mobile.join('') + '}';
+  if (hover.length) css += '\\n' + hover.join('');
 
   return (
     <section style={{ backgroundColor: (styles.backgroundColor as string) || 'transparent', padding: (styles.padding as string) || '0px' }}>
@@ -5062,7 +5792,26 @@ function CustomComponentSection({ props, styles }: { props: ComponentProps; styl
   );
 }
 
-export default function ComponentRenderer({ component, products = [], pages = [] }: { component: ComponentData; products?: any[]; pages?: BuilderPage[] }) {
+export default function ComponentRenderer({
+  component: _component,
+  products = [],
+  pages = [],
+  // No default: undefined means "no stored menu", [] means "empty on purpose".
+  navItems,
+  allComponents = [],
+}: {
+  component: ComponentData;
+  products?: any[];
+  pages?: BuilderPage[];
+  /** The site navigation, resolved by the publisher and baked into the page. */
+  navItems?: NavItem[];
+  /** Every component on the page, so containers can find their children. */
+  allComponents?: ComponentData[];
+}) {
+  const responsiveOverrides = useResponsiveOverrides(_component.styles.responsive);
+  const component = Object.keys(responsiveOverrides).length > 0
+    ? { ..._component, styles: { ..._component.styles, ...responsiveOverrides } }
+    : _component;
   const renderComponent = () => {
     switch (component.type) {
       case 'hero':
@@ -5078,7 +5827,7 @@ export default function ComponentRenderer({ component, products = [], pages = []
       case 'testimonials':
         return <TestimonialsSection props={component.props} styles={component.styles} />;
       case 'header':
-        return <HeaderSection props={component.props} styles={component.styles} pages={pages} />;
+        return <HeaderSection props={component.props} styles={component.styles} pages={pages} navItems={navItems} />;
       case 'footer':
         return <FooterSection props={component.props} styles={component.styles} />;
       case 'product-grid':
@@ -5122,9 +5871,24 @@ export default function ComponentRenderer({ component, products = [], pages = []
       case 'rich-text':
         return <RichTextSection props={component.props} styles={component.styles} />;
       case 'container':
-        return <ContainerSection props={component.props} styles={component.styles} />;
+        return (
+          <ContainerSection
+            props={component.props}
+            styles={component.styles}
+            allComponents={allComponents}
+            products={products}
+            pages={pages}
+            navItems={navItems}
+          />
+        );
       case 'custom':
-        return <CustomComponentSection props={component.props} styles={component.styles} />;
+        // Provide the page's product catalogue to any embedded product_grid
+        // capability nodes. Context is scoped to each custom section render.
+        return (
+          <CapabilityProductsCtx.Provider value={products}>
+            <CustomComponentSection props={component.props} styles={component.styles} />
+          </CapabilityProductsCtx.Provider>
+        );
       case 'booking':
       case 'booking-form':
         // Single booking implementation: the same BookingForm used for
@@ -5138,11 +5902,17 @@ export default function ComponentRenderer({ component, products = [], pages = []
   const componentElement = renderComponent();
   if (!componentElement) return null;
 
-  return (
+  const isParallax = !!(component.styles.motion && (component.styles.motion as any).effect === 'parallax');
+  const parallaxSpeed = isParallax ? (Number((component.styles.motion as any).scrollSpeed) || 0.3) : 0;
+  const animated = (
     <AnimatedWrapper styles={component.styles}>
       {componentElement}
     </AnimatedWrapper>
   );
+  if (isParallax) {
+    return <ParallaxWrapper speed={parallaxSpeed}>{animated}</ParallaxWrapper>;
+  }
+  return animated;
 }
 `;
 }
@@ -5834,6 +6604,10 @@ export default function BookingForm({ styles, props }: Props) {
                       <textarea data-testid="input-booking-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={${lit(t.bookingNotesPlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '16px', resize: 'none' }} />
                     </div>
                     {status === 'error' && <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{errorMessage || ${lit(t.bookingErrorRequired)}}</div>}
+                    <p style={{ fontSize: '12px', opacity: 0.5, textAlign: 'center', margin: '4px 0 0' }}>
+                      ${jsx(t.bookingDataNoticePre)}{' '}
+                      <a href="/privacy" style={{ textDecoration: 'underline', color: 'inherit' }}>${jsx(t.legalPrivacy)}</a>.
+                    </p>
                     <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
                       <button type="button" data-testid="button-back-details" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>${jsx(t.bookingBack)}</button>
                       <button type="submit" data-testid="button-confirm-booking" disabled={status === 'loading' || !name || !email} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: status === 'loading' || !name || !email ? 'default' : 'pointer', opacity: status === 'loading' || !name || !email ? 0.6 : 1 }}>{status === 'loading' ? ${lit(t.bookingSubmitting)} : (props.buttonText || ${lit(t.bookingSubmit)})}</button>
@@ -6594,7 +7368,9 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
 export function generateRootLayout(
   siteName: string,
   websiteId: string,
-  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE
+  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+  /** Site-wide fallback description; pages with their own SEO override it. */
+  description?: string
 ): string {
   return `import type { Metadata } from 'next';
 import './globals.css';
@@ -6605,8 +7381,8 @@ import AnalyticsTracker from '@/components/AnalyticsTracker';
 import CookieBanner from '@/components/CookieBanner';
 
 export const metadata: Metadata = {
-  title: '${siteName}',
-  description: 'Built with SaaSify',
+  title: ${lit(siteName)},
+  description: ${lit(description?.trim() || siteName)},
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -6615,12 +7391,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Anton&family=Archivo:wght@400;500;600;700&family=Barlow:wght@400;500;600;700&family=Bebas+Neue&family=Big+Shoulders+Display:wght@400;500;600;700;800&family=Bitter:wght@400;500;600;700&family=Cabin:wght@400;500;600;700&family=Cardo:wght@400;700&family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:wght@400;500;600;700&family=Crimson+Text:wght@400;600;700&family=DM+Sans:wght@400;500;600;700&family=EB+Garamond:wght@400;500;600;700&family=Exo+2:wght@400;500;600;700&family=Figtree:wght@400;500;600;700&family=Fira+Code:wght@400;500;600;700&family=Frank+Ruhl+Libre:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Josefin+Sans:wght@400;500;600;700&family=Karla:wght@400;500;600;700&family=Lato:wght@400;700;900&family=Lexend:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&family=Lora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Merriweather:wght@400;700;900&family=Montserrat:wght@400;500;600;700;800&family=Mulish:wght@400;500;600;700&family=Nunito+Sans:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&family=Oswald:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Overpass:wght@400;500;600;700&family=PT+Serif:wght@400;700&family=Playfair+Display:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&family=Raleway:wght@400;500;600;700&family=Righteous&family=Roboto+Mono:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Rubik:wght@400;500;600;700&family=Sora:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600;700&family=Source+Serif+4:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Spectral:wght@400;500;600;700&family=Teko:wght@400;500;600;700&family=Urbanist:wght@400;500;600;700&family=Vollkorn:wght@400;500;600;700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        <link href="${googleFontsHref()}" rel="stylesheet" />
       </head>
       <body>
         <WebsiteProvider>
           <CartProvider>
-            <AnalyticsTracker websiteId="${websiteId}" />
+            <AnalyticsTracker websiteId={${lit(websiteId)}} />
             {children}
             <CartDrawer />
             <CookieBanner />
@@ -6634,13 +7410,52 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 export function generateGlobalsCss(theme?: ThemeConfig): string {
-  const fontFamily = theme?.fontFamily || 'Inter, system-ui, sans-serif';
-  const primaryColor = theme?.primaryColor || '#4f46e5';
-  const secondaryColor = theme?.secondaryColor || '#22c55e';
-  const backgroundColor = theme?.backgroundColor || '#ffffff';
-  const textColor = theme?.textColor || '#1f2937';
-  const borderRadius = theme?.borderRadius || '8px';
-  
+  // The brand, resolved once. `theme.tokens` is what the publisher computed
+  // from the website's design tokens; deriving it here as well only matters
+  // for older callers that hand over a bare theme.
+  const tokens: Record<string, string> =
+    theme?.tokens ||
+    resolveDesignTokens({
+      primaryColor: theme?.primaryColor,
+      secondaryColor: theme?.secondaryColor,
+      accentColor: theme?.accentColor,
+      backgroundColor: theme?.backgroundColor,
+      surfaceColor: theme?.surfaceColor,
+      textColor: theme?.textColor,
+      fontFamily: theme?.fontFamily,
+      borderRadius: theme?.borderRadius,
+      spacingScale: theme?.spacingScale,
+      sectionGap: theme?.sectionGap,
+      containerWidth: theme?.containerWidth,
+    });
+
+  const fontFamily = resolveApprovedFontStack(theme?.fontFamily || tokens['font.body']);
+  // Sections set the body font on themselves and let their headings inherit
+  // it, so a website that pairs a heading font with a different body font
+  // needs a rule of its own. The builder preview emits the same rule, scoped
+  // to its section wrapper. Sites using one font get nothing extra.
+  const headingFont = resolveApprovedFontStack(tokens['font.heading']);
+  const headingFontRule =
+    headingFont && headingFont !== fontFamily
+      ? `
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--bf-font-heading);
+}
+`
+      : '';
+  const primaryColor = tokens['color.primary'];
+  const secondaryColor = tokens['color.secondary'];
+  const backgroundColor = tokens['color.background'];
+  const textColor = tokens['color.text'];
+  const borderRadius = tokens['radius.md'];
+
+  // Every role as a CSS variable, so the published site can restyle from the
+  // brand the same way the editor does instead of only through the handful
+  // of variables the first version of this file happened to emit.
+  const tokenVars = Object.entries(tokens)
+    .map(([path, value]) => `  --bf-${path.replace(/\./g, '-')}: ${value};`)
+    .join('\n');
+
   return `* {
   box-sizing: border-box;
   margin: 0;
@@ -6648,6 +7463,7 @@ export function generateGlobalsCss(theme?: ThemeConfig): string {
 }
 
 :root {
+${tokenVars}
   --primary-color: ${primaryColor};
   --secondary-color: ${secondaryColor};
   --background-color: ${backgroundColor};
@@ -6662,7 +7478,7 @@ body {
   background-color: var(--background-color);
   color: var(--text-color);
 }
-
+${headingFontRule}
 a {
   color: inherit;
   text-decoration: none;
@@ -6725,6 +7541,26 @@ a {
   to { opacity: 1; transform: perspective(400px) rotateX(0); }
 }
 @keyframes staggerFadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+/* A visitor who has asked their system for less motion gets the finished
+   page, not entrance animations. */
+@media (${REDUCED_MOTION_QUERY}) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Entrance motion renders server-side in its hidden state (inline
+     opacity/transform). Before hydration flips it off for reduced-motion
+     visitors, this rule already shows the finished layout. */
+  [data-motion] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
 `;
 }
 
@@ -6761,8 +7597,29 @@ function decodeHtmlEntities(obj: any): any {
   return obj;
 }
 
-export function generatePageFile(page: PageData, websiteId: string, allPages?: NavPage[]): string {
-  const componentsImport = `import ComponentRenderer from '@/components/ComponentRenderer';
+/** What the published page tells search engines and social previews. */
+export type PageMetadata = {
+  title: string;
+  description?: string;
+};
+
+export function generatePageFile(
+  page: PageData,
+  websiteId: string,
+  allPages?: NavPage[],
+  options?: {
+    /**
+     * The site navigation, already resolved from the stored navigation.
+     * Resolved here rather than in the generated project for the same
+     * reason design tokens are: a Next.js project cannot import `@shared`.
+     */
+    navItems?: Array<{ id: string; title: string; href: string }>;
+    /** This page's own title and description. */
+    metadata?: PageMetadata;
+  }
+): string {
+  const componentsImport = `import type { Metadata } from 'next';
+import ComponentRenderer from '@/components/ComponentRenderer';
 import ContactForm from '@/components/ContactForm';
 import BookingForm from '@/components/BookingForm';
 import ProductGrid from '@/components/ProductGrid';`;
@@ -6775,16 +7632,51 @@ import ProductGrid from '@/components/ProductGrid';`;
     null,
     2
   );
-  
+  const navJson = JSON.stringify(options?.navItems ?? [], null, 2);
+
+  // Every page carries its own title and description. Before this they all
+  // inherited one site-wide pair, which is what made a six-page website look
+  // like one page to a search engine.
+  const meta = options?.metadata;
+  const metadataBlock = meta
+    ? `
+export const metadata: Metadata = {
+  title: ${lit(meta.title)},${meta.description ? `
+  description: ${lit(meta.description)},` : ''}
+  openGraph: {
+    title: ${lit(meta.title)},${meta.description ? `
+    description: ${lit(meta.description)},` : ''}
+    type: 'website',
+  },
+};
+`
+    : '';
+
   return `${componentsImport}
 
-const pageComponents = ${componentsJson};
+// Local loose type so TypeScript accepts baked-in component JSON without
+// importing from ComponentRenderer (which carries @ts-nocheck and has edge
+// cases under Next.js isolatedModules). Props and styles are typed as
+// Record<string,any> so any valid builder data is accepted.
+type PageComponentData = { id: string; type: string; props: Record<string, any>; styles: Record<string, any> };
+const pageComponents: PageComponentData[] = ${componentsJson};
 const sitePages = ${pagesJson};
+const siteNav = ${navJson};
+${metadataBlock}
+// Components sitting inside a container are drawn by that container, not by
+// the page. Without this they appeared twice over: once loose at the top
+// level and once (never, in fact) inside an empty container box.
+const containedIds = new Set<string>(
+  pageComponents.flatMap((component: any) =>
+    component.type === 'container' ? ((component.props?.children as string[]) || []) : []
+  )
+);
+const topLevelComponents = pageComponents.filter((component: any) => !containedIds.has(component.id));
 
 export default function Page() {
   return (
     <main>
-      {pageComponents.map((component: any) => {
+      {topLevelComponents.map((component: any) => {
         switch (component.type) {
           case 'contact-form':
             return <ContactForm key={component.id} props={component.props} styles={component.styles} />;
@@ -6794,7 +7686,15 @@ export default function Page() {
           case 'product-grid':
             return <ProductGrid key={component.id} props={component.props} styles={component.styles} />;
           default:
-            return <ComponentRenderer key={component.id} component={component} pages={sitePages} />;
+            return (
+              <ComponentRenderer
+                key={component.id}
+                component={component}
+                pages={sitePages}
+                navItems={siteNav}
+                allComponents={pageComponents}
+              />
+            );
         }
       })}
     </main>
@@ -6808,7 +7708,7 @@ export function generateProductApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
@@ -6911,8 +7811,73 @@ export async function GET(request: NextRequest) {
 `;
 }
 
-export function generateProductDetailPage(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
+/**
+ * The "Product Page Design" settings a customer configures in the builder.
+ *
+ * That builder section is a design panel for the generated product pages,
+ * not a section of the page it sits on. Its settings used to stop at the
+ * builder: the published product pages ignored them entirely. They are
+ * threaded through here so the choices the customer makes are the ones
+ * visitors see.
+ */
+export type ProductPageDesign = {
+  layout: 'side-by-side' | 'stacked' | 'gallery-focus';
+  accentColor: string;
+  buttonStyle: 'filled' | 'outline' | 'rounded';
+  imageStyle: 'rounded' | 'square' | 'full-bleed';
+  showRelated: boolean;
+  showTrustBadges: boolean;
+  showAccordion: boolean;
+};
+
+const PRODUCT_PAGE_DESIGN_DEFAULTS: ProductPageDesign = {
+  layout: 'side-by-side',
+  accentColor: '#7c3aed',
+  buttonStyle: 'filled',
+  imageStyle: 'rounded',
+  showRelated: true,
+  showTrustBadges: true,
+  showAccordion: true,
+};
+
+const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+
+/** Read the design off a builder component's props, rejecting anything odd. */
+export function resolveProductPageDesign(props?: Record<string, unknown>): ProductPageDesign {
+  const d = { ...PRODUCT_PAGE_DESIGN_DEFAULTS };
+  if (!props) return d;
+  const layout = props.layout;
+  if (layout === 'side-by-side' || layout === 'stacked' || layout === 'gallery-focus') d.layout = layout;
+  const buttonStyle = props.buttonStyle;
+  if (buttonStyle === 'filled' || buttonStyle === 'outline' || buttonStyle === 'rounded') d.buttonStyle = buttonStyle;
+  const imageStyle = props.imageStyle;
+  if (imageStyle === 'rounded' || imageStyle === 'square' || imageStyle === 'full-bleed') d.imageStyle = imageStyle;
+  if (typeof props.accentColor === 'string' && HEX_COLOR.test(props.accentColor.trim())) {
+    d.accentColor = props.accentColor.trim();
+  }
+  if (props.showRelated === false) d.showRelated = false;
+  if (props.showTrustBadges === false) d.showTrustBadges = false;
+  if (props.showAccordion === false) d.showAccordion = false;
+  return d;
+}
+
+export function generateProductDetailPage(
+  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+  design: ProductPageDesign = PRODUCT_PAGE_DESIGN_DEFAULTS
+): string {
   const t = PUBLISHED_SITE_STRINGS[lang];
+  const accent = design.accentColor;
+  const imageRadius = design.imageStyle === 'rounded' ? '16px' : '0';
+  const layoutColumns =
+    design.layout === 'stacked'
+      ? '1fr'
+      : design.layout === 'gallery-focus'
+      ? 'minmax(300px, 760px) 1fr'
+      : 'minmax(300px, 600px) 1fr';
+  const buttonRadius = design.buttonStyle === 'rounded' ? '999px' : '12px';
+  const buttonBackground = design.buttonStyle === 'outline' ? 'transparent' : accent;
+  const buttonTextColor = design.buttonStyle === 'outline' ? accent : '#fff';
+  const buttonBorder = design.buttonStyle === 'outline' ? '2px solid ' + accent : 'none';
   return `'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -6998,7 +7963,7 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
 
   if (images.length === 0) {
     return (
-      <div style={{ width: '100%', aspectRatio: '1', backgroundColor: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '80px', borderRadius: '16px' }}>
+      <div style={{ width: '100%', aspectRatio: '1', backgroundColor: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '80px', borderRadius: '${imageRadius}' }}>
         📦
       </div>
     );
@@ -7015,7 +7980,7 @@ function ImageGallery({ images, productName }: { images: string[]; productName: 
           onMouseMove={handleMouseMove}
           style={{
             backgroundColor: '#fff',
-            borderRadius: '16px',
+            borderRadius: '${imageRadius}',
             overflow: 'hidden',
             boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
             cursor: 'zoom-in',
@@ -7539,7 +8504,7 @@ export default function ProductDetailPage() {
         }
         .product-layout {
           display: grid;
-          grid-template-columns: minmax(300px, 600px) 1fr;
+          grid-template-columns: ${layoutColumns};
           gap: 64px;
           align-items: start;
         }
@@ -7560,7 +8525,7 @@ export default function ProductDetailPage() {
         .product-price {
           font-size: 36px;
           font-weight: 700;
-          color: #4f46e5;
+          color: ${accent};
           margin: 0;
         }
         .product-description {
@@ -7596,7 +8561,7 @@ export default function ProductDetailPage() {
         }
       \`}</style>
       <div className="product-page-container">
-        <Link href="/" className="back-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#4f46e5', textDecoration: 'none', marginBottom: '32px', fontSize: '14px', fontWeight: 500 }}>
+        <Link href="/" className="back-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '${accent}', textDecoration: 'none', marginBottom: '32px', fontSize: '14px', fontWeight: 500 }}>
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
@@ -7608,7 +8573,7 @@ export default function ProductDetailPage() {
 
           <div className="product-info">
             {product.category && (
-              <span style={{ fontSize: '12px', fontWeight: 600, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '${accent}', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {product.category}
               </span>
             )}
@@ -7728,10 +8693,10 @@ export default function ProductDetailPage() {
                   flex: 1,
                   minWidth: '200px',
                   padding: '14px 32px',
-                  backgroundColor: isOutOfStock || !allVariantsSelected() ? '#d1d5db' : addedToCart ? '#22c55e' : '#4f46e5',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '12px',
+                  backgroundColor: isOutOfStock || !allVariantsSelected() ? '#d1d5db' : addedToCart ? '#22c55e' : '${buttonBackground}',
+                  color: isOutOfStock || !allVariantsSelected() || addedToCart ? '#fff' : '${buttonTextColor}',
+                  border: '${buttonBorder}',
+                  borderRadius: '${buttonRadius}',
                   fontSize: '16px',
                   fontWeight: 600,
                   cursor: isOutOfStock || !allVariantsSelected() ? 'not-allowed' : 'pointer',
@@ -7760,7 +8725,7 @@ export default function ProductDetailPage() {
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '24px', paddingTop: '24px', borderTop: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
+${design.showTrustBadges ? `            <div style={{ display: 'flex', gap: '24px', paddingTop: '24px', borderTop: '1px solid #e5e7eb', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280', fontSize: '14px' }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M5 12h14M12 5l7 7-7 7"/>
@@ -7779,11 +8744,11 @@ export default function ProductDetailPage() {
                 </svg>
                 ${jsx(t.productEasyReturns)}
               </div>
-            </div>
+            </div>` : ''}
           </div>
         </div>
 
-        <AccordionSections product={product} />
+        ${design.showAccordion ? '<AccordionSections product={product} />' : ''}
 
         <div style={{ marginTop: '60px', backgroundColor: '#f8fafc', borderRadius: '20px', padding: '48px', border: '1px solid #e2e8f0' }}>
           <div style={{ textAlign: 'center', marginBottom: '40px' }}>
@@ -7822,7 +8787,7 @@ export default function ProductDetailPage() {
           </div>
         </div>
 
-        <RelatedProducts currentProductId={product.id} currency={product.currency} />
+        ${design.showRelated ? '<RelatedProducts currentProductId={product.id} currency={product.currency} />' : ''}
       </div>
     </div>
   );
@@ -7935,7 +8900,7 @@ export default function CheckoutPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: items.map(item => ({ 
+          items: items.map((item: any) => ({ 
             productId: item.product.baseProductId || item.product.id, 
             quantity: item.quantity,
             selectedVariants: item.product.selectedVariants 
@@ -7961,7 +8926,7 @@ export default function CheckoutPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: items.map(item => ({ 
+          items: items.map((item: any) => ({ 
             productId: item.product.baseProductId || item.product.id, 
             quantity: item.quantity,
             selectedVariants: item.product.selectedVariants 
@@ -8276,7 +9241,7 @@ export function generateOrderApiRoute(websiteId: string): string {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 async function getWebsiteIdFromHost(host: string, supabase: any): Promise<string | null> {
   if (host.includes('localhost') || host.includes('127.0.0.1')) {
@@ -8404,7 +9369,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BUILD_TIME_WEBSITE_ID = '${websiteId}';
+const BUILD_TIME_WEBSITE_ID = ${lit(websiteId)};
 
 export async function GET(request: NextRequest) {
   try {
@@ -8423,7 +9388,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform snake_case to camelCase for frontend
-    const methods = (data || []).map(m => ({
+    const methods = (data || []).map((m: any) => ({
       id: m.id,
       name: m.name,
       description: m.description,

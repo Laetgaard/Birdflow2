@@ -5,6 +5,12 @@ import BookingWidget from './BookingWidget';
 import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
 import ImageResizer from './ImageResizer';
 import CustomComponentRenderer from './CustomComponentRenderer';
+import { resolveApprovedFontStack } from '@shared/fonts';
+import { prefersReducedMotion } from '@shared/rendering/contract';
+import { MOTION_TABLES, computeMotion, sectionMotionSpec } from '@shared/motion';
+import { useMotionPhase } from './useMotionPhase';
+import { resolveDesignTokens, resolveTokensDeep } from '@shared/designTokens';
+import { resolveNavItems, type NavItem } from '@shared/siteStructure';
 
 function getStyledTextStyle(styledText: StyledText | undefined, defaultStyle?: React.CSSProperties): React.CSSProperties {
   if (!styledText) return defaultStyle || {};
@@ -53,8 +59,15 @@ const animationKeyframes = `
 function useStaggerAnimation(itemCount: number, isPreview?: boolean) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
+  // A visitor who asked their system for less motion gets the finished
+  // layout straight away — same rule the published site follows.
+  const [reduceMotion] = useState(() => prefersReducedMotion());
 
   useEffect(() => {
+    if (reduceMotion) {
+      setIsVisible(true);
+      return;
+    }
     if (!containerRef.current) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -67,13 +80,16 @@ function useStaggerAnimation(itemCount: number, isPreview?: boolean) {
     );
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [reduceMotion]);
 
-  const getItemStyle = (index: number): React.CSSProperties => ({
-    opacity: isVisible ? 1 : 0,
-    transform: isVisible ? 'translateY(0)' : 'translateY(24px)',
-    transition: `opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${index * 0.08}s, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${index * 0.08}s`,
-  });
+  const getItemStyle = (index: number): React.CSSProperties =>
+    reduceMotion
+      ? { opacity: 1, transform: 'none' }
+      : {
+          opacity: isVisible ? 1 : 0,
+          transform: isVisible ? 'translateY(0)' : 'translateY(24px)',
+          transition: `opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${index * 0.08}s, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${index * 0.08}s`,
+        };
 
   return { containerRef, getItemStyle };
 }
@@ -88,20 +104,14 @@ function resolveButtonColor(styles: ComponentStyles, globalStyles?: GlobalStyles
 }
 
 function resolveFontFamily(styles: ComponentStyles, globalStyles?: GlobalStyles): string {
-  return styles.fontFamily || globalStyles?.fontFamily || 'Inter, system-ui, sans-serif';
+  // Through the approved list, so the preview shows the font the published
+  // site will actually load rather than one it silently falls back from.
+  // A website that has chosen a font pair keeps its body font here; headings
+  // pick up the heading font from the rule the wrapper below emits.
+  return resolveApprovedFontStack(
+    styles.fontFamily || globalStyles?.fontPair?.body || globalStyles?.fontFamily
+  );
 }
-
-const animationMap: Record<string, string> = {
-  'fade-in': 'fadeIn',
-  'slide-up': 'slideUp',
-  'slide-down': 'slideDown',
-  'slide-left': 'slideLeft',
-  'slide-right': 'slideRight',
-  'zoom-in': 'zoomIn',
-  'zoom-out': 'zoomOut',
-  'bounce': 'bounce',
-  'flip': 'flip',
-};
 
 function AnimatedWrapper({ 
   children, 
@@ -112,59 +122,22 @@ function AnimatedWrapper({
   styles: ComponentStyles; 
   isPreview?: boolean;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const [hasAnimated, setHasAnimated] = useState(false);
-  
-  const animationType = styles.animationType || 'none';
-  const animationTrigger = styles.animationTrigger || 'load';
-  const animationDuration = styles.animationDuration || '0.5s';
-  const animationDelay = styles.animationDelay || '0s';
-  
-  useEffect(() => {
-    if (animationType === 'none' || hasAnimated) return;
-    
-    if (animationTrigger === 'load') {
-      setIsVisible(true);
-      setHasAnimated(true);
-    } else if (animationTrigger === 'scroll') {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting && !hasAnimated) {
-              setIsVisible(true);
-              setHasAnimated(true);
-            }
-          });
-        },
-        { threshold: 0.1 }
-      );
-      
-      if (ref.current) {
-        observer.observe(ref.current);
-      }
-      
-      return () => observer.disconnect();
-    }
-  }, [animationType, animationTrigger, hasAnimated]);
-  
-  if (animationType === 'none' || !animationMap[animationType]) {
+  // One shared model: the four legacy animation* fields plus styles.motion
+  // resolve through shared/motion.ts — the same tables and functions the
+  // published renderer bakes in. Changing a value replays the entrance,
+  // which doubles as the live preview while editing.
+  const spec = sectionMotionSpec(styles);
+  const resolved = computeMotion(MOTION_TABLES, spec);
+  const { ref, style, active } = useMotionPhase(resolved, '');
+
+  // Entrance animations are decoration: with reduced motion the section is
+  // simply there, fully visible, exactly as the published site renders it.
+  if (!active) {
     return <>{children}</>;
   }
-  
-  const animationName = animationMap[animationType];
-  const shouldAnimate = isVisible;
-  
+
   return (
-    <div
-      ref={ref}
-      style={{
-        opacity: shouldAnimate ? 1 : 0,
-        animation: shouldAnimate 
-          ? `${animationName} ${animationDuration} ${animationDelay} ease-out forwards`
-          : 'none',
-      }}
-    >
+    <div ref={ref} data-motion="" style={style}>
       {children}
     </div>
   );
@@ -282,6 +255,8 @@ type TableColumn = {
   name: string;
   price?: string;
   highlighted?: boolean;
+  /** Older templates name the column with `label` instead of `name`. */
+  label?: string;
 };
 
 type FeatureRow = {
@@ -365,6 +340,12 @@ type RenderProps = {
   isPreview?: boolean;
   websiteId?: string;
   pages?: BuilderPage[];
+  /**
+   * The site navigation, already resolved from the stored navigation. When
+   * absent (older callers, tests) the header falls back to deriving it from
+   * `pages`, which is what both renderers did before navigation was stored.
+   */
+  navItems?: NavItem[];
   allComponents?: BuilderComponentData[];
   onTextChange?: (field: string, value: string | StyledText) => void;
   editingField?: string | null;
@@ -375,9 +356,16 @@ type RenderProps = {
   deviceMode?: DeviceMode;
   onComponentClick?: (componentId: string) => void;
   globalStyles?: GlobalStyles;
+  /** Stored illustrations by id — resolved inside custom components. */
+  svgAssets?: Record<string, import("@shared/svgAssets").SvgAssetLike>;
   /** Node selection inside custom components (primitive node trees). */
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
+  /**
+   * Clicking a list item (pricing plan, FAQ entry, timeline step) on the
+   * canvas focuses that item's card in the properties panel.
+   */
+  onItemFocus?: (index: number) => void;
 };
 
 type EditableTextProps = {
@@ -550,7 +538,7 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
     padding: styles.padding || '0',
     cursor: isPreview ? 'default' : 'pointer',
     position: 'relative' as const,
-    fontFamily: styles.fontFamily || undefined,
+    fontFamily: styles.fontFamily ? resolveApprovedFontStack(styles.fontFamily) : undefined,
     ...(styles.backgroundGradient && styles.backgroundGradient !== 'none' && {
       background: styles.backgroundGradient,
     }),
@@ -585,6 +573,8 @@ type ComponentRenderProps = {
   onStyleChange?: (styles: Partial<ComponentStyles>) => void;
   deviceMode?: DeviceMode;
   globalStyles?: GlobalStyles;
+  /** Clicking a list item on the canvas focuses its card in the panel. */
+  onItemFocus?: (index: number) => void;
 };
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
@@ -1246,7 +1236,7 @@ function BurgerButton({ isOpen, textColor, hoverColor, onClick }: {
   );
 }
 
-function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, onTextChange, editingField, onEditField, deviceMode, globalStyles }: ComponentRenderProps & { pages?: BuilderPage[] }) {
+function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages, navItems: providedNavItems, onTextChange, editingField, onEditField, deviceMode, globalStyles }: ComponentRenderProps & { pages?: BuilderPage[]; navItems?: NavItem[] }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [windowIsMobile, setWindowIsMobile] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1313,9 +1303,15 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   // Use deviceMode from builder preview if provided, otherwise use window width
   const isMobile = deviceMode ? (deviceMode === 'mobile' || deviceMode === 'tablet') : windowIsMobile;
 
-  const navItems = pages && pages.length > 0
-    ? pages.filter(page => !page.hidden).map(page => ({ id: page.id, title: page.name, href: page.path }))
-    : props.items?.map(item => ({ id: item.id, title: item.title, href: item.description || '#' })) || [];
+  // Stored navigation wins - even when it is empty, because a customer who
+  // removed every link meant it. Only when NO menu was handed in (a website
+  // that has not been migrated yet, or a header dropped on a page with no
+  // site around it, like the component gallery) does the old fallback run.
+  const navItems: NavItem[] = providedNavItems !== undefined
+    ? providedNavItems
+    : pages && pages.length > 0
+      ? resolveNavItems({ pages: pages.map(page => ({ ...page, components: [] })) })
+      : props.items?.map(item => ({ id: item.id, title: item.title ?? '', href: item.description || '#' })) || [];
 
   const handleNavClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1558,7 +1554,7 @@ function FooterComponent({ props, styles, isSelected, onClick, isPreview, onText
   const accentColor = resolveAccentColor(styles, globalStyles);
   const navItems = props.items?.map(i => ({ title: i.title, href: i.description || '#' })) || [];
   const columns: Array<{ heading: string; links: Array<{ label: string; href: string }> }> = props.footerColumns || [];
-  const copyright = props.copyright || `© ${new Date().getFullYear()} ${props.title || 'Company'}. All rights reserved.`;
+  const copyright = props.copyright || '';
   const socialLinks: Array<{ platform: string; url: string }> = props.socialLinks || [];
 
   const SocialIcon = ({ platform }: { platform: string }) => {
@@ -1627,9 +1623,13 @@ function FooterComponent({ props, styles, isSelected, onClick, isPreview, onText
             </div>
           ))}
         </div>
-        {/* Bottom copyright row */}
+        {/* Bottom copyright + legal row — always shown */}
         <div style={{ borderTop: `1px solid ${hexToRgba(styles.textColor || '#000', 0.07)}`, paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-          <p style={{ fontSize: '13px', opacity: 0.45 }}>{copyright}</p>
+          {copyright && <p style={{ fontSize: '13px', opacity: 0.45 }}>{copyright}</p>}
+          <div style={{ display: 'flex', gap: '16px', marginLeft: 'auto' }}>
+            <a href={isPreview ? '/privacy' : '#'} style={{ fontSize: '13px', opacity: 0.45, textDecoration: 'none', color: 'inherit' }}>Privatlivspolitik</a>
+            <a href={isPreview ? '/terms' : '#'} style={{ fontSize: '13px', opacity: 0.45, textDecoration: 'none', color: 'inherit' }}>Handelsbetingelser</a>
+          </div>
         </div>
       </div>
     </footer>
@@ -1643,7 +1643,7 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   const columns = props.columns || 3;
   const limit = props.productLimit || 6;
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '36px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
@@ -1910,7 +1910,16 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
   );
 }
 
+/**
+ * The "Product Page Design" panel.
+ *
+ * This is not a section of the page it sits on: it configures how the
+ * generated product pages look. Visitors never see it, so preview mode
+ * shows nothing here - exactly what the published site renders - and the
+ * sample layout below stays an editing aid.
+ */
 function ProductDetailDesigner({ props, styles, isSelected, onClick, isPreview, websiteId }: ComponentRenderProps & { websiteId?: string }) {
+  if (isPreview) return null;
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const layout = props.layout || 'side-by-side';
   const accentColor = props.accentColor || '#7c3aed';
@@ -1952,7 +1961,7 @@ function ProductDetailDesigner({ props, styles, isSelected, onClick, isPreview, 
             <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
             <line x1="7" y1="7" x2="7.01" y2="7"/>
           </svg>
-          Product Page Design Preview
+          Produktside-design — vises kun i editoren og bruges på dine produktsider
         </div>
 
         {/* Breadcrumb */}
@@ -2271,9 +2280,10 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
   );
 }
 
-function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
+function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles, onItemFocus }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
-  const items = props.items || [];
+  // Older templates keep their plans under `plans` rather than `items`.
+  const items = props.items || props.plans || [];
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = resolveFontFamily(styles, globalStyles);
   const accentColor = resolveAccentColor(styles, globalStyles);
@@ -2343,7 +2353,7 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
             const cta = item.ctaText || props.buttonText || 'Get started';
             const ctaLink = item.ctaLink || props.buttonLink || '#';
             return (
-              <div key={item.id || index} style={{
+              <div key={item.id || index} onClick={!isPreview && onItemFocus ? () => onItemFocus(index) : undefined} data-testid={`pricing-item-${index}`} style={{
                 padding: '36px 32px',
                 borderRadius: '24px',
                 position: 'relative',
@@ -2367,7 +2377,7 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
                 {canEdit ? (
                   <EditableText value={item.title || ''} field={`items.${index}.title`} isEditing={editingField === `items.${index}.title`} onEdit={onEditField} onChange={onTextChange} style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: isHighlighted ? 0.8 : 0.55, marginBottom: '12px', display: 'block' }} as="p" isPreview={isPreview} />
                 ) : (
-                  <p style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: isHighlighted ? 0.8 : 0.55, marginBottom: '12px' }}>{item.title}</p>
+                  <p style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: isHighlighted ? 0.8 : 0.55, marginBottom: '12px' }}>{item.title || item.name}</p>
                 )}
                 {/* Price */}
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', marginBottom: '8px' }}>
@@ -2429,7 +2439,7 @@ function PricingTableComponent({ props, styles, isSelected, onClick, isPreview, 
   );
 }
 
-function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
+function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles, onItemFocus }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const items = props.items || [];
   const canEdit = !isPreview && onTextChange && onEditField;
@@ -2469,7 +2479,7 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
           {items.map((item, index) => {
             const isOpen = canEdit ? true : openIndex === index;
             return (
-              <div key={item.id || index} style={{ borderBottom: `1px solid ${hexToRgba(accentColor, 0.1)}` }}>
+              <div key={item.id || index} onClick={!isPreview && onItemFocus ? () => onItemFocus(index) : undefined} data-testid={`faq-item-${index}`} style={{ borderBottom: `1px solid ${hexToRgba(accentColor, 0.1)}` }}>
                 {/* Question row */}
                 <button
                   onClick={canEdit ? undefined : (e) => { e.stopPropagation(); setOpenIndex(isOpen ? null : index); }}
@@ -2505,9 +2515,10 @@ function FAQComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
 }
 
 function useCountUp(target: number, duration: number, active: boolean) {
-  const [count, setCount] = useState(0);
+  const [count, setCount] = useState(target);
   useEffect(() => {
     if (!active) return;
+    setCount(0);
     const start = Date.now();
     const end = start + duration;
     const tick = () => {
@@ -2537,8 +2548,12 @@ function StatCard({ stat, index, accentColor, canEdit, editingField, onEditField
     obs.observe(el);
     return () => obs.disconnect();
   }, [isPreview]);
-  const numericTarget = parseFloat(String(stat.value || '0').replace(/[^0-9.]/g, '')) || 0;
-  const isNumeric = !isNaN(numericTarget) && numericTarget > 0;
+  // Only values that are purely a number can be counted up. "10K+" or "24/7"
+  // would otherwise be rewritten as "10" and "247" - the preview would show
+  // something the published site never says.
+  const rawValue = String(stat.value ?? '').trim();
+  const isNumeric = /^\d+(\.\d+)?$/.test(rawValue);
+  const numericTarget = isNumeric ? parseFloat(rawValue) : 0;
   const countUpValue = useCountUp(numericTarget, 1600, active && isPreview && isNumeric);
   const displayed = isPreview && isNumeric ? countUpValue : null;
   return (
@@ -2751,19 +2766,6 @@ function ContactFormComponent({ props, styles, isSelected, onClick, isPreview, o
               <p style={{ fontSize: bodyFontSize, opacity: 0.65, lineHeight: 1.7 }}>{props.description}</p>
             )
           )}
-          {/* Trust signals */}
-          <div style={{ marginTop: '32px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[
-              { icon: '🔒', text: 'Your data is safe with us' },
-              { icon: '⚡', text: 'We reply within 24 hours' },
-              { icon: '💬', text: 'No commitment required' },
-            ].map((item, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', opacity: 0.6 }}>
-                <span style={{ fontSize: '16px' }}>{item.icon}</span>
-                <span>{item.text}</span>
-              </div>
-            ))}
-          </div>
         </div>
         {/* Right: form card */}
         <div style={{ backgroundColor: hexToRgba(accentColor, 0.04), border: `1px solid ${hexToRgba(accentColor, 0.1)}`, borderRadius: '24px', padding: '36px' }}>
@@ -2778,7 +2780,7 @@ function VideoEmbedComponent({ props, styles, isSelected, onClick, isPreview, on
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const videoUrl = props.videoUrl || '';
   const canEdit = !isPreview && onTextChange && onEditField;
-  const fontFamily = styles.fontFamily || 'Inter, system-ui, sans-serif';
+  const fontFamily = resolveFontFamily(styles, globalStyles);
   const titleFontSize = styles.titleFontSize || '32px';
   const bodyFontSize = styles.bodyFontSize || '16px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
@@ -3261,6 +3263,11 @@ function LogoCloudComponent({ props, styles, isSelected, onClick, isPreview, onT
             </h2>
           )
         )}
+        {props.subtitle && (
+          <p style={{ fontSize: '16px', opacity: 0.7, marginBottom: '40px', lineHeight: 1.5 }}>
+            {props.subtitle}
+          </p>
+        )}
         <div style={{ 
           display: 'flex', 
           flexWrap: 'wrap', 
@@ -3458,7 +3465,7 @@ function ComparisonTableComponent({ props, styles, isSelected, onClick, isPrevie
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid rgba(0,0,0,0.1)' }}>Features</th>
+                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '2px solid rgba(0,0,0,0.1)' }}>{props.featuresLabel || 'Features'}</th>
                 {tableColumns.map((col, index) => (
                   <th 
                     key={col.id || index} 
@@ -3470,7 +3477,7 @@ function ComparisonTableComponent({ props, styles, isSelected, onClick, isPrevie
                     }}
                     data-testid={`comparison-col-${index}`}
                   >
-                    <div style={{ fontWeight: '700', fontSize: '18px' }}>{col.name}</div>
+                    <div style={{ fontWeight: '700', fontSize: '18px' }}>{col.name || col.label}</div>
                     <div style={{ fontSize: '24px', fontWeight: '700', color: accentColor, marginTop: '8px' }}>{col.price}</div>
                   </th>
                 ))}
@@ -3595,9 +3602,9 @@ function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview, 
             </ul>
           )}
           {props.buttonText && (
-            <button style={{ marginTop: '32px', padding: '14px 32px', backgroundColor: accentColor, color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' }}>
+            <a href={isPreview ? (props.buttonLink || '#') : '#'} style={{ display: 'inline-block', marginTop: '32px', padding: '14px 32px', backgroundColor: accentColor, color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', textDecoration: 'none' }}>
               {props.buttonText}
-            </button>
+            </a>
           )}
         </div>
         <div style={{ order: layout === 'image-right' ? 2 : 1 }}>
@@ -3742,7 +3749,7 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalSt
   );
 }
 
-function TimelineComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField }: ComponentRenderProps) {
+function TimelineComponent({ props, styles, isSelected, onClick, isPreview, globalStyles, onTextChange, editingField, onEditField, onItemFocus }: ComponentRenderProps) {
   const textColor = styles.textColor || '#1a1a1a';
   const accentColor = resolveAccentColor(styles, globalStyles);
   const fontFamily = resolveFontFamily(styles, globalStyles);
@@ -3785,6 +3792,7 @@ function TimelineComponent({ props, styles, isSelected, onClick, isPreview, glob
           {items.map((item, index) => (
             <div
               key={item.id || index}
+              onClick={!isPreview && onItemFocus ? () => onItemFocus(index) : undefined}
               style={{ display: 'flex', gap: '32px', marginBottom: '48px', position: 'relative', ...getItemStyle(index) }}
               data-testid={`timeline-item-${index}`}
             >
@@ -3937,9 +3945,11 @@ type ContainerComponentProps = ComponentRenderProps & {
   onComponentClick?: (componentId: string) => void;
   websiteId?: string;
   pages?: BuilderPage[];
+  navItems?: NavItem[];
+  svgAssets?: Record<string, import("@shared/svgAssets").SvgAssetLike>;
 };
 
-function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, deviceMode, onClick, globalStyles }: ContainerComponentProps) {
+function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, navItems, deviceMode, onClick, globalStyles, svgAssets }: ContainerComponentProps) {
   const children = props.children || [];
   const layout = props.layout || 'vertical';
   const gap = props.gap || '24px';
@@ -3998,9 +4008,11 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
             isPreview={isPreview}
             websiteId={websiteId}
             pages={pages}
+            navItems={navItems}
             allComponents={allComponents}
             deviceMode={deviceMode}
             globalStyles={globalStyles}
+            svgAssets={svgAssets}
             onClick={onComponentClick ? (e) => {
               e.stopPropagation();
               onComponentClick(childComponent.id);
@@ -4012,7 +4024,31 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
   );
 }
 
-export default function ComponentRenderer({ component, isSelected = false, onClick, isPreview = false, websiteId, pages, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, selectedNodeId, onNodeSelect }: RenderProps) {
+export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, navItems, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, svgAssets, selectedNodeId, onNodeSelect, onItemFocus }: RenderProps) {
+  // What is stored may point at the brand ("{color.primary}") rather than
+  // repeat its value. Resolve once, here, so every section below draws real
+  // values and no section has to know that tokens exist. The publisher does
+  // the same substitution with the same shared functions as it writes the
+  // Next.js project.
+  const resolvedTokens = useMemo(() => resolveDesignTokens(globalStyles), [globalStyles]);
+  const component = useMemo(
+    () => resolveTokensDeep(storedComponent, resolvedTokens),
+    [storedComponent, resolvedTokens]
+  );
+
+  // Apply breakpoint-specific style overrides for the active device mode.
+  // Only layout/spacing properties are allowed (see ResponsiveStyleOverrides).
+  const effectiveStyles = useMemo(() => {
+    const resp = component.styles.responsive;
+    if (!resp) return component.styles;
+    const override =
+      deviceMode === 'mobile' ? resp.mobile :
+      deviceMode === 'tablet' ? resp.tablet :
+      undefined;
+    if (!override) return component.styles;
+    return { ...component.styles, ...override };
+  }, [component.styles, deviceMode]);
+
   const handleClick = (e: React.MouseEvent) => {
     if (!isPreview && onClick) {
       e.stopPropagation();
@@ -4034,7 +4070,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
 
   const commonProps: ComponentRenderProps = {
     props: component.props,
-    styles: component.styles,
+    styles: effectiveStyles,
     isSelected,
     onClick: handleClick,
     isPreview,
@@ -4045,14 +4081,28 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
     onStyleChange,
     deviceMode,
     globalStyles,
+    onItemFocus,
   };
 
   const headerProps = {
     ...commonProps,
     pages,
+    navItems,
   };
 
+  // A website may pair a heading font with a different body font. Sections set
+  // the body font on themselves and let their headings inherit it, so the
+  // heading font needs a rule of its own - the published site emits the same
+  // one into globals.css. Only sites that actually pair two fonts get it, so
+  // everything else renders exactly as before.
+  const headingFont = resolvedTokens['font.heading'];
+  const headingFontRule =
+    headingFont && headingFont !== resolvedTokens['font.body']
+      ? `.bf-section h1, .bf-section h2, .bf-section h3, .bf-section h4, .bf-section h5, .bf-section h6 { font-family: ${headingFont}; }`
+      : null;
+
   const wrapperProps: React.HTMLAttributes<HTMLDivElement> & { 'data-testid': string; 'data-component-type': string; 'data-element-id': string; 'data-component-id': string } = {
+    className: 'bf-section',
     'data-testid': `component-${component.id}`,
     'data-component-type': component.type,
     'data-element-id': component.id,
@@ -4127,7 +4177,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
       case 'services':
         return <ServicesComponent {...commonProps} />;
       case 'container':
-        return <ContainerComponent {...commonProps} allComponents={allComponents} onComponentClick={onComponentClick} />;
+        return <ContainerComponent {...commonProps} allComponents={allComponents} onComponentClick={onComponentClick} websiteId={websiteId} pages={pages} navItems={navItems} svgAssets={svgAssets} />;
       case 'custom':
         return (
           <CustomComponentRenderer
@@ -4142,6 +4192,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
             editingField={editingField}
             onEditField={onEditField}
             globalStyles={globalStyles}
+            svgAssets={svgAssets}
           />
         );
       default:
@@ -4154,6 +4205,7 @@ export default function ComponentRenderer({ component, isSelected = false, onCli
 
   return (
     <div {...wrapperProps}>
+      {headingFontRule && <style>{headingFontRule}</style>}
       <AnimatedWrapper styles={component.styles} isPreview={isPreview}>
         {componentElement}
       </AnimatedWrapper>

@@ -1,0 +1,302 @@
+# #153 — Integrate Kimi K3 as Birdflow's advanced AI agent runtime
+
+I want you to upgrade Birdflow's builder AI architecture so Kimi K3 becomes the main model for complex builder-agent work.
+
+This must NOT be implemented as a simple model-name replacement.
+
+The goal is to create a provider-independent AI runtime that properly supports Kimi K3's multi-step reasoning, tool calling, long-running agent workflows, spend tracking, fallbacks, and future AI providers.
+
+Before changing code, audit the existing AI architecture and identify:
+
+* all AI roles
+* how `aiConfig.ts` defines models
+* how `aiCall.ts` sends chat requests
+* how `aiAgent.ts` runs multi-step tool calls
+* how assistant/tool messages are currently stored
+* whether assistant tool-call messages are reconstructed or preserved
+* how max agent steps are enforced
+* how token usage and spend are calculated
+* where OpenAI image generation is handled
+* whether onboarding uses the same AI runtime
+* existing AI-related tests
+
+Do not create a parallel second agent implementation if the existing one can be generalized cleanly.
+
+## Architecture goal
+
+The final architecture should approximately be:
+
+User request
+→ AI role/config
+→ provider router
+→ Kimi/OpenAI client
+→ agent reasoning
+→ Birdflow tools
+→ tool results
+→ preserved assistant reasoning/tool state
+→ next model turn
+→ self-review
+→ completion
+
+Image generation remains on OpenAI.
+
+---
+
+## 1. Introduce provider abstraction
+
+Do NOT add only:
+
+`client: "openai" | "kimi"`
+
+Instead introduce something equivalent to:
+
+```ts
+type AiProvider = "openai" | "kimi";
+
+interface AiRoleConfig {
+  provider: AiProvider;
+  model: string;
+  reasoningEffort?: "low" | "high" | "max";
+  fallbackProvider?: AiProvider;
+  fallbackModel?: string;
+}
+```
+
+Adapt this to the actual architecture instead of blindly copying it.
+
+The purpose is that adding Anthropic/Gemini/etc. later should not require rewriting the agent runtime.
+
+---
+
+## 2. Add Kimi client
+
+Add a reusable Kimi client using the existing OpenAI-compatible SDK pattern where appropriate.
+
+Use:
+
+* `KIMI_API_KEY` as secret
+* default base URL: `https://api.moonshot.ai/v1`
+* model: `kimi-k3`
+
+`KIMI_BASE_URL` may optionally override the default for development/testing, but the base URL itself must not be required as a secret.
+
+Use lazy initialization consistent with the current OpenAI client.
+
+Tests must be able to reset/mock the client.
+
+Never expose the Kimi API key to the browser.
+
+---
+
+## 3. Role routing
+
+Do NOT blindly move every AI role to K3.
+
+Initially configure complex builder roles for Kimi K3, including roles equivalent to:
+
+* planning
+* architectPlan
+* architectBuild
+* buildStep
+* siteGeneration
+* siteThinking
+* designAnalysis
+* referenceVision
+* selfReview
+
+Keep image generation on the existing OpenAI image provider.
+
+For lightweight conversational/design-interview tasks, inspect whether a cheaper model/provider should remain available instead of forcing every tiny operation through K3.
+
+Do NOT migrate onboarding in this task unless the current architecture makes it inseparable from builder AI. If onboarding can remain unchanged, keep it out of scope.
+
+Document the final role mapping.
+
+---
+
+## 4. Kimi-compatible multi-step reasoning
+
+This is critical.
+
+Audit the current agent loop and ensure Kimi assistant turns are preserved correctly across tool calls.
+
+For every assistant turn, preserve all provider-relevant fields needed for the next Kimi request, including equivalents of:
+
+* `content`
+* `reasoning_content`
+* `tool_calls`
+* tool call IDs
+
+Do not reduce a previous assistant turn to only its visible `content`.
+
+Tool responses must be associated with the exact tool-call IDs that produced them.
+
+The agent loop should behave conceptually like:
+
+K3 response
+→ preserve complete assistant response
+→ execute tool calls
+→ append tool results
+→ send preserved assistant response + tool results back
+→ K3 continues reasoning
+
+Create tests specifically for this.
+
+Required tests:
+
+1. one tool call
+2. multiple parallel/serial tool calls
+3. at least 5 consecutive agent steps
+4. long workflow of at least 20 steps using mocked model output
+5. correct tool-call ID pairing
+6. preserved reasoning fields
+7. graceful handling of malformed tool responses
+
+---
+
+## 5. Agent runaway protection
+
+Add explicit safeguards around autonomous workflows.
+
+The runtime should support limits equivalent to:
+
+* `maxSteps`
+* `maxRepeatedToolCalls`
+* `maxToolErrors`
+* token budget
+* estimated dollar budget
+
+Detect obvious loops such as:
+
+`get_page(home)` repeated against unchanged state several times.
+
+When a repetitive call is blocked, return useful structured feedback to the model such as:
+
+“You already retrieved this unchanged resource. Use the existing result or choose another action.”
+
+Do not silently kill the agent unless necessary.
+
+Record why an agent workflow stopped:
+
+* completed
+* max steps
+* token budget
+* spend budget
+* repeated calls
+* excessive tool errors
+* provider error
+
+---
+
+## 6. Reasoning effort
+
+Support K3 reasoning effort per role where supported.
+
+Use role-level configuration so simple tasks can use lower effort and architect/review tasks can use higher effort.
+
+Do not hard-code max reasoning globally.
+
+---
+
+## 7. Spend tracking
+
+Update `aiSpend.ts` or the equivalent spend system to support provider + model-based pricing.
+
+Do not assume every model uses OpenAI pricing.
+
+Pricing should be represented in a maintainable structure such as:
+
+provider
+→ model
+→ input
+→ cached input if applicable
+→ output
+
+Use the current official Kimi K3 pricing configured in one centralized location.
+
+Unknown models must not silently report `$0`.
+
+If pricing is unknown, explicitly mark spend as unknown or log a warning.
+
+---
+
+## 8. Provider fallback
+
+Design the runtime so a role may optionally specify a fallback provider/model.
+
+Example:
+
+Kimi K3
+→ provider fails before useful output
+→ approved fallback model
+
+Do not automatically replay destructive tool executions.
+
+Fallback should happen only at safe request boundaries.
+
+Add tests for provider failure.
+
+---
+
+## 9. Image generation
+
+Do not change the functioning image pipeline.
+
+Image-generation roles should continue using OpenAI.
+
+Verify:
+
+* image generation still works
+* Kimi API key is not required for image-only code paths
+* OpenAI chat and image code are not accidentally coupled
+
+---
+
+## 10. Observability
+
+For every AI run, make it possible to record/debug:
+
+* provider
+* model
+* role
+* reasoning effort
+* prompt/input tokens
+* output tokens
+* cached tokens where available
+* number of tool calls
+* number of agent steps
+* stop reason
+* estimated spend
+* provider errors
+
+Never log secrets or full sensitive customer content unnecessarily.
+
+---
+
+# Done looks like
+
+* Kimi K3 powers Birdflow's complex builder-agent roles.
+* The architecture is provider-independent instead of Kimi-specific everywhere.
+* K3 multi-step tool calling preserves complete assistant/tool state.
+* 20+ mocked agent steps work without message-history corruption.
+* Agent loops have repeated-call, error, token, step and spend protection.
+* Reasoning effort can differ by role.
+* Image generation still uses OpenAI with no regression.
+* Spend tracking supports Kimi accurately.
+* Optional provider fallback exists at safe boundaries.
+* Onboarding remains unchanged unless technically inseparable.
+* Existing tests pass.
+* New provider/runtime tests pass.
+* No secrets are exposed client-side.
+* No duplicated AI-agent architecture is introduced.
+
+At the end, give me:
+
+1. a concise audit of what the old architecture did,
+2. the architecture changes made,
+3. exact files changed,
+4. role → provider/model mapping,
+5. new tests,
+6. any remaining limitations or risks.
+
+Do not expand scope into new builder design capabilities yet. Those belong in Task #154.

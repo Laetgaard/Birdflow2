@@ -12,6 +12,7 @@ import {
   assertSaneJsonDepth,
   MAX_AI_JSON_DEPTH,
   validateMutations,
+  applyMutations,
 } from "./aiBuilder";
 import { MAX_CUSTOM_TREE_NODES, MAX_CUSTOM_TREE_DEPTH } from "@shared/customComponents";
 
@@ -198,5 +199,309 @@ describe("assertSaneJsonDepth", () => {
         ],
       })
     ).not.toThrow();
+  });
+});
+
+/* ─────────── editable schema + visual-only (Phase 6) ─────────── */
+
+describe("validateMutations — editable schema and visual-only enforcement", () => {
+  const validTree = {
+    id: "n0",
+    type: "box",
+    children: [
+      { id: "n1", type: "text", tag: "h2", text: "Ro i hverdagen" },
+      { id: "n2", type: "button", label: "Læs mere", href: "/om" },
+    ],
+  };
+
+  it("accepts a mutation whose schema resolves to real nodes", () => {
+    const result = validateMutations(
+      [
+        {
+          action: "add_custom_component",
+          pageId: "p1",
+          name: "Sektion",
+          tree: validTree,
+          schema: {
+            fields: [
+              { type: "text", key: "headline", label: "Overskrift", nodeId: "n1" },
+              { type: "link", key: "cta-link", label: "Knap – link", nodeId: "n2" },
+            ],
+          },
+        },
+      ],
+      makeState()
+    );
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("rejects a schema field bound to a node the tree does not contain, with an actionable error", () => {
+    const result = validateMutations(
+      [
+        {
+          action: "add_custom_component",
+          pageId: "p1",
+          name: "Sektion",
+          tree: validTree,
+          schema: { fields: [{ type: "text", key: "ghost", label: "Væk", nodeId: "n99" }] },
+        },
+      ],
+      makeState()
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(" ")).toMatch(/schema/i);
+    expect(result.errors.join(" ")).toMatch(/"id"/);
+  });
+
+  it("rejects trees with executable link schemes and points at trusted section types", () => {
+    const result = validateMutations(
+      [
+        {
+          action: "add_custom_component",
+          pageId: "p1",
+          name: "Fup-formular",
+          tree: {
+            id: "n0",
+            type: "box",
+            children: [{ id: "n1", type: "button", label: "Send", href: "javascript:submit()" }],
+          },
+        },
+      ],
+      makeState()
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(" ")).toMatch(/visual-only/);
+    expect(result.errors.join(" ")).toMatch(/booking/);
+  });
+
+  it("rejects SVG form imitations on update_custom_component", () => {
+    const state = makeState([
+      {
+        id: "cust-1",
+        type: "custom",
+        props: { customTree: { id: "n0", type: "box", children: [{ id: "n1", type: "text", text: "Hej" }] } },
+        styles: {},
+      },
+    ]);
+    const result = validateMutations(
+      [
+        {
+          action: "update_custom_component",
+          pageId: "p1",
+          componentId: "cust-1",
+          tree: {
+            id: "n0",
+            type: "box",
+            children: [{ id: "s1", type: "svg", svg: '<svg><form><input type="text"/></form></svg>' }],
+          },
+        },
+      ],
+      state
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(" ")).toMatch(/visual-only/);
+  });
+
+  it("validates a schema-only update against the EXISTING tree", () => {
+    const state = makeState([
+      {
+        id: "cust-1",
+        type: "custom",
+        props: { customTree: { id: "n0", type: "box", children: [{ id: "n1", type: "text", text: "Hej" }] } },
+        styles: {},
+      },
+    ]);
+    const good = validateMutations(
+      [
+        {
+          action: "update_custom_component",
+          pageId: "p1",
+          componentId: "cust-1",
+          schema: { fields: [{ type: "text", key: "t", label: "Tekst", nodeId: "n1" }] },
+        },
+      ],
+      state
+    );
+    expect(good.valid).toBe(true);
+
+    const bad = validateMutations(
+      [
+        {
+          action: "update_custom_component",
+          pageId: "p1",
+          componentId: "cust-1",
+          schema: { fields: [{ type: "text", key: "t", label: "Tekst", nodeId: "gone" }] },
+        },
+      ],
+      state
+    );
+    expect(bad.valid).toBe(false);
+  });
+});
+
+describe("applyMutations — every AI custom-component write stores a schema", () => {
+  const treeWithIds = {
+    id: "n0",
+    type: "box",
+    children: [
+      { id: "n1", type: "text", tag: "h2", text: "Ro i hverdagen" },
+      { id: "n2", type: "button", label: "Læs mere", href: "/om" },
+    ],
+  };
+
+  it("stores the emitted schema when it validates", () => {
+    const next = applyMutations(makeState(), [
+      {
+        action: "add_custom_component",
+        pageId: "p1",
+        name: "Sektion",
+        tree: treeWithIds,
+        schema: { fields: [{ type: "text", key: "headline", label: "Overskrift", nodeId: "n1" }] },
+      } as any,
+    ]);
+    const comp: any = next.pages[0].components.find((c: any) => c.type === "custom");
+    expect(comp.props.customSchema).toBeDefined();
+    expect(comp.props.customSchema.fields.map((f: any) => f.key)).toEqual(["headline"]);
+  });
+
+  it("falls back to an inferred schema when none is emitted — components are never schema-less", () => {
+    const next = applyMutations(makeState(), [
+      { action: "add_custom_component", pageId: "p1", name: "Sektion", tree: treeWithIds } as any,
+    ]);
+    const comp: any = next.pages[0].components.find((c: any) => c.type === "custom");
+    expect(comp.props.customSchema).toBeDefined();
+    expect(comp.props.customSchema.fields.length).toBeGreaterThan(0);
+  });
+
+  it("re-anchors the schema when update_custom_component replaces the tree", () => {
+    const withComp = applyMutations(makeState(), [
+      { action: "add_custom_component", pageId: "p1", name: "Sektion", tree: treeWithIds } as any,
+    ]);
+    const comp: any = withComp.pages[0].components.find((c: any) => c.type === "custom");
+    const newTree = {
+      id: "m0",
+      type: "box",
+      children: [{ id: "m1", type: "text", tag: "h2", text: "Nyt indhold" }],
+    };
+    const next = applyMutations(withComp, [
+      {
+        action: "update_custom_component",
+        pageId: "p1",
+        componentId: comp.id,
+        tree: newTree,
+        schema: { fields: [{ type: "text", key: "headline", label: "Overskrift", nodeId: "m1" }] },
+      } as any,
+    ]);
+    const updated: any = next.pages[0].components.find((c: any) => c.id === comp.id);
+    expect(updated.props.customSchema.fields[0].nodeId).toBe("m1");
+  });
+});
+
+describe("applyMutations — saveToLibrary metadata and duplicate guard", () => {
+  const tree = {
+    id: "n0",
+    type: "box",
+    children: [{ id: "n1", type: "text", tag: "h2", text: "Hej" }],
+  };
+
+  it("stores metadata, origin 'ai', version and a thumbnail on the entry", () => {
+    const next = applyMutations(makeState(), [
+      {
+        action: "add_custom_component",
+        pageId: "p1",
+        name: "Bånd",
+        tree,
+        saveToLibrary: true,
+        description: "Et smalt bånd med USP'er",
+        category: "cta",
+        tags: ["bånd", "usp"],
+      } as any,
+    ]);
+    expect(next.customComponents).toHaveLength(1);
+    const entry: any = next.customComponents![0];
+    expect(entry.origin).toBe("ai");
+    expect(entry.version).toBe(1);
+    expect(entry.description).toBe("Et smalt bånd med USP'er");
+    expect(entry.category).toBe("cta");
+    expect(entry.tags).toEqual(["bånd", "usp"]);
+    expect(entry.thumbnail).toContain("<svg");
+  });
+
+  it("skips the entry when a structurally identical one exists — the page still gets its component", () => {
+    const first = applyMutations(makeState(), [
+      { action: "add_custom_component", pageId: "p1", name: "A", tree, saveToLibrary: true } as any,
+    ]);
+    const next = applyMutations(first, [
+      {
+        action: "add_custom_component",
+        pageId: "p1",
+        name: "B",
+        tree: structuredClone(tree),
+        saveToLibrary: true,
+      } as any,
+    ]);
+    expect(next.customComponents).toHaveLength(1);
+    expect(next.pages[0].components.filter((c: any) => c.type === "custom")).toHaveLength(2);
+  });
+
+  it("falls back to the inferred category when the AI sends nonsense", () => {
+    const next = applyMutations(makeState(), [
+      {
+        action: "add_custom_component",
+        pageId: "p1",
+        name: "X",
+        tree,
+        saveToLibrary: true,
+        category: "nonsense",
+      } as any,
+    ]);
+    expect(next.customComponents![0].category).toBe("sektion");
+  });
+});
+
+describe("duplicate_component — custom components stay independent", () => {
+  it("gives the duplicate fresh node ids and a schema bound to them", () => {
+    const withComp = applyMutations(makeState(), [
+      {
+        action: "add_custom_component",
+        pageId: "p1",
+        name: "Sektion",
+        tree: {
+          id: "n0",
+          type: "box",
+          children: [{ id: "n1", type: "text", tag: "h2", text: "Hej" }],
+        },
+        schema: { fields: [{ type: "text", key: "headline", label: "Overskrift", nodeId: "n1" }] },
+      } as any,
+    ]);
+    const original: any = withComp.pages[0].components.find((c: any) => c.type === "custom");
+
+    const next = applyMutations(withComp, [
+      { action: "duplicate_component", pageId: "p1", componentId: original.id } as any,
+    ]);
+    const customs: any[] = next.pages[0].components.filter((c: any) => c.type === "custom");
+    expect(customs).toHaveLength(2);
+    const [a, b] = customs;
+    expect(b.id).not.toBe(a.id);
+
+    // No shared primitive ids — published per-node CSS classes are id-based.
+    const idsOf = (root: any): Set<string> => {
+      const ids = new Set<string>();
+      const walk = (n: any) => {
+        ids.add(n.id);
+        (n.children ?? []).forEach(walk);
+      };
+      walk(root);
+      return ids;
+    };
+    const aIds = idsOf(a.props.customTree);
+    const shared = Array.from(idsOf(b.props.customTree)).filter((id) => aIds.has(id));
+    expect(shared).toEqual([]);
+
+    // The duplicate keeps a STORED schema bound to its own fresh nodes.
+    expect(b.props.customSchema?.fields).toHaveLength(1);
+    expect(b.props.customSchema.fields[0].nodeId).toBe(b.props.customTree.children[0].id);
+    expect(b.props.customSchema.fields[0].nodeId).not.toBe(a.props.customTree.children[0].id);
   });
 });

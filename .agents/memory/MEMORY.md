@@ -1,6 +1,8 @@
 # Memory index
 
-- [Builder custom components](builder-custom-components.md) — data trees, breakpoint cascade, SVG sanitize, AI image/mutation pipeline order, styles schema-type sync, upload auth, tsc quirks.
+- [Account component library](account-component-library.md) — cross-site DB table + master/instance model; applyWrite is async; ownerId in AgentContext; libraryRef.accountComponentId; adapt uses aiSpend not aiCall.
+
+- [Builder custom components](builder-custom-components.md) — data trees, breakpoint cascade, sanitize points, editable-schema rules, svg asset store + library dedupe/thumbnails, AI pipeline order, tsc quirks.
 - [AI onboarding pipeline](ai-onboarding-pipeline.md) — never-stranded fallbacks, guide-saved-first ordering, user picks override AI, sync single-flight claims, media ownership filter, client resume model.
 - [Onboarding decision flow](onboarding-decision-flow.md) — four state dimensions with one writer, revision-scoped approval (bump only on explicit site writes), per-consumer webhook dedup, paid-only-on-webhook, no price literals.
 - [Timezone & DST](timezone-daylight-saving.md) — local-day windows end at next local midnight (never +24h), iterate series by calendar date, ICU h23 quirk.
@@ -14,6 +16,22 @@
 - [Wide mockups on phones](wide-mockups-on-phones.md) — scale wide product mockups down, don't reflow; Tailwind variants are viewport- not container-based; prove "desktop untouched" with layout signatures, not pixels.
 - [Public-site language switching](public-site-language-switch.md) — stored vs effective lang (route-aware), sync localStorage read to avoid flash, per-page Record<Lang,Shape>, how to verify a translation pass.
 - [Builder plan/build mode](builder-plan-build-mode.md) — read-only mode = separate registry not a filter; approval scoped to a plan version; autonomy limits by step type; one-active-build as a partial unique index.
+- [Build step reliability](build-step-reliability.md) — finishCalled gates completion; turn_budget pause saves partial work; approvalId is scoped single-use; source tripwires must track loop variable rename.
+- [AI run budgets & truncation](ai-run-budgets-and-truncation.md) — ceilings are per unit of customer intent and preflighted, missing usage isn't free, recovered JSON never runs a write tool, warnings outrank optional notes.
 - [Source-tripwire tests](source-tripwire-tests.md) — some suites assert on server source TEXT; a rename breaks them, so re-point the tripwire (keep it specific), never delete it.
 - [Landing image assets](landing-image-assets.md) — full-res originals only in git history ("Add files via upload"); serve resized webp; display:none+lazy img fallback deadlocks.
 - [Customer website language](customer-site-language.md) — language lives on the websites row; publisher `${'${jsx()}'}` double-escape ships code as text; email defaults are seeded in the DB too.
+- [Design tokens](design-tokens.md) — publisher resolves at generation time (resolve before sanitising), sanitiser must allow whole-value refs, migrate fonts via the approved-font resolver, enforce at the mutation choke point.
+- [Builder CAS writes](builder-cas-writes.md) — guarded saves pass the read revision, never retry; every save response must return its new revision and clients must adopt it, or autosave 409s.
+- [Kimi K3 provider routing](kimi-provider-routing.md) — provider field on AiRoleConfig, client selection in aiCall, $1.00/M pricing estimate, test seam (mock both clients), repeat-call detection, AgentRunMeta.
+- [Preview vs published parity](renderer-parity.md) — render both sides from registry defaults; escape generated literals (comments too) and compile output; runtime checks are three-valued (unavailable ≠ failed).
+- [Async publish pipeline](async-publish-pipeline.md) — 202+jobId flow; BIRDFLOW_PUBLIC_PLATFORM_URL required (no REPLIT_DEPLOYMENT); alias retry; never store hashed URL; worker pattern.
+- [Publish legacy compatibility](publish-legacy-compatibility.md) — canonical snapshots migrate old state safely; shared-site publishing uses central permissions and stable Vercel identities.
+- [Builder motion system](builder-motion.md) — motion specs are data, resolvers stay stringifiable, done-phase = {} so hover wins, stagger is box-only, reduced-motion needs the baked CSS unhide rule.
+- [Invented-claims gate](invented-claims-gate.md) — mutations judge against facts+site copy, whole-state scrubs against facts only; forbidden ≠ evidence; scrub again after registry defaults.
+- [Marketing SEO head injection](marketing-seo-head-injection.md) — initial-response metadata on both servers; `index:false` doesn't stop GET /index.html; managed-tag list for SPA head sync; SSR tests need reactEscape.
+- [Generated page type safety](generated-page-type-safety.md) — never import types from @ts-nocheck renderer in page files (isolatedModules breaks it); use a local loose PageComponentData type instead.
+- [Visual review loop](visual-review-loop.md) — screenshot→Kimi vision→VisualIssue[]; screenshots stored in AgentContext.screenshotCache by UUID, never in tool text; iteration cap via visualReviewCount; Chromium path detection required.
+- [Generative DSL 2.0](generative-dsl2.md) — shared/generative/ module split; new style keys; absolute-pos guard rule 7; structured truncation keeps "exceeds"; 7 node-level AI tools; design-first prompt.
+- [Capability & behavior nodes](capability-behavior-nodes.md) — type:'capability' embeds trusted widgets (leaf, no children); behavior field on box = declarative interaction; sanitizer returns undefined not null; publisher bakes 5 BehaviorXxx components + extractBehaviorLabel before CustomNode.
+- [Creative director + brand exploration](creative-director-brand.md) — DesignIntent/BrandDeviation types; in-memory proposal store; classifyChange extended with 4th arg; brand guide never auto-mutated; system prompt: "default direction" not "LAW".

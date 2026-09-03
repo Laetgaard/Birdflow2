@@ -1,17 +1,38 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { runMeterFor } from "./aiSpend";
+import { isSpendLimitError } from "./aiCall";
+import { respondSpendLimit } from "./spendLimitResponse";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
-import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { saveBuilderStateGuarded } from "./builderStateWriter";
+import { createSvgAssetSafe } from "./svgAssetStore";
+import { collectReferencedSvgAssetIds } from "@shared/svgAssets";
+import { migrateSiteStructure } from "@shared/siteStructure";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, orders as ordersTable, invoices as invoicesTable, customers as customersTable, formSubmissions as formSubmissionsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { getPlatformCalendar } from "./platformCalendar";
-import { requireWebsitePermission, getWebsiteAccess, getAuthedUser } from "./websiteAccess";
+import { requireWebsitePermission, getWebsiteAccess, getAuthedUser, resolveWebsiteAccess } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
 import { isAllowedMediaStoragePath } from "./mediaPaths";
-import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp } from "drizzle-orm";
+import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp, lt as ltOp } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
-import { resolveBirdflowApiUrl } from "./publisher/platformUrl";
+import { resolvePlatformUrl } from "./publisher/platformUrl";
+import {
+  createPublishJobWithSnapshot,
+  getPublishJob,
+  getActivePublishJob,
+  getPublishJobByDeploymentId,
+  getLatestPublishedVercelProjectId,
+  completePublishJob,
+  failPublishJob,
+} from "./publisher/publishJobs";
+import { migrateSiteStateToCurrent, PublishCompatibilityError } from "./publisher/migrations";
+import { isPublishJobSchemaReady } from "./publisher/publishJobSchema";
+import { isInvoiceSchemaReady } from "./invoiceSchema";
+import { runPublishJob } from "./publisher/worker";
+import type { WorkerConfig } from "./publisher/worker";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeSecretKey } from "./stripeClient";
 import { syncStripeConnectStatus, resolveAppOrigin } from "./stripeConnect";
 import { 
@@ -37,7 +58,11 @@ import {
   type PlanId
 } from "./subscriptionService";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { checkDomainAvailability, purchaseDomain } from "./publisher/vercel";
+import {
+  checkDomainAvailability,
+  purchaseDomain,
+  recoverVerifiedProjectForLiveUrl,
+} from "./publisher/vercel";
 import {
   getVercelConfig,
   projectNameForWebsite,
@@ -51,10 +76,14 @@ import {
 import { applyMutations, assertSaneJsonDepth } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
+import { completeSelfReview } from "./selfReview";
+import { checkMutationClaims, scrubStateClaims } from "./claimRules";
 import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
 import { emailService } from "./email/service";
+import { getUncachableResendClient } from "./replit_integrations/resendClient";
+import { parseBookingPriceCents } from "./parseBookingPrice";
 import { handleOnboardingStripeEvent, shouldProcessStripeEvent } from "./onboardingWebhooks";
 import { registerOnboardingDecisionRoutes } from "./onboardingDecisionRoutes";
 import { updateDecisionByUser, bumpSiteRevision, markGenerationComplete } from "./onboardingDecision";
@@ -353,6 +382,7 @@ async function getOrCreateProfile(userId: string, authUser: any): Promise<{ prof
     return { profile: null, error: "Kunne ikke oprette brugerprofil. Prøv at logge ud og ind igen." };
   }
 }
+
 
 export async function registerRoutes(
   httpServer: Server,
@@ -762,6 +792,18 @@ export async function registerRoutes(
         language: agentSite ? normalizeSiteLanguage(agentSite.language) : undefined,
         onEvent: send,
       });
+
+      if (outcome.status === "spend_limit") {
+        // A cost stop, not an outage: say so, and do not invite a retry that
+        // cannot succeed.
+        send({
+          type: "error",
+          message: outcome.message ?? "Samtalen nåede sit omkostningsloft.",
+          reason: "spend_limit",
+          canRetry: false,
+        });
+        return res.end();
+      }
 
       if (outcome.status === "failed") {
         send({ type: "error", message: outcome.message ?? "Agenten fejlede" });
@@ -1299,12 +1341,27 @@ export async function registerRoutes(
         });
       }
 
-      // Migrate legacy element-based state to component-based state
-      const migratedState = migrateBuilderState(builderState.state);
+      // Migrate legacy element-based state to component-based state, then
+      // bring the structure up to date (stored navigation, shared chrome,
+      // page roles). Server-side readers - the agent, /ai/apply, the
+      // architect build - work on exactly what this route persisted, so a
+      // website must never leave here in the pre-structure shape.
+      const migratedState = migrateSiteStructure(migrateBuilderState(builderState.state));
 
-      // If migration changed the state, persist it
+      // If migration changed the state, persist it. Guarded on the revision
+      // we just read: opening the editor must never roll back a save that
+      // landed in between. The migration is a pure function of the stored
+      // state, so on a collision the response below still serves the
+      // migrated copy and the next reader persists it.
       if (JSON.stringify(migratedState) !== JSON.stringify(builderState.state)) {
-        builderState = await storage.updateBuilderState(req.params.id, migratedState);
+        const savedMigration = await saveBuilderStateGuarded(
+          req.params.id,
+          migratedState,
+          builderState.revision
+        );
+        if (savedMigration.ok) {
+          builderState = { ...builderState, state: migratedState, revision: savedMigration.revision };
+        }
         // Also a write triggered merely by opening the builder.
         await recordAdminAudit(access, {
           action: "builder.migrate-legacy-state",
@@ -1337,7 +1394,10 @@ export async function registerRoutes(
       }
 
       // Strip unsafe SVG markup and enforce node limits inside custom
-      // components before anything is persisted.
+      // components before anything is persisted. (Inline illustration markup
+      // is then moved into the SVG asset store by the persistence layer
+      // itself — storage.create/updateBuilderState — so every save path
+      // shares the same extraction.)
       sanitizeBuilderStateCustomContent(state);
 
       const previous = await storage.getBuilderState(req.params.id);
@@ -1370,6 +1430,11 @@ export async function registerRoutes(
       // An explicit save changes the site under any pending onboarding
       // decision: bump the revision so an unpaid approval has to be renewed.
       await bumpSiteRevision(req.params.id).catch(() => {});
+
+      // Supersede any pending design-direction proposals so stale experimental
+      // directions cannot be applied on top of a site that has moved on.
+      const { supersedePendingProposals } = await import("./proposalStore");
+      supersedePendingProposals(req.params.id);
 
       // Mutation succeeded - record it if this was an admin editing a
       // client's website (no-op for owners).
@@ -1781,6 +1846,297 @@ export async function registerRoutes(
       res.status(500).json({ message: error.message });
     }
   });
+
+  // ── Client detail view: bookings, submissions, and internal note ──────────
+
+  // Returns one customer row (with internalNote from metadata), their
+  // customer-site bookings matched by email, and form submissions whose data
+  // contains a matching email value.
+  app.get(
+    "/api/websites/:id/customers/:customerId",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId  = req.params.id;
+        const customerId = req.params.customerId;
+
+        const [customer] = await db.select().from(customersTable).where(
+          andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
+        );
+        if (!customer) return res.status(404).json({ message: "Kunde ikke fundet" });
+
+        // Customer-site bookings filtered at the DB level:
+        //   – website scoped
+        //   – context = customer_site (excludes platform-onboarding bookings)
+        //   – email case-insensitive match
+        const emailLower = customer.email.toLowerCase();
+        const customerBookings = (await db.select().from(bookingsTable).where(
+          andOp(
+            eq(bookingsTable.websiteId, websiteId),
+            eq(bookingsTable.context, "customer_site"),
+            sql`lower(${bookingsTable.customerEmail}) = ${emailLower}`,
+          )
+        )).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        // Form submissions: match email against any top-level string value in data.
+        // Submissions lack a dedicated email column so this JS filter is intentional;
+        // the set is bounded to one website and is typically small.
+        const allSubmissions = await db.select().from(formSubmissionsTable).where(
+          eq(formSubmissionsTable.websiteId, websiteId)
+        );
+        const customerSubmissions = allSubmissions
+          .filter(s => {
+            const data = (s.data ?? {}) as Record<string, any>;
+            return Object.values(data).some(
+              v => typeof v === "string" && v.toLowerCase() === emailLower
+            );
+          })
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        const meta = (customer.metadata as Record<string, any>) ?? {};
+        res.json({
+          customer: {
+            ...customer,
+            internalNote:         (meta.internalNote as string)         ?? null,
+            deletionRequestedAt:  (meta.deletionRequestedAt as string)  ?? null,
+          },
+          bookings:     customerBookings,
+          submissions:  customerSubmissions,
+        });
+      } catch (err: any) {
+        console.error("Customer detail error:", err);
+        res.status(500).json({ message: "Kunne ikke hente kundedata" });
+      }
+    }
+  );
+
+  // Save an internal admin note for a customer (stored in metadata.internalNote,
+  // max 5000 chars). Clearly not a clinical journal: no audit retention policy.
+  //
+  // Write ordering — the client sends `clientTs: Date.now()` with every PATCH.
+  // The server stores that timestamp as `noteTs` in metadata.
+  //
+  // Race safety: the noteTs comparison lives entirely inside the SQL UPDATE
+  // WHERE clause.  PostgreSQL evaluates it atomically at the row level, so two
+  // concurrent PATCH requests cannot both pass — only the one with the higher
+  // clientTs can commit; the other sees 0 rows updated and gets superseded:true.
+  // A separate application-level read-then-compare would be a TOCTOU race.
+  app.patch(
+    "/api/websites/:id/customers/:customerId/note",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("customer.note", "customer", "customerId"),
+    async (req, res) => {
+      try {
+        const websiteId  = req.params.id;
+        const customerId = req.params.customerId;
+        const { note, clientTs } = req.body;
+
+        if (typeof note !== "string") {
+          return res.status(400).json({ message: "note skal være en tekststreng" });
+        }
+
+        // Existence check only — we do NOT read metadata here for merging.
+        // Using a targeted JSONB merge in the UPDATE means we never overwrite
+        // concurrent writes to other metadata fields (e.g. deletionRequestedAt).
+        const [exists] = await db.select({ id: customersTable.id })
+          .from(customersTable)
+          .where(andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId)));
+        if (!exists) return res.status(404).json({ message: "Kunde ikke fundet" });
+
+        const trimmed = note.trim().slice(0, 5000);
+        const ts = typeof clientTs === "number" ? clientTs : Date.now();
+        const noteVal = trimmed || null;
+
+        // Atomic compare-and-set using the JSONB || merge operator.
+        //
+        // Only `internalNote` and `noteTs` are touched — all other metadata
+        // fields (e.g. `deletionRequestedAt`) survive untouched even if they
+        // were written concurrently between this request's arrival and the UPDATE.
+        //
+        // The WHERE predicate `noteTs IS NULL OR noteTs < ts` is evaluated
+        // atomically at the row level: two concurrent PATCHes cannot both pass;
+        // only the one with the higher ts wins.
+        const updated = await db.update(customersTable)
+          .set({
+            metadata: sql`COALESCE(${customersTable.metadata}, '{}'::jsonb)
+                          || jsonb_build_object('internalNote', ${noteVal}::text, 'noteTs', ${ts}::bigint)`,
+            updatedAt: new Date(),
+          })
+          .where(andOp(
+            eq(customersTable.id, customerId),
+            eq(customersTable.websiteId, websiteId),
+            sql`(${customersTable.metadata}->>'noteTs' IS NULL
+                 OR (${customersTable.metadata}->>'noteTs')::bigint < ${ts})`
+          ))
+          .returning({ id: customersTable.id });
+
+        if (updated.length === 0) {
+          // A later-timestamped write already committed — this write is a no-op.
+          return res.json({ ok: true, superseded: true });
+        }
+
+        res.json({ ok: true });
+      } catch (err: any) {
+        console.error("Customer note error:", err);
+        res.status(500).json({ message: "Kunne ikke gemme notat" });
+      }
+    }
+  );
+
+  // GDPR Article 20 — structured data export for a single customer.
+  // Returns a machine-readable JSON attachment with the customer's profile,
+  // bookings, and form submissions scoped to this website.
+  // Excludes: internal admin notes (operator-generated), raw metadata fields.
+  app.get(
+    "/api/websites/:id/customers/:customerId/export",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId  = req.params.id;
+        const customerId = req.params.customerId;
+
+        const [customer] = await db.select().from(customersTable).where(
+          andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
+        );
+        if (!customer) return res.status(404).json({ message: "Kunde ikke fundet" });
+
+        const emailLower = customer.email.toLowerCase();
+
+        const customerBookings = (await db.select().from(bookingsTable).where(
+          andOp(
+            eq(bookingsTable.websiteId, websiteId),
+            eq(bookingsTable.context, "customer_site"),
+            sql`lower(${bookingsTable.customerEmail}) = ${emailLower}`,
+          )
+        )).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        const allSubmissions = await db.select().from(formSubmissionsTable).where(
+          eq(formSubmissionsTable.websiteId, websiteId)
+        );
+        const customerSubmissions = allSubmissions
+          .filter(s => {
+            const data = (s.data ?? {}) as Record<string, any>;
+            return Object.values(data).some(
+              v => typeof v === "string" && v.toLowerCase() === emailLower
+            );
+          })
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        const exportData = {
+          exportedAt: new Date().toISOString(),
+          dataController: {
+            note: "This export was generated by the website operator in response to a data portability request (GDPR Art. 20).",
+          },
+          customer: {
+            id: customer.id,
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone ?? null,
+            firstSeen: customer.createdAt,
+          },
+          bookings: customerBookings.map(b => ({
+            id: b.id,
+            service: b.service,
+            date: b.date,
+            time: b.time,
+            status: b.status,
+            price: b.price ?? null,
+            currency: b.currency ?? null,
+            notes: b.notes ?? null,
+            createdAt: b.createdAt,
+          })),
+          formSubmissions: customerSubmissions.map(s => ({
+            id: s.id,
+            formName: s.formName ?? null,
+            data: s.data ?? {},
+            createdAt: s.createdAt,
+          })),
+        };
+
+        const safeName = customer.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 40);
+        const dateStr  = new Date().toISOString().slice(0, 10);
+        const filename = `kunde-${safeName}-${dateStr}.json`;
+
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.json(exportData);
+      } catch (err: any) {
+        console.error("Customer export error:", err);
+        res.status(500).json({ message: "Kunne ikke eksportere kundedata" });
+      }
+    }
+  );
+
+  // Flag a deletion request for a customer (GDPR Art. 17).
+  // This records the operator's acknowledgement of the request in the customer
+  // metadata — it does NOT auto-delete data.  The operator must process
+  // the deletion manually; the flag surfaces in the customer detail panel.
+  // Idempotent: re-requesting returns the original timestamp.
+  app.post(
+    "/api/websites/:id/customers/:customerId/deletion-request",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("customer.deletion_request", "customer", "customerId"),
+    async (req, res) => {
+      try {
+        const websiteId  = req.params.id;
+        const customerId = req.params.customerId;
+
+        // Read only the fields needed for the idempotency check.
+        const [customer] = await db.select({
+          id: customersTable.id,
+          metadata: customersTable.metadata,
+        }).from(customersTable).where(
+          andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
+        );
+        if (!customer) return res.status(404).json({ message: "Kunde ikke fundet" });
+
+        const existingMeta = ((customer.metadata as Record<string, any>) ?? {});
+
+        // Idempotent: if already flagged, return the original timestamp immediately.
+        if (existingMeta.deletionRequestedAt) {
+          return res.json({ ok: true, alreadyRequested: true, requestedAt: existingMeta.deletionRequestedAt });
+        }
+
+        const requestedAt = new Date().toISOString();
+
+        // Atomic targeted JSONB merge — only `deletionRequestedAt` is set;
+        // internalNote, noteTs, and any future metadata fields are never
+        // clobbered even when written concurrently.
+        // WHERE guard: only fires when no flag exists yet, handling the race
+        // where two requests pass the idempotency check above simultaneously.
+        const updated = await db.update(customersTable)
+          .set({
+            metadata: sql`COALESCE(${customersTable.metadata}, '{}'::jsonb)
+                          || jsonb_build_object('deletionRequestedAt', ${requestedAt}::text)`,
+            updatedAt: new Date(),
+          })
+          .where(andOp(
+            eq(customersTable.id, customerId),
+            eq(customersTable.websiteId, websiteId),
+            sql`${customersTable.metadata}->>'deletionRequestedAt' IS NULL`
+          ))
+          .returning({ id: customersTable.id });
+
+        if (updated.length === 0) {
+          // A concurrent write won the race — re-read to surface its timestamp.
+          const [refreshed] = await db.select({ metadata: customersTable.metadata })
+            .from(customersTable)
+            .where(andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId)));
+          const rm = ((refreshed?.metadata as Record<string, any>) ?? {});
+          return res.json({ ok: true, alreadyRequested: true, requestedAt: rm.deletionRequestedAt });
+        }
+
+        res.json({ ok: true, requestedAt });
+      } catch (err: any) {
+        console.error("Customer deletion request error:", err);
+        res.status(500).json({ message: "Kunne ikke registrere sletningsanmodning" });
+      }
+    }
+  );
 
   // Update order status
   app.patch("/api/websites/:id/orders/:orderId", requireAuth, requireWebsitePermission("updateManage"), auditManageMutation("order.update", "order", "orderId"), async (req, res) => {
@@ -2799,145 +3155,283 @@ export async function registerRoutes(
   // ============ PUBLISH ROUTE ============
 
   // Publish a website to Vercel
-  app.post("/api/websites/:id/publish", requireAuth, async (req, res) => {
+  // ── Publish (async) ──────────────────────────────────────────────────────
+  // Returns 202 immediately with a jobId; the real Vercel pipeline runs in a
+  // background worker. The builder polls GET /api/publish-jobs/:jobId for status.
+  //
+  // Publishing no longer depends on REPLIT_DEPLOYMENT or a live Replit
+  // production deployment — it works from the dev workspace, locally, and
+  // from any future host, as long as BIRDFLOW_PUBLIC_PLATFORM_URL is set.
+  app.post("/api/websites/:id/publish", requireAuth, requireWebsitePermission("publish"), async (req, res) => {
     try {
-      const user = (req as any).user;
-      const website = await storage.getWebsite(req.params.id);
-      
-      if (!website) {
-        return res.status(404).json({ message: "Website not found" });
-      }
+      const access = getWebsiteAccess(req);
+      const website = access.website;
 
-      if (website.ownerId !== user.id) {
-        return res.status(403).json({ message: "Access denied" });
+      if (!isPublishJobSchemaReady()) {
+        return res.status(503).json({ message: "Publish system is starting up. Please try again in a moment." });
       }
 
       const builderState = await storage.getBuilderState(req.params.id);
-      if (!builderState) {
-        return res.status(400).json({ message: "No builder state found" });
-      }
+      if (!builderState) return res.status(400).json({ message: "No builder state found" });
 
       const vercelToken = process.env.VERCEL_TOKEN;
-      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
       if (!vercelToken) {
         return res.status(400).json({ message: "Vercel token not configured. Please add VERCEL_TOKEN to secrets." });
       }
-
-      if (!supabaseUrl || !supabaseAnonKey) {
+      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
         return res.status(400).json({ message: "Supabase not configured" });
       }
 
-      // Fetch payment settings for this website (owner's own Stripe credentials)
+      // BIRDFLOW_PUBLIC_PLATFORM_URL (or legacy BIRDFLOW_API_URL) must be set so
+      // the published site's analytics tracker and email callbacks point at the
+      // correct platform — not a dev/preview domain that rotates or sleeps.
+      const platformUrl = resolvePlatformUrl();
+      if (!platformUrl) {
+        return res.status(500).json({
+          message:
+            "BirdFlow platform URL is not configured. Set BIRDFLOW_PUBLIC_PLATFORM_URL (e.g. https://bird-flow.app) so published sites can deliver analytics and emails.",
+        });
+      }
+
+      // Upgrade historical data before the immutable snapshot is created.
+      // This gives the worker a single canonical state shape and, crucially,
+      // means a migration failure cannot disturb the currently live site.
+      const compatibility = migrateSiteStateToCurrent(builderState.state);
+      const canonicalState = compatibility.state;
+      console.log("[Publish] state_migrated", {
+        websiteId: req.params.id,
+        sourceVersion: compatibility.report.sourceVersion,
+        targetVersion: compatibility.report.targetVersion,
+        migrationsApplied: compatibility.report.migrationsApplied,
+      });
+
+      // Idempotency: check for an already-running job before inserting.
+      // createPublishJob will still throw a unique-constraint error (23505) if
+      // two requests race through this check simultaneously — that is caught
+      // below and converted to 409.
+      const idempotencyKey: string | undefined = req.body?.idempotencyKey;
+      const existingActive = await getActivePublishJob(req.params.id);
+      if (existingActive) {
+        // Same idempotency key → return the existing job (not an error)
+        if (idempotencyKey && existingActive.idempotencyKey === idempotencyKey) {
+          return res.status(202).json({ jobId: existingActive.id, status: existingActive.status });
+        }
+        return res.status(409).json({
+          message: "A publish is already in progress. Please wait for it to complete before publishing again.",
+          jobId: existingActive.id,
+        });
+      }
+
+      // Collect Stripe credentials (optional; warning only when absent)
       let stripeSecretKey: string | undefined;
       let stripePublishableKey: string | undefined;
       let stripeWebhookSecret: string | undefined;
       let stripeWarning: string | undefined;
-      
+
       const paymentSettings = await storage.getPaymentSettings(req.params.id);
       if (paymentSettings?.isConnected && paymentSettings.stripeSecretKey) {
         stripeSecretKey = paymentSettings.stripeSecretKey;
         stripePublishableKey = paymentSettings.stripePublishableKey || undefined;
         stripeWebhookSecret = paymentSettings.stripeWebhookSecret || undefined;
-        
         if (paymentSettings.testMode) {
-          stripeWarning = 'Your Stripe account is connected with test mode keys. Switch to live keys in Payment Settings to accept real payments.';
+          stripeWarning = 'Your Stripe account is connected with test mode keys.';
         }
       } else {
-        console.log('No Stripe payment settings configured for website', req.params.id);
-        stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site. Connect your Stripe account in Payment Settings to enable payments.';
+        stripeWarning = 'Stripe is not configured. Product checkout will not work on your published site.';
       }
 
-      // The platform URL baked into the published site (analytics tracker +
-      // email callbacks). Strict resolution - a stale or dev-only URL here
-      // silently kills the site's analytics pipeline until the next
-      // republish (see resolveBirdflowApiUrl). Never fall back to the dev
-      // workspace domain or the request host.
-      const birdflowApiUrl = resolveBirdflowApiUrl();
-      if (!birdflowApiUrl) {
-        return res.status(500).json({
-          message:
-            "BirdFlow platform URL is not configured. Set the BIRDFLOW_API_URL environment variable (e.g. https://bird-flow.com) so published sites can deliver analytics and emails.",
-        });
-      }
-      console.log('[Publish] Using BirdFlow API URL:', birdflowApiUrl);
-
-      // Check for active custom domains to include in deployment
+      // Active custom domain (if any) — passed to the worker so it can attach it.
       let activeCustomDomain: string | undefined;
+      let recoveredVercelProjectId: string | undefined =
+        (await getLatestPublishedVercelProjectId(req.params.id)) ?? undefined;
       try {
         const customDomains = await storage.getCustomDomains(req.params.id);
         const activeDomain = customDomains.find(d => d.status === 'active');
         if (activeDomain) {
           activeCustomDomain = activeDomain.domain;
-          console.log('[Publish] Including active custom domain:', activeCustomDomain);
+          // Older sites sometimes only have the project reference on their
+          // connected domain row. It is a recovery hint after the successful
+          // publish-job record, never a generated name.
+          recoveredVercelProjectId ??= activeDomain.vercelProjectId || undefined;
         }
       } catch (domainErr) {
         console.error('[Publish] Failed to fetch custom domains:', domainErr);
       }
+      if (!recoveredVercelProjectId && website.deploymentUrl) {
+        recoveredVercelProjectId =
+          (await recoverVerifiedProjectForLiveUrl(
+            projectNameForWebsite(req.params.id),
+            website.deploymentUrl,
+            { token: vercelToken, teamId: process.env.VERCEL_TEAM_ID },
+          )) ?? undefined;
+        if (!recoveredVercelProjectId) {
+          return res.status(409).json({
+            code: "VERCEL_PROJECT_RECOVERY_REQUIRED",
+            message:
+              "This older live website has no verified Vercel project record. Publishing was stopped to avoid creating a duplicate project. Reconnect the original Vercel project before publishing again.",
+          });
+        }
+      }
 
-      const result = await publishWebsite({
+      // Create the publish job and its immutable content snapshot atomically.
+      // Both rows are created in a single transaction so a snapshot-insert failure
+      // never leaves an orphaned queued job that would block future publishes.
+      const { job } = await createPublishJobWithSnapshot({
+        websiteId: req.params.id,
+        requestedBy: access.actorUserId,
+        idempotencyKey,
+        content: canonicalState,
+      });
+
+      console.log('[Publish] snapshot_created', { websiteId: req.params.id, publishJobId: job.id });
+
+      // Return 202 immediately so the UI can start polling.
+      res.status(202).json({
+        jobId: job.id,
+        status: 'queued',
+        warning: stripeWarning,
+      });
+
+      // Fire-and-forget: the worker runs the full Vercel pipeline independently
+      // of this HTTP response. If the server restarts, the job stays in its
+      // last status and the customer can republish.
+      const workerCfg: WorkerConfig = {
+        jobId: job.id,
         websiteId: req.params.id,
         siteName: website.name,
-        builderState: builderState.state as BuilderStateData,
+        snapshotContent: canonicalState,
+        snapshotHash: job.snapshotHash!,
         supabaseUrl,
         supabaseAnonKey,
-        supabaseServiceRoleKey: supabaseServiceRoleKey || '',
+        supabaseServiceRoleKey,
         stripeSecretKey,
         stripePublishableKey,
         stripeWebhookSecret,
         vercelToken,
         vercelTeamId: process.env.VERCEL_TEAM_ID,
+        existingVercelProjectId: recoveredVercelProjectId ?? undefined,
         customDomain: activeCustomDomain,
-        birdflowApiUrl,
+        platformUrl,
         language: normalizeSiteLanguage(website.language),
-      });
-
-      if (result.success) {
-        // If there's an active custom domain, preserve it as the deployment URL
-        const deploymentUrl = activeCustomDomain
-          ? `https://${activeCustomDomain}`
-          : result.deploymentUrl;
-
-        await storage.updateWebsite(req.params.id, user.id, {
-          status: 'published',
-          deploymentUrl,
-          deploymentId: result.deploymentId,
-        } as any);
-
-        // Send website published notification email
-        try {
-          const ownerProfile = await storage.getProfile(user.id);
-          if (ownerProfile?.email && deploymentUrl) {
-            await emailService.sendWebsitePublished(
-              ownerProfile.email,
-              req.params.id,
-              website.name,
-              deploymentUrl
-            );
-            console.log(`Website published email sent to ${ownerProfile.email}`);
-          }
-        } catch (emailErr) {
-          console.error(`Failed to send website published email:`, emailErr);
-        }
-
-        res.json({
-          success: true,
-          deploymentUrl,
-          message: stripeWarning ? `Website published successfully. Warning: ${stripeWarning}` : "Website published successfully",
-          warning: stripeWarning,
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          error: result.error,
+        requestedBy: access.actorUserId,
+      };
+      setImmediate(() => { void runPublishJob(workerCfg); });
+    } catch (error: any) {
+      // Unique-constraint violation on the one-active-per-site index means two
+      // simultaneous requests raced through the pre-check and both tried to insert.
+      // The second insert loses with code 23505 → return 409 instead of 500.
+      if (error instanceof PublishCompatibilityError) {
+        return res.status(400).json({
+          code: error.code,
+          message: error.message,
+          failureDetails: { stage: error.stage, ...error.details },
         });
       }
+      if (error?.code === '23505' || /unique.*publish_jobs_one_active/i.test(error?.message ?? '')) {
+        return res.status(409).json({ message: "A publish is already in progress for this site." });
+      }
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── Poll publish job status ───────────────────────────────────────────────
+  app.get("/api/publish-jobs/:jobId", requireAuth, async (req, res) => {
+    try {
+      if (!isPublishJobSchemaReady()) {
+        return res.status(503).json({ message: "Publish system is starting up." });
+      }
+      const job = await getPublishJob(req.params.jobId);
+      if (!job) return res.status(404).json({ message: "Publish job not found" });
+      const access = await resolveWebsiteAccess(req, job.websiteId, "publish");
+      if ("failure" in access) {
+        return res.status(access.failure.status).json({ message: access.failure.message });
+      }
+      res.json({
+        jobId: job.id,
+        status: job.status,
+        productionUrl: job.productionUrl,
+        errorCode: job.errorCode,
+        errorMessage: job.errorMessage,
+        failureDetails: job.failureDetails ?? null,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
+  // ── Vercel deployment webhook ─────────────────────────────────────────────
+  // Registered in server/index.ts BEFORE express.json() so it receives the
+  // raw body needed for HMAC-SHA1 signature verification. This stub satisfies
+  // any router-level discovery tools that scan registered routes, but the
+  // actual handler is in index.ts.
+  // (No route registered here — already live in index.ts)
+
   // ============ MEDIA ASSETS ROUTES ============
+
+  // ---- SVG assets: reusable illustrations referenced by svgAssetId ----
+  // Same permission as saving the builder state (updateBuilder): the asset
+  // store is part of the document being edited, not media management.
+
+  app.get("/api/websites/:id/svg-assets", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      const assets = await storage.getSvgAssets(req.params.id);
+      res.json(assets);
+    } catch (error: any) {
+      // A missing table (store not ready yet) is an empty library, not an
+      // error — the builder then falls back to inline markup everywhere.
+      console.warn("[SvgAssets] list failed:", error?.message || error);
+      res.json([]);
+    }
+  });
+
+  app.post("/api/websites/:id/svg-assets", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      const { name, svg } = req.body ?? {};
+      if (typeof svg !== "string" || !svg.trim()) {
+        return res.status(400).json({ message: "SVG-markup mangler." });
+      }
+      const result = await createSvgAssetSafe({
+        websiteId: req.params.id,
+        name: typeof name === "string" ? name : undefined,
+        svg,
+        origin: "customer",
+      });
+      if (!result.ok) {
+        return res.status(result.status).json({ message: result.message });
+      }
+      res.status(201).json(result.asset);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/websites/:id/svg-assets/:assetId", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      // Refuse to delete an illustration a page still points at — the node
+      // would silently render nothing in the builder and the published site.
+      const builderState = await storage.getBuilderState(req.params.id);
+      if (builderState?.state) {
+        const referenced = collectReferencedSvgAssetIds(
+          builderState.state as Parameters<typeof collectReferencedSvgAssetIds>[0]
+        );
+        if (referenced.has(req.params.assetId)) {
+          return res.status(409).json({
+            message: "Grafikken bruges stadig på websitet. Fjern den fra siderne, før den slettes.",
+          });
+        }
+      }
+      const deleted = await storage.deleteSvgAsset(req.params.assetId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Grafikken findes ikke." });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
 
   // Get all media assets for a website. Owner or administrator
   // (manageMedia permission - media is part of builder editing).
@@ -5159,6 +5653,7 @@ export async function registerRoutes(
       const { runBuilderAgent } = await import("./aiAgent");
       const outcome = await runBuilderAgent({
         websiteId: req.params.id,
+        ownerId: userId,
         prompt: parsed.data.prompt,
         state: currentState,
         approvedLargeChanges: parsed.data.approvedLargeChanges === true,
@@ -5194,16 +5689,84 @@ export async function registerRoutes(
       const check = runSelfCheck(newState);
       newState = check.state;
       sanitizeBuilderStateCustomContent(newState);
-      await storage.updateBuilderState(req.params.id, newState);
+      // Final deterministic claims guard before anything is persisted.
+      // Tool-level gates already judged each mutation, but materialization
+      // (registry defaults, self-check rewrites) happens after them — so the
+      // finished state is judged once more. Evidence = business facts + the
+      // site as it stood BEFORE the run: what already stood survives, what
+      // the run invented does not.
+      const claimScrub = scrubStateClaims(newState, newState.businessContext, currentState);
+      newState = claimScrub.state;
+      // An agent run takes minutes; the canvas autosaves every two seconds.
+      // The run started from the state read at `builderData.revision`, so
+      // writing it back unconditionally would undo everything the customer
+      // did while it was thinking - including a page reorder or a menu edit,
+      // which leaves no visible trace on the section they were looking at.
+      const savedAgent = await saveBuilderStateGuarded(
+        req.params.id,
+        newState,
+        builderData.revision
+      );
+      if (!savedAgent.ok) {
+        send({
+          type: "error",
+          message: savedAgent.message,
+          conflict: true,
+          revision: savedAgent.revision,
+          state: savedAgent.state,
+        });
+        return res.end();
+      }
       // The site the customer is deciding about just changed - new revision,
       // and any approval that has not been paid for is void.
       await bumpSiteRevision(req.params.id).catch(() => {});
 
+      // Design-direction post-processing — runs for ALL deviation levels, only
+      // AFTER the CAS save succeeds. Ordering is critical:
+      //   1. Persist mutations on the proposal (for guide/site-wide API paths)
+      //   2. Mark the proposal as applied (prevents replay by the approve API)
+      //   3. Supersede all OTHER pending proposals (they targeted the old state)
+      //   4. Emit brand_evolution_offer ONLY for high-deviation (experimental) directions
+      if (outcome.appliedDirectionProposalId) {
+        const { getProposal, updateProposalMutations, markProposalApplied, supersedePendingProposals } =
+          await import("./proposalStore");
+        const evtProposal = getProposal(outcome.appliedDirectionProposalId);
+        if (evtProposal) {
+          updateProposalMutations(outcome.appliedDirectionProposalId, outcome.mutations);
+          markProposalApplied(outcome.appliedDirectionProposalId);
+          // Invalidate sibling directions generated against the now-changed state.
+          supersedePendingProposals(req.params.id);
+          // Only experimental (high-deviation) directions get the post-apply card.
+          if (outcome.appliedDirectionDeviationLevel === "high") {
+            send({
+              type: "brand_evolution_offer",
+              proposalId: outcome.appliedDirectionProposalId,
+              directionName: evtProposal.direction.name,
+              designIntent: evtProposal.direction.designIntent,
+              brandDeviation: evtProposal.direction.brandDeviation,
+            });
+          }
+        }
+      }
+
+      // The three-level self-review, on the state the customer actually
+      // keeps (post-repair, post-scrub, post-save). Level A findings were
+      // collected by the runSelfCheck above; this adds publish parity and
+      // the AI recommendation/proposal levels. Advisory by construction:
+      // the save above stands whatever the review finds — but a parity
+      // failure leads the report, so the run is never PRESENTED as clean
+      // while the published site would diverge.
+      const review = await completeSelfReview(newState, {
+        findings: check.findings,
+        language: normalizeSiteLanguage(agentWebsite?.language),
+      });
+
       const report = buildReport(
         outcome.mutations,
         newState,
-        [...outcome.notes, ...check.notes],
-        outcome.createdImages
+        [...outcome.notes, ...check.notes, ...claimScrub.notes],
+        outcome.createdImages,
+        review
       );
 
       send({
@@ -5213,6 +5776,8 @@ export async function registerRoutes(
         steps: outcome.steps,
         newState,
         report,
+        // The client adopts this so its next autosave is not judged stale.
+        revision: savedAgent.revision,
       });
       res.end();
     } catch (error: any) {
@@ -5247,8 +5812,28 @@ export async function registerRoutes(
 
       const currentState = builderData.state as BuilderStateData;
 
+      // Invented-claims gate for replayed mutations. The agent run that
+      // proposed them was gated when it ran, but this endpoint persists
+      // them against TODAY's state — so they are judged against today's
+      // business facts too, not waved through on age.
+      const claimErrors = validatedMutations.flatMap((m) =>
+        checkMutationClaims(m as Record<string, any>, currentState).map((f) => f.message)
+      );
+      if (claimErrors.length > 0) {
+        return res.status(422).json({
+          message: Array.from(new Set(claimErrors)).join(" "),
+        });
+      }
+
       // Generate any "ai://" images and swap markers for hosted URLs
-      const resolved = await resolveAiImageMarkers(req.params.id, validatedMutations, currentState.brandGuide);
+      const resolved = await resolveAiImageMarkers(
+        req.params.id,
+        validatedMutations,
+        currentState.brandGuide,
+        // One image budget per editing session for this website. Per request
+        // it would refill on every save, which is no budget at all.
+        runMeterFor("image", `mutations:${req.params.id}`, { ttlMs: 60 * 60 * 1000 })
+      );
 
       let newState = applyMutations(currentState, resolved.mutations);
 
@@ -5257,7 +5842,22 @@ export async function registerRoutes(
       newState = check.state;
       sanitizeBuilderStateCustomContent(newState);
 
-      await storage.updateBuilderState(req.params.id, newState);
+      // The mutations were applied to the state read above. If anything else
+      // has written since - an autosave, a build step - they were applied to
+      // a site that no longer exists, so the write is refused rather than
+      // silently rolling the other writer back.
+      const savedApply = await saveBuilderStateGuarded(
+        req.params.id,
+        newState,
+        builderData.revision
+      );
+      if (!savedApply.ok) {
+        return res.status(409).json({
+          message: savedApply.message,
+          revision: savedApply.revision,
+          state: savedApply.state,
+        });
+      }
       await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
@@ -5271,8 +5871,10 @@ export async function registerRoutes(
         success: true,
         newState,
         report,
+        revision: savedApply.revision,
       });
     } catch (error: any) {
+      if (isSpendLimitError(error)) return respondSpendLimit(res, error);
       console.error("AI Apply error:", error);
       res.status(500).json({ message: error.message });
     }
@@ -5348,13 +5950,28 @@ export async function registerRoutes(
       const interviewWebsite = await storage.getWebsite(req.params.id);
       const interviewLanguage = normalizeSiteLanguage(interviewWebsite?.language);
 
+      // Palettes, fonts and the finalize pass are three requests but one
+      // interview, so they share one ceiling.
+      const interviewMeter = runMeterFor("designInterview", `interview:${req.params.id}`);
+
       if (body.step === "palettes") {
-        const palettes = await proposePalettes(body.feeling, currentState, interviewLanguage);
+        const palettes = await proposePalettes(
+          body.feeling,
+          currentState,
+          interviewLanguage,
+          interviewMeter
+        );
         return res.json({ success: true, palettes });
       }
 
       if (body.step === "typography") {
-        const fontPairs = await proposeFontPairs(body.feeling, body.palette, currentState, interviewLanguage);
+        const fontPairs = await proposeFontPairs(
+          body.feeling,
+          body.palette,
+          currentState,
+          interviewLanguage,
+          interviewMeter
+        );
         return res.json({ success: true, fontPairs });
       }
 
@@ -5382,7 +5999,8 @@ export async function registerRoutes(
           notes: body.notes,
           language: interviewLanguage,
         },
-        currentState
+        currentState,
+        interviewMeter
       );
 
       const newState = structuredClone(currentState);
@@ -5390,7 +6008,20 @@ export async function registerRoutes(
       if (body.applyToGlobalStyles !== false) {
         newState.globalStyles = { ...newState.globalStyles, ...brandGuideToDesignTokens(guide) };
       }
-      await storage.updateBuilderState(req.params.id, newState);
+      // The interview took several model calls on a copy of the site; write
+      // it back only if that copy is still current.
+      const savedGuide = await saveBuilderStateGuarded(
+        req.params.id,
+        newState,
+        builderData.revision
+      );
+      if (!savedGuide.ok) {
+        return res.status(409).json({
+          message: savedGuide.message,
+          revision: savedGuide.revision,
+          state: savedGuide.state,
+        });
+      }
 
       const report = {
         oprettet: ["Brand guide oprettet ud fra design-interviewet."],
@@ -5402,8 +6033,9 @@ export async function registerRoutes(
           : ["Ingen inspirationsbilleder — brand guiden bygger på dine valg i interviewet."],
       };
 
-      return res.json({ success: true, brandGuide: guide, newState, report, summary });
+      return res.json({ success: true, brandGuide: guide, newState, report, summary, revision: savedGuide.revision });
     } catch (error: any) {
+      if (isSpendLimitError(error)) return respondSpendLimit(res, error);
       console.error("Design interview error:", error);
       res.status(500).json({ message: error.message });
     }
@@ -5546,8 +6178,17 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Plan is required" });
       }
 
+      // Read first: the build replaces the whole site, so it must not land
+      // on top of edits made while the plan was being executed.
+      const existingBuilderState = await storage.getBuilderState(req.params.id);
+      const existingState = existingBuilderState?.state as BuilderStateData | undefined;
+
       const { buildFromPlan } = await import("./websiteArchitect");
-      const result = await buildFromPlan(plan);
+      const result = await buildFromPlan(
+        plan,
+        runMeterFor("architectBuild", `architect:${req.params.id}`),
+        existingState?.businessContext
+      );
 
       if (!result.success || !result.builderState) {
         return res.status(500).json({
@@ -5555,19 +6196,39 @@ export async function registerRoutes(
         });
       }
 
+      // A rebuild replaces the pages, not what the customer told us about
+      // their business: the context survives, and the fresh machine output
+      // is scrubbed against it (it must not vouch for itself as evidence).
+      if (existingState?.businessContext) {
+        result.builderState.businessContext = existingState.businessContext;
+      }
+      const claimScrub = scrubStateClaims(result.builderState, existingState?.businessContext);
+      result.builderState = claimScrub.state;
+
       // Deterministic self-check on the freshly built site
       const check = runSelfCheck(result.builderState);
       const newState = check.state;
       sanitizeBuilderStateCustomContent(newState);
 
       // Save the new builder state
-      await storage.updateBuilderState(req.params.id, newState);
+      const savedBuild = await saveBuilderStateGuarded(
+        req.params.id,
+        newState,
+        existingBuilderState?.revision
+      );
+      if (!savedBuild.ok) {
+        return res.status(409).json({
+          message: savedBuild.message,
+          revision: savedBuild.revision,
+          state: savedBuild.state,
+        });
+      }
       await bumpSiteRevision(req.params.id).catch(() => {});
 
       const report = buildReport(
         [],
         newState,
-        check.notes,
+        [...claimScrub.notes, ...check.notes],
         newState.pages.map((p: any) => `Side "${p.name}" bygget med ${p.components.length} sektioner.`)
       );
 
@@ -5576,8 +6237,10 @@ export async function registerRoutes(
         newState,
         phasesCompleted: result.phasesCompleted,
         report,
+        revision: savedBuild.revision,
       });
     } catch (error: any) {
+      if (isSpendLimitError(error)) return respondSpendLimit(res, error);
       console.error("AI Architect Build error:", error);
       res.status(500).json({ message: error.message });
     }
@@ -5868,6 +6531,379 @@ export async function registerRoutes(
       res.status(500).json({ message: "Kunne ikke hente enheds-statistik" });
     }
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Economics tab — revenue from bookings + orders, session invoices
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // parseBookingPriceCents is imported from server/parseBookingPrice.ts for testability.
+
+  app.get("/api/websites/:id/economics", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      const websiteId = req.params.id;
+      const website = getWebsiteAccess(req).website;
+      const currency = (website as any).currency || "DKK";
+
+      const now = new Date();
+      // Overdue = sent invoice whose due_date is at least 7 days in the past.
+      const sevenDaysAgo  = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const currentYear   = now.getFullYear();
+      const year = Math.max(2020, Math.min(currentYear + 1,
+        parseInt(req.query.year as string) || currentYear));
+      const yearStart = new Date(year, 0, 1);
+      const yearEnd   = new Date(year + 1, 0, 1);
+      // KPI cards always reflect the actual current month, not the selected year's month.
+      const monthStart = new Date(currentYear, now.getMonth(), 1);
+      const monthEnd   = new Date(currentYear, now.getMonth() + 1, 1);
+
+      // ── bookings + orders for the selected year (bar chart + session list) ──
+      const [yearBookings, yearOrders] = await Promise.all([
+        // Customer-site bookings only (excludes platform_onboarding meetings)
+        db.select().from(bookingsTable).where(
+          andOp(
+            eq(bookingsTable.websiteId, websiteId),
+            eq(bookingsTable.context, "customer_site"),
+            gteOp(bookingsTable.date, yearStart),
+            ltOp(bookingsTable.date, yearEnd),
+          )
+        ),
+        db.select().from(ordersTable).where(
+          andOp(
+            eq(ordersTable.websiteId, websiteId),
+            gteOp(ordersTable.createdAt, yearStart),
+            ltOp(ordersTable.createdAt, yearEnd),
+          )
+        ),
+      ]);
+
+      // ── current-month data for KPI cards ──────────────────────────────────
+      // When year === currentYear, yearBookings/yearOrders already span the current
+      // month; reuse them. For a past year, fetch the current month separately so
+      // the KPI cards always reflect today's month rather than reporting zero.
+      let cmBookings: Array<typeof bookingsTable.$inferSelect>;
+      let cmOrders:   Array<typeof ordersTable.$inferSelect>;
+      if (year === currentYear) {
+        cmBookings = yearBookings;
+        cmOrders   = yearOrders;
+      } else {
+        [cmBookings, cmOrders] = await Promise.all([
+          db.select().from(bookingsTable).where(
+            andOp(
+              eq(bookingsTable.websiteId, websiteId),
+              eq(bookingsTable.context, "customer_site"),
+              gteOp(bookingsTable.date, monthStart),
+              ltOp(bookingsTable.date, monthEnd),
+            )
+          ),
+          db.select().from(ordersTable).where(
+            andOp(
+              eq(ordersTable.websiteId, websiteId),
+              gteOp(ordersTable.createdAt, monthStart),
+              ltOp(ordersTable.createdAt, monthEnd),
+            )
+          ),
+        ]);
+      }
+
+      // ── invoices — all for this site (for booking→invoice map + overdue) ──
+      // Gracefully degrade if the table hasn't been created yet on this DB.
+      let allInvoices: Array<typeof invoicesTable.$inferSelect> = [];
+      let overdueInvoices: Array<typeof invoicesTable.$inferSelect> = [];
+
+      if (isInvoiceSchemaReady()) {
+        [allInvoices, overdueInvoices] = await Promise.all([
+          db.select().from(invoicesTable)
+            .where(eq(invoicesTable.websiteId, websiteId)),
+          // Overdue = status='sent' AND due_date ≤ 7 days ago
+          db.select().from(invoicesTable).where(
+            andOp(
+              eq(invoicesTable.websiteId, websiteId),
+              eq(invoicesTable.status, "sent"),
+              ltOp(invoicesTable.dueDate, sevenDaysAgo),
+            )
+          ),
+        ]);
+      } else {
+        // Schema init in progress; try anyway and silently swallow table-not-found.
+        try {
+          [allInvoices, overdueInvoices] = await Promise.all([
+            db.select().from(invoicesTable)
+              .where(eq(invoicesTable.websiteId, websiteId)),
+            db.select().from(invoicesTable).where(
+              andOp(
+                eq(invoicesTable.websiteId, websiteId),
+                eq(invoicesTable.status, "sent"),
+                ltOp(invoicesTable.dueDate, sevenDaysAgo),
+              )
+            ),
+          ]);
+        } catch {
+          // Table not yet created; degrade to empty — no invoice data yet.
+        }
+      }
+
+      // booking_id → invoice lookup map
+      const invoiceByBookingId = new Map(
+        allInvoices
+          .filter(inv => inv.bookingId)
+          .map(inv => [inv.bookingId!, inv])
+      );
+
+      // ── monthly aggregates — completed sessions only ───────────────────────
+      const monthly = Array.from({ length: 12 }, (_, i) => ({
+        month: i + 1,
+        label: new Intl.DateTimeFormat("da-DK", { month: "short" })
+          .format(new Date(year, i, 1)),
+        bookingRevenueCents: 0,
+        orderRevenueCents: 0,
+        totalCents: 0,
+      }));
+
+      for (const b of yearBookings) {
+        if (b.status !== "completed") continue;  // only count completed sessions
+        const cents = parseBookingPriceCents(b.price);
+        if (!cents) continue;
+        const m = new Date(b.date).getMonth();
+        monthly[m].bookingRevenueCents += cents;
+        monthly[m].totalCents += cents;
+      }
+
+      for (const o of yearOrders) {
+        if (o.status === "cancelled" || o.paymentStatus === "refunded") continue;
+        const m = new Date(o.createdAt).getMonth();
+        monthly[m].orderRevenueCents += o.totalAmountCents;
+        monthly[m].totalCents += o.totalAmountCents;
+      }
+
+      // ── this-month summary (always the actual current month) ───────────────
+      const thisMonthBookings = cmBookings.filter(b => {
+        const d = new Date(b.date);
+        return d >= monthStart && d < monthEnd && b.status === "completed";
+      });
+      const thisMonthOrders = cmOrders.filter(o => {
+        const d = new Date(o.createdAt);
+        return d >= monthStart && d < monthEnd
+          && o.status !== "cancelled" && o.paymentStatus !== "refunded";
+      });
+
+      const thisMonthBookingCents = thisMonthBookings
+        .reduce((s, b) => s + parseBookingPriceCents(b.price), 0);
+      const thisMonthOrderCents = thisMonthOrders
+        .reduce((s, o) => s + o.totalAmountCents, 0);
+      const thisMonthPaidOrderCents = thisMonthOrders
+        .filter(o => o.paymentStatus === "paid")
+        .reduce((s, o) => s + o.totalAmountCents, 0);
+      // Paid invoices this month — money actually received from session invoices.
+      // These are NOT double-counted with bookingRevenueCents (which reflects billing
+      // amounts from booking.price, not invoice payment receipts).
+      const thisMonthPaidInvoiceCents = allInvoices
+        .filter(inv => {
+          if (inv.status !== "paid" || !inv.paidAt) return false;
+          const d = new Date(inv.paidAt);
+          return d >= monthStart && d < monthEnd;
+        })
+        .reduce((s, inv) => s + inv.amountCents, 0);
+      // Outstanding = ALL sent (unpaid) invoices for this site, regardless of age.
+      // The 7-day age cutoff applies only to the overdue-list shown for reminders.
+      const outstandingInvoicesCents = allInvoices
+        .filter(inv => inv.status === "sent")
+        .reduce((s, inv) => s + inv.amountCents, 0);
+      // Keep overdueInvoicesCents for the overdue-list section total.
+      const overdueInvoicesCents = overdueInvoices
+        .reduce((s, inv) => s + inv.amountCents, 0);
+
+      // ── per-session list: completed bookings with price + invoice status ────
+      // Show all completed sessions — including those without a price so practitioners
+      // can see which sessions still need an invoice or have no price set.
+      const recentBookings = [...yearBookings]
+        .filter(b => b.status === "completed")
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 25)
+        .map(b => {
+          const inv = invoiceByBookingId.get(b.id);
+          return {
+            id: b.id,
+            date: b.date,
+            customerName: b.customerName,
+            customerEmail: b.customerEmail,
+            service: b.service,
+            status: b.status,
+            price: b.price,
+            currency: b.currency || currency,
+            priceCents: parseBookingPriceCents(b.price),
+            // null when no invoice has been issued for this session yet
+            invoiceId:      inv?.id         ?? null,
+            invoiceStatus:  inv?.status     ?? null,
+            invoiceDueDate: inv?.dueDate    ?? null,
+          };
+        });
+
+      // ── overdue invoices (status=sent, due_date ≥ 7 days ago) ─────────────
+      const overdueList = [...overdueInvoices]
+        .sort((a, b) =>
+          new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()
+        )
+        .slice(0, 20)
+        .map(inv => ({
+          id:            inv.id,
+          bookingId:     inv.bookingId,
+          customerName:  inv.customerName,
+          customerEmail: inv.customerEmail,
+          amountCents:   inv.amountCents,
+          currency:      inv.currency || currency,
+          dueDate:       inv.dueDate,
+          sentAt:        inv.sentAt,
+          reminderSentAt: inv.reminderSentAt,
+          description:   inv.description,
+        }));
+
+      res.json({
+        currency,
+        year,
+        monthly,
+        thisMonth: {
+          totalCents:              thisMonthBookingCents + thisMonthOrderCents,
+          bookingRevenueCents:     thisMonthBookingCents,
+          orderRevenueCents:       thisMonthOrderCents,
+          paidOrdersCents:         thisMonthPaidOrderCents,
+          paidInvoicesCents:       thisMonthPaidInvoiceCents,
+          // receivedCents = money actually collected: paid invoices + paid orders
+          receivedCents:           thisMonthPaidInvoiceCents + thisMonthPaidOrderCents,
+          outstandingInvoicesCents,
+          overdueInvoicesCents,
+          bookingsCount:           thisMonthBookings.length,
+          completedBookingsCount:  thisMonthBookings.filter(b => b.status === "completed").length,
+        },
+        recentBookings,
+        overdueInvoices: overdueList,
+      });
+    } catch (error: any) {
+      console.error("Economics error:", error);
+      res.status(500).json({ message: "Kunne ikke hente økonomidata" });
+    }
+  });
+
+  // Send a payment reminder for an invoice that is at least 7 days overdue.
+  // Eligibility: status='sent' AND due_date ≤ 7 days ago (matches GET query).
+  // Returns 422 for ineligible invoices, 503 when Resend is unconfigured,
+  // 502 when delivery fails. reminderSentAt is stamped only after confirmed delivery.
+  app.post("/api/websites/:id/economics/remind-invoice/:invoiceId",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("invoice.remind", "invoice", "invoiceId"),
+    async (req, res) => {
+      const websiteId = req.params.id;
+      const invoiceId = req.params.invoiceId;
+      const website   = getWebsiteAccess(req).website;
+
+      // 7-day overdue cutoff — matches the GET endpoint query.
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      /** Escape customer-supplied text before interpolating into email HTML. */
+      function escapeHtml(str: string | null | undefined): string {
+        if (!str) return "";
+        return str
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#x27;");
+      }
+
+      // ── look up invoice ──────────────────────────────────────────────────
+      let invoice: typeof invoicesTable.$inferSelect | undefined;
+      try {
+        [invoice] = await db.select().from(invoicesTable).where(
+          andOp(
+            eq(invoicesTable.websiteId, websiteId),
+            eq(invoicesTable.id, invoiceId),
+          )
+        ).limit(1);
+      } catch (dbErr: any) {
+        console.error("Remind-invoice DB error:", dbErr);
+        return res.status(503).json({ message: "Databasen er ikke klar endnu. Prøv igen om lidt." });
+      }
+
+      if (!invoice) {
+        return res.status(404).json({ message: "Faktura ikke fundet" });
+      }
+
+      // ── eligibility: sent + at least 7 days past due_date ───────────────
+      if (invoice.status !== "sent") {
+        return res.status(422).json({
+          message: invoice.status === "paid"
+            ? "Fakturaen er allerede betalt"
+            : "Fakturaen er ikke sendt endnu og kan ikke minde om betaling",
+        });
+      }
+      if (!invoice.dueDate || new Date(invoice.dueDate) > sevenDaysAgo) {
+        return res.status(422).json({
+          message: "Fakturaen er ikke mindst 7 dage forfalden endnu",
+        });
+      }
+
+      // ── send via the project's Resend integration (connector or env var) ──
+      let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>> | null = null;
+      try {
+        resendClient = await getUncachableResendClient();
+      } catch {
+        // getUncachableResendClient throws when neither connector nor env var is set
+      }
+      if (!resendClient) {
+        return res.status(503).json({
+          message: "E-mailafsendelse er ikke konfigureret på denne konto. Kontakt support.",
+        });
+      }
+
+      const amountStr = new Intl.NumberFormat("da-DK", {
+        style: "currency",
+        currency: invoice.currency || "DKK",
+        minimumFractionDigits: 0,
+      }).format(invoice.amountCents / 100);
+
+      const dueDateStr = invoice.dueDate
+        ? new Intl.DateTimeFormat("da-DK", { day: "numeric", month: "long", year: "numeric" })
+            .format(new Date(invoice.dueDate))
+        : "ukendt forfaldsdato";
+
+      try {
+        const { error: sendError } = await resendClient.client.emails.send({
+          from: resendClient.fromEmail,
+          to: invoice.customerEmail,
+          subject: `Betalingspåmindelse – ${amountStr}`,
+          // All customer-supplied values are HTML-escaped to prevent injection.
+          html: `<p>Hej ${escapeHtml(invoice.customerName)},</p>
+<p>Vi sender dig en venlig påmindelse om en ubetalt faktura på <strong>${amountStr}</strong>, der var forfalden den ${dueDateStr}.</p>
+${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : ""}
+<p>Kontakt os, hvis du har spørgsmål, eller allerede har betalt.</p>
+<p>Med venlig hilsen<br>${escapeHtml((website as any).name)}</p>`,
+        });
+
+        if (sendError) {
+          console.error("Remind-invoice Resend error:", sendError);
+          return res.status(502).json({
+            message: "Påmindelsen kunne ikke sendes. Prøv igen senere.",
+          });
+        }
+      } catch (sendErr: any) {
+        console.error("Remind-invoice send exception:", sendErr);
+        return res.status(502).json({
+          message: "Påmindelsen kunne ikke sendes. Prøv igen senere.",
+        });
+      }
+
+      // ── stamp only after confirmed delivery ───────────────────────────────
+      const nowTs = new Date();
+      await db.update(invoicesTable)
+        .set({ reminderSentAt: nowTs, updatedAt: nowTs })
+        .where(andOp(
+          eq(invoicesTable.websiteId, websiteId),
+          eq(invoicesTable.id, invoiceId),
+        ));
+
+      res.json({ ok: true, sentAt: nowTs.toISOString() });
+    }
+  );
 
   // Manage dashboard - aggregated overview numbers for the home section
   app.get("/api/websites/:id/manage/overview", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
@@ -7378,6 +8414,191 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Webhook processing error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── Account Component Library ────────────────────────────────────────────
+  // Cross-site reusable component store. All routes require a logged-in user;
+  // ownership is enforced per-method (ownerId = authenticated user's id).
+
+  /** List all account-level components for the authenticated user. */
+  app.get("/api/account/components", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const components = await storage.listAccountComponents(userId);
+      res.json(components);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Create a new account-level component (customer-saved from builder). */
+  app.post("/api/account/components", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const body = req.body ?? {};
+      if (!body.name?.trim() || !body.tree) {
+        return res.status(400).json({ message: "name og tree er påkrævet" });
+      }
+      const comp = await storage.createAccountComponent({
+        ownerId: userId,
+        name: body.name.trim(),
+        description: body.description ?? null,
+        category: body.category ?? null,
+        tags: Array.isArray(body.tags) ? body.tags : null,
+        tree: body.tree,
+        schema: body.schema ?? null,
+        designMetadata: body.designMetadata ?? null,
+        origin: body.origin ?? "customer",
+        createdFromWebsiteId: body.createdFromWebsiteId ?? null,
+        version: 1,
+      });
+      res.status(201).json(comp);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Get a single account-level component (owner only). */
+  app.get("/api/account/components/:componentId", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const comp = await storage.getAccountComponent(req.params.componentId, userId);
+      if (!comp) return res.status(404).json({ message: "Komponenten findes ikke" });
+      res.json(comp);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Rename or update metadata of an account-level component. */
+  app.patch("/api/account/components/:componentId", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const body = req.body ?? {};
+      const updated = await storage.updateAccountComponent(
+        req.params.componentId,
+        userId,
+        {
+          name: body.name ?? undefined,
+          description: body.description ?? undefined,
+          category: body.category ?? undefined,
+          tags: body.tags ?? undefined,
+          designMetadata: body.designMetadata ?? undefined,
+        }
+      );
+      if (!updated) return res.status(404).json({ message: "Komponenten findes ikke" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Delete an account-level component (owner only). */
+  app.delete("/api/account/components/:componentId", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const deleted = await storage.deleteAccountComponent(req.params.componentId, userId);
+      if (!deleted) return res.status(404).json({ message: "Komponenten findes ikke" });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Create a new version of an account-level component (update master). */
+  app.post("/api/account/components/:componentId/new-version", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const body = req.body ?? {};
+      if (!body.tree) return res.status(400).json({ message: "tree er påkrævet" });
+      const updated = await storage.createNewAccountComponentVersion(
+        req.params.componentId,
+        userId,
+        body.tree,
+        body.schema ?? null
+      );
+      if (!updated) return res.status(404).json({ message: "Komponenten findes ikke" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /** Propagate the latest master version to all linked instances across all websites. */
+  app.post("/api/account/components/:componentId/update-instances", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const result = await storage.updateAllLinkedInstances(req.params.componentId, userId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  /**
+   * Adapt a component from the account library to a target website's brand.
+   * Calls the AI to recolour / restyle the component tree without mutating the master.
+   */
+  app.post("/api/account/components/:componentId/adapt", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id as string;
+      const { targetWebsiteId } = req.body ?? {};
+      if (!targetWebsiteId) {
+        return res.status(400).json({ message: "targetWebsiteId er påkrævet" });
+      }
+
+      const comp = await storage.getAccountComponent(req.params.componentId, userId);
+      if (!comp) return res.status(404).json({ message: "Komponenten findes ikke" });
+
+      // Verify ownership of the target website.
+      const targetSite = await storage.getWebsite(targetWebsiteId);
+      if (!targetSite || targetSite.ownerId !== userId) {
+        return res.status(403).json({ message: "Ingen adgang til dette website" });
+      }
+
+      const targetBuilder = await storage.getBuilderState(targetWebsiteId);
+      const targetBrand = (targetBuilder?.state as any)?.brandGuide ?? null;
+
+      const adaptPrompt = [
+        "You are a visual design adapter. You receive a component tree (JSON) and a target brand guide.",
+        "Return ONLY the adapted component tree as valid JSON, with no explanation.",
+        "Rules:",
+        "1. Replace color hex values with the target brand's palette equivalents.",
+        "2. Replace font families with the target brand's heading/body fonts.",
+        "3. Keep the structure, layout and content identical.",
+        "4. Do not add or remove nodes.",
+        `Target brand guide: ${JSON.stringify(targetBrand ?? {})}`,
+        `Component tree: ${JSON.stringify(comp.tree)}`,
+      ].join("\n");
+
+      let adaptedTree = comp.tree;
+      try {
+        const { meteredChat } = await import("./aiCall");
+        const { createSpendMeter } = await import("./aiSpend");
+        const adaptMeter = createSpendMeter("assistant");
+        const result = await meteredChat(
+          "assistant",
+          { messages: [{ role: "user", content: adaptPrompt }], temperature: 0.3 },
+          adaptMeter
+        );
+        const text = (result.choices[0]?.message?.content ?? "").trim();
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          adaptedTree = JSON.parse(jsonMatch[0]);
+        }
+      } catch {
+        // Fallback to the original tree if AI fails
+      }
+
+      res.json({
+        adaptedTree,
+        originalId: comp.id,
+        name: comp.name,
+        schema: comp.schema,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

@@ -125,14 +125,35 @@ export const PlanStepScopeSchema = z.object({
 
 export type PlanStepScope = z.infer<typeof PlanStepScopeSchema>;
 
+/**
+ * One planned section within a "section" or "page" build step.
+ * Populated by the plan agent; displayed in the expandable plan UI so the
+ * customer can see exactly what will be built per page before approving.
+ */
+export const PlanSectionSchema = z.object({
+  /** e.g. "hero-section", "features-section" */
+  type: z.string().min(1).max(80),
+  /** One-sentence Danish content brief shown in the plan card. */
+  brief: z.string().min(1).max(300),
+  /** True when this section will receive an AI-generated hero image. */
+  hasImage: z.boolean().optional(),
+});
+export type PlanSection = z.infer<typeof PlanSectionSchema>;
+
 export const PlanStepSchema = z.object({
   id: z.string().min(1).max(64),
   type: z.enum(PLAN_STEP_TYPES),
   /** Short Danish imperative, e.g. "Skriv ny forsidetekst". */
   title: z.string().trim().min(3).max(120),
   /** Concretely what changes, in Danish. Shown under the title. */
-  detail: z.string().trim().min(3).max(600),
+  detail: z.string().trim().min(3).max(1500),
   scope: PlanStepScopeSchema,
+  /**
+   * Structured section list for "section" and "page" steps.
+   * When present the plan card expands these individually so the customer
+   * can see exactly what will be built before approving.
+   */
+  sections: z.array(PlanSectionSchema).max(20).optional(),
 });
 
 export type PlanStep = z.infer<typeof PlanStepSchema>;
@@ -192,6 +213,24 @@ export const STEP_RESULT_STATUSES = [
 ] as const;
 export type StepResultStatus = (typeof STEP_RESULT_STATUSES)[number];
 
+/**
+ * Why a step is paused. Only set when the step is paused, not when it
+ * genuinely failed — so callers can distinguish "needs user action" from
+ * "agent error".
+ *
+ * approval_required — the large-change classifier fired; user must approve.
+ * turn_budget      — agent ran out of turns before calling finish; user can retry.
+ * spend_budget     — build cost ceiling reached.
+ * tool_error       — too many tool errors in this step.
+ * conflict         — canvas was edited mid-step; changes would be overwritten.
+ */
+export type StepPauseReason =
+  | "approval_required"
+  | "turn_budget"
+  | "spend_budget"
+  | "tool_error"
+  | "conflict";
+
 export type PlanStepResult = {
   stepId: string;
   index: number;
@@ -203,8 +242,35 @@ export type PlanStepResult = {
   notes: string[];
   /** Mutations the scope validator or a rule refused, in Danish. */
   rejections: string[];
+  /**
+   * The three-level self-review, attached to the FINAL step of a finished
+   * build. It lives on a step result because step results are what a build
+   * persists — the summary is rebuilt from them on reload.
+   */
+  review?: import('./selfReview').SelfReview;
   imagesUsed: number;
   attempts: number;
+  /**
+   * What the whole build had spent, in USD, when this step finished. Written
+   * with the build's progress so a build that outlives a restart can rebuild
+   * its meter from what it really cost rather than from a guess.
+   */
+  spentUsd?: number;
+  /**
+   * Why this step is paused. Only present when the step needs user action —
+   * distinguishes approval-required from genuine failures.
+   */
+  pauseReason?: StepPauseReason;
+  /**
+   * Single-use approval token. Present only when pauseReason is
+   * "approval_required". The continue route validates and then clears it so
+   * the same approval cannot be reused.
+   */
+  approvalId?: string;
+  /** True when the agent explicitly called the finish tool for this step. */
+  finishCalled?: boolean;
+  /** How many automatic continuation passes the agent ran inside this step. */
+  continuationCount?: number;
 };
 
 export type BuildSummary = {
@@ -220,13 +286,17 @@ export type BuildSummary = {
   headline: string;
   /** True while the pre-build snapshot is still restorable. */
   canUndo: boolean;
+  /** The three-level self-review that ran after the last step, if any. */
+  review?: import('./selfReview').SelfReview;
 };
 
 /**
  * Every image in a build shares one budget. Deliberately per BUILD and not
- * per step: a ten-step plan must not be able to generate thirty images.
+ * per step: a ten-step plan must not be able to generate unlimited images.
+ * Increased from 3 to 8 so full multi-page sites can get a hero image per
+ * page plus a couple of extras for team/gallery sections.
  */
-export const MAX_IMAGES_PER_BUILD = 3;
+export const MAX_IMAGES_PER_BUILD = 8;
 
 /** A step gets one automatic retry before the build pauses on it. */
 export const MAX_STEP_ATTEMPTS = 2;
@@ -247,9 +317,114 @@ export type BuildStreamEvent =
 
 /* ─────────────────────── request payloads ─────────────────────── */
 
+/**
+ * How much of a description the planner is asked to think about at once.
+ * Above this the text is condensed rather than refused — see preparePlanPrompt.
+ */
+/**
+ * How many notes a plan carries. Notes are what the customer reads before
+ * approving, so the cap exists to keep the card readable — never to decide
+ * WHICH notes matter. `capNotes` makes that ordering explicit.
+ */
+export const PLAN_NOTE_LIMIT = 12;
+
+/**
+ * Keep every note that must be said (a dropped step, a truncated answer, a
+ * shortened description) and fill the rest of the cap with the optional
+ * ones. A model that writes twelve stylistic remarks can no longer push out
+ * the sentence telling the customer the plan is incomplete.
+ */
+export function capNotes(
+  mustSay: string[],
+  optional: string[],
+  limit = PLAN_NOTE_LIMIT
+): string[] {
+  const kept: string[] = [];
+  for (const note of [...mustSay, ...optional]) {
+    if (kept.length >= limit) break;
+    if (!kept.includes(note)) kept.push(note);
+  }
+  return kept;
+}
+
+export const PLAN_PROMPT_SOFT_LIMIT = 4000;
+
+/**
+ * The point where no amount of condensing helps and the customer has to be
+ * told, specifically, how much to cut.
+ */
+export const PLAN_PROMPT_HARD_LIMIT = 20000;
+
 export const PlanRequestSchema = z.object({
-  prompt: z.string().trim().min(1).max(4000),
+  prompt: z.string().trim().min(1).max(PLAN_PROMPT_HARD_LIMIT),
 });
+
+export type PreparedPlanPrompt = {
+  prompt: string;
+  /** Danish notes about anything that was left out. Empty when nothing was. */
+  notes: string[];
+};
+
+/** Collapse the whitespace a pasted brief is full of, without losing structure. */
+function normalizeWhitespace(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Cut at the nearest paragraph or sentence break, so a fragment reads whole. */
+function cutAt(text: string, limit: number, fromEnd: boolean): string {
+  if (text.length <= limit) return text;
+  if (fromEnd) {
+    const tail = text.slice(text.length - limit);
+    const breakAt = tail.search(/\n\n|(?<=[.!?])\s/);
+    return breakAt > 0 && breakAt < limit / 3 ? tail.slice(breakAt).trim() : tail.trim();
+  }
+  const head = text.slice(0, limit);
+  const paragraph = head.lastIndexOf("\n\n");
+  const sentence = Math.max(head.lastIndexOf(". "), head.lastIndexOf("!\n"), head.lastIndexOf("?\n"));
+  const breakAt = paragraph > limit / 2 ? paragraph : sentence > limit / 2 ? sentence + 1 : -1;
+  return (breakAt > 0 ? head.slice(0, breakAt) : head).trim();
+}
+
+/**
+ * Make a long description usable instead of rejecting it at the door.
+ *
+ * A customer who writes six hundred words about their practice has told us
+ * more than one who writes six, and answering that with a bare 400 is the
+ * rudest possible reply. Whitespace is collapsed first — pasted briefs are
+ * mostly blank lines — and only if it is still too long is the middle
+ * dropped, with the beginning and the end kept because that is where people
+ * put what they actually want. What was left out is always said out loud.
+ */
+export function preparePlanPrompt(raw: string): PreparedPlanPrompt {
+  const normalized = normalizeWhitespace(raw);
+  if (normalized.length <= PLAN_PROMPT_SOFT_LIMIT) {
+    return { prompt: normalized, notes: [] };
+  }
+
+  const marker = "\n\n[…midten af beskrivelsen er udeladt…]\n\n";
+  const headLimit = Math.floor((PLAN_PROMPT_SOFT_LIMIT - marker.length) * 0.65);
+  const tailLimit = PLAN_PROMPT_SOFT_LIMIT - marker.length - headLimit;
+
+  const head = cutAt(normalized, headLimit, false);
+  const tail = cutAt(normalized, tailLimit, true);
+  const prompt = `${head}${marker}${tail}`;
+  const omitted = Math.max(0, normalized.length - head.length - tail.length);
+
+  return {
+    prompt,
+    notes: [
+      `Din beskrivelse var ${normalized.length} tegn — for lang til at planlægge på én gang. ` +
+        `Jeg har brugt begyndelsen og slutningen og udeladt ca. ${omitted} tegn i midten. ` +
+        `Var noget vigtigt i den del, så bed om det som en ny plan bagefter.`,
+    ],
+  };
+}
 
 export const PlanEditSchema = z.object({
   /** Optimistic concurrency: the version the customer was editing. */

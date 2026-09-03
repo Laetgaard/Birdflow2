@@ -2,8 +2,12 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, timestamp, jsonb, serial, integer, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import type { CustomComponentEntry, BrandGuide } from "./customComponents";
+import type { CustomComponentEntry, BrandGuide, PrimitiveNode } from "./customComponents";
+import type { SvgColorSlot } from "./svgAssets";
+import type { BusinessContext } from "./businessContext";
 import type { SiteLanguage } from "./siteLanguage";
+
+export type { BusinessContext, BusinessFact } from "./businessContext";
 
 export type { CustomComponentEntry, BrandGuide } from "./customComponents";
 
@@ -418,11 +422,56 @@ export type {
   ComponentItem,
 } from './componentRegistry';
 
+/**
+ * What a page is for. Drives the builder's badges and the AI's judgement
+ * about what belongs where; enforcement (e.g. never delete a legal page)
+ * lands with the self-review phase.
+ */
+export type PageRole = 'home' | 'service' | 'legal' | 'booking' | 'landing' | 'draft';
+
+/** What the published page tells Google and social previews about itself. */
+export type PageSeo = {
+  title?: string;
+  description?: string;
+};
+
+/**
+ * One entry in the site navigation.
+ *
+ * The label is deliberately separate from the page name: "Om os" in the
+ * menu can point at a page called "Om klinikken". A link without a
+ * `pageId` points somewhere external and is left alone when pages change.
+ */
+export type NavLink = {
+  id: string;
+  label: string;
+  target: string;
+  pageId?: string;
+  /** Kept in the list, not drawn. Lets a link be parked without losing it. */
+  hidden?: boolean;
+};
+
+export type SiteNavigation = {
+  items: NavLink[];
+};
+
+/** The header and footer every page shares, stored once. */
+export type SiteChrome = {
+  header?: import('./componentRegistry').BuilderComponentData;
+  footer?: import('./componentRegistry').BuilderComponentData;
+};
+
 export type BuilderPage = {
   id: string;
   name: string;
   path: string;
   hidden?: boolean; // Hidden pages are not shown in navigation but still published
+  /** What the page is for. Absent means "never set"; see inferPageRole. */
+  role?: PageRole;
+  seo?: PageSeo;
+  /** Explicit false opts this page out of the site-wide header/footer. */
+  useSharedHeader?: boolean;
+  useSharedFooter?: boolean;
   components: import('./componentRegistry').BuilderComponentData[];
 };
 
@@ -475,24 +524,59 @@ export type ProductGridConfig = {
 
 export type StylePreset = 'modern' | 'luxury' | 'playful' | 'corporate' | 'minimal' | 'custom';
 
+/**
+ * The website's brand, as values rather than as decisions repeated in every
+ * section. `shared/designTokens.ts` turns this into the named roles
+ * (`color.primary`, `text.h1`, `space.section`, ...) that component styles
+ * point at, so changing one value here changes every place it is used.
+ *
+ * Everything past `fontFamily` is optional because states saved before a
+ * field existed must keep working: a missing value is derived from the ones
+ * that are there, never invented separately by each renderer.
+ */
 export type DesignTokens = {
   primaryColor: string;
   secondaryColor: string;
   backgroundColor: string;
   fontFamily: string;
   textColor?: string;
+  /** Third brand colour. Falls back to the secondary colour. */
+  accentColor?: string;
+  /** Card/panel colour. Derived from the background when unset. */
+  surfaceColor?: string;
   fontPair?: { heading: string; body: string };
+  /** How sharply heading sizes step up from body text. */
+  typeScale?: 'modern' | 'editorial' | 'classic' | 'bold';
   borderRadius?: string;
   spacingScale?: 'compact' | 'comfortable' | 'spacious';
   sectionGap?: string;
+  /** Depth of the card and button shadows. */
+  shadowLevel?: 'none' | 'subtle' | 'elevated';
+  /** Max width of centred page content. */
+  containerWidth?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
 };
 
 export type BuilderStateData = {
+  /**
+   * Explicit version of the persisted site-state format. Historical records
+   * may omit this; the publish migration layer detects and upgrades those
+   * records in memory before they reach the generated-site pipeline.
+   */
+  schemaVersion?: number;
   pages: BuilderPage[];
   activePage: string;
   globalStyles: DesignTokens;
+  /**
+   * The site navigation, stored rather than derived from the page list, so
+   * a menu label can differ from a page name and a link can be added,
+   * removed or reordered on its own. Absent means "not migrated yet"; both
+   * renderers then fall back to the old derivation.
+   */
+  navigation?: SiteNavigation;
+  /** The one header and footer every page shares, unless it opts out. */
+  siteChrome?: SiteChrome;
   stylePreset?: StylePreset;
   media?: MediaReference[];
   bookingConfig?: BookingConfig;
@@ -502,6 +586,13 @@ export type BuilderStateData = {
   customComponents?: CustomComponentEntry[];
   /** Per-website brand guide (drives the Brand tab and AI grounding). */
   brandGuide?: BrandGuide;
+  /**
+   * Persistent business facts ("Forretningsfakta"): what the AI is allowed
+   * to know — and therefore claim — about the business. Only the customer
+   * writes it (no AI mutation targets it); server/claimRules.ts refuses AI
+   * copy whose concrete claims it does not back.
+   */
+  businessContext?: BusinessContext;
 };
 
 // Builder state table
@@ -586,12 +677,37 @@ export const assistantBuilds = pgTable("assistant_builds", {
   snapshotRevision: integer("snapshot_revision"),
   summary: text("summary"),
   error: text("error"),
+  // Enriched metadata added after initial release
+  pagesAdded: integer("pages_added").notNull().default(0),
+  visualQaBlocking: boolean("visual_qa_blocking").notNull().default(false),
+  modelUsed: text("model_used"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   finishedAt: timestamp("finished_at"),
 });
 
 export type AssistantBuildRow = typeof assistantBuilds.$inferSelect;
+
+/**
+ * Customer-facing version history.
+ *
+ * One row is created after every completed AI build so the customer can
+ * browse back and restore any earlier state. This is separate from the
+ * publish-pipeline `website_versions` table (which is scoped to Vercel
+ * deployments) — a builder snapshot exists even if the site has never
+ * been published.
+ */
+export const builderSnapshots = pgTable("builder_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()::varchar`),
+  websiteId: varchar("website_id").notNull(),
+  buildId: integer("build_id").notNull(),
+  label: text("label").notNull(),
+  content: jsonb("content").notNull(),
+  revision: integer("revision").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BuilderSnapshotRow = typeof builderSnapshots.$inferSelect;
 
 // Orders table (for ecommerce)
 export const orders = pgTable("orders", {
@@ -708,6 +824,38 @@ export const insertBookingSchema = createInsertSchema(bookings).omit({
 
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookings.$inferSelect;
+
+// Session invoices — created by a practitioner for a client, typically
+// after a completed booking. Linked to a booking row via booking_id when
+// the invoice covers a specific appointment; standalone otherwise.
+// Status flow: draft → sent → paid | cancelled.
+export const invoices = pgTable("invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  bookingId: varchar("booking_id"),        // nullable: some invoices are standalone
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email").notNull(),
+  amountCents: integer("amount_cents").notNull().default(0),
+  currency: text("currency").notNull().default("DKK"),
+  /** draft | sent | paid | cancelled */
+  status: text("status").notNull().default("draft"),
+  description: text("description"),
+  dueDate: timestamp("due_date"),
+  sentAt: timestamp("sent_at"),
+  paidAt: timestamp("paid_at"),
+  reminderSentAt: timestamp("reminder_sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type Invoice = typeof invoices.$inferSelect;
 
 // Form submissions table
 export const formSubmissions = pgTable("form_submissions", {
@@ -882,6 +1030,36 @@ export const insertMediaAssetSchema = createInsertSchema(mediaAssets).omit({
 
 export type InsertMediaAsset = z.infer<typeof insertMediaAssetSchema>;
 export type MediaAsset = typeof mediaAssets.$inferSelect;
+
+// SVG assets table: reusable illustrations referenced from primitive trees
+// by `svgAssetId`, so the markup lives OUTSIDE the autosaved builder-state
+// JSONB document. Deduped per website by content hash (unique index created
+// in server/svgAssetSchema.ts — this project applies DDL at boot, not via
+// db:push).
+export const svgAssets = pgTable("svg_assets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  name: text("name").notNull(),
+  /** Sanitized SVG markup (sanitizeSvg ran before insert; renderers re-sanitize). */
+  svg: text("svg").notNull(),
+  /** sha256 hex of the sanitized markup — dedupe key within a website. */
+  contentHash: varchar("content_hash", { length: 64 }).notNull(),
+  /** Named colour slots extracted at creation (see shared/svgAssets.ts). */
+  colorSlots: jsonb("color_slots").$type<SvgColorSlot[]>().default([]),
+  /** Who created it: 'ai' or 'customer'. */
+  origin: text("origin").notNull().default("customer"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSvgAssetSchema = createInsertSchema(svgAssets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSvgAsset = z.infer<typeof insertSvgAssetSchema>;
+export type SvgAsset = typeof svgAssets.$inferSelect;
 
 // Booking services table
 export const bookingServices = pgTable("booking_services", {
@@ -1655,6 +1833,44 @@ export type SupportTicket = typeof supportTickets.$inferSelect;
 
 export type SupportTicketType = 'bug' | 'problem' | 'improvement';
 export type SupportTicketStatus = 'open' | 'in_progress' | 'closed';
+
+// ── Account Component Library ─────────────────────────────────────────────────
+// One row per "master" component owned by an account (user). Placed instances
+// carry a `libraryRef.accountComponentId` back-reference but remain fully
+// detached: editing an instance never touches this row.
+export const accountComponents = pgTable("account_components", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()::varchar`),
+  ownerId: varchar("owner_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category"),
+  tags: jsonb("tags").$type<string[]>(),
+  tree: jsonb("tree").$type<PrimitiveNode>().notNull(),
+  schema: jsonb("schema").$type<unknown>(),
+  /** Rendering hints stored alongside the component: wireframe thumbnail, etc. */
+  designMetadata: jsonb("design_metadata").$type<{ thumbnail?: string; origin?: string }>(),
+  origin: text("origin").notNull().default("customer"),
+  createdFromWebsiteId: varchar("created_from_website_id"),
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type AccountComponent = typeof accountComponents.$inferSelect;
+
+export type InsertAccountComponent = {
+  ownerId: string;
+  name: string;
+  description?: string | null;
+  category?: string | null;
+  tags?: string[] | null;
+  tree: PrimitiveNode;
+  schema?: unknown;
+  designMetadata?: { thumbnail?: string; origin?: string } | null;
+  origin?: string;
+  createdFromWebsiteId?: string | null;
+  version?: number;
+};
 
 // OAuth state tokens for replay prevention (persisted for multi-instance deployments)
 export const oauthStateTokens = pgTable("oauth_state_tokens", {

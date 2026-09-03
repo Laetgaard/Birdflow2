@@ -4,6 +4,7 @@ import type {
   BuildSummary,
   PlanStep,
 } from "@shared/assistantPlan";
+import type { BuilderStateData } from "@shared/schema";
 import type { AgentStreamEvent } from "@/lib/aiAgentStream";
 import { readSseStream } from "@/lib/aiAgentStream";
 import { adminSessionHeaders } from "@/lib/adminSession";
@@ -18,7 +19,23 @@ import { adminSessionHeaders } from "@/lib/adminSession";
    ───────────────────────────────────────────────────────────── */
 
 /** Plan mode streams the assistant's reading, then the finished plan. */
-export type PlanStreamEvent = AgentStreamEvent | { type: "plan"; plan: AssistantPlan };
+export type PlanStreamEvent =
+  | AgentStreamEvent
+  | { type: "plan"; plan: AssistantPlan }
+  /** The server's own failure frame: why it stopped, and whether to retry. */
+  | { type: "error"; message: string; reason?: string; canRetry?: boolean };
+
+/** A planning round that produced nothing, with the reason kept attached. */
+export class PlanFailedError extends Error {
+  readonly reason: string;
+  readonly canRetry: boolean;
+  constructor(message: string, reason = "unknown", canRetry = true) {
+    super(message);
+    this.name = "PlanFailedError";
+    this.reason = reason;
+    this.canRetry = canRetry;
+  }
+}
 
 export type BuildStateSummary = {
   id: number;
@@ -81,16 +98,25 @@ export async function runPlanMode(args: {
     signal: args.signal,
   });
 
+  if (!response.ok && response.headers.get("content-type")?.includes("json")) {
+    // A rejection before the stream opened (too long, no budget left) still
+    // has to reach the customer as words, not as a status code.
+    await json(response);
+  }
+
   let plan: AssistantPlan | null = null;
-  let streamError: string | null = null;
+  let failure: PlanFailedError | null = null;
   await readSseStream<PlanStreamEvent>(response, (event) => {
     args.onEvent(event);
     if (event.type === "plan") plan = event.plan;
-    if (event.type === "error") streamError = event.message;
+    if (event.type === "error") {
+      const detail = event as { message: string; reason?: string; canRetry?: boolean };
+      failure = new PlanFailedError(detail.message, detail.reason, detail.canRetry !== false);
+    }
   });
 
   if (plan) return plan;
-  throw new Error(streamError || "Planlægningen sluttede uden en plan.");
+  throw failure ?? new PlanFailedError("Planlægningen sluttede uden en plan.");
 }
 
 /** Save an edited checklist. The server answers with the NEXT version. */
@@ -212,6 +238,33 @@ export async function stopBuild(args: {
   await json(response);
 }
 
+/**
+ * Send annotated steps (customer comments on specific steps) to the AI for
+ * a targeted revision pass. Returns the new plan version with revised steps.
+ */
+export async function requestPlanRevision(args: {
+  websiteId: string;
+  accessToken: string;
+  planId: number;
+  version: number;
+  /** { index, stepId, comment } for every step the customer annotated. */
+  annotations: Array<{ index: number; stepId: string; comment: string }>;
+}): Promise<AssistantPlan> {
+  const response = await fetch(
+    `/api/websites/${args.websiteId}/ai/plan/${args.planId}/revise`,
+    {
+      method: "POST",
+      headers: headers(args.websiteId, args.accessToken),
+      body: JSON.stringify({
+        version: args.version,
+        annotations: args.annotations,
+      }),
+    }
+  );
+  const body = await json<{ plan: AssistantPlan }>(response);
+  return body.plan;
+}
+
 /** Restore the pre-build snapshot: one build, one undo. */
 export async function undoBuild(args: {
   websiteId: string;
@@ -223,4 +276,85 @@ export async function undoBuild(args: {
     headers: headers(args.websiteId, args.accessToken),
   });
   return json<{ newState: unknown; revision: number }>(response);
+}
+
+/* ─────────────────────── background-build transport ─────────────────────── */
+
+/**
+ * Start an approved plan as a background job.
+ *
+ * Returns immediately with the build id — progress is tracked by polling
+ * `fetchPlanState`. The build survives browser close and server restarts.
+ */
+export async function startBuildJob(args: {
+  websiteId: string;
+  accessToken: string;
+  planId: number;
+  version: number;
+  approvedLargeChanges?: boolean;
+}): Promise<{ buildId: number }> {
+  const response = await fetch(`/api/websites/${args.websiteId}/ai/build`, {
+    method: "POST",
+    headers: headers(args.websiteId, args.accessToken),
+    body: JSON.stringify({
+      planId: args.planId,
+      version: args.version,
+      ...(args.approvedLargeChanges ? { approvedLargeChanges: true } : {}),
+    }),
+  });
+  return json<{ buildId: number }>(response);
+}
+
+/**
+ * Resume, skip, retry or approve-and-resume a paused build as a background job.
+ *
+ * For `approve_and_resume`, pass `approvalId` and `stepId` from the paused
+ * step's result — the server validates both before consuming the token.
+ *
+ * The server updates the step state and fires a background worker.
+ * Returns immediately — poll `fetchPlanState` for progress.
+ */
+export async function continueBuildJob(args: {
+  websiteId: string;
+  accessToken: string;
+  buildId: number;
+  action: "resume" | "skip" | "retry" | "approve_and_resume";
+  /** Required for `approve_and_resume`. Single-use token from the step result. */
+  approvalId?: string;
+  /** Required for `approve_and_resume`. Identifies the step being approved. */
+  stepId?: string;
+}): Promise<{ buildId: number }> {
+  const body: Record<string, unknown> = { action: args.action };
+  if (args.action === "approve_and_resume") {
+    body.approvalId = args.approvalId;
+    body.stepId = args.stepId;
+  }
+  const response = await fetch(
+    `/api/websites/${args.websiteId}/ai/build/${args.buildId}/continue`,
+    {
+      method: "POST",
+      headers: headers(args.websiteId, args.accessToken),
+      body: JSON.stringify(body),
+    }
+  );
+  return json<{ buildId: number }>(response);
+}
+
+/**
+ * Fetch the current builder canvas state directly from the server.
+ *
+ * Used to refresh the canvas after polling detects a build has progressed
+ * or finished while the customer's browser was away or on another tab.
+ */
+export async function fetchBuilderState(args: {
+  websiteId: string;
+  accessToken: string;
+}): Promise<{ state: BuilderStateData; revision: number } | null> {
+  const response = await fetch(`/api/websites/${args.websiteId}/builder`, {
+    headers: { Authorization: `Bearer ${args.accessToken}` },
+  });
+  if (!response.ok) return null;
+  const body = await response.json().catch(() => null);
+  if (!body?.state) return null;
+  return { state: body.state as BuilderStateData, revision: Number(body.revision ?? 0) };
 }

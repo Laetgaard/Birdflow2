@@ -23,10 +23,11 @@ import { storage } from "./storage";
 import type { BuilderMutation, AIPrimitiveNode } from "@shared/aiBuilderSchema";
 import type { BrandGuide } from "@shared/schema";
 
-import { getOpenAI } from "./openaiClient";
+import { meteredImage } from "./aiCall";
+import type { SpendMeter } from "./aiSpend";
 
 export const AI_IMAGE_MARKER = "ai://";
-export const MAX_AI_IMAGES_PER_REQUEST = 3;
+export const MAX_AI_IMAGES_PER_REQUEST = 5;
 
 export type ImageAspect = "square" | "landscape" | "portrait";
 
@@ -40,9 +41,26 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/** Ground the image prompt in the brand guide so visuals stay on-brand. */
-function buildImagePrompt(description: string, brandGuide?: BrandGuide): string {
+/**
+ * Ground the image prompt in the brand guide and optional business context
+ * so visuals stay on-brand and relevant to this specific business.
+ *
+ * `businessName` and `siteDescription` improve prompt relevance when the
+ * caller has them — neither is required, and both are ignored when blank.
+ */
+function buildImagePrompt(
+  description: string,
+  brandGuide?: BrandGuide,
+  businessName?: string,
+  siteDescription?: string
+): string {
   const parts = [description.trim()];
+
+  // Ground the image in the specific business so generic "people" become
+  // "clients of a psychology practice" instead of stock photo strangers.
+  if (businessName) parts.push(`Business: ${businessName}`);
+  if (siteDescription) parts.push(`Context: ${siteDescription.slice(0, 120)}`);
+
   if (brandGuide) {
     switch (brandGuide.imageryStyle) {
       case "illustration":
@@ -58,14 +76,20 @@ function buildImagePrompt(description: string, brandGuide?: BrandGuide): string 
         parts.push("Style: bold, high contrast, dramatic lighting");
         break;
       default:
-        parts.push("Style: professional photography, natural light");
+        parts.push("Style: professional photography, natural light, high quality");
     }
     const c = brandGuide.colors;
     if (c) {
       parts.push(`Color mood: primary ${c.primary}, accent ${c.accent}, background ${c.background}`);
     }
     if (brandGuide.imageryNotes) parts.push(`Art direction: ${brandGuide.imageryNotes}`);
+    // Illustration style overrides the generic imageryStyle hint for AI-generated images
+    if (brandGuide.illustrationStyle) {
+      parts.push(`Illustration direction: ${brandGuide.illustrationStyle.slice(0, 300)}`);
+    }
     if (brandGuide.keywords?.length) parts.push(`Brand keywords: ${brandGuide.keywords.join(", ")}`);
+  } else {
+    parts.push("Style: professional photography, natural light, high quality");
   }
   parts.push("No text, no words, no logos, no watermarks in the image");
   return parts.join(". ");
@@ -80,14 +104,20 @@ export async function generateAndStoreImage(
   websiteId: string,
   description: string,
   brandGuide?: BrandGuide,
-  aspect: ImageAspect = "landscape"
+  aspect: ImageAspect = "landscape",
+  /** The run's meter, when this image belongs to a larger run. */
+  meter?: SpendMeter,
+  /** Optional business name and description to ground the image in the real business. */
+  businessContext?: { name?: string; description?: string }
 ): Promise<{ url: string; mediaId: string }> {
-  const result = await getOpenAI().images.generate({
-    model: "gpt-image-1",
-    prompt: buildImagePrompt(description, brandGuide),
-    size: ASPECT_SIZE[aspect],
-    quality: "medium",
-  });
+  const result = await meteredImage(
+    {
+      prompt: buildImagePrompt(description, brandGuide, businessContext?.name, businessContext?.description),
+      size: ASPECT_SIZE[aspect],
+      quality: "medium",
+    },
+    meter
+  );
 
   const b64 = result.data?.[0]?.b64_json;
   if (!b64) throw new Error("Ingen billeddata modtaget fra billedgeneratoren");
@@ -130,7 +160,9 @@ export async function generateAndStoreImage(
 export async function generateLogo(
   websiteId: string,
   businessName: string,
-  options?: { feeling?: string; primaryColor?: string; accentColor?: string; notes?: string }
+  options?: { feeling?: string; primaryColor?: string; accentColor?: string; notes?: string },
+  /** The run's meter, when this logo belongs to a larger run. */
+  meter?: SpendMeter
 ): Promise<{ url: string; mediaId: string }> {
   const parts = [
     `Minimalist vector-style logo for the business "${businessName.trim()}".`,
@@ -146,12 +178,14 @@ export async function generateLogo(
   if (options?.notes) parts.push(`Direction: ${truncate(options.notes, 300)}`);
   parts.push("No photograph, no 3D, no gradients heavier than subtle, no watermark.");
 
-  const result = await getOpenAI().images.generate({
-    model: "gpt-image-1",
-    prompt: parts.join(" "),
-    size: "1024x1024",
-    quality: "medium",
-  });
+  const result = await meteredImage(
+    {
+      prompt: parts.join(" "),
+      size: "1024x1024",
+      quality: "medium",
+    },
+    meter
+  );
 
   const b64 = result.data?.[0]?.b64_json;
   if (!b64) throw new Error("Ingen billeddata modtaget fra billedgeneratoren");
@@ -333,7 +367,11 @@ export function planImageJobs(
 export async function resolveAiImageMarkers(
   websiteId: string,
   mutations: BuilderMutation[],
-  brandGuide?: BrandGuide
+  brandGuide?: BrandGuide,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter,
+  /** Optional business context to ground images in the real business. */
+  businessContext?: { name?: string; description?: string }
 ): Promise<ResolvedImages> {
   const cloned = structuredClone(mutations);
   const slots: MarkerSlot[] = [];
@@ -360,12 +398,43 @@ export async function resolveAiImageMarkers(
 
   if (slots.length === 0) return { mutations: cloned, created: [], notes: [] };
 
-  const { jobs, skippedSlots: skipped } = planImageJobs(slots);
+  const created: string[] = [];
+  const notes: string[] = [];
+
+  // ── Prefer brand photos over AI generation ──────────────────────────────
+  // Fill as many slots as possible from the customer's uploaded brand photos
+  // (round-robin). Only slots that exceed the photo pool go to AI generation.
+  const photoPool = (brandGuide?.brandPhotos ?? []).filter((p) => p.url);
+  const slotsNeedingAI: MarkerSlot[] = [];
+
+  if (photoPool.length > 0) {
+    slots.forEach((slot, idx) => {
+      const photo = photoPool[idx % photoPool.length];
+      slot.apply(photo.url);
+    });
+    // All slots satisfied by brand photos; no AI generation needed.
+    created.push(
+      `${slots.length} billedfelt(er) udfyldt med ${photoPool.length} brandfoto(s).`
+    );
+    return { mutations: cloned, created, notes };
+  }
+
+  // No brand photos — fall through to AI generation for all slots.
+  slotsNeedingAI.push(...slots);
+
+  const { jobs, skippedSlots: skipped } = planImageJobs(slotsNeedingAI);
 
   await Promise.all(
     Array.from(jobs.values()).map(async (job) => {
       try {
-        const { url } = await generateAndStoreImage(websiteId, job.description, brandGuide, job.aspect);
+        const { url } = await generateAndStoreImage(
+          websiteId,
+          job.description,
+          brandGuide,
+          job.aspect,
+          meter,
+          businessContext
+        );
         job.url = url;
       } catch (error) {
         console.error("AI image generation failed:", error);
@@ -374,8 +443,6 @@ export async function resolveAiImageMarkers(
     })
   );
 
-  const created: string[] = [];
-  const notes: string[] = [];
   for (const job of Array.from(jobs.values())) {
     if (job.url) {
       created.push(`AI-billede genereret: "${truncate(job.description, 70)}".`);
@@ -389,7 +456,7 @@ export async function resolveAiImageMarkers(
     );
   }
 
-  for (const slot of slots) {
+  for (const slot of slotsNeedingAI) {
     const job = jobs.get(imageJobKey(slot));
     slot.apply(job?.url ?? "");
   }

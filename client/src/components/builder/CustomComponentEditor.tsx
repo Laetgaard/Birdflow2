@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +33,8 @@ import {
   movePrimitiveNode,
   removePrimitiveNode,
   updatePrimitiveNode,
+  effectiveEditableSchema,
+  isInsideBoundRepeater,
   type PrimitiveNode,
   type PrimitiveNodeType,
   type PrimitiveStyleKey,
@@ -40,9 +42,19 @@ import {
   type PrimitiveTextTag,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
+import { applySvgAssetColors, isSvgColorTokenRef } from "@shared/svgAssets";
+import type { MotionSpec } from "@shared/motion";
+import { resolveDesignTokens } from "@shared/designTokens";
 import { uploadImage } from "@/lib/builderUpload";
+import SemanticFieldsPanel from "./SemanticFieldsPanel";
+import type { DesignTokens, SvgAsset } from "@shared/schema";
 
-type DeviceKey = "styles" | "tabletStyles" | "mobileStyles";
+/**
+ * Which style bucket the panel is editing. Hover sits alongside the device
+ * buckets because it works the same way — declarations layered over the base
+ * styles — and because the published site emits it as a real `:hover` rule.
+ */
+type DeviceKey = "styles" | "tabletStyles" | "mobileStyles" | "hoverStyles";
 
 type Props = {
   component: BuilderComponentData;
@@ -51,6 +63,12 @@ type Props = {
   accessToken: string;
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
+  /** Design tokens so semantic colour fields can offer brand swatches. */
+  globalStyles?: DesignTokens;
+  /** Stored SVG illustrations by id — svg nodes reference them via svgAssetId. */
+  svgAssets?: Record<string, SvgAsset>;
+  /** Called after a new illustration is stored, so the caller refreshes the map. */
+  onSvgAssetsChanged?: () => void;
 };
 
 const NODE_TYPE_META: Record<PrimitiveNodeType, { label: string; icon: typeof BoxIcon }> = {
@@ -59,6 +77,9 @@ const NODE_TYPE_META: Record<PrimitiveNodeType, { label: string; icon: typeof Bo
   image: { label: "Billede", icon: ImageIcon },
   button: { label: "Knap", icon: MousePointerClick },
   svg: { label: "Grafik", icon: Shapes },
+  // Capability nodes are created by the AI, not via the manual "add child" panel.
+  // They need a meta entry so the Record<PrimitiveNodeType, ...> type is satisfied.
+  capability: { label: "Widget", icon: BoxIcon },
 };
 
 const TAG_OPTIONS: { value: PrimitiveTextTag; label: string }[] = [
@@ -80,6 +101,148 @@ const VARIANT_OPTIONS: { value: PrimitiveButtonVariant; label: string }[] = [
 ];
 
 const INHERIT = "__inherit__";
+
+/**
+ * Motion controls: preset names from the controlled vocabulary in
+ * shared/motion.ts, with Danish labels. The default of every scale is the
+ * calm option; picking it removes the key so specs stay minimal.
+ */
+const MOTION_DEFAULTS: Record<string, string> = {
+  effect: "none",
+  trigger: "scroll",
+  duration: "normal",
+  delay: "none",
+  easing: "soft",
+  distance: "medium",
+  repeat: "once",
+  stagger: "none",
+  hover: "none",
+};
+
+const MOTION_FIELDS: { key: keyof MotionSpec; label: string; options: [string, string][]; boxOnly?: boolean; entranceOnly?: boolean }[] = [
+  {
+    key: "effect",
+    label: "Indgang",
+    options: [
+      ["none", "Ingen"],
+      ["fade-in", "Fade ind"],
+      ["slide-up", "Glid op"],
+      ["slide-down", "Glid ned"],
+      ["slide-left", "Glid fra højre"],
+      ["slide-right", "Glid fra venstre"],
+      ["zoom-in", "Zoom ind"],
+      ["zoom-out", "Zoom ud"],
+      ["bounce", "Hop"],
+      ["flip", "Flip"],
+    ],
+  },
+  {
+    key: "trigger",
+    label: "Afspil",
+    entranceOnly: true,
+    options: [
+      ["scroll", "Ved scroll"],
+      ["load", "Ved indlæsning"],
+    ],
+  },
+  {
+    key: "duration",
+    label: "Varighed",
+    entranceOnly: true,
+    options: [
+      ["fast", "Hurtig"],
+      ["normal", "Normal"],
+      ["slow", "Langsom"],
+      ["very-slow", "Meget langsom"],
+    ],
+  },
+  {
+    key: "delay",
+    label: "Forsinkelse",
+    entranceOnly: true,
+    options: [
+      ["none", "Ingen"],
+      ["short", "Kort"],
+      ["medium", "Mellem"],
+      ["long", "Lang"],
+    ],
+  },
+  {
+    key: "easing",
+    label: "Kurve",
+    entranceOnly: true,
+    options: [
+      ["soft", "Blød"],
+      ["ease-out", "Ease-out"],
+      ["ease-in-out", "Jævn"],
+      ["linear", "Lineær"],
+      ["spring", "Fjedrende"],
+    ],
+  },
+  {
+    key: "distance",
+    label: "Afstand",
+    entranceOnly: true,
+    options: [
+      ["short", "Kort"],
+      ["medium", "Mellem"],
+      ["long", "Lang"],
+    ],
+  },
+  {
+    key: "repeat",
+    label: "Gentagelse",
+    entranceOnly: true,
+    options: [
+      ["once", "Én gang"],
+      ["every-view", "Hver visning"],
+    ],
+  },
+  {
+    key: "stagger",
+    label: "Børn forskudt",
+    boxOnly: true,
+    options: [
+      ["none", "Ingen"],
+      ["tight", "Tæt"],
+      ["normal", "Normal"],
+      ["relaxed", "Afslappet"],
+    ],
+  },
+  {
+    key: "hover",
+    label: "Hover-effekt",
+    options: [
+      ["none", "Ingen"],
+      ["lift", "Løft"],
+      ["grow", "Forstør"],
+      ["glow", "Glød"],
+    ],
+  },
+];
+
+/**
+ * Brand roles an illustration colour can bind to. The value is stored as a
+ * token reference (`{color.primary}`) on the node, so a later brand-colour
+ * change flows into every bound drawing automatically.
+ */
+const SVG_BRAND_ROLES: { value: string; label: string }[] = [
+  { value: "{color.primary}", label: "Primær farve" },
+  { value: "{color.secondary}", label: "Sekundær farve" },
+  { value: "{color.accent}", label: "Accentfarve" },
+  { value: "{color.background}", label: "Baggrundsfarve" },
+  { value: "{color.surface}", label: "Fladefarve" },
+  { value: "{color.text}", label: "Tekstfarve" },
+];
+
+/** `<input type="color">` only accepts #rrggbb — coerce what we can. */
+function toColorInputValue(value: string): string {
+  const v = (value || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v;
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(v);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  return "#888888";
+}
 
 type StyleFieldDef = {
   key: PrimitiveStyleKey;
@@ -145,20 +308,42 @@ export default function CustomComponentEditor({
   accessToken,
   selectedNodeId,
   onNodeSelect,
+  globalStyles,
+  svgAssets,
+  onSvgAssetsChanged,
 }: Props) {
   const tree = component.props.customTree;
   const [deviceTab, setDeviceTab] = useState<DeviceKey>("styles");
   const [svgDraft, setSvgDraft] = useState<string | null>(null);
   const [svgError, setSvgError] = useState<string | null>(null);
+  const [svgNotice, setSvgNotice] = useState<string | null>(null);
+  const [savingSvg, setSavingSvg] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+
+  // Named fields ("Overskrift", "Knap – link") are the default editing
+  // surface; the raw node editor stays available as "Avanceret".
+  const effective = useMemo(() => effectiveEditableSchema(component.props), [component.props]);
 
   useEffect(() => {
     setSvgDraft(null);
     setSvgError(null);
+    setSvgNotice(null);
     setEditorError(null);
   }, [selectedNodeId]);
+
+  // Same token resolution the canvas renderer uses, so colour previews here
+  // match what the customer sees on the page.
+  const svgTokens = useMemo(
+    () => resolveDesignTokens((globalStyles ?? {}) as Parameters<typeof resolveDesignTokens>[0]),
+    [globalStyles]
+  );
+
+  useEffect(() => {
+    setShowAdvanced(false);
+  }, [component.id]);
 
   const setTree = (next: PrimitiveNode) => {
     onUpdate({ props: { customTree: next } });
@@ -171,6 +356,53 @@ export default function CustomComponentEditor({
         <Button size="sm" className="w-full" onClick={() => setTree(createDefaultCustomTree())} data-testid="button-create-custom-tree">
           Opret indhold
         </Button>
+      </div>
+    );
+  }
+
+  const semanticAvailable = Boolean(effective && effective.schema.fields.length > 0);
+
+  const modeToggle = semanticAvailable ? (
+    <div className="flex border rounded-md overflow-hidden">
+      <button
+        type="button"
+        className={`flex-1 py-1.5 text-xs font-medium transition-colors ${!showAdvanced ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+        onClick={() => setShowAdvanced(false)}
+        data-testid="custom-mode-fields"
+      >
+        Felter
+      </button>
+      <button
+        type="button"
+        className={`flex-1 py-1.5 text-xs font-medium transition-colors ${showAdvanced ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+        onClick={() => setShowAdvanced(true)}
+        data-testid="custom-mode-advanced"
+      >
+        Avanceret
+      </button>
+    </div>
+  ) : null;
+
+  if (semanticAvailable && !showAdvanced && effective) {
+    return (
+      <div className="space-y-3">
+        {modeToggle}
+        {effective.source === "inferred" && (
+          <p className="text-[11px] text-muted-foreground">
+            Felterne er fundet automatisk ud fra komponentens indhold.
+          </p>
+        )}
+        <SemanticFieldsPanel
+          tree={tree}
+          schema={effective.schema}
+          onUpdate={onUpdate}
+          websiteId={websiteId}
+          accessToken={accessToken}
+          selectedNodeId={selectedNodeId}
+          onNodeSelect={onNodeSelect}
+          globalStyles={globalStyles}
+          onOpenAdvanced={() => setShowAdvanced(true)}
+        />
       </div>
     );
   }
@@ -198,12 +430,24 @@ export default function CustomComponentEditor({
     );
   };
 
+  // Structural changes inside a STORED repeater's subtree can silently
+  // re-target its positional (nodeType, nth) field bindings — the named
+  // fields would start editing the wrong nodes. Refuse and point at the
+  // repeater's own item controls in the Felter view.
+  const structuralLock = (nodeId: string): boolean => {
+    if (effective?.source !== "stored") return false;
+    if (!isInsideBoundRepeater(tree, effective.schema, nodeId)) return false;
+    setEditorError('Denne del af komponenten er en liste med navngivne felter. Tilføj, fjern eller flyt elementer under "Felter" i stedet.');
+    return true;
+  };
+
   const addChild = (type: PrimitiveNodeType) => {
     if (nodeCount >= MAX_CUSTOM_TREE_NODES) {
       setEditorError(`Komponenten kan højst indeholde ${MAX_CUSTOM_TREE_NODES} elementer.`);
       return;
     }
     const targetId = selected && selected.type === "box" ? selected.id : parentInfo?.parent.id ?? tree.id;
+    if (structuralLock(targetId)) return;
     const node = createPrimitiveNode(type);
     setTree(insertPrimitiveChild(tree, targetId, node));
     onNodeSelect?.(node.id);
@@ -216,13 +460,21 @@ export default function CustomComponentEditor({
       setEditorError(`Komponenten kan højst indeholde ${MAX_CUSTOM_TREE_NODES} elementer.`);
       return;
     }
+    if (structuralLock(selected.id)) return;
     setTree(duplicatePrimitiveNode(tree, selected.id));
   };
 
   const handleDelete = () => {
     if (!selected || isRootSelected) return;
+    if (structuralLock(selected.id)) return;
     setTree(removePrimitiveNode(tree, selected.id));
     onNodeSelect?.(null);
+  };
+
+  const handleMove = (direction: "up" | "down") => {
+    if (!selected || isRootSelected) return;
+    if (structuralLock(selected.id)) return;
+    setTree(movePrimitiveNode(tree, selected.id, direction));
   };
 
   const handleImageFile = async (file: File) => {
@@ -238,17 +490,61 @@ export default function CustomComponentEditor({
     }
   };
 
-  const applySvg = () => {
+  /**
+   * Store the drawing in the illustration library (svg_assets) and point the
+   * node at it by id. If the store is unavailable the markup is kept inline
+   * on the node instead — the customer is never stranded.
+   */
+  const applySvg = async () => {
     if (!selected) return;
-    const raw = svgDraft ?? selected.svg ?? "";
+    const currentMarkup =
+      selected.svg ?? (selected.svgAssetId ? svgAssets?.[selected.svgAssetId]?.svg : "") ?? "";
+    const raw = svgDraft ?? currentMarkup;
     const safe = sanitizeSvg(raw);
     if (!safe) {
       setSvgError("SVG-koden kunne ikke godkendes. Brug simpel SVG uden scripts eller eksterne links.");
       return;
     }
-    patchNode(selected.id, { svg: safe });
-    setSvgDraft(null);
+    setSavingSvg(true);
     setSvgError(null);
+    setSvgNotice(null);
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/svg-assets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ svg: safe, name: selected.name || "Grafik" }),
+      });
+      if (res.ok) {
+        const asset: SvgAsset = await res.json();
+        patchNode(selected.id, { svgAssetId: asset.id, svg: undefined, svgColors: undefined });
+        setSvgDraft(null);
+        onSvgAssetsChanged?.();
+      } else if (res.status === 400) {
+        // Validation refusals carry a customer-readable Danish message
+        // (too large, too complex, unreadable) — show it verbatim.
+        const body = await res.json().catch(() => null);
+        setSvgError(body?.message ?? "SVG-koden kunne ikke godkendes.");
+      } else {
+        patchNode(selected.id, { svg: safe, svgAssetId: undefined, svgColors: undefined });
+        setSvgDraft(null);
+        setSvgNotice("Gemt direkte i sektionen — grafikbiblioteket er ikke tilgængeligt lige nu.");
+      }
+    } catch {
+      patchNode(selected.id, { svg: safe, svgAssetId: undefined, svgColors: undefined });
+      setSvgDraft(null);
+      setSvgNotice("Gemt direkte i sektionen — grafikbiblioteket er ikke tilgængeligt lige nu.");
+    } finally {
+      setSavingSvg(false);
+    }
+  };
+
+  /** Set, replace or clear (value = null) one colour-slot override. */
+  const setSvgColorOverride = (slotId: string, value: string | null) => {
+    if (!selected) return;
+    const next = { ...(selected.svgColors ?? {}) };
+    if (value === null) delete next[slotId];
+    else next[slotId] = value;
+    patchNode(selected.id, { svgColors: Object.keys(next).length ? next : undefined });
   };
 
   const renderLayer = (node: PrimitiveNode, depth: number): ReactElement => {
@@ -344,6 +640,8 @@ export default function CustomComponentEditor({
 
   return (
     <div className="space-y-4">
+      {modeToggle}
+
       {/* Layer tree */}
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Elementer</h4>
@@ -392,10 +690,10 @@ export default function CustomComponentEditor({
             <span className="text-xs font-medium flex-1 truncate">
               {selected.name || NODE_TYPE_META[selected.type].label}
             </span>
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={() => setTree(movePrimitiveNode(tree, selected.id, "up"))} title="Flyt op" data-testid="node-move-up">
+            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={() => handleMove("up")} title="Flyt op" data-testid="node-move-up">
               <ChevronUp className="w-3.5 h-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={() => setTree(movePrimitiveNode(tree, selected.id, "down"))} title="Flyt ned" data-testid="node-move-down">
+            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={() => handleMove("down")} title="Flyt ned" data-testid="node-move-down">
               <ChevronDown className="w-3.5 h-3.5" />
             </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7" disabled={isRootSelected} onClick={handleDuplicate} title="Dupliker" data-testid="node-duplicate">
@@ -529,30 +827,118 @@ export default function CustomComponentEditor({
             </>
           )}
 
-          {selected.type === "svg" && (
-            <>
-              <div className="space-y-1">
-                <Label className="text-xs">SVG-kode</Label>
-                <textarea
-                  className="w-full min-h-[100px] p-2 text-xs font-mono border rounded-md resize-y bg-background"
-                  value={svgDraft ?? selected.svg ?? ""}
-                  onChange={(e) => setSvgDraft(e.target.value)}
-                  placeholder='<svg viewBox="0 0 24 24">...</svg>'
-                  data-testid="node-svg-code"
-                />
-                {svgError && <p className="text-xs text-destructive">{svgError}</p>}
-                <Button size="sm" variant="outline" className="w-full" onClick={applySvg} disabled={svgDraft === null} data-testid="node-svg-apply">
-                  Anvend SVG
-                </Button>
-              </div>
-              {selected.svg && !svgDraft && (
-                <div
-                  className="border rounded-md p-3 bg-muted/30 flex items-center justify-center [&_svg]:max-h-16 [&_svg]:max-w-full"
-                  dangerouslySetInnerHTML={{ __html: sanitizeSvg(selected.svg) || "" }}
-                />
-              )}
-            </>
-          )}
+          {selected.type === "svg" && (() => {
+            const selectedAsset = selected.svgAssetId ? svgAssets?.[selected.svgAssetId] : undefined;
+            const baseMarkup = selected.svg ?? selectedAsset?.svg ?? "";
+            const previewMarkup = selectedAsset
+              ? sanitizeSvg(
+                  applySvgAssetColors(
+                    selectedAsset.svg,
+                    selectedAsset.colorSlots ?? undefined,
+                    selected.svgColors,
+                    svgTokens
+                  )
+                )
+              : sanitizeSvg(selected.svg ?? "");
+            const assetList = Object.values(svgAssets ?? {});
+            return (
+              <>
+                <div className="space-y-1">
+                  <Label className="text-xs">SVG-kode</Label>
+                  <textarea
+                    className="w-full min-h-[100px] p-2 text-xs font-mono border rounded-md resize-y bg-background"
+                    value={svgDraft ?? baseMarkup}
+                    onChange={(e) => setSvgDraft(e.target.value)}
+                    placeholder='<svg viewBox="0 0 24 24">...</svg>'
+                    data-testid="node-svg-code"
+                  />
+                  {svgError && <p className="text-xs text-destructive" data-testid="svg-error">{svgError}</p>}
+                  {svgNotice && <p className="text-xs text-amber-600" data-testid="svg-notice">{svgNotice}</p>}
+                  <Button size="sm" variant="outline" className="w-full" onClick={applySvg} disabled={svgDraft === null || savingSvg} data-testid="node-svg-apply">
+                    {savingSvg ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                    {savingSvg ? "Gemmer…" : "Anvend SVG"}
+                  </Button>
+                </div>
+                {previewMarkup && !svgDraft && (
+                  <div
+                    className="border rounded-md p-3 bg-muted/30 flex items-center justify-center [&_svg]:max-h-16 [&_svg]:max-w-full"
+                    dangerouslySetInnerHTML={{ __html: previewMarkup }}
+                  />
+                )}
+                {selectedAsset?.colorSlots?.length ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Farver i grafikken</Label>
+                    {selectedAsset.colorSlots.map((slot) => {
+                      const override = selected.svgColors?.[slot.id] ?? "";
+                      const isToken = isSvgColorTokenRef(override);
+                      const effectiveColor = isToken
+                        ? svgTokens[override.trim().slice(1, -1)] ?? slot.original
+                        : override || slot.original;
+                      const selectValue = !override ? "__original__" : isToken ? override.trim() : "__custom__";
+                      return (
+                        <div key={slot.id} className="flex items-center gap-1.5">
+                          <Input
+                            type="color"
+                            value={toColorInputValue(effectiveColor)}
+                            onChange={(e) => setSvgColorOverride(slot.id, e.target.value)}
+                            className="w-9 h-8 p-1 cursor-pointer shrink-0"
+                            data-testid={`svg-color-${slot.id}`}
+                          />
+                          <Select
+                            value={selectValue}
+                            onValueChange={(v) => {
+                              if (v === "__original__") setSvgColorOverride(slot.id, null);
+                              else if (v === "__custom__") setSvgColorOverride(slot.id, toColorInputValue(effectiveColor));
+                              else setSvgColorOverride(slot.id, v);
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs flex-1" data-testid={`svg-color-role-${slot.id}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__original__">Original ({slot.label})</SelectItem>
+                              {SVG_BRAND_ROLES.map((role) => (
+                                <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+                              ))}
+                              <SelectItem value="__custom__">Egen farve</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
+                    <p className="text-[11px] text-muted-foreground">
+                      Vælg en brandfarve, så følger grafikken automatisk med, når farverne ændres.
+                    </p>
+                  </div>
+                ) : null}
+                {assetList.length > 0 && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Genbrug gemt grafik</Label>
+                    <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                      {assetList.map((asset) => (
+                        <button
+                          key={asset.id}
+                          type="button"
+                          title={asset.name}
+                          onClick={() => {
+                            patchNode(selected.id, { svgAssetId: asset.id, svg: undefined, svgColors: undefined });
+                            setSvgDraft(null);
+                            setSvgError(null);
+                            setSvgNotice(null);
+                          }}
+                          className={`border rounded-md p-1.5 bg-background hover:border-primary/40 transition-colors flex items-center justify-center aspect-square [&_svg]:max-w-full [&_svg]:max-h-full ${
+                            selected.svgAssetId === asset.id ? "ring-2 ring-primary border-primary" : ""
+                          }`}
+                          data-testid={`svg-asset-${asset.id}`}
+                          dangerouslySetInnerHTML={{ __html: sanitizeSvg(asset.svg) || "" }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {selected.type === "box" && (
             <p className="text-[11px] text-muted-foreground">
@@ -571,6 +957,7 @@ export default function CustomComponentEditor({
                   { key: "styles" as DeviceKey, icon: Monitor, label: "Desktop" },
                   { key: "tabletStyles" as DeviceKey, icon: Tablet, label: "Tablet" },
                   { key: "mobileStyles" as DeviceKey, icon: Smartphone, label: "Mobil" },
+                  { key: "hoverStyles" as DeviceKey, icon: MousePointerClick, label: "Hover" },
                 ]).map(({ key, icon: Icon, label }) => (
                   <button
                     key={key}
@@ -587,12 +974,62 @@ export default function CustomComponentEditor({
             </div>
             {deviceTab !== "styles" && (
               <p className="text-[11px] text-muted-foreground">
-                Nedarver fra desktop — udfyld kun det, der skal ændres på {deviceTab === "tabletStyles" ? "tablet" : "mobil"}.
+                {deviceTab === "hoverStyles"
+                  ? "Vises når musen holdes over elementet — udfyld kun det, der skal ændre sig."
+                  : `Nedarver fra desktop — udfyld kun det, der skal ændres på ${deviceTab === "tabletStyles" ? "tablet" : "mobil"}.`}
               </p>
             )}
             <div className="space-y-3">
               {STYLE_FIELDS.map(renderStyleField)}
             </div>
+          </div>
+
+          <Separator />
+
+          {/* Motion — controlled presets only; the canvas replays the
+              entrance live whenever a value changes. */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Bevægelse</h4>
+            <div className="space-y-2">
+              {MOTION_FIELDS.filter((field) => {
+                if (field.boxOnly && selected.type !== "box") return false;
+                if (field.entranceOnly) {
+                  const effect = (selected.motion?.effect as string | undefined) ?? "none";
+                  if (effect === "none") return false;
+                }
+                return true;
+              }).map((field) => {
+                const current = ((selected.motion as Record<string, string> | undefined)?.[field.key] as string) ?? MOTION_DEFAULTS[field.key];
+                return (
+                  <div key={field.key} className="flex items-center gap-2">
+                    <Label className="text-xs w-24 shrink-0">{field.label}</Label>
+                    <Select
+                      value={current}
+                      onValueChange={(value) => {
+                        const next = { ...(selected.motion ?? {}) } as Record<string, string>;
+                        if (value === MOTION_DEFAULTS[field.key]) delete next[field.key];
+                        else next[field.key] = value;
+                        patchNode(selected.id, {
+                          motion: Object.keys(next).length > 0 ? (next as MotionSpec) : undefined,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs flex-1" data-testid={`node-motion-${field.key}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {field.options.map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Rolig bevægelse konverterer bedst — brug fade eller glid, og lad resten stå på standard.
+            </p>
           </div>
         </>
       ) : (

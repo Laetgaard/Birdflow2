@@ -45,6 +45,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { BrandGuide } from "@shared/customComponents";
 import type { OnboardingDecisionSnapshot, OnboardingResumeStage } from "@shared/onboardingDecision";
 import { normalizeSiteLanguage, type SiteLanguage } from "@shared/siteLanguage";
+import { useLocale } from "@/lib/locale";
 import { ONBOARDING_UI_COPY, type OnboardingUiCopy } from "./onboarding.copy";
 import { DecisionWorkspace, type DecisionCopy, type DecisionPage } from "@/components/onboarding/DecisionWorkspace";
 import { PaymentChoiceDialog } from "@/components/onboarding/PaymentChoiceDialog";
@@ -111,6 +112,8 @@ type GenStatus = {
   report?: BuildReport;
   summary?: string;
   error?: string;
+  /** The build stopped at its cost ceiling rather than failing. */
+  spendLimited?: boolean;
 };
 
 /** Pipeline phase ids, in order. The labels live in ONBOARDING_UI_COPY. */
@@ -412,10 +415,12 @@ function LanguageStepCard({
   disabled,
   onChoose,
   t,
+  defaultValue,
 }: {
   disabled: boolean;
   onChoose: (lang: SiteLanguage) => void;
   t: OnboardingUiCopy;
+  defaultValue?: SiteLanguage;
 }) {
   const options: Array<{ value: SiteLanguage; label: string; hint: string }> = [
     { value: "da", label: t.languageDanish, hint: t.languageDanishHint },
@@ -429,20 +434,25 @@ function LanguageStepCard({
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">{t.languageStepHint}</p>
       <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {options.map((option) => (
-          <button
-            key={option.value}
-            className="rounded-lg border p-3 text-left transition-colors hover:border-primary/50 disabled:opacity-60"
-            disabled={disabled}
-            onClick={() => onChoose(option.value)}
-            data-testid={`button-language-${option.value}`}
-          >
-            <span className="text-sm font-semibold block">{option.label}</span>
-            <span className="text-[11px] text-muted-foreground leading-snug block mt-0.5">
-              {option.hint}
-            </span>
-          </button>
-        ))}
+        {options.map((option) => {
+          const isPreferred = option.value === defaultValue;
+          return (
+            <button
+              key={option.value}
+              className={`rounded-lg border p-3 text-left transition-colors hover:border-primary/50 disabled:opacity-60 ${
+                isPreferred ? "border-primary ring-1 ring-primary" : ""
+              }`}
+              disabled={disabled}
+              onClick={() => onChoose(option.value)}
+              data-testid={`button-language-${option.value}`}
+            >
+              <span className="text-sm font-semibold block">{option.label}</span>
+              <span className="text-[11px] text-muted-foreground leading-snug block mt-0.5">
+                {option.hint}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -514,6 +524,9 @@ function TemplatePickerCard({
 export default function OnboardingPage() {
   const [, navigate] = useLocation();
   const { user, token, profile, refreshProfile, loading: authLoading } = useAuth();
+  // storedLang is the marketing-site preference (bf-lang). On /onboarding the
+  // locale provider now honours it, so this equals what the visitor set there.
+  const { storedLang } = useLocale();
   const { toast } = useToast();
 
   const [booting, setBooting] = useState(true);
@@ -557,13 +570,16 @@ export default function OnboardingPage() {
   const [awaitingWebhook, setAwaitingWebhook] = useState(false);
 
   /* ---- The customer's language ----
-     Picked on the screen right after the fork and stored server-side with
-     the rest of the answers, so a reload or a device switch resumes in the
-     same language. Deliberately NOT read from useLocale(): that hook is the
-     marketing site's switcher, which is forced to Danish outside the public
-     pages. Absent means Danish - the experience this flow always had. */
+     Once the language step is answered the choice is stored server-side, so
+     reloads and device switches resume in the same language. Before the step
+     is answered we fall back to the marketing-site preference (bf-lang) so
+     the fork screen and language card are already in the visitor's chosen
+     language — and after it is answered we use the committed website language. */
+  const uiLang: SiteLanguage = answers.language
+    ? normalizeSiteLanguage(answers.language)
+    : (storedLang as SiteLanguage);
   const lang: SiteLanguage = normalizeSiteLanguage(answers.language);
-  const t = ONBOARDING_UI_COPY[lang];
+  const t = ONBOARDING_UI_COPY[uiLang];
 
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -580,11 +596,15 @@ export default function OnboardingPage() {
     if (!authLoading && !user) navigate("/auth?mode=signup");
   }, [authLoading, user, navigate]);
 
+  // Only redirect away after the boot effect has run. Without the `!booting`
+  // guard, a paid user who navigates to /onboarding gets bounced to /dashboard
+  // before applyStage() can set view = "decision", so the condition
+  // `view !== "decision"` incorrectly fires on the default "chat" value.
   useEffect(() => {
-    if (!authLoading && profile?.onboardingCompleted && view !== "decision") {
+    if (!authLoading && !booting && profile?.onboardingCompleted && view !== "decision") {
       navigate("/dashboard");
     }
-  }, [authLoading, profile, navigate, view]);
+  }, [authLoading, booting, profile, navigate, view]);
 
   /* ---- The server decides where the customer lands ----
      Reload, sign-out/sign-in, back-navigation and a cancelled checkout all
@@ -1189,7 +1209,7 @@ export default function OnboardingPage() {
                       </div>
                     )}
                     {showLanguageStep && (
-                      <LanguageStepCard disabled={isLoading} onChoose={chooseLanguage} t={t} />
+                      <LanguageStepCard disabled={isLoading} onChoose={chooseLanguage} t={t} defaultValue={storedLang as SiteLanguage} />
                     )}
                     {diyMode && !websiteId && (
                       <TemplatePickerCard disabled={isLoading} onPick={createDiyWebsite} t={t} />
@@ -1417,10 +1437,10 @@ export default function OnboardingPage() {
                 )}
               </div>
 
-              {genStatus?.fallback && (
+              {(genStatus?.fallback || genStatus?.spendLimited) && (
                 <div className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                  <span>{t.fallbackNotice}</span>
+                  <span>{genStatus?.spendLimited ? t.spendLimitNotice : t.fallbackNotice}</span>
                 </div>
               )}
 
@@ -1586,11 +1606,48 @@ export default function OnboardingPage() {
               )}
 
               {decision.stage === "paid" && (
-                <div className="mt-5 flex justify-center">
-                  <Button size="lg" className="h-12" onClick={() => navigate("/dashboard")} data-testid="button-go-dashboard">
-                    {t.goToDashboard}
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
+                <div className="mt-5 rounded-3xl border-2 border-emerald-200 bg-emerald-50 p-6" data-testid="launch-checklist">
+                  <p className="text-xl font-extrabold text-emerald-900">
+                    Din hjemmeside er din 🎉
+                  </p>
+                  <p className="mt-1 text-sm text-emerald-800">
+                    Gør klar til din første booking:
+                  </p>
+                  <ul className="mt-4 space-y-2.5 text-sm text-emerald-900">
+                    <li className="flex items-center gap-2.5">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                      Betalingen er registreret
+                    </li>
+                    <li className="flex items-center gap-2.5">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500" />
+                      Publicer din hjemmeside i kontrolpanelet
+                    </li>
+                    <li className="flex items-center gap-2.5">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500" />
+                      Sæt dine bookingstider og services
+                    </li>
+                    <li className="flex items-center gap-2.5">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500" />
+                      Lav en testbooking for at sikre alt virker
+                    </li>
+                  </ul>
+                  <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      size="lg"
+                      className="h-12 flex-1"
+                      onClick={() =>
+                        navigate(
+                          decision.website?.id
+                            ? `/manage/${decision.website.id}`
+                            : "/dashboard"
+                        )
+                      }
+                      data-testid="button-go-manage"
+                    >
+                      {t.goToDashboard}
+                      <ArrowRight className="ml-2 h-5 w-5" />
+                    </Button>
+                  </div>
                 </div>
               )}
 

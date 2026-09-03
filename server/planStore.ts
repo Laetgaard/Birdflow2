@@ -19,8 +19,10 @@ import { db } from "./storage";
 import {
   assistantBuilds,
   assistantPlans,
+  builderSnapshots,
   type AssistantBuildRow,
   type AssistantPlanRow,
+  type BuilderSnapshotRow,
   type BuilderStateData,
 } from "@shared/schema";
 import {
@@ -244,6 +246,10 @@ export type AssistantBuild = {
   snapshotRevision: number | null;
   summary: string | null;
   error: string | null;
+  // Enriched metadata (added after initial release; may be 0/false/null on old rows)
+  pagesAdded: number;
+  visualQaBlocking: boolean;
+  modelUsed: string | null;
 };
 
 function toBuild(row: AssistantBuildRow): AssistantBuild {
@@ -260,6 +266,103 @@ function toBuild(row: AssistantBuildRow): AssistantBuild {
     snapshotRevision: row.snapshotRevision ?? null,
     summary: row.summary,
     error: row.error,
+    pagesAdded: (row as any).pagesAdded ?? 0,
+    visualQaBlocking: (row as any).visualQaBlocking ?? false,
+    modelUsed: (row as any).modelUsed ?? null,
+  };
+}
+
+// ─────────────────────────── builder snapshots ───────────────────────────────
+
+export type BuilderSnapshot = {
+  id: string;
+  websiteId: string;
+  buildId: number;
+  label: string;
+  revision: number;
+  createdAt: string;
+};
+
+export type BuilderSnapshotWithContent = BuilderSnapshot & {
+  content: BuilderStateData;
+};
+
+function toSnapshot(row: BuilderSnapshotRow): BuilderSnapshot {
+  return {
+    id: row.id,
+    websiteId: row.websiteId,
+    buildId: row.buildId,
+    label: row.label,
+    revision: row.revision,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+  };
+}
+
+/**
+ * Record a completed build's final state as a restorable snapshot.
+ * Called by the orchestrator immediately after a build status = completed.
+ */
+export async function createBuilderSnapshot(input: {
+  websiteId: string;
+  buildId: number;
+  label: string;
+  content: BuilderStateData;
+  revision: number;
+}): Promise<BuilderSnapshot> {
+  await ready();
+  const result = await db.execute(
+    sql`INSERT INTO builder_snapshots (website_id, build_id, label, content, revision)
+        VALUES (
+          ${input.websiteId},
+          ${input.buildId},
+          ${input.label},
+          ${JSON.stringify(input.content)}::jsonb,
+          ${input.revision}
+        )
+        RETURNING id, website_id, build_id, label, revision, created_at`
+  );
+  const row = (result.rows as Array<Record<string, unknown>>)[0];
+  return {
+    id: row.id as string,
+    websiteId: row.website_id as string,
+    buildId: row.build_id as number,
+    label: row.label as string,
+    revision: row.revision as number,
+    createdAt: row.created_at instanceof Date ? (row.created_at as Date).toISOString() : String(row.created_at),
+  };
+}
+
+/**
+ * List all snapshots for a website, newest first. Capped at 20 to keep
+ * the panel manageable — the customer sees the last 20 builds.
+ */
+export async function listBuilderSnapshots(websiteId: string): Promise<BuilderSnapshot[]> {
+  await ready();
+  const rows = await db
+    .select()
+    .from(builderSnapshots)
+    .where(eq(builderSnapshots.websiteId, websiteId))
+    .orderBy(desc(builderSnapshots.createdAt))
+    .limit(20);
+  return rows.map((r) => toSnapshot(r as BuilderSnapshotRow));
+}
+
+/** Fetch one snapshot including its full content for restore. */
+export async function getBuilderSnapshot(
+  websiteId: string,
+  snapshotId: string
+): Promise<BuilderSnapshotWithContent | null> {
+  await ready();
+  const rows = await db
+    .select()
+    .from(builderSnapshots)
+    .where(and(eq(builderSnapshots.id, snapshotId), eq(builderSnapshots.websiteId, websiteId)))
+    .limit(1);
+  if (!rows[0]) return null;
+  const row = rows[0] as BuilderSnapshotRow;
+  return {
+    ...toSnapshot(row),
+    content: row.content as BuilderStateData,
   };
 }
 
@@ -361,6 +464,10 @@ export async function updateBuildProgress(
     status?: BuildStatus;
     summary?: string | null;
     error?: string | null;
+    // Enriched metadata fields
+    pagesAdded?: number;
+    visualQaBlocking?: boolean;
+    modelUsed?: string | null;
   }
 ): Promise<void> {
   await ready();
@@ -374,6 +481,9 @@ export async function updateBuildProgress(
   }
   if (patch.summary !== undefined) values.summary = patch.summary;
   if (patch.error !== undefined) values.error = patch.error;
+  if (patch.pagesAdded !== undefined) values.pagesAdded = patch.pagesAdded;
+  if (patch.visualQaBlocking !== undefined) values.visualQaBlocking = patch.visualQaBlocking;
+  if (patch.modelUsed !== undefined) values.modelUsed = patch.modelUsed;
 
   await db.update(assistantBuilds).set(values as any).where(eq(assistantBuilds.id, buildId));
 }
@@ -419,6 +529,23 @@ export async function consumeSnapshot(websiteId: string, buildId: number): Promi
     .update(assistantBuilds)
     .set({ status: "undone", snapshot: null, updatedAt: new Date() } as any)
     .where(and(eq(assistantBuilds.websiteId, websiteId), eq(assistantBuilds.id, buildId)));
+}
+
+/**
+ * Every build currently in "running" state across all websites.
+ *
+ * Used by the build worker's orphan recovery: at server startup, any
+ * "running" build has no live worker (the previous process died) and must
+ * be resumed so the customer's build is not silently abandoned.
+ */
+export async function getRunningBuilds(): Promise<AssistantBuild[]> {
+  await ready();
+  const rows = await db
+    .select()
+    .from(assistantBuilds)
+    .where(eq(assistantBuilds.status, "running"))
+    .orderBy(desc(assistantBuilds.id));
+  return rows.map((row) => toBuild(row as AssistantBuildRow));
 }
 
 /** Test seam / diagnostics: how many builds a website has ever run. */

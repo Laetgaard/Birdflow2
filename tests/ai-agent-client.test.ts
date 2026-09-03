@@ -217,22 +217,27 @@ describe("panel + route wiring (source tripwires)", () => {
 
   it("the route owns the load-bearing tail in order", () => {
     const idx = routes.indexOf('app.post("/api/websites/:id/ai/agent"');
-    const handler = routes.slice(idx, idx + 5000);
+    const handler = routes.slice(idx, idx + 8500);
     const selfCheck = handler.indexOf("runSelfCheck(newState)");
     const sanitize = handler.indexOf("sanitizeBuilderStateCustomContent(newState)");
-    const save = handler.indexOf("updateBuilderState");
+    // The save is guarded now: two writers cannot silently overwrite each other.
+    const save = handler.indexOf("saveBuilderStateGuarded");
+    // The three-level review reads the FINAL state — after every repair,
+    // scrub and the save — and the report is built from its result.
+    const review = handler.indexOf("completeSelfReview(newState");
     const report = handler.indexOf("buildReport(");
     expect(selfCheck).toBeGreaterThan(-1);
     expect(sanitize).toBeGreaterThan(selfCheck);
     expect(save).toBeGreaterThan(sanitize);
-    expect(report).toBeGreaterThan(save);
+    expect(review).toBeGreaterThan(save);
+    expect(report).toBeGreaterThan(review);
   });
 
   it("a gated run saves nothing", () => {
     const idx = routes.indexOf('app.post("/api/websites/:id/ai/agent"');
     const handler = routes.slice(idx, idx + 5000);
     const approvalBranch = handler.indexOf('outcome.status === "needs_approval"');
-    const saveCall = handler.indexOf("updateBuilderState");
+    const saveCall = handler.indexOf("saveBuilderStateGuarded");
     // The approval branch returns before reaching the save
     expect(approvalBranch).toBeGreaterThan(-1);
     expect(approvalBranch).toBeLessThan(saveCall);

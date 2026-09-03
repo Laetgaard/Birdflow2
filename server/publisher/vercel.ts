@@ -10,6 +10,10 @@ export type DeploymentResult = {
   id: string;
   url: string;
   readyState: string;
+  /** Aliases assigned to this specific deployment by Vercel (e.g. stable
+   *  *.vercel.app entries). Available as soon as readyState === 'READY' and
+   *  checked before falling back to the project-level metadata lookup. */
+  aliases?: string[];
 };
 
 async function vercelFetch(
@@ -34,42 +38,59 @@ async function vercelFetch(
 
 export async function getOrCreateProject(
   projectName: string,
-  config: VercelConfig
+  config: VercelConfig,
+  existingProjectId?: string,
 ): Promise<string> {
-  const res = await vercelFetch(`/v9/projects/${projectName}`, config);
-  
-  if (res.ok) {
-    const project = await res.json();
-    
-    // Update project settings to ensure Node 20.x is used, and disable
-    // Vercel SSO deployment protection so visitors can reach the site at its
-    // deployment URLs (protection would redirect them to a Vercel login).
-    // Note: the v9 project PATCH only accepts top-level fields (sending a
-    // `projectSettings` object is rejected with 400).
+  async function configureProject(project: { id: string }): Promise<string> {
+    // Update project settings to ensure Node 20.x is used, and disable Vercel
+    // SSO deployment protection. A settings failure is a hard pre-deployment
+    // failure: continuing could make a newly "published" website unreachable.
     const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
       method: 'PATCH',
-      body: JSON.stringify({
-        ssoProtection: null,
-        nodeVersion: '20.x',
-      }),
+      body: JSON.stringify({ ssoProtection: null, nodeVersion: '20.x' }),
     });
-    
     if (!patchRes.ok) {
-      const errorText = await patchRes.text();
-      console.error('Failed to update project nodeVersion:', errorText);
-      // Continue anyway - the deployment might still work
-    } else {
-      const updatedProject = await patchRes.json();
-      const newNodeVersion = updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion;
-      console.log('Updated project nodeVersion to:', newNodeVersion);
-      if (newNodeVersion !== '20.x') {
-        console.warn('NodeVersion not updated to 20.x, deployment may fail');
-      }
+      throw new Error(
+        `Could not prepare Vercel project ${project.id}: ${await patchRes.text()}`,
+      );
     }
-    
+    const updatedProject = await patchRes.json();
+    const nodeVersion = updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion;
+    if (nodeVersion && nodeVersion !== '20.x') {
+      throw new Error(`Vercel project ${project.id} did not accept Node 20.x.`);
+    }
     return project.id;
   }
-  
+
+  // A successful prior publish records Vercel's stable project identity.
+  // Never create a lookalike project when that reference cannot be resolved:
+  // it would split the customer's domains and live history across projects.
+  if (existingProjectId) {
+    const existingRes = await vercelFetch(
+      `/v9/projects/${encodeURIComponent(existingProjectId)}`,
+      config,
+    );
+    if (!existingRes.ok) {
+      throw new Error(
+        `Could not access the existing Vercel project (${existingProjectId}, HTTP ${existingRes.status}). ` +
+          "Publishing was stopped to avoid creating a duplicate project.",
+      );
+    }
+    return configureProject(await existingRes.json());
+  }
+
+  // A generated name is deliberately only a recovery hint for sites that have
+  // never stored a project id. Any Vercel error other than an explicit 404 is
+  // ambiguous, so fail instead of trying to create another project.
+  const res = await vercelFetch(`/v9/projects/${encodeURIComponent(projectName)}`, config);
+  if (res.ok) return configureProject(await res.json());
+  if (res.status !== 404) {
+    throw new Error(
+      `Could not look up Vercel project ${projectName} (HTTP ${res.status}). ` +
+        "Publishing was stopped to avoid creating a duplicate project.",
+    );
+  }
+
   const createRes = await vercelFetch('/v9/projects', config, {
     method: 'POST',
     body: JSON.stringify({
@@ -84,26 +105,7 @@ export async function getOrCreateProject(
   }
   
   const project = await createRes.json();
-  
-  // Update nodeVersion after creation and disable SSO deployment protection
-  // so the published site is publicly reachable. Only top-level fields are
-  // accepted by the v9 project PATCH.
-  const patchRes = await vercelFetch(`/v9/projects/${project.id}`, config, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      ssoProtection: null,
-      nodeVersion: '20.x',
-    }),
-  });
-  
-  if (!patchRes.ok) {
-    console.warn('Failed to set nodeVersion on new project:', await patchRes.text());
-  } else {
-    const updatedProject = await patchRes.json();
-    console.log('Set nodeVersion on new project to:', updatedProject.projectSettings?.nodeVersion || updatedProject.nodeVersion);
-  }
-  
-  return project.id;
+  return configureProject(project);
 }
 
 export async function setProjectEnvVars(
@@ -195,7 +197,9 @@ export async function deployProject(
       name: projectName,
       project: projectId,
       files,
-      target: 'production',
+      // Deliberately omit target: this is a preview/staging deployment. It
+      // must build and pass all activation checks before it is allowed to
+      // replace traffic on the customer's current production URL.
       projectSettings: {
         framework: 'nextjs',
         buildCommand: 'npm run build',
@@ -220,14 +224,127 @@ export async function deployProject(
   };
 }
 
+/**
+ * Atomically point a project's production traffic at an already-ready preview
+ * deployment. This endpoint does not rebuild; the caller has already waited
+ * for the deployment and performed all pre-activation checks.
+ */
+export async function promoteDeployment(
+  projectId: string,
+  deploymentId: string,
+  config: VercelConfig,
+): Promise<void> {
+  const res = await vercelFetch(
+    `/v10/projects/${encodeURIComponent(projectId)}/promote/${encodeURIComponent(deploymentId)}`,
+    config,
+    { method: 'POST' },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `Could not activate the ready Vercel deployment: ${await res.text()}`,
+    );
+  }
+}
+
+/**
+ * Returns whether Vercel reports this deployment as production traffic.
+ * `unknown` deliberately does not release an activation reservation: treating
+ * an inconclusive API response as "not production" could permit a second job
+ * to overwrite traffic that was actually promoted just before a crash.
+ */
+export async function getDeploymentProductionState(
+  deploymentId: string,
+  config: VercelConfig,
+): Promise<'production' | 'preview' | 'failed' | 'unknown'> {
+  const res = await vercelFetch(
+    `/v13/deployments/${encodeURIComponent(deploymentId)}`,
+    config,
+  );
+  if (!res.ok) return 'unknown';
+  const deployment = await res.json();
+  if (deployment.target === 'production') return 'production';
+  if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
+    return 'failed';
+  }
+  if (deployment.target === 'preview') return 'preview';
+  return 'unknown';
+}
+
+/**
+ * Safe fallback for a live legacy site that predates publish_jobs. A generated
+ * project name alone is never proof of ownership: only reuse it when Vercel
+ * reports the website's already-live host as one of that project's aliases.
+ */
+export async function recoverVerifiedProjectForLiveUrl(
+  projectName: string,
+  liveUrl: string,
+  config: VercelConfig,
+): Promise<string | null> {
+  let liveHost: string;
+  try {
+    liveHost = new URL(liveUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+
+  const res = await vercelFetch(`/v9/projects/${encodeURIComponent(projectName)}`, config);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(
+      `Could not verify the legacy Vercel project (HTTP ${res.status}). ` +
+        'Publishing was stopped to avoid creating a duplicate project.',
+    );
+  }
+  const project = await res.json();
+  const aliases = [
+    ...(Array.isArray(project.alias) ? project.alias : []),
+    ...(Array.isArray(project.targets?.production?.alias)
+      ? project.targets.production.alias
+      : []),
+  ].map((alias: unknown) => String(alias).toLowerCase());
+
+  return aliases.includes(liveHost) && typeof project.id === 'string'
+    ? project.id
+    : null;
+}
+
+/** Pick the shortest stable *.vercel.app entry from a list of alias strings,
+ *  skipping the team-scoped hashed aliases that are SSO-protected.
+ *  Returns null when no suitable alias is found. */
+function pickStableAlias(aliases: string[]): string | null {
+  const candidates = aliases.filter(
+    (a) => typeof a === 'string' && a.endsWith('.vercel.app') && !a.includes('-projects-')
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.length - b.length);
+  return candidates[0];
+}
+
 // Resolve the stable production alias for a project (e.g. site-xxx.vercel.app).
 // Per-deployment hashed URLs can be SSO-protected by Vercel, so the URL we
 // store and hand to visitors must be a stable public alias domain instead.
+//
+// Pass `deploymentAliases` (from the READY deployment response) to skip the
+// project-metadata round-trip when aliases are already known — this is the
+// fast path for first-time publishes where the alias is assigned at READY time.
 export async function getProductionAliasUrl(
   projectId: string,
-  config: VercelConfig
+  config: VercelConfig,
+  deploymentAliases?: string[]
 ): Promise<string | null> {
   try {
+    // Fast path: check aliases that Vercel already returned on the deployment
+    // object. These are available the moment the build is READY, so new
+    // projects don't need to wait for a separate project-metadata update.
+    if (deploymentAliases && deploymentAliases.length > 0) {
+      const pick = pickStableAlias(deploymentAliases);
+      if (pick) {
+        console.log('[Publish] alias_from_deployment_response', { projectId, alias: pick });
+        return `https://${pick}`;
+      }
+    }
+
+    // Fallback: query the project's production target metadata.
     const res = await vercelFetch(`/v9/projects/${projectId}`, config);
     if (!res.ok) return null;
     const project = await res.json();
@@ -235,16 +352,58 @@ export async function getProductionAliasUrl(
     // Keep only vercel.app aliases and skip the team-scoped alias
     // (site-...-<team>-projects-<hash>.vercel.app); the shortest remaining
     // entry is the stable project alias.
-    const candidates = aliases.filter(
-      (a) => typeof a === 'string' && a.endsWith('.vercel.app') && !a.includes('-projects-')
-    );
-    if (candidates.length === 0) return null;
-    candidates.sort((a, b) => a.length - b.length);
-    return `https://${candidates[0]}`;
+    const pick = pickStableAlias(aliases);
+    if (!pick) return null;
+    return `https://${pick}`;
   } catch (err) {
     console.error('Failed to resolve production alias:', err);
     return null;
   }
+}
+
+/**
+ * Retry-aware wrapper around getProductionAliasUrl.
+ *
+ * For brand-new Vercel projects the stable *.vercel.app alias is assigned at
+ * the moment the deployment becomes READY. Pass `deploymentAliases` from the
+ * READY deployment response so the first attempt resolves immediately without
+ * any polling delay.
+ *
+ * Falls back to querying project metadata with 10 attempts × 5 s (50 s total)
+ * for belt-and-suspenders coverage on edge cases where the alias lags.
+ *
+ * Returns null only when all attempts are exhausted — callers MUST treat
+ * null as a hard failure and NOT fall back to the hashed deployment URL
+ * (which is SSO-protected on this plan).
+ */
+export async function getProductionAliasUrlWithRetry(
+  projectId: string,
+  config: VercelConfig,
+  options: { maxAttempts?: number; delayMs?: number; deploymentAliases?: string[] } = {}
+): Promise<string | null> {
+  const maxAttempts = options.maxAttempts ?? 10;
+  const delayMs = options.delayMs ?? 5_000;
+  const deploymentAliases = options.deploymentAliases;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`[Publish] alias_lookup_attempt ${attempt}/${maxAttempts}`, { projectId });
+    // On the first attempt pass the deployment-level aliases (fast path).
+    // Subsequent attempts go straight to project metadata.
+    const alias = await getProductionAliasUrl(
+      projectId,
+      config,
+      attempt === 1 ? deploymentAliases : undefined
+    );
+    if (alias) {
+      console.log('[Publish] production_alias_found', { projectId, alias });
+      return alias;
+    }
+    if (attempt < maxAttempts) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  console.warn('[Publish] alias_lookup_exhausted', { projectId, maxAttempts });
+  return null;
 }
 
 export async function waitForDeployment(
@@ -264,10 +423,16 @@ export async function waitForDeployment(
     const deployment = await res.json();
     
     if (deployment.readyState === 'READY') {
+      // Capture aliases from the deployment response. Vercel assigns the
+      // stable *.vercel.app alias to the deployment at the same moment it
+      // becomes READY, so this list is immediately usable — no separate
+      // project-level polling needed for new projects.
+      const aliases: string[] = Array.isArray(deployment.alias) ? deployment.alias : [];
       return {
         id: deployment.id,
         url: `https://${deployment.url}`,
         readyState: deployment.readyState,
+        aliases,
       };
     }
     

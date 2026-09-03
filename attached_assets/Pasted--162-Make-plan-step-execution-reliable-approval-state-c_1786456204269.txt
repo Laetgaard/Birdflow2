@@ -1,0 +1,857 @@
+# #162 — Make plan-step execution reliable: approval state, continuation, completion verification and adaptive agent budgets
+
+## What & Why
+
+Birdflow's plan/build agent currently has two visible execution bugs, but the underlying problem is broader: the build orchestrator does not have a sufficiently explicit execution state machine.
+
+### Current visible failures
+
+**1. Approval-required steps are skipped after approval**
+
+When a large-change classifier pauses a step with “kræver din godkendelse”, clicking “Fortsæt” should approve and resume that exact step.
+
+Instead, the current implementation can leave the step in `"failed"` state, causing the orchestrator to skip it and display “Sprunget over af dig”.
+
+**2. Steps can appear completed when the AI did not finish them**
+
+`MAX_TURNS_PER_STEP = 8` can stop complex steps before completion.
+
+When `runAgentLoop()` returns because the turn budget was reached, `runStep()` does not distinguish this from actual completion and may mark the step green even though the agent never explicitly finished.
+
+### Deeper architecture problems to fix
+
+Do not solve these bugs only by:
+
+* adding a global `approvedLargeChanges: true`
+* resetting `"failed"` steps to `"pending"`
+* increasing 8 turns to 16
+* assuming every stop reason except `"turn_limit"` means success
+
+Instead, make plan execution explicitly understand:
+
+* running
+* waiting for approval
+* continuing unfinished work
+* completed
+* retryable failure
+* fatal failure
+* skipped
+* cancelled
+
+The goal is that a green checkmark always means:
+
+> The AI explicitly completed the step, its changes were persisted, and the orchestrator accepted the completion.
+
+---
+
+# 1. Audit the current build state machine first
+
+Before changing code, trace the complete lifecycle of one plan step through:
+
+* `BuildProgressCard`
+* `assistantPlanStream`
+* continue/resume API route
+* `buildWorker`
+* `buildOrchestrator`
+* `runStep`
+* `runAgentLoop`
+* large-change classifier
+* `finish` tool
+* `planStore`
+* build/step status persistence
+
+Document:
+
+1. every possible step status
+2. every possible build status
+3. every `runAgentLoop.stopReason`
+4. what currently causes a green checkmark
+5. how approval pauses are represented
+6. how retry/resume currently differs
+7. what state survives between agent runs
+8. whether concurrent/double resume requests are currently possible
+
+Do not create another parallel orchestration system.
+
+Fix the existing one.
+
+---
+
+# 2. Introduce explicit pause reasons
+
+Do not represent normal user-approval pauses as `"failed"`.
+
+A step waiting for approval is not a failed step.
+
+Extend the stored execution state with an explicit pause reason.
+
+For example:
+
+```ts
+type StepPauseReason =
+  | "approval_required"
+  | "turn_budget"
+  | "tool_error"
+  | "agent_stalled"
+  | "spend_budget"
+  | "manual_pause";
+```
+
+And ensure step execution can distinguish statuses equivalent to:
+
+```ts
+type StepStatus =
+  | "pending"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+```
+
+Adapt naming to the existing data model instead of duplicating status systems.
+
+Approval-required should conceptually result in:
+
+```text
+step.status = paused
+step.pauseReason = approval_required
+```
+
+not:
+
+```text
+step.status = failed
+```
+
+---
+
+# 3. Replace the global approval boolean with scoped approval state
+
+Do NOT use only:
+
+```ts
+approvedLargeChanges: true
+```
+
+That is too ambiguous and could accidentally approve later steps or unrelated large changes.
+
+Store approval against the exact build step.
+
+Conceptually:
+
+```ts
+pendingApproval: {
+  approvalId: string;
+  stepId: string;
+  type: "large_change";
+  buildRevision: number;
+  createdAt: string;
+}
+```
+
+When the user approves, send something equivalent to:
+
+```ts
+{
+  action: "approve_and_resume",
+  stepId,
+  approvalId
+}
+```
+
+The server must verify:
+
+* this build is currently awaiting approval
+* the approval belongs to this exact step
+* the approval ID is still current
+* this step is still the active step
+* it has not already been consumed
+
+Then transition atomically:
+
+```text
+paused/approval_required
+↓
+running
+```
+
+and resume the SAME step.
+
+The approval grant should be scoped to that step and consumed once.
+
+Do not globally disable the large-change classifier for the rest of the build.
+
+If the step later expands substantially beyond the scope the user approved, it should still be possible to request another approval.
+
+---
+
+# 4. Add an explicit approve-and-resume action
+
+Do not overload generic `"resume"` with multiple meanings.
+
+Support distinct actions equivalent to:
+
+```text
+resume
+approve_and_resume
+retry
+skip
+```
+
+Their semantics should be clear.
+
+### `resume`
+
+Continue a paused unfinished step from its checkpoint.
+
+### `approve_and_resume`
+
+Approve the current approval request and continue that exact step.
+
+### `retry`
+
+Restart/retry a genuinely failed step according to existing retry behavior.
+
+### `skip`
+
+Explicitly skip a step only when the user actually asks to skip it.
+
+The UI text “Sprunget over af dig” must ONLY appear when the user explicitly selected skip.
+
+An approval/resume path must never produce this label.
+
+---
+
+# 5. Make completion explicit
+
+`runAgentLoop()` needs to return an explicit termination result.
+
+Do not infer completion from:
+
+```ts
+stopReason !== "turn_limit"
+```
+
+Other stop reasons may include:
+
+* provider failure
+* tool error
+* budget exhaustion
+* cancellation
+* approval requirement
+* malformed response
+
+None of these mean complete.
+
+Return something conceptually like:
+
+```ts
+{
+  termination:
+    | "finish_called"
+    | "approval_required"
+    | "turn_budget"
+    | "tool_error"
+    | "provider_error"
+    | "spend_budget"
+    | "cancelled"
+    | "stalled";
+
+  finishCalled: boolean;
+
+  turnsUsed: number;
+  toolCalls: number;
+  appliedChanges: number;
+}
+```
+
+Adapt to the existing return type.
+
+A step may be marked `"completed"` only when:
+
+1. the agent explicitly called the `finish` tool,
+2. the finish tool completed successfully,
+3. all preceding mutations were persisted successfully,
+4. no fatal execution state occurred afterward.
+
+No explicit finish = no green checkmark.
+
+---
+
+# 6. Strengthen the `finish` tool
+
+The `finish` call should represent a meaningful declaration that the step is complete.
+
+Require structured information such as:
+
+```ts
+finish({
+  summary,
+  completedActions,
+  verification,
+  remainingWork
+})
+```
+
+If:
+
+```ts
+remainingWork.length > 0
+```
+
+the orchestrator should not accept the step as fully completed unless those remaining items are explicitly optional.
+
+This protects against the opposite problem:
+
+> the model calling `finish` too early.
+
+The agent system instructions should say:
+
+* call `finish` only when the current plan step is fully satisfied
+* check the requested scope first
+* do not call `finish` merely because the turn budget is getting close
+
+---
+
+# 7. Replace the rigid 8-turn limit with a safer execution budget
+
+The current `MAX_TURNS_PER_STEP = 8` is too restrictive for complex website changes.
+
+Do not solve this by allowing unlimited execution.
+
+Introduce a larger but bounded execution model.
+
+Recommended starting configuration:
+
+```ts
+INITIAL_TURN_BUDGET = 16
+CONTINUATION_TURN_BUDGET = 8
+MAX_AUTOMATIC_CONTINUATIONS = 2
+```
+
+This gives a hard maximum of approximately:
+
+```text
+16 + 8 + 8 = 32 turns
+```
+
+before requiring user intervention.
+
+Keep these values centralized and configurable.
+
+If the architecture already knows step complexity, optionally allow budgets equivalent to:
+
+```text
+small step     → 8–12 turns
+normal step    → 16 turns
+complex step   → 20–24 turns
+```
+
+But do not introduce another LLM call merely to classify turn budget unless necessary.
+
+A hard global ceiling must always remain.
+
+---
+
+# 8. Continuation must continue the SAME agent execution
+
+This is critical.
+
+When the initial turn budget is exhausted, do not start an effectively fresh task with only:
+
+> “Here is what you already did, please continue.”
+
+Preserve the current execution context.
+
+The continuation must retain:
+
+* current step ID
+* agent conversation history
+* tool calls
+* tool outputs
+* previously applied changes
+* component/page IDs
+* current website revision
+* agent notes
+* current completion criteria
+
+If Birdflow is using Kimi K3 from Task #153, preserve the complete Kimi assistant state required by the provider, including tool-call/reasoning fields.
+
+Do not discard the model's working context between continuation passes.
+
+Conceptually:
+
+```text
+Agent pass #1
+↓
+turn budget reached
+↓
+checkpoint
+↓
+same step + same history
+↓
+Agent pass #2
+```
+
+not:
+
+```text
+Agent pass #1
+↓
+new unrelated chat
+↓
+try to reconstruct everything
+```
+
+---
+
+# 9. Automatic continuation logic
+
+When the agent reaches the turn budget without calling `finish`, evaluate whether meaningful progress occurred.
+
+Do NOT use only:
+
+```ts
+ctx.applied.length > 0
+```
+
+as the definition of progress.
+
+Progress may include:
+
+* successfully applied site mutations
+* newly discovered required components
+* newly created components
+* page state changes
+* new tool results needed for upcoming edits
+
+Track something equivalent to:
+
+```ts
+progress: {
+  mutationsApplied: number;
+  uniqueToolCalls: number;
+  siteRevisionChanged: boolean;
+  componentsChanged: number;
+}
+```
+
+### If meaningful progress occurred
+
+Automatically continue the same step while continuation budget remains.
+
+### If no meaningful progress occurred
+
+Detect a potential stalled loop.
+
+Allow at most one recovery attempt with an instruction equivalent to:
+
+> You are making no measurable progress. Re-evaluate the remaining task, avoid repeating previous tool calls, and either perform the missing work or explain why the step cannot be completed.
+
+If there is still no progress:
+
+```text
+pauseReason = agent_stalled
+```
+
+Do not waste all remaining turns repeating the same operations.
+
+---
+
+# 10. Detect repetitive tool loops
+
+A complex AI agent should be allowed many steps, but not unlimited redundant steps.
+
+Detect patterns such as:
+
+```text
+get_page(home)
+get_page(home)
+get_page(home)
+get_page(home)
+```
+
+against unchanged website state.
+
+Also detect repeated failed mutations with identical arguments.
+
+Use normalized tool call fingerprints such as:
+
+```text
+toolName + normalized arguments + website revision
+```
+
+If a call repeats unnecessarily, return structured feedback to the agent:
+
+```text
+This unchanged resource has already been retrieved.
+Use the existing result or choose another action.
+```
+
+Do not immediately fail the entire step for one repetition.
+
+Escalate only after repeated stalled behavior.
+
+---
+
+# 11. Preserve partial work safely
+
+When a step reaches a continuation or user pause, already completed valid changes should not disappear.
+
+Store a step execution checkpoint containing enough information to resume safely.
+
+Conceptually:
+
+```ts
+stepExecution: {
+  executionId,
+  stepId,
+  continuationCount,
+  turnsUsed,
+  checkpointRevision,
+  appliedChanges,
+  termination,
+  pauseReason
+}
+```
+
+Resume should continue from this checkpoint.
+
+Do not blindly replay previous mutations.
+
+Agent tools should remain idempotent where practical.
+
+---
+
+# 12. Prevent double resume / double approval
+
+A user may double-click or two client requests may arrive close together.
+
+Prevent two workers from resuming the same paused step simultaneously.
+
+Use the existing build locking/version mechanism if one exists.
+
+Otherwise introduce optimistic concurrency or an atomic state transition.
+
+Conceptually:
+
+```text
+paused revision 42
+↓
+approve request expects revision 42
+↓
+atomic transition to running revision 43
+```
+
+A second request against revision 42 should return:
+
+```text
+This build has already resumed.
+```
+
+It must not start another agent worker.
+
+---
+
+# 13. User-facing behavior
+
+Update `BuildProgressCard`.
+
+### Approval pause
+
+Show:
+
+**Trinnet kræver din godkendelse**
+
+Button:
+
+**Godkend og kør trinnet**
+
+Optionally include concise text explaining what is being approved.
+
+Do not label this as a failure.
+
+### Automatic continuation
+
+Do not interrupt the user unnecessarily.
+
+The system should automatically continue if it still has execution budget.
+
+After completion, optionally show:
+
+> AI'en havde brug for 1 ekstra fortsættelse for at færdiggøre trinnet.
+
+Do not make this look like an error.
+
+### Execution ceiling reached
+
+If all automatic continuations are exhausted:
+
+Show something equivalent to:
+
+> Trinnet er ikke færdigt endnu. De ændringer, der allerede er udført, er gemt. AI'en har nået sikkerhedsgrænsen for dette trin.
+
+Provide:
+
+**Fortsæt trinnet**
+
+This should resume the SAME step from its checkpoint with a new bounded continuation budget.
+
+Do not mark it green.
+
+### Actual failure
+
+Only genuine execution failures should display failure UI.
+
+---
+
+# 14. Step result metadata
+
+Store useful execution metadata without cluttering the main UI.
+
+For each step track:
+
+* initial turns
+* continuation count
+* total turns
+* tool-call count
+* applied change count
+* stop/termination reason
+* pause reason
+* finish called
+* execution duration if already available
+* last website revision
+
+This will make future agent debugging substantially easier.
+
+---
+
+# 15. Completion verification
+
+Before turning a step green, run a lightweight completion validation.
+
+At minimum verify:
+
+* `finish` was explicitly called
+* state mutations were persisted
+* there is no pending approval
+* there is no unfinished tool execution
+* the current site revision contains the step's applied changes
+
+If the plan step contains explicit acceptance criteria, make those available to the agent before `finish`.
+
+Where existing `selfReview` functionality can cheaply validate the affected components, use it.
+
+Do not add an expensive full-site visual review to every step; that belongs to the separate visual-review task.
+
+---
+
+# 16. Build-level behavior
+
+The build orchestrator must never advance to the next plan step while the current step is:
+
+```text
+running
+paused
+awaiting approval
+unfinished due to turn budget
+```
+
+Only advance when the current step is:
+
+```text
+completed
+```
+
+or explicitly:
+
+```text
+skipped by user
+```
+
+A retryable failure should pause.
+
+Do not silently move to the next step.
+
+---
+
+# 17. Tests
+
+Add regression tests for the original two bugs plus the new state semantics.
+
+## Approval tests
+
+1. Large-change classifier pauses the current step.
+2. Step becomes `paused + approval_required`, not `failed`.
+3. UI/server receives an approval ID scoped to that step.
+4. `approve_and_resume` resumes the exact same step.
+5. Approval bypass applies only to the approved step.
+6. Approval cannot accidentally approve a later step.
+7. Reusing an already consumed approval ID is rejected.
+8. Double-clicking approval does not start two workers.
+9. Approved step is never shown as “Sprunget over af dig”.
+
+## Completion tests
+
+10. Hitting turn budget without `finish` never marks completed.
+11. Provider error without `finish` never marks completed.
+12. Tool error without `finish` never marks completed.
+13. Explicit successful `finish` marks completed.
+14. `finish` with remaining required work is rejected/not completed.
+
+## Continuation tests
+
+15. Turn budget exhaustion with meaningful progress launches automatic continuation.
+16. Continuation preserves previous tool/history context.
+17. Agent calls `finish` during continuation → step becomes completed.
+18. Two automatic continuations may run within the hard ceiling.
+19. Exhausting continuation budget pauses instead of completing.
+20. User-triggered “Fortsæt trinnet” resumes the same checkpoint.
+21. Partial successful changes are not replayed unnecessarily.
+
+## Stall tests
+
+22. Repeated identical read calls against unchanged state are detected.
+23. Repeated identical failed mutations are detected.
+24. Agent gets one recovery opportunity.
+25. Persistent no-progress behavior pauses as `agent_stalled`.
+
+## Orchestrator tests
+
+26. Build does not advance while current step is paused.
+27. Build advances after actual completion.
+28. Build advances past a step only when the user explicitly skips it.
+29. Existing build orchestrator tests still pass.
+30. Full Vitest/test suite passes.
+
+---
+
+# Done looks like
+
+A complex plan step may now behave like:
+
+```text
+Step starts
+↓
+16 agent turns
+↓
+unfinished but meaningful progress
+↓
+automatic continuation
+↓
+8 more turns
+↓
+agent explicitly calls finish
+↓
+completion validation
+↓
+green checkmark
+↓
+next step
+```
+
+An approval flow behaves like:
+
+```text
+Step starts
+↓
+large-change classifier
+↓
+paused: approval_required
+↓
+user clicks "Godkend og kør trinnet"
+↓
+approval validated for exact step
+↓
+same step resumes
+↓
+classifier recognizes scoped approval
+↓
+work executes
+↓
+finish
+↓
+green checkmark
+```
+
+A very large step behaves like:
+
+```text
+Step
+↓
+initial execution
+↓
+continuation #1
+↓
+continuation #2
+↓
+still unfinished
+↓
+pause
+↓
+partial valid work remains saved
+↓
+user can continue same step
+```
+
+At no point should unfinished work receive a green checkmark.
+
+At no point should approving a step cause it to be labelled “skipped”.
+
+---
+
+# Relevant files
+
+Start by auditing, but likely relevant files include:
+
+* `server/buildOrchestrator.ts`
+* `server/assistantPlanRoutes.ts`
+* `server/buildWorker.ts`
+* `server/planStore.ts`
+* `server/aiAgent.ts` / agent-loop implementation
+* `shared/assistantPlan.ts`
+* `client/src/components/builder/BuildProgressCard.tsx`
+* `client/src/lib/assistantPlanStream.ts`
+* existing build-orchestrator tests
+
+Do not assume the supplied line numbers are still correct. Search by function/type name before editing.
+
+---
+
+# Out of scope
+
+Do not include:
+
+* changing the threshold for what counts as a large change
+* unlimited agent execution
+* visual screenshot review
+* redesigning the plan UI
+* changing component design capabilities
+* detailed per-tool diffs for users
+* migrating AI providers
+
+This task is specifically about making the existing plan executor reliable, resumable and capable of completing complex steps.
+
+---
+
+# Final report
+
+After implementation, report:
+
+1. the actual root causes found,
+2. old vs new step state machine,
+3. old vs new approval flow,
+4. old vs new continuation flow,
+5. exact completion condition,
+6. hard execution ceilings,
+7. concurrency/idempotency protection,
+8. files changed,
+9. tests added,
+10. test results,
+11. any remaining scenarios where a complex step can still pause.
+
+Do not claim the bug is fixed merely because unit tests pass.
+
+Also perform one realistic manual smoke test with a multi-part builder step that requires more than the old 8-turn budget, and one approval-required step.

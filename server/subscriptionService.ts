@@ -403,10 +403,31 @@ export async function handleCheckoutSessionCompleted(
   await handleSubscriptionCreated(subscription);
 }
 
+/**
+ * Stripe's type for an invoice no longer declares `subscription`: newer API
+ * versions moved it under `parent.subscription_details`, while older ones
+ * still send the flat field. Read whichever the incoming webhook carries.
+ */
+function invoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const flat = (invoice as Stripe.Invoice & { subscription?: string | { id: string } | null }).subscription;
+  if (typeof flat === 'string') return flat;
+  if (flat && typeof flat === 'object') return flat.id;
+
+  const nested = (
+    invoice as Stripe.Invoice & {
+      parent?: { subscription_details?: { subscription?: string | { id: string } | null } | null } | null;
+    }
+  ).parent?.subscription_details?.subscription;
+  if (typeof nested === 'string') return nested;
+  if (nested && typeof nested === 'object') return nested.id;
+
+  return null;
+}
+
 export async function handleInvoicePaymentFailed(
   invoice: Stripe.Invoice
 ): Promise<void> {
-  const subscriptionId = (invoice as any).subscription as string;
+  const subscriptionId = invoiceSubscriptionId(invoice);
   if (!subscriptionId) return;
   
   const website = await storage.getWebsiteByStripeSubscriptionId(subscriptionId);
@@ -632,7 +653,7 @@ async function updateUserSubscription(
 export async function handleUserInvoicePaid(
   invoice: Stripe.Invoice
 ): Promise<void> {
-  const subscriptionId = invoice.subscription as string;
+  const subscriptionId = invoiceSubscriptionId(invoice);
   if (!subscriptionId) return;
   
   const profile = await storage.getProfileBySubscriptionId(subscriptionId);
@@ -648,7 +669,7 @@ export async function handleUserInvoicePaid(
 export async function handleUserInvoicePaymentFailed(
   invoice: Stripe.Invoice
 ): Promise<void> {
-  const subscriptionId = invoice.subscription as string;
+  const subscriptionId = invoiceSubscriptionId(invoice);
   if (!subscriptionId) return;
   
   const profile = await storage.getProfileBySubscriptionId(subscriptionId);
@@ -847,7 +868,7 @@ export async function checkPageLimit(userId: string, websiteId: string): Promise
   const maxPages = planDetails.features.maxPagesPerWebsite;
   
   const builderState = await storage.getBuilderState(websiteId);
-  const currentPages = builderState?.pages?.length || 0;
+  const currentPages = builderState?.state?.pages?.length || 0;
   
   if (currentPages >= maxPages) {
     return { 

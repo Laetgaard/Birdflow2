@@ -2,12 +2,12 @@
 // by DB triggers whenever an order or booking comes in; the server
 // aggregates paid-order spend and booking counts at read time, and the
 // response carries the website's own currency so nothing here hardcodes
-// a symbol.
+// a symbol. Clicking a row opens the per-client detail panel.
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Users, CalendarCheck } from "lucide-react";
+import { Users, CalendarCheck, ChevronRight } from "lucide-react";
 import type { SectionProps, Customer } from "./types";
 import {
   authHeaders,
@@ -17,6 +17,7 @@ import {
   EmptyState,
   ErrorState,
 } from "./shared";
+import { ClientDetailPanel } from "./ClientDetailPanel";
 
 type CustomersResponse = {
   customers: Customer[];
@@ -28,6 +29,9 @@ export function CustomersSection({ websiteId, accessToken }: SectionProps) {
   const [currency, setCurrency] = useState("DKK");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Which customer's detail panel is open
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const fetchCustomers = useCallback(async () => {
     if (!websiteId || !accessToken) return;
@@ -57,67 +61,85 @@ export function CustomersSection({ websiteId, accessToken }: SectionProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Kunder</CardTitle>
-        <CardDescription>
-          Alle der har bestilt eller booket på din hjemmeside
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <LoadingState label="Indlæser kunder..." />
-        ) : customers.length === 0 ? (
-          <EmptyState
-            icon={<Users className="w-12 h-12" />}
-            title="Ingen kunder endnu"
-            description="Kundeprofiler oprettes automatisk, når nogen lægger en ordre eller booker en tid."
-          />
-        ) : (
-          <div className="space-y-4">
-            {customers.map(customer => (
-              <div
-                key={customer.id}
-                className="flex items-center justify-between gap-4 p-4 border rounded-lg"
-                data-testid={`row-customer-${customer.id}`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <Avatar>
-                    <AvatarFallback>{customer.name.charAt(0).toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="font-medium truncate" data-testid={`text-customer-name-${customer.id}`}>
-                      {customer.name}
-                    </p>
-                    <p className="text-sm text-muted-foreground truncate">{customer.email}</p>
-                    {customer.lastActivityAt && (
-                      <p className="text-xs text-muted-foreground/70">
-                        Sidst aktiv {formatDateDa(customer.lastActivityAt)}
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Kunder</CardTitle>
+          <CardDescription>
+            Alle der har bestilt eller booket på din hjemmeside — klik for at se detaljer
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <LoadingState label="Indlæser kunder..." />
+          ) : customers.length === 0 ? (
+            <EmptyState
+              icon={<Users className="w-12 h-12" />}
+              title="Ingen kunder endnu"
+              description="Kundeprofiler oprettes automatisk, når nogen lægger en ordre eller booker en tid."
+            />
+          ) : (
+            <div className="space-y-2">
+              {customers.map(customer => (
+                <button
+                  key={customer.id}
+                  type="button"
+                  onClick={() => setSelectedId(customer.id)}
+                  className="w-full flex items-center justify-between gap-4 p-4 border rounded-lg text-left hover:bg-accent/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  data-testid={`row-customer-${customer.id}`}
+                  aria-label={`Åbn klientdetaljer for ${customer.name}`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar>
+                      <AvatarFallback>{customer.name.charAt(0).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="font-medium truncate" data-testid={`text-customer-name-${customer.id}`}>
+                        {customer.name}
                       </p>
-                    )}
+                      <p className="text-sm text-muted-foreground truncate">{customer.email}</p>
+                      {customer.lastActivityAt && (
+                        <p className="text-xs text-muted-foreground/70">
+                          Sidst aktiv {formatDateDa(customer.lastActivityAt)}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="font-medium" data-testid={`text-customer-spent-${customer.id}`}>
-                    {formatCents(customer.totalSpentCents, currency)}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {customer.ordersCount === 1 ? "1 ordre" : `${customer.ordersCount} ordrer`}
-                  </p>
-                  {customer.bookingsCount > 0 && (
-                    <Badge variant="secondary" className="mt-1 gap-1 text-xs font-normal">
-                      <CalendarCheck className="w-3 h-3" />
-                      {customer.bookingsCount === 1
-                        ? "1 booking"
-                        : `${customer.bookingsCount} bookinger`}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <p className="font-medium" data-testid={`text-customer-spent-${customer.id}`}>
+                        {formatCents(customer.totalSpentCents, currency)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {customer.ordersCount === 1 ? "1 ordre" : `${customer.ordersCount} ordrer`}
+                      </p>
+                      {customer.bookingsCount > 0 && (
+                        <Badge variant="secondary" className="mt-1 gap-1 text-xs font-normal">
+                          <CalendarCheck className="w-3 h-3" />
+                          {customer.bookingsCount === 1
+                            ? "1 booking"
+                            : `${customer.bookingsCount} bookinger`}
+                        </Badge>
+                      )}
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground/50 shrink-0" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Per-client detail panel */}
+      <ClientDetailPanel
+        websiteId={websiteId}
+        accessToken={accessToken}
+        customerId={selectedId}
+        currency={currency}
+        open={selectedId !== null}
+        onClose={() => setSelectedId(null)}
+      />
+    </>
   );
 }

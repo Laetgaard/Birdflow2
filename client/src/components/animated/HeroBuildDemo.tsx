@@ -50,7 +50,7 @@ export default function HeroBuildDemo() {
       y: dir === "up" ? 12 : 0,
     },
     animate: { opacity: 1, x: 0, y: 0 },
-    transition: { delay, duration: 0.45, ease: [0.25, 0.1, 0.25, 1] as number[] },
+    transition: { delay, duration: 0.45, ease: [0.25, 0.1, 0.25, 1] as [number, number, number, number] },
   });
 
   return (

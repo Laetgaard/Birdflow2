@@ -30,10 +30,14 @@ describe("planImageJobs", () => {
   });
 
   it("does not charge budget for repeats of admitted markers", () => {
+    // Exactly MAX_AI_IMAGES_PER_REQUEST unique descriptions, with many
+    // repeats of one of them — repeats must not consume extra budget slots.
     const slots = [
       slot("a"),
       slot("b"),
       slot("c"),
+      slot("d"),
+      slot("e"),
       ...Array.from({ length: 10 }, () => slot("a")),
     ];
     const { jobs, skippedSlots } = planImageJobs(slots);
@@ -42,17 +46,22 @@ describe("planImageJobs", () => {
   });
 
   it("skips every FIELD that needs a new asset beyond the cap", () => {
+    // Use MAX+1 unique descriptions so the last one overflows the cap.
+    // a–e are admitted (5 = current cap); f is the 6th unique and is
+    // skipped along with its two duplicates → skippedSlots = 3.
     const { jobs, skippedSlots } = planImageJobs([
       slot("a"),
       slot("b"),
       slot("c"),
       slot("d"),
-      slot("d"),
-      slot("d"),
+      slot("e"),
+      slot("f"), // 6th unique — exceeds cap
+      slot("f"),
+      slot("f"),
     ]);
     expect(jobs.size).toBe(MAX_AI_IMAGES_PER_REQUEST);
     expect(skippedSlots).toBe(3);
-    expect(jobs.has(imageJobKey(slot("d")))).toBe(false);
+    expect(jobs.has(imageJobKey(slot("f")))).toBe(false);
   });
 
   it("treats the same description in different aspects as distinct assets", () => {

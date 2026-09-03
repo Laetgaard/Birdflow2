@@ -5,6 +5,7 @@ import { startDomainVerificationScheduler } from "./domainVerificationScheduler"
 import { ensurePlatformCalendar } from "./platformCalendar";
 import { startOnboardingDecisionSchema } from "./onboardingDecisionSchema";
 import { startAssistantPlanSchema } from "./assistantPlanDbSchema";
+import { startAccountComponentSchema } from "./accountComponentDbSchema";
 import { db } from "./storage";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -12,6 +13,14 @@ import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
 import { startWebsiteLanguageSchema } from "./websiteLanguageSchema";
+import { startSvgAssetSchema } from "./svgAssetSchema";
+import { startInvoiceSchema } from "./invoiceSchema";
+import { startPublishJobSchema } from "./publisher/publishJobSchema";
+import { failStalePublishJobs, getPublishJobByDeploymentId, completePublishJob, failPublishJob } from "./publisher/publishJobs";
+import { startPublishActivationReconciler } from "./publisher/worker";
+import { resumeOrphanedBuilds } from "./buildWorker";
+import { storage as appStorage } from "./storage";
+import { registerSeoRoutes } from "./seo";
 
 const app = express();
 const httpServer = createServer(app);
@@ -63,6 +72,92 @@ async function initStripe() {
 
 // Initialize Stripe on startup
 initStripe();
+
+// Register Vercel deployment webhook BEFORE express.json() so we get raw bytes
+// for HMAC-SHA1 signature verification. (Same reason as the Stripe webhook below.)
+app.post(
+  '/api/webhooks/vercel',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    try {
+      // VERCEL_WEBHOOK_SECRET is required. Without it any caller who knows a
+      // deployment ID could forge events and update website URLs to attacker-
+      // controlled values. If the secret is not configured, refuse all events.
+      const webhookSecret = process.env.VERCEL_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        console.warn(
+          '[Vercel webhook] VERCEL_WEBHOOK_SECRET is not set — webhook endpoint is disabled.' +
+          ' Configure this secret to enable event-driven publish completion.'
+        );
+        return res.status(200).json({ ok: true }); // return 200 so Vercel does not retry
+      }
+
+      const sig = req.headers['x-vercel-signature'] as string | undefined;
+      if (!sig) return res.status(400).json({ message: 'Missing x-vercel-signature' });
+
+      // Timing-safe comparison — prevents timing side-channel leaks.
+      const { createHmac, timingSafeEqual } = await import('crypto');
+      const expectedBuf = createHmac('sha1', webhookSecret)
+        .update(req.body as Buffer)
+        .digest();
+      const actualBuf = Buffer.from(sig, 'hex');
+      if (
+        expectedBuf.length !== actualBuf.length ||
+        !timingSafeEqual(expectedBuf, actualBuf)
+      ) {
+        return res.status(401).json({ message: 'Invalid signature' });
+      }
+
+      let body: Record<string, any>;
+      try {
+        body = JSON.parse((req.body as Buffer).toString('utf-8'));
+      } catch {
+        return res.status(200).json({ ok: true }); // malformed — ignore
+      }
+
+      const type: string = body.type ?? '';
+      const deploymentId: string = body.payload?.deployment?.id ?? '';
+      if (!deploymentId || !['deployment.succeeded', 'deployment.error'].includes(type)) {
+        return res.status(200).json({ ok: true });
+      }
+
+      const job = await getPublishJobByDeploymentId(deploymentId);
+      if (!job || job.status === 'published' || job.status === 'failed') {
+        return res.status(200).json({ ok: true }); // terminal — idempotent no-op
+      }
+
+      if (type === 'deployment.succeeded') {
+        const productionUrl: string | undefined = body.payload?.links?.deployment;
+        if (productionUrl && !productionUrl.includes('-projects-')) {
+          await completePublishJob(job.id, {
+            productionUrl,
+            deploymentUrl: body.payload?.deployment?.url
+              ? `https://${body.payload.deployment.url}`
+              : productionUrl,
+            vercelProjectId: job.vercelProjectId ?? '',
+            vercelDeploymentId: deploymentId,
+          });
+          await appStorage.updateWebsite(job.websiteId, job.requestedBy, {
+            status: 'published',
+            deploymentUrl: productionUrl,
+            deploymentId,
+          } as any);
+        }
+      } else {
+        // deployment.error — already guarded by terminal check above
+        await failPublishJob(job.id, {
+          errorCode: 'VERCEL_DEPLOYMENT_ERROR',
+          errorMessage: body.payload?.deployment?.errorMessage ?? 'Vercel deployment failed',
+        });
+      }
+
+      res.status(200).json({ ok: true });
+    } catch (err: any) {
+      console.error('[Vercel webhook] error:', err?.message);
+      res.status(200).json({ ok: true }); // always 200 to Vercel
+    }
+  }
+);
 
 // Register Stripe webhook route BEFORE express.json()
 app.post(
@@ -138,6 +233,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Sitemap + robots for BirdFlow's own marketing pages. Registered before
+  // everything else so the SPA catch-alls can never shadow them.
+  registerSeoRoutes(app);
+
   await registerRoutes(httpServer, app);
 
   // Poll-based booking reminder/follow-up emails (published sites write
@@ -167,12 +266,41 @@ app.use((req, res, next) => {
   // Plan mode / Build mode: builder_state.revision plus the assistant_plans
   // and assistant_builds tables. Same idempotent-DDL-at-boot pattern, and the
   // same readiness promise guards every read and write in server/planStore.ts.
-  void startAssistantPlanSchema(db);
+  startAssistantPlanSchema(db).then((ready) => {
+    if (ready) {
+      // Resume any builds that were interrupted by the previous server process.
+      void resumeOrphanedBuilds().catch((err) =>
+        console.error("[BuildWorker] Orphan recovery failed:", err)
+      );
+    }
+  });
 
   // The per-website language choice made in onboarding. Same idempotent-DDL
   // reasoning again; the column defaults to Danish so a database that has not
   // caught up yet still behaves exactly as it did before the choice existed.
   void startWebsiteLanguageSchema(db);
+
+  // The SVG asset store (reusable illustrations referenced from primitive
+  // trees). Same pattern once more: until the table is ready, svg markup
+  // simply stays inline in the builder state, which both renderers render
+  // exactly as before.
+  void startSvgAssetSchema(db);
+  void startAccountComponentSchema(db);
+  void startInvoiceSchema(db);
+  startPublishJobSchema(db).then(ready => {
+    if (ready) {
+      void failStalePublishJobs().catch(err =>
+        console.error('[PublishJobs] Stale job recovery failed:', err)
+      );
+      const vercelToken = process.env.VERCEL_TOKEN;
+      if (vercelToken) {
+        startPublishActivationReconciler({
+          token: vercelToken,
+          teamId: process.env.VERCEL_TEAM_ID,
+        });
+      }
+    }
+  });
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

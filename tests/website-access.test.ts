@@ -64,7 +64,7 @@ describe("buildWebsiteAccessContext", () => {
     expect(ctx!.adminSessionId).toBeNull();
   });
 
-  it("admin gets builder + media + manage on a client website, nothing sensitive", () => {
+  it("admin gets builder, manage and publish on a client website, but not account-level access", () => {
     const ctx = buildWebsiteAccessContext({
       website,
       actorUserId: ADMIN_ID,
@@ -82,9 +82,9 @@ describe("buildWebsiteAccessContext", () => {
     expect(ctx!.permissions.readManage).toBe(true);
     expect(ctx!.permissions.updateManage).toBe(true);
 
-    // Deliberately denied for administrators - these spend the client's
-    // money, deploy on their behalf, or touch account-level state:
-    expect(ctx!.permissions.publish).toBe(false);
+    // Publishing is part of approving client builder changes. Billing,
+    // domains and paid AI remain account-level owner controls:
+    expect(ctx!.permissions.publish).toBe(true);
     expect(ctx!.permissions.manageBilling).toBe(false);
     expect(ctx!.permissions.manageDomains).toBe(false);
     expect(ctx!.permissions.usePaidAI).toBe(false);
@@ -126,7 +126,7 @@ describe("computeWebsitePermissions", () => {
     const b = computeWebsitePermissions("admin");
     expect(a).not.toBe(b);
     a.publish = true; // mutating a copy must not poison later calls
-    expect(computeWebsitePermissions("admin").publish).toBe(false);
+    expect(computeWebsitePermissions("admin").publish).toBe(true);
   });
 });
 
@@ -384,12 +384,11 @@ describe("route wiring (source tripwires)", () => {
     expect(handler).not.toContain("updateOrder(req.params.orderId, req.params.id, req.body)");
   });
 
-  it("publish keeps its owner-only inline check (not converted in M1)", () => {
-    // The publish route must NOT have been switched to a permission the
-    // admin holds; it still checks ownership inline.
+  it("publish uses the centralized publish permission", () => {
     const publishIdx = routesSource.indexOf('"/api/websites/:id/publish"');
     expect(publishIdx).toBeGreaterThan(-1);
     const handler = routesSource.slice(publishIdx, publishIdx + 1500);
-    expect(handler).toContain("ownerId");
+    expect(handler).toContain('requireWebsitePermission("publish")');
+    expect(handler).not.toMatch(/ownerId\s*!==\s*user\.id/);
   });
 });

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,43 @@ import {
 import ImageCropper from "./ImageCropper";
 import CustomComponentEditor from "./CustomComponentEditor";
 import { uploadImage } from "@/lib/builderUpload";
+import type { DesignTokens } from "@shared/schema";
+import {
+  resolveDesignTokens,
+  tokenPathOf,
+  isTokenRef,
+  tokenRef,
+  type ResolvedTokens,
+  type TokenPath,
+} from "@shared/designTokens";
+
+/** Danish labels for the brand roles a value can point at, shown in badges. */
+const TOKEN_ROLE_LABELS: Record<string, string> = {
+  'color.primary': 'Primærfarve',
+  'color.secondary': 'Sekundærfarve',
+  'color.accent': 'Accentfarve',
+  'color.background': 'Baggrund',
+  'color.surface': 'Kortflade',
+  'color.text': 'Tekstfarve',
+  'font.heading': 'Overskriftsskrift',
+  'font.body': 'Brødtekstskrift',
+};
+
+function tokenRoleLabel(path: string): string {
+  return TOKEN_ROLE_LABELS[path] ?? path;
+}
+
+/** Small "Brand" badge naming the role a value follows. */
+function BrandBadge({ path, testId }: { path: string; testId?: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium"
+      data-testid={testId}
+    >
+      Brand · {tokenRoleLabel(path)}
+    </span>
+  );
+}
 
 type CropData = {
   x: number;
@@ -57,16 +94,26 @@ type Props = {
   onMove: (direction: 'up' | 'down') => void;
   websiteId: string;
   accessToken: string;
+  /** The website's design tokens, so the panel can show brand vs. override state. */
+  globalStyles?: DesignTokens;
   /** Node selection inside custom components (primitive node trees). */
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
+  /** Item clicked on the canvas: scroll to and highlight its card. */
+  focusItemIndex?: number | null;
+  onFocusItemHandled?: () => void;
+  /** Stored SVG illustrations by id (svg_assets) — for asset-backed svg nodes. */
+  svgAssets?: Record<string, import("@shared/schema").SvgAsset>;
+  /** Called after the editor stores a new illustration, so the map refreshes. */
+  onSvgAssetsChanged?: () => void;
 };
 
 type TabId = 'content' | 'design' | 'animation';
 
 
-export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, selectedNodeId, onNodeSelect }: Props) {
+export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, globalStyles, selectedNodeId, onNodeSelect, focusItemIndex, onFocusItemHandled, svgAssets, onSvgAssetsChanged }: Props) {
   const definition = componentRegistry[component.type];
+  const resolvedTokens = useMemo<ResolvedTokens>(() => resolveDesignTokens(globalStyles), [globalStyles]);
   const [activeTab, setActiveTab] = useState<TabId>('content');
   const [uploadingField, setUploadingField] = useState<string | null>(null);
   const [cropperOpen, setCropperOpen] = useState(false);
@@ -75,6 +122,23 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
   const [initialCrop, setInitialCrop] = useState<CropData | undefined>();
   const [showAdvancedSpacing, setShowAdvancedSpacing] = useState(false);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const focusItemCardRef = useRef<HTMLDivElement | null>(null);
+
+  // An item clicked on the canvas: bring its card into view, hold the
+  // highlight long enough to register, then release.
+  useEffect(() => {
+    if (focusItemIndex === null || focusItemIndex === undefined) return;
+    setActiveTab('content');
+    const raf = requestAnimationFrame(() => {
+      focusItemCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    const timer = setTimeout(() => onFocusItemHandled?.(), 1600);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusItemIndex, component.id]);
 
   if (!definition) {
     return <div className="p-4 text-muted-foreground">Unknown component type</div>;
@@ -96,6 +160,40 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
     } else {
       onUpdate({ props: { [field.key]: value } });
     }
+  };
+
+  /** The brand role a colour field with this key should reset to. */
+  const colorRoleForKey = (key: string): TokenPath => {
+    if (key === 'backgroundColor') return 'color.background';
+    if (key === 'textColor') return 'color.text';
+    if (key === 'buttonColor' || key === 'accentColor') return 'color.primary';
+    return 'color.primary';
+  };
+
+  /**
+   * Renders the shared brand/override affordance for a colour value: a "Brand"
+   * badge when it follows the brand, or a "Tilpasset" hint plus a reset button
+   * when it deliberately overrides one. Returns the resolved hex to preview.
+   */
+  const colorTokenState = (rawValue: string, role: TokenPath) => {
+    const path = tokenPathOf(rawValue);
+    if (path) {
+      return {
+        isToken: true as const,
+        path,
+        resolved: resolvedTokens[path] ?? rawValue,
+      };
+    }
+    const brandValue = resolvedTokens[role];
+    const literal = typeof rawValue === 'string' ? rawValue.trim() : '';
+    const isCustom = !!literal && !!brandValue &&
+      literal.toLowerCase() !== brandValue.trim().toLowerCase();
+    return {
+      isToken: false as const,
+      path: null,
+      resolved: rawValue,
+      isCustom,
+    };
   };
 
   const parseImageValue = (value: any): ImageValue => {
@@ -201,9 +299,30 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
       case 'color': {
         const colorPresets = field.key === 'backgroundColor' ? themeColors.backgrounds :
           field.key === 'buttonColor' ? themeColors.backgrounds : themeColors.text;
+        const role = colorRoleForKey(field.key);
+        const state = colorTokenState(value, role);
         return (
           <div key={field.key} className="space-y-2">
-            <Label className="text-xs">{field.label}</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">{field.label}</Label>
+              {state.isToken ? (
+                <BrandBadge path={state.path} testId={`token-badge-${field.key}`} />
+              ) : state.isCustom && (
+                <span className="text-[10px] text-muted-foreground" data-testid={`custom-hint-${field.key}`}>Tilpasset</span>
+              )}
+              {!state.isToken && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[10px] ml-auto"
+                  onClick={() => setValue(field, tokenRef(role))}
+                  data-testid={`reset-token-${field.key}`}
+                >
+                  Nulstil til brand
+                </Button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1">
               {colorPresets.map((color) => (
                 <button
@@ -220,13 +339,14 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             <div className="flex gap-1">
               <Input
                 type="color"
-                value={value || '#ffffff'}
+                value={state.resolved || '#ffffff'}
                 onChange={(e) => setValue(field, e.target.value)}
                 className="w-10 h-9 p-1 cursor-pointer"
                 data-testid={`color-${field.key}`}
               />
               <Input
-                value={value}
+                value={state.isToken ? tokenRoleLabel(state.path) : value}
+                readOnly={state.isToken}
                 onChange={(e) => setValue(field, e.target.value)}
                 placeholder="#ffffff"
                 className="flex-1"
@@ -453,7 +573,12 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
             {items.map((item, i) => (
-              <div key={item.id} className="border rounded-md p-2 space-y-2 bg-muted/50">
+              <div
+                key={item.id}
+                ref={focusItemIndex === i ? focusItemCardRef : undefined}
+                className={`border rounded-md p-2 space-y-2 bg-muted/50 ${focusItemIndex === i ? 'ring-2 ring-primary border-primary/60' : ''}`}
+                data-testid={`item-card-${i}`}
+              >
                 <div className="flex items-center gap-1">
                   <GripVertical className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs font-medium flex-1">Item {i + 1}</span>
@@ -603,6 +728,11 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           ? value as StyledText
           : { text: typeof value === 'string' ? value : '' };
 
+        const colorState = colorTokenState(styledValue.color || '', 'color.text');
+        // Descriptions/body copy resolve to the body font; titles to the heading font.
+        const fontRole: TokenPath = /description|body|text/i.test(field.key) ? 'font.body' : 'font.heading';
+        const fontTokenPath = tokenPathOf(styledValue.fontFamily);
+
         return (
           <div key={field.key} className="space-y-3 border rounded-lg p-3 bg-muted/30">
             <Label className="text-xs font-medium">{field.label}</Label>
@@ -616,15 +746,24 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Font</Label>
+                <div className="flex items-center gap-2">
+                  <Label className="text-[10px] text-muted-foreground">Font</Label>
+                  {fontTokenPath && (
+                    <BrandBadge path={fontTokenPath} testId={`token-badge-${field.key}-font`} />
+                  )}
+                </div>
                 <Select
-                  value={styledValue.fontFamily || 'inherit'}
-                  onValueChange={(v) => setValue(field, { ...styledValue, fontFamily: v === 'inherit' ? '' : v })}
+                  value={fontTokenPath ? '__brand__' : (styledValue.fontFamily || 'inherit')}
+                  onValueChange={(v) => setValue(field, {
+                    ...styledValue,
+                    fontFamily: v === 'inherit' ? '' : v === '__brand__' ? tokenRef(fontRole) : v,
+                  })}
                 >
-                  <SelectTrigger className="h-8 text-xs">
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-font-${field.key}`}>
                     <SelectValue placeholder="Inherit" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__brand__">Brand ({tokenRoleLabel(fontRole)})</SelectItem>
                     <SelectItem value="inherit">Inherit</SelectItem>
                     {fontFamilyPresets.map(font => (
                       <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
@@ -704,16 +843,36 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
             </div>
 
             <div className="space-y-1">
-              <Label className="text-[10px] text-muted-foreground">Color</Label>
+              <div className="flex items-center gap-2">
+                <Label className="text-[10px] text-muted-foreground">Color</Label>
+                {colorState.isToken ? (
+                  <BrandBadge path={colorState.path} testId={`token-badge-${field.key}-color`} />
+                ) : colorState.isCustom && (
+                  <span className="text-[10px] text-muted-foreground" data-testid={`custom-hint-${field.key}-color`}>Tilpasset</span>
+                )}
+                {!colorState.isToken && styledValue.color && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-1.5 text-[10px] ml-auto"
+                    onClick={() => setValue(field, { ...styledValue, color: tokenRef('color.text') })}
+                    data-testid={`reset-token-${field.key}-color`}
+                  >
+                    Nulstil til brand
+                  </Button>
+                )}
+              </div>
               <div className="flex gap-1">
                 <Input
                   type="color"
-                  value={styledValue.color || '#000000'}
+                  value={colorState.resolved || '#000000'}
                   onChange={(e) => setValue(field, { ...styledValue, color: e.target.value })}
                   className="w-10 h-8 p-1 cursor-pointer"
                 />
                 <Input
-                  value={styledValue.color || ''}
+                  value={colorState.isToken ? tokenRoleLabel(colorState.path) : (styledValue.color || '')}
+                  readOnly={colorState.isToken}
                   onChange={(e) => setValue(field, { ...styledValue, color: e.target.value })}
                   placeholder="Inherit"
                   className="flex-1 h-8 text-xs"
@@ -757,15 +916,22 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           </h4>
 
           <div className="space-y-2">
-            <Label className="text-xs">Skrifttype</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">Skrifttype</Label>
+              {(() => {
+                const fontPath = tokenPathOf(component.styles.fontFamily);
+                return fontPath ? <BrandBadge path={fontPath} testId="token-badge-fontFamily" /> : null;
+              })()}
+            </div>
             <Select
-              value={component.styles.fontFamily || 'Inter, system-ui, sans-serif'}
-              onValueChange={(value) => onUpdate({ styles: { fontFamily: value } })}
+              value={tokenPathOf(component.styles.fontFamily) ? '__brand__' : (component.styles.fontFamily || 'Inter, system-ui, sans-serif')}
+              onValueChange={(value) => onUpdate({ styles: { fontFamily: value === '__brand__' ? tokenRef('font.body') : value } })}
             >
               <SelectTrigger className="h-8" data-testid="select-font-family">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-[300px] overflow-y-auto">
+                <SelectItem value="__brand__">Brand ({tokenRoleLabel('font.body')})</SelectItem>
                 {fontFamilyPresets.map((font) => (
                   <SelectItem key={font.value} value={font.value} style={{ fontFamily: font.value }}>
                     {font.name}
@@ -1163,16 +1329,39 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs">Knapfarve</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">Knapfarve</Label>
+              {(() => {
+                const btnState = colorTokenState(component.styles.buttonColor || '', 'color.primary');
+                return btnState.isToken ? (
+                  <BrandBadge path={btnState.path} testId="token-badge-buttonColor" />
+                ) : btnState.isCustom ? (
+                  <span className="text-[10px] text-muted-foreground" data-testid="custom-hint-buttonColor">Tilpasset</span>
+                ) : null;
+              })()}
+              {!isTokenRef(component.styles.buttonColor) && component.styles.buttonColor && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[10px] ml-auto"
+                  onClick={() => onUpdate({ styles: { buttonColor: tokenRef('color.primary') } })}
+                  data-testid="reset-token-buttonColor"
+                >
+                  Nulstil til brand
+                </Button>
+              )}
+            </div>
             <div className="flex gap-1">
               <Input
                 type="color"
-                value={component.styles.buttonColor || component.styles.accentColor || '#3b82f6'}
+                value={colorTokenState(component.styles.buttonColor || component.styles.accentColor || '#3b82f6', 'color.primary').resolved || '#3b82f6'}
                 onChange={(e) => onUpdate({ styles: { buttonColor: e.target.value } })}
                 className="w-10 h-8 p-1 cursor-pointer"
               />
               <Input
-                value={component.styles.buttonColor || ''}
+                value={isTokenRef(component.styles.buttonColor) ? tokenRoleLabel(tokenPathOf(component.styles.buttonColor)!) : (component.styles.buttonColor || '')}
+                readOnly={isTokenRef(component.styles.buttonColor)}
                 onChange={(e) => onUpdate({ styles: { buttonColor: e.target.value } })}
                 placeholder="Accent farve"
                 className="flex-1 h-8 text-xs"
@@ -1201,7 +1390,73 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
   };
 
   // ---- TAB: Animation ----
-  const renderAnimationTab = () => (
+  const renderAnimationTab = () => {
+    // When styles.motion is present (set directly or after the save-time migration
+    // converts legacy animationType/* fields), the legacy fields may be absent.
+    // Derive effective display values from styles.motion so the panel stays accurate
+    // after migration and writes to BOTH paths so legacy-only stored components
+    // also work until their next save upgrades them.
+    const motionObj = component.styles.motion as Record<string, unknown> | undefined;
+
+    // Effect and trigger share the same vocabulary in both systems.
+    const effectiveEffect =
+      (motionObj?.effect as string | undefined) ?? component.styles.animationType ?? 'none';
+    const effectiveTrigger =
+      (motionObj?.trigger as string | undefined) ?? component.styles.animationTrigger ?? 'load';
+
+    // Duration / delay: motion uses named presets; legacy uses time strings.
+    // Reverse-map for the button selected-state comparison.
+    const MOTION_DUR_TO_LEGACY: Record<string, string> = {
+      fast: '0.3s', normal: '0.5s', slow: '0.8s', 'very-slow': '1.2s',
+    };
+    const MOTION_DEL_TO_LEGACY: Record<string, string> = {
+      short: '0.1s', medium: '0.3s', long: '0.5s',
+    };
+    const effectiveDuration =
+      component.styles.animationDuration ??
+      (motionObj?.duration ? MOTION_DUR_TO_LEGACY[motionObj.duration as string] : undefined);
+    const effectiveDelay =
+      component.styles.animationDelay ??
+      (motionObj?.delay && motionObj.delay !== 'none'
+        ? MOTION_DEL_TO_LEGACY[motionObj.delay as string]
+        : '0s');
+
+    // Build a combined update that writes to both legacy fields (for components not
+    // yet migrated) and styles.motion (authoritative after the save-time migration).
+    const LEGACY_DUR_TO_MOTION: Record<string, string> = {
+      '0.3s': 'fast', '0.5s': 'normal', '0.8s': 'slow', '1.2s': 'very-slow',
+    };
+    const LEGACY_DEL_TO_MOTION: Record<string, string> = {
+      '0s': 'none', '0.1s': 'short', '0.3s': 'medium', '0.5s': 'long',
+    };
+    const updateAnim = (patch: {
+      effect?: string;
+      trigger?: string;
+      duration?: string;
+      delay?: string;
+    }) => {
+      const newMotion: Record<string, unknown> = { ...(component.styles.motion ?? {}) };
+      const legacyPatch: Record<string, unknown> = {};
+      if ('effect' in patch) {
+        legacyPatch.animationType = patch.effect;
+        newMotion.effect = patch.effect;
+      }
+      if ('trigger' in patch) {
+        legacyPatch.animationTrigger = patch.trigger;
+        newMotion.trigger = patch.trigger;
+      }
+      if ('duration' in patch) {
+        legacyPatch.animationDuration = patch.duration;
+        newMotion.duration = patch.duration ? LEGACY_DUR_TO_MOTION[patch.duration] : undefined;
+      }
+      if ('delay' in patch) {
+        legacyPatch.animationDelay = patch.delay;
+        newMotion.delay = patch.delay ? LEGACY_DEL_TO_MOTION[patch.delay] : 'none';
+      }
+      onUpdate({ styles: { ...legacyPatch, motion: newMotion as any } });
+    };
+
+    return (
     <div className="space-y-4">
       <div className="space-y-3">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -1212,8 +1467,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         <div className="space-y-2">
           <Label className="text-xs">Type</Label>
           <Select
-            value={component.styles.animationType || 'none'}
-            onValueChange={(value) => onUpdate({ styles: { animationType: value as any } })}
+            value={effectiveEffect}
+            onValueChange={(value) => updateAnim({ effect: value })}
           >
             <SelectTrigger className="h-8" data-testid="select-animation-type">
               <SelectValue />
@@ -1235,8 +1490,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <button
                 key={preset.value}
                 type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationTrigger === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { animationTrigger: preset.value as any } })}
+                className={`px-2 py-1 text-xs rounded border transition-all ${effectiveTrigger === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => updateAnim({ trigger: preset.value })}
                 data-testid={`animation-trigger-${preset.value}`}
               >
                 {preset.name}
@@ -1252,8 +1507,8 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <button
                 key={preset.value}
                 type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationDuration === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { animationDuration: preset.value } })}
+                className={`px-2 py-1 text-xs rounded border transition-all ${effectiveDuration === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => updateAnim({ duration: preset.value })}
                 data-testid={`animation-duration-${preset.name.toLowerCase()}`}
               >
                 {preset.name}
@@ -1269,9 +1524,70 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               <button
                 key={preset.value}
                 type="button"
-                className={`px-2 py-1 text-xs rounded border transition-all ${component.styles.animationDelay === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
-                onClick={() => onUpdate({ styles: { animationDelay: preset.value } })}
+                className={`px-2 py-1 text-xs rounded border transition-all ${effectiveDelay === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() => updateAnim({ delay: preset.value })}
                 data-testid={`animation-delay-${preset.name.toLowerCase()}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Newer controlled properties — stored as preset names in
+            styles.motion and overlaid on the four legacy fields. */}
+        <div className="space-y-2">
+          <Label className="text-xs">Kurve</Label>
+          <Select
+            value={motionObj?.easing as string || 'soft'}
+            onValueChange={(value) =>
+              onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), easing: value as any } } })
+            }
+          >
+            <SelectTrigger className="h-8" data-testid="select-animation-easing">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {animationPresets.easing.map((preset) => (
+                <SelectItem key={preset.value} value={preset.value}>
+                  {preset.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Afstand</Label>
+          <div className="flex flex-wrap gap-1">
+            {animationPresets.distance.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${(motionObj?.distance as string || 'medium') === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() =>
+                  onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), distance: preset.value as any } } })
+                }
+                data-testid={`animation-distance-${preset.value}`}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs">Gentagelse</Label>
+          <div className="flex flex-wrap gap-1">
+            {animationPresets.repeat.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                className={`px-2 py-1 text-xs rounded border transition-all ${(motionObj?.repeat as string || 'once') === preset.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/80 border-transparent'}`}
+                onClick={() =>
+                  onUpdate({ styles: { motion: { ...(component.styles.motion ?? {}), repeat: preset.value as any } } })
+                }
+                data-testid={`animation-repeat-${preset.value}`}
               >
                 {preset.name}
               </button>
@@ -1280,16 +1596,17 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         </div>
       </div>
 
-      {/* Animation preview hint */}
-      {component.styles.animationType && component.styles.animationType !== 'none' && (
+      {/* Animation preview hint — shows when any non-none effect is active */}
+      {effectiveEffect && effectiveEffect !== 'none' && (
         <div className="p-3 bg-muted/50 rounded-lg border border-dashed border-muted-foreground/20">
           <p className="text-xs text-muted-foreground">
-            Animationen afspilles ved {component.styles.animationTrigger === 'scroll' ? 'scroll' : 'sideindlæsning'}.
+            Animationen afspilles ved {effectiveTrigger === 'scroll' ? 'scroll' : 'sideindlæsning'}.
           </p>
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'content', label: 'Indhold', icon: <Type className="h-3.5 w-3.5" /> },
@@ -1345,6 +1662,9 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
               accessToken={accessToken}
               selectedNodeId={selectedNodeId}
               onNodeSelect={onNodeSelect}
+              globalStyles={globalStyles}
+              svgAssets={svgAssets}
+              onSvgAssetsChanged={onSvgAssetsChanged}
             />
           ) : (
             renderContentTab()

@@ -1,7 +1,8 @@
 export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container' | 'custom';
 
-import type { PrimitiveNode } from './customComponents';
+import type { PrimitiveNode, EditableSchema } from './customComponents';
 import { createDefaultCustomTree } from './customComponents';
+import { APPROVED_FONTS } from './fonts';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text' | 'boolean';
 
@@ -163,73 +164,18 @@ export const alignmentPresets = [
   { name: 'Right', value: 'right' },
 ];
 
-// Font family presets - 50+ professional Google Fonts
-export const fontFamilyPresets = [
-  // Sans-Serif - Modern & Clean
-  { name: 'Inter', value: 'Inter, system-ui, sans-serif' },
-  { name: 'Poppins', value: 'Poppins, sans-serif' },
-  { name: 'Montserrat', value: 'Montserrat, sans-serif' },
-  { name: 'Open Sans', value: 'Open Sans, sans-serif' },
-  { name: 'Roboto', value: 'Roboto, sans-serif' },
-  { name: 'Lato', value: 'Lato, sans-serif' },
-  { name: 'Nunito', value: 'Nunito, sans-serif' },
-  { name: 'Nunito Sans', value: 'Nunito Sans, sans-serif' },
-  { name: 'Raleway', value: 'Raleway, sans-serif' },
-  { name: 'Work Sans', value: 'Work Sans, sans-serif' },
-  { name: 'DM Sans', value: 'DM Sans, sans-serif' },
-  { name: 'Plus Jakarta Sans', value: 'Plus Jakarta Sans, sans-serif' },
-  { name: 'Manrope', value: 'Manrope, sans-serif' },
-  { name: 'Outfit', value: 'Outfit, sans-serif' },
-  { name: 'Figtree', value: 'Figtree, sans-serif' },
-  { name: 'Space Grotesk', value: 'Space Grotesk, sans-serif' },
-  { name: 'Sora', value: 'Sora, sans-serif' },
-  { name: 'Urbanist', value: 'Urbanist, sans-serif' },
-  { name: 'Lexend', value: 'Lexend, sans-serif' },
-  { name: 'Rubik', value: 'Rubik, sans-serif' },
-  { name: 'Quicksand', value: 'Quicksand, sans-serif' },
-  { name: 'Josefin Sans', value: 'Josefin Sans, sans-serif' },
-  { name: 'Barlow', value: 'Barlow, sans-serif' },
-  { name: 'Mulish', value: 'Mulish, sans-serif' },
-  { name: 'Karla', value: 'Karla, sans-serif' },
-  { name: 'Cabin', value: 'Cabin, sans-serif' },
-  { name: 'Archivo', value: 'Archivo, sans-serif' },
-  { name: 'Exo 2', value: 'Exo 2, sans-serif' },
-  { name: 'Overpass', value: 'Overpass, sans-serif' },
-  
-  // Serif - Elegant & Classic
-  { name: 'Playfair Display', value: 'Playfair Display, serif' },
-  { name: 'Merriweather', value: 'Merriweather, serif' },
-  { name: 'Lora', value: 'Lora, serif' },
-  { name: 'PT Serif', value: 'PT Serif, serif' },
-  { name: 'Source Serif 4', value: 'Source Serif 4, serif' },
-  { name: 'Libre Baskerville', value: 'Libre Baskerville, serif' },
-  { name: 'Crimson Text', value: 'Crimson Text, serif' },
-  { name: 'EB Garamond', value: 'EB Garamond, serif' },
-  { name: 'Cormorant Garamond', value: 'Cormorant Garamond, serif' },
-  { name: 'Spectral', value: 'Spectral, serif' },
-  { name: 'Bitter', value: 'Bitter, serif' },
-  { name: 'Vollkorn', value: 'Vollkorn, serif' },
-  { name: 'Cardo', value: 'Cardo, serif' },
-  { name: 'Frank Ruhl Libre', value: 'Frank Ruhl Libre, serif' },
-  
-  // Display - Headlines & Impact
-  { name: 'Bebas Neue', value: 'Bebas Neue, sans-serif' },
-  { name: 'Oswald', value: 'Oswald, sans-serif' },
-  { name: 'Anton', value: 'Anton, sans-serif' },
-  { name: 'Righteous', value: 'Righteous, sans-serif' },
-  { name: 'Teko', value: 'Teko, sans-serif' },
-  { name: 'Cinzel', value: 'Cinzel, serif' },
-  { name: 'Abril Fatface', value: 'Abril Fatface, serif' },
-  { name: 'Big Shoulders Display', value: 'Big Shoulders Display, sans-serif' },
-  
-  // Monospace - Code & Technical
-  { name: 'Fira Code', value: 'Fira Code, monospace' },
-  { name: 'JetBrains Mono', value: 'JetBrains Mono, monospace' },
-  { name: 'Source Code Pro', value: 'Source Code Pro, monospace' },
-  { name: 'IBM Plex Mono', value: 'IBM Plex Mono, monospace' },
-  { name: 'Roboto Mono', value: 'Roboto Mono, monospace' },
-  { name: 'Space Mono', value: 'Space Mono, monospace' },
-];
+/**
+ * Fonts offered in every builder picker.
+ *
+ * Derived from the one approved list (shared/fonts.ts) that the published
+ * site also loads, so the builder can never offer a font the customer's live
+ * website would silently fall back from.
+ */
+export const fontFamilyPresets = APPROVED_FONTS.map((font) => ({
+  name: font.name,
+  value: font.stack,
+}));
+
 
 // Font size presets
 export const fontSizePresets = {
@@ -286,6 +232,36 @@ export const animationPresets = {
     { name: 'Short', value: '0.1s' },
     { name: 'Medium', value: '0.3s' },
     { name: 'Long', value: '0.5s' },
+  ],
+  // Newer controlled properties (stored in styles.motion / node.motion —
+  // values are vocabulary names from shared/motion.ts, never CSS)
+  easing: [
+    { name: 'Blød', value: 'soft' },
+    { name: 'Ease-out', value: 'ease-out' },
+    { name: 'Jævn', value: 'ease-in-out' },
+    { name: 'Lineær', value: 'linear' },
+    { name: 'Fjedrende', value: 'spring' },
+  ],
+  distance: [
+    { name: 'Kort', value: 'short' },
+    { name: 'Mellem', value: 'medium' },
+    { name: 'Lang', value: 'long' },
+  ],
+  repeat: [
+    { name: 'Én gang', value: 'once' },
+    { name: 'Hver visning', value: 'every-view' },
+  ],
+  stagger: [
+    { name: 'Ingen', value: 'none' },
+    { name: 'Tæt', value: 'tight' },
+    { name: 'Normal', value: 'normal' },
+    { name: 'Afslappet', value: 'relaxed' },
+  ],
+  hover: [
+    { name: 'Ingen', value: 'none' },
+    { name: 'Løft', value: 'lift' },
+    { name: 'Forstør', value: 'grow' },
+    { name: 'Glød', value: 'glow' },
   ],
 };
 
@@ -355,6 +331,8 @@ export type ComponentItem = {
   content?: string;
   values?: string[];
   highlighted?: boolean;
+  /** Column heading used by comparison tables (older templates use this instead of `name`). */
+  label?: string;
   // Pricing plan extras
   period?: string;
   features?: string[];
@@ -458,6 +436,22 @@ export type ComponentProps = {
   // Custom component: tree of primitive nodes (data, never code).
   // See shared/customComponents.ts
   customTree?: PrimitiveNode;
+  // Custom component: semantic editing schema — names what a customer can
+  // edit ("Overskrift", "Knap – link") and binds each field to a tree node.
+  // Panel-only metadata; the publisher ignores it. See shared/customComponents.ts
+  customSchema?: EditableSchema;
+  // Provenance of an instance inserted from the component library: which
+  // entry (and which version of it) this section was cloned from. The
+  // instance stays a fully detached copy — this is bookkeeping only, and
+  // the publisher ignores it.
+  /**
+   * Provenance: which library entry (and version) this section was cloned
+   * from. `entryId` matches the local `customComponents` entry id; when the
+   * component was also saved to the account-level library,
+   * `accountComponentId` matches the `account_components.id` row.
+   * Instances remain fully detached — the publisher ignores this field.
+   */
+  libraryRef?: { entryId: string; version: number; accountComponentId?: string };
   // Product detail props
   showReviews?: boolean;
   showRelated?: boolean;
@@ -474,6 +468,10 @@ export type ComponentProps = {
   socialLinks?: Array<{ platform: string; url: string }>;
   // Newsletter props
   privacyNote?: string;
+  /** Heading over the row-label column of a comparison table. */
+  featuresLabel?: string;
+  /** Pricing plans. Older templates use this instead of `items`. */
+  plans?: ComponentItem[];
   socialProof?: string;
   // Image slider props
   captions?: string[];
@@ -481,6 +479,28 @@ export type ComponentProps = {
   popularBadge?: string;
   // Video embed props
   fullWidth?: boolean;
+};
+
+/**
+ * Safe subset of ComponentStyles that may differ per breakpoint.
+ * Only layout and spacing — never colours (brand-guide-managed),
+ * never font-family (brand-consistent), never animation.
+ */
+export type ResponsiveStyleOverrides = {
+  padding?: string;
+  margin?: string;
+  gap?: string;
+  minHeight?: string;
+  maxWidth?: string;
+  titleFontSize?: string;
+  bodyFontSize?: string;
+  textAlign?: string;
+  alignItems?: string;
+  justifyContent?: string;
+  flexDirection?: string;
+  gridTemplateColumns?: string;
+  display?: string;
+  borderRadius?: string;
 };
 
 export type ComponentStyles = {
@@ -530,6 +550,12 @@ export type ComponentStyles = {
   animationTrigger?: 'load' | 'scroll';
   animationDuration?: string;
   animationDelay?: string;
+  /**
+   * Newer motion properties (easing, distance, repeat, …) as preset names
+   * from shared/motion.ts. Overlaid key-by-key on the four legacy fields via
+   * sectionMotionSpec(), so old sites keep playing exactly as saved.
+   */
+  motion?: import('./motion').MotionSpec;
   // Header scroll behavior settings
   isTransparent?: boolean | string;
   overlayMode?: boolean | string;
@@ -550,6 +576,14 @@ export type ComponentStyles = {
   dividerWidth?: 'narrow' | 'medium' | 'full' | string;
   // Header glassmorphism
   glassmorphism?: boolean | string;
+  /**
+   * Breakpoint-specific style overrides applied on top of the desktop styles.
+   * Only layout/spacing properties; see ResponsiveStyleOverrides for the allowlist.
+   */
+  responsive?: {
+    tablet?: ResponsiveStyleOverrides;
+    mobile?: ResponsiveStyleOverrides;
+  };
 };
 
 export type BuilderComponentData = {
@@ -1345,6 +1379,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       styledSubtitle: { text: 'Choose the perfect plan for your needs' },
       title: 'Compare Plans',
       subtitle: 'Choose the perfect plan for your needs',
+      // Heading over the row-label column. Editable so preview and the
+      // published site can agree on one word in one language.
+      featuresLabel: 'Funktion',
       tableColumns: [
         { id: '1', name: 'Starter', price: '$9', highlighted: false },
         { id: '2', name: 'Professional', price: '$29', highlighted: true },
@@ -1369,6 +1406,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       animationDelay: '0s',
     },
     fields: [
+      { key: 'featuresLabel', label: 'Feature Column Heading', type: 'text', group: 'content' },
       { key: 'styledTitle', label: 'Title', type: 'styled-text', group: 'content' },
       { key: 'styledSubtitle', label: 'Subtitle', type: 'styled-text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
@@ -1613,7 +1651,43 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     type: 'custom',
     name: 'Egen komponent',
     icon: 'puzzle',
-    defaultProps: {},
+    defaultProps: {
+      // Fixed-ID tree so componentFor('custom') renders the same output on
+      // every call and parity tests can compare builder vs publisher output
+      // for a filled custom component. IDs are stable (not random) by design.
+      // The tree uses only layout/typography styles — no colour literals —
+      // so migrateStateToTokens leaves it unchanged and the "migrating to
+      // tokens changes nothing" parity test holds.
+      customTree: {
+        id: 'default-custom-root',
+        type: 'box',
+        styles: {
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: '64px 24px',
+        },
+        tabletStyles: { padding: '48px 20px' },
+        mobileStyles: { padding: '32px 16px' },
+        children: [
+          {
+            id: 'default-custom-heading',
+            type: 'text',
+            tag: 'h3',
+            text: 'Din egen komponent',
+            styles: { fontSize: '28px', fontWeight: '700', lineHeight: '1.2' },
+          },
+          {
+            id: 'default-custom-btn',
+            type: 'button',
+            label: 'Kom i gang',
+            href: '#',
+            variant: 'primary',
+            styles: { alignSelf: 'flex-start' },
+          },
+        ],
+      },
+    } as Record<string, unknown>,
     defaultStyles: {
       backgroundColor: 'transparent',
       padding: '0px',
@@ -1641,8 +1715,11 @@ export function getComponentTypes(): ComponentType[] {
 export function createComponent(type: ComponentType): BuilderComponentData {
   const def = componentRegistry[type];
   const props = { ...def.defaultProps };
-  // Each custom component instance gets its own fresh node tree (unique ids)
-  if (type === 'custom' && !props.customTree) {
+  // Always regenerate the custom tree so every created instance has unique
+  // node IDs. The registry carries a static default tree only for parity
+  // tests (componentFor/componentRegistry reads); real creation always gets
+  // a fresh deep clone with newly generated IDs via createDefaultCustomTree().
+  if (type === 'custom') {
     props.customTree = createDefaultCustomTree();
   }
   return {

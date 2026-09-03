@@ -5,6 +5,7 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
+import { injectSeoHead } from "./seo";
 
 const viteLogger = createLogger();
 
@@ -49,7 +50,11 @@ export async function setupVite(server: Server, app: Express) {
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
       const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      // Route-specific title/description/canonical/OG/robots + status code
+      // in the initial response (unknown routes are real 404s, app routes
+      // are noindexed). Same source of truth as the client-side updates.
+      const { html, status } = injectSeoHead(page, url, req.headers.host);
+      res.status(status).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);

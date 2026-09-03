@@ -1,3 +1,4 @@
+import { useLocale } from "@/lib/locale";
 import { PURPLE } from "@/components/bf2/theme";
 import { AuthLogo } from "./AuthLogo";
 import { AuthJourney } from "./AuthJourney";
@@ -9,6 +10,7 @@ import { BRAND_STATEMENT, BRAND_SUPPORT } from "./copy";
    worth its width instead of being decoration. */
 
 export function AuthBrandPanel() {
+  const { lang } = useLocale();
   return (
     <div
       className="hidden md:flex min-w-0 flex-col px-8 lg:px-12 xl:px-16 py-12 lg:py-16"
@@ -25,13 +27,13 @@ export function AuthBrandPanel() {
             className="bf2-display m-0 text-[30px] lg:text-[42px] xl:text-[46px] leading-[1.15] text-white"
             data-testid="text-brand-statement"
           >
-            {BRAND_STATEMENT}
+            {BRAND_STATEMENT[lang]}
           </p>
           <p
             className="mt-5 m-0 text-[15px] lg:text-[17px] leading-[1.6]"
             style={{ color: "rgba(255,255,255,0.85)" }}
           >
-            {BRAND_SUPPORT}
+            {BRAND_SUPPORT[lang]}
           </p>
         </div>
 

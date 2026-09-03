@@ -167,6 +167,18 @@ export default function GlobalStylesPanel({ globalStyles, onUpdate }: GlobalStyl
               Gælder som standard for alle sektioner der ikke har en specifik skrifttype.
             </p>
           </div>
+
+          <Separator />
+
+          {/* The brand tab is the full editing surface: accent and surface
+              colours, skriftskala, skygger og containerbredde bor der, og
+              ændringer derfra slår igennem på alle sektioner der følger
+              brandet. Her ligger kun de fire hurtige valg. */}
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            Accentfarve, kortflade, skriftskala, skygger og bredde redigeres i{' '}
+            <span className="font-medium text-foreground">Brand</span>-fanen. Sektioner der følger
+            brandet, opdateres automatisk.
+          </p>
         </div>
       )}
     </div>

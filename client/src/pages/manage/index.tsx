@@ -11,7 +11,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import {
   LayoutDashboard, Calendar, Clock, ShoppingCart, Package, Truck, Users,
-  FileInput, BarChart3, Settings, Mail, ArrowLeft, Globe, Palette, Menu,
+  FileInput, BarChart3, Banknote, Settings, Mail, ArrowLeft, Globe, Palette, Menu,
   Loader2, UserRound, type LucideIcon,
 } from "lucide-react";
 import type { ManageWebsite } from "./types";
@@ -28,13 +28,14 @@ import { ShippingSection } from "./ShippingSection";
 import { CustomersSection } from "./CustomersSection";
 import { SubmissionsSection } from "./SubmissionsSection";
 import { AnalyticsSection } from "./AnalyticsSection";
+import { EconomicsSection } from "./EconomicsSection";
 import { SettingsSection } from "./SettingsSection";
 import { EmailsSection } from "./EmailsSection";
 import { AccountMenu } from "./AccountMenu";
 
 type SectionKey =
   | "overview" | "bookings" | "services" | "team" | "orders" | "products" | "shipping"
-  | "customers" | "submissions" | "analytics" | "settings" | "emails";
+  | "customers" | "submissions" | "analytics" | "economics" | "settings" | "emails";
 
 const SECTION_COMPONENTS: Record<SectionKey, React.ComponentType<any>> = {
   overview: OverviewSection,
@@ -47,6 +48,7 @@ const SECTION_COMPONENTS: Record<SectionKey, React.ComponentType<any>> = {
   customers: CustomersSection,
   submissions: SubmissionsSection,
   analytics: AnalyticsSection,
+  economics: EconomicsSection,
   settings: SettingsSection,
   emails: EmailsSection,
 };
@@ -62,6 +64,7 @@ const SECTION_TITLES: Record<SectionKey, string> = {
   customers: "Kunder",
   submissions: "Formularer",
   analytics: "Analytics",
+  economics: "Økonomi",
   settings: "Indstillinger",
   emails: "E-mails",
 };
@@ -96,7 +99,10 @@ const NAV_GROUPS: { label: string | null; items: { key: SectionKey; label: strin
   },
   {
     label: null,
-    items: [{ key: "analytics", label: "Analytics", icon: BarChart3 }],
+    items: [
+      { key: "analytics", label: "Analytics", icon: BarChart3 },
+      { key: "economics", label: "Økonomi", icon: Banknote },
+    ],
   },
   {
     label: "Indstillinger",

@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
@@ -33,16 +31,17 @@ import type { BuilderMutation, BuildReport, PaletteProposal, FontPairProposal } 
 import { runAgent, applyApprovedMutations, type AgentStreamEvent } from "@/lib/aiAgentStream";
 import { uploadImage } from "@/lib/builderUpload";
 import PlanChecklistCard from "@/components/builder/PlanChecklistCard";
-import BuildProgressCard, {
-  reduceBuildEvent,
-  type BuildView,
-} from "@/components/builder/BuildProgressCard";
-import type { AssistantPlan, PlanStep } from "@shared/assistantPlan";
+import { SelfReviewSection } from "@/components/builder/SelfReviewSection";
+import BuildProgressCard, { type BuildView } from "@/components/builder/BuildProgressCard";
+import type { AssistantPlan, PlanStep, PlanStepResult } from "@shared/assistantPlan";
+import { ACTIVE_BUILD_STATUSES } from "@shared/assistantPlan";
 import {
   approvePlanVersion,
-  continueBuildStream,
+  continueBuildJob,
+  fetchBuilderState,
   fetchPlanState,
-  runBuildStream,
+  requestPlanRevision,
+  startBuildJob,
   runPlanMode,
   savePlanEdit,
   stopBuild,
@@ -77,12 +76,27 @@ import {
 /** One line in the agent's live activity list. */
 type AgentStep = { label: string; ok: boolean };
 
+/** A single design direction proposed by the AI. */
+type DesignDirection = {
+  id: string;
+  name: string;
+  concept: string;
+  designIntent: "brand_aligned" | "brand_evolution" | "experimental";
+  brandDeviation: {
+    level: "none" | "low" | "medium" | "high";
+    changes: string[];
+    rationale: string;
+  };
+  brandGuideChanges?: Record<string, unknown>;
+};
+
 /** Rich payload a tool streamed for inline rendering. */
 type DisplayCard =
   | { kind: "palettes"; value: PaletteProposal[]; chosenId?: string }
   | { kind: "fontPairs"; value: FontPairProposal[]; chosenId?: string }
   | { kind: "sitePlan"; value: { plan: WebsitePlan; screenshotBase64?: string }; applied?: boolean; dismissed?: boolean }
-  | { kind: "designTokens"; value: Record<string, unknown> };
+  | { kind: "designTokens"; value: Record<string, unknown> }
+  | { kind: "designDirections"; value: DesignDirection[]; chosenId?: string };
 
 type Message = {
   id: string;
@@ -97,6 +111,22 @@ type Message = {
   displays?: DisplayCard[];
   /** Set when the agent stopped on a large change and needs a decision. */
   approval?: { reason: string; summary: string[]; mutations: BuilderMutation[] };
+  /**
+   * A failed planning round the customer can run again without retyping.
+   * The prompt is kept here rather than in the input box so a retry uses
+   * exactly the words that were sent, not whatever was typed since.
+   */
+  retryPrompt?: string;
+  /**
+   * Set when an experimental design direction has been applied and the user
+   * must make an explicit post-application choice about the brand guide.
+   */
+  brandEvolutionOffer?: {
+    proposalId: string;
+    directionName: string;
+    designIntent: string;
+    brandDeviation: { level: string; changes: string[]; rationale: string };
+  };
 };
 
 type AIBuilderPanelProps = {
@@ -113,6 +143,8 @@ type AIBuilderPanelProps = {
   hasPendingEdit?: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** Called when a build starts or finishes — lets the parent badge the AI tab. */
+  onBuildStatusChange?: (isRunning: boolean) => void;
 };
 
 export default function AIBuilderPanel({
@@ -123,7 +155,8 @@ export default function AIBuilderPanel({
   history,
   hasPendingEdit = false,
   onUndo,
-  onRedo
+  onRedo,
+  onBuildStatusChange,
 }: AIBuilderPanelProps) {
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -131,7 +164,11 @@ export default function AIBuilderPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Set to true when the user manually scrolls up; cleared when they return to the bottom. */
+  const userScrolledUpRef = useRef(false);
 
   /* ─── Plan mode / Build mode ───
      Plan mode asks the assistant to think first and produce a checklist
@@ -144,11 +181,182 @@ export default function AIBuilderPanel({
   const [buildView, setBuildView] = useState<BuildView | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
 
+  // Polling state — used while a build is running in the background so the
+  // customer sees progress even after closing and reopening the browser.
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastBuildStatusRef = useRef<string | null>(null);
+
+  // Smart scroll anchor: auto-scroll to bottom only when the user hasn't
+  // manually scrolled up to read earlier messages.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (userScrolledUpRef.current) return;
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, plan, buildView]);
+
+  // ─── Polling helpers ─────────────────────────────────────────────────────
+
+  const stopBuildPolling = () => {
+    if (pollIntervalRef.current !== null) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
+
+  const pollBuildOnce = async () => {
+    if (!session?.access_token) return;
+    try {
+      const state = await fetchPlanState({ websiteId, accessToken: session.access_token });
+      if (!state.build || !state.plan) return;
+
+      const pollStatus = state.build.status;
+      const summary = state.build.summary;
+
+      // Rebuild the BuildView from the polled state.
+      setBuildView((prev) => {
+        const stepResults = summary?.steps ?? prev?.results ?? [];
+        const currentStepResult = stepResults[state.build!.currentStep];
+        const approvalPending =
+          pollStatus === "paused" &&
+          currentStepResult?.pauseReason === "approval_required" &&
+          currentStepResult?.approvalId
+            ? { approvalId: currentStepResult.approvalId, stepId: currentStepResult.stepId }
+            : null;
+        return {
+          buildId: state.build!.id,
+          planTitle: summary?.planTitle ?? state.plan!.title,
+          steps: state.plan!.steps,
+          // Always use polled results so completed steps show ✓ in real time.
+          results: stepResults,
+          activeIndex: pollStatus === "running" ? state.build!.currentStep : -1,
+          activeLabel: pollStatus === "running" ? "Bygger…" : "",
+          status: pollStatus,
+          pauseReason: state.build!.error,
+          // Only show final summary when the build has stopped (not while running).
+          summary: pollStatus !== "running" ? (summary ?? null) : null,
+          canUndo: state.build!.canUndo && (summary?.canUndo ?? false),
+          approvalPending,
+        };
+      });
+
+      const wasRunning = lastBuildStatusRef.current === "running";
+      lastBuildStatusRef.current = pollStatus;
+
+      // When the build transitions out of "running", refresh the canvas with
+      // whatever the server has saved so far, then notify the parent.
+      const isTerminal = !ACTIVE_BUILD_STATUSES.includes(pollStatus as any);
+      if (isTerminal && wasRunning) {
+        onBuildStatusChange?.(false);
+        stopBuildPolling();
+
+        // Pull the latest builder state so the canvas reflects all steps.
+        fetchBuilderState({ websiteId, accessToken: session.access_token })
+          .then((bs) => {
+            if (bs) onStateChange(bs.state, "AI-bygning", bs.revision);
+          })
+          .catch(() => {});
+
+        if (pollStatus === "completed") {
+          toast({
+            title: "Hjemmesiden er klar! 🎉",
+            description: "AI-bygningen er fuldført. Klik på 'Udgiv' for at dele den.",
+          });
+        }
+      }
+
+      if (pollStatus === "paused") setMode("plan");
+    } catch {
+      // Silent — will retry on the next tick.
+    }
+  };
+
+  const startBuildPolling = () => {
+    stopBuildPolling();
+    lastBuildStatusRef.current = "running";
+    void pollBuildOnce(); // immediate first poll
+    pollIntervalRef.current = setInterval(() => void pollBuildOnce(), 3000);
+  };
+
+  // Stop polling on unmount.
+  useEffect(() => () => stopBuildPolling(), []);
+
+  // Restart polling when the page becomes visible again (tab switch / browser
+  // return) and a build is still in progress.
+  useEffect(() => {
+    const handleVisible = () => {
+      if (lastBuildStatusRef.current === "running" && pollIntervalRef.current === null) {
+        startBuildPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("focus", handleVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("focus", handleVisible);
+    };
+  }, [websiteId, session?.access_token]);
+
+  // ─── Load pending design-direction proposals on mount ────────────────────
+  // Any directions proposed in a previous session (and not yet chosen/rejected)
+  // are restored as a message card so the user can still pick or dismiss them.
+  useEffect(() => {
+    let cancelled = false;
+    if (!session?.access_token || !websiteId) return;
+
+    fetch(`/api/websites/${websiteId}/ai/proposals`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (cancelled || !data) return;
+
+        const newMessages: Message[] = [];
+
+        // Restore pending direction cards from a previous session.
+        if (data.proposals?.length) {
+          const directions = data.proposals.map((p: any) => ({
+            id: p.id,
+            name: p.direction.name,
+            concept: p.direction.concept ?? "",
+            designIntent: p.direction.designIntent,
+            brandDeviation: p.direction.brandDeviation,
+            brandGuideChanges: p.direction.brandGuideChanges,
+          }));
+          newMessages.push({
+            id: `proposals-restored-${Date.now()}`,
+            role: "assistant" as const,
+            content: "Her er designretninger fra din tidligere session — vælg en for at fortsætte:",
+            displays: [{ kind: "designDirections" as const, value: directions }],
+          });
+        }
+
+        // Restore unresolved evolution offer cards for applied experimental directions.
+        // These are the "apply site-wide / add to brand guide / keep here" choices.
+        if (data.evolutionOffers?.length) {
+          for (const offer of data.evolutionOffers) {
+            newMessages.push({
+              id: `evolution-offer-restored-${offer.proposalId}`,
+              role: "assistant" as const,
+              content: "",
+              brandEvolutionOffer: {
+                proposalId: offer.proposalId,
+                directionName: offer.directionName,
+                designIntent: offer.designIntent,
+                brandDeviation: offer.brandDeviation,
+              },
+            });
+          }
+        }
+
+        if (newMessages.length > 0) {
+          setMessages((prev) => [...prev, ...newMessages]);
+        }
+      })
+      .catch(() => {/* silently ignore — panel is still usable */});
+
+    return () => { cancelled = true; };
+  }, [websiteId, session?.access_token]);
+
+  // ─── Load plan + build state from server on mount ────────────────────────
 
   // Reload whatever plan and build the server is holding for this website.
   useEffect(() => {
@@ -159,21 +367,46 @@ export default function AIBuilderPanel({
       .then((state) => {
         if (cancelled) return;
         setPlan(state.plan);
-        if (state.plan && state.build?.summary) {
+        if (state.plan && state.build) {
           const summary = state.build.summary;
+          const buildStatus = state.build.status;
+          const initialResults: PlanStepResult[] = summary?.steps ?? state.plan.steps.map((step, index): PlanStepResult => ({
+            stepId: step.id,
+            index,
+            status: "pending" as const,
+            summary: "",
+            mutationCount: 0,
+            notes: [],
+            rejections: [],
+            imagesUsed: 0,
+            attempts: 0,
+          }));
+          const pausedStepResult = initialResults[state.build.currentStep];
+          const initialApprovalPending =
+            buildStatus === "paused" &&
+            pausedStepResult?.pauseReason === "approval_required" &&
+            pausedStepResult?.approvalId
+              ? { approvalId: pausedStepResult.approvalId, stepId: pausedStepResult.stepId }
+              : null;
           setBuildView({
             buildId: state.build.id,
-            planTitle: summary.planTitle,
+            planTitle: summary?.planTitle ?? state.plan.title,
             steps: state.plan.steps,
-            results: summary.steps,
-            activeIndex: -1,
-            activeLabel: "",
-            status: state.build.status,
+            results: initialResults,
+            activeIndex: buildStatus === "running" ? state.build.currentStep : -1,
+            activeLabel: buildStatus === "running" ? "Genoptager…" : "",
+            status: buildStatus,
             pauseReason: state.build.error,
-            summary,
-            canUndo: state.build.canUndo && summary.canUndo,
+            summary: buildStatus !== "running" ? (summary ?? null) : null,
+            canUndo: state.build.canUndo && (summary?.canUndo ?? false),
+            approvalPending: initialApprovalPending,
           });
-          if (state.build.status === "paused") setMode("plan");
+          if (buildStatus === "paused") setMode("plan");
+          if (buildStatus === "running") {
+            // A build is already running in the background — start polling.
+            onBuildStatusChange?.(true);
+            startBuildPolling();
+          }
         }
       })
       // The panel still works as a plain chat if plan mode is unavailable.
@@ -221,6 +454,17 @@ export default function AIBuilderPanel({
         case "error":
           pushStep(event.message, false);
           break;
+        case "brand_evolution_offer":
+          patchMessage(messageId, (m) => ({
+            ...m,
+            brandEvolutionOffer: {
+              proposalId: event.proposalId,
+              directionName: event.directionName,
+              designIntent: event.designIntent,
+              brandDeviation: event.brandDeviation,
+            },
+          }));
+          break;
         default:
           break;
       }
@@ -262,7 +506,7 @@ export default function AIBuilderPanel({
       }));
 
       // One history entry for the whole run, so a single undo reverts it.
-      onStateChange(result.newState, `AI: ${userInput.slice(0, 30)}...`);
+      onStateChange(result.newState, `AI: ${userInput.slice(0, 30)}...`, result.revision);
     } catch (error: any) {
       patchMessage(messageId, (m) => ({
         ...m,
@@ -312,7 +556,20 @@ export default function AIBuilderPanel({
         working: false,
         error: true,
         content: `Planen kunne ikke laves: ${error.message}`,
+        ...(error?.canRetry === false ? {} : { retryPrompt: userInput }),
       }));
+    }
+  };
+
+  /** Run the same description again, from the failed message's own button. */
+  const retryPlan = async (messageId: string, prompt: string) => {
+    if (isLoading) return;
+    patchMessage(messageId, (m) => ({ ...m, retryPrompt: undefined }));
+    setIsLoading(true);
+    try {
+      await runPlanTurn(prompt);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -358,6 +615,41 @@ export default function AIBuilderPanel({
     }
   };
 
+  /**
+   * Targeted AI revision of specific plan steps.
+   * The customer's per-step comments are sent to the server, which runs a
+   * focused LLM pass and saves the result as the next plan version.
+   */
+  const revisePlan = async (
+    annotations: Array<{ index: number; stepId: string; comment: string }>
+  ) => {
+    if (!plan) return;
+    setPlanBusy(true);
+    try {
+      const next = await requestPlanRevision({
+        websiteId,
+        accessToken: session.access_token,
+        planId: plan.id,
+        version: plan.version,
+        annotations,
+      });
+      setPlan(next);
+      toast({
+        title: "Planen er opdateret",
+        description: `Version ${next.version} — tjek ændringerne og godkend for at bygge.`,
+      });
+    } catch (error: any) {
+      if (error.body?.plan) setPlan(error.body.plan as AssistantPlan);
+      toast({
+        title: "Planen kunne ikke revideres",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
   const approvePlan = async () => {
     if (!plan) return;
     setPlanBusy(true);
@@ -382,30 +674,11 @@ export default function AIBuilderPanel({
    * persists streams a `state` event, so the customer watches the site
    * being built instead of waiting for one jump at the end.
    */
-  const consumeBuild = async (run: (onEvent: (event: any) => void) => Promise<any>) => {
-    setIsLoading(true);
-    setPlanBusy(true);
-    try {
-      await run((event) => {
-        if (event.type === "state") {
-          onStateChange(event.newState, "AI-bygning", event.revision);
-          return;
-        }
-        setBuildView((prev) => (prev ? reduceBuildEvent(prev, event) : prev));
-      });
-    } catch (error: any) {
-      toast({ title: "Bygningen fejlede", description: error.message, variant: "destructive" });
-      setBuildView((prev) =>
-        prev ? { ...prev, status: "failed", activeIndex: -1, pauseReason: error.message } : prev
-      );
-    } finally {
-      setIsLoading(false);
-      setPlanBusy(false);
-    }
-  };
-
   const startBuildRun = async () => {
     if (!plan) return;
+
+    // Optimistic UI: show all steps as pending immediately so the customer
+    // sees the plan is in motion before the server responds.
     setBuildView({
       buildId: 0,
       planTitle: plan.title,
@@ -422,40 +695,83 @@ export default function AIBuilderPanel({
         attempts: 0,
       })),
       activeIndex: -1,
-      activeLabel: "",
+      activeLabel: "Starter bygning…",
       status: "running",
       pauseReason: null,
       summary: null,
       canUndo: false,
     });
 
-    await consumeBuild((onEvent) =>
-      runBuildStream({
+    setPlanBusy(true);
+    try {
+      const { buildId } = await startBuildJob({
         websiteId,
         accessToken: session.access_token,
         planId: plan.id,
         version: plan.version,
-        onEvent: (event) => {
-          if (event.type === "build_started") {
-            setBuildView((prev) => (prev ? { ...prev, buildId: event.buildId } : prev));
-          }
-          onEvent(event);
-        },
-      })
-    );
+      });
+      setBuildView((prev) => (prev ? { ...prev, buildId } : prev));
+      onBuildStatusChange?.(true);
+      startBuildPolling();
+    } catch (error: any) {
+      toast({ title: "Bygningen kunne ikke startes", description: error.message, variant: "destructive" });
+      setBuildView(null);
+    } finally {
+      setPlanBusy(false);
+    }
   };
 
   const continueBuild = async (action: "resume" | "skip" | "retry") => {
     if (!buildView?.buildId) return;
-    await consumeBuild((onEvent) =>
-      continueBuildStream({
+    setPlanBusy(true);
+    try {
+      await continueBuildJob({
         websiteId,
         accessToken: session.access_token,
         buildId: buildView.buildId,
         action,
-        onEvent,
-      })
-    );
+      });
+      setBuildView((prev) =>
+        prev ? { ...prev, status: "running", activeLabel: "Genoptager…", approvalPending: null } : prev
+      );
+      onBuildStatusChange?.(true);
+      startBuildPolling();
+    } catch (error: any) {
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  /**
+   * The large-change classifier fired on the paused step. The user explicitly
+   * approved it here — send the scoped token so the server can verify and then
+   * re-run the step with approvedLargeChanges: true.
+   */
+  const approveStep = async () => {
+    if (!buildView?.buildId || !buildView.approvalPending) return;
+    setPlanBusy(true);
+    try {
+      await continueBuildJob({
+        websiteId,
+        accessToken: session.access_token,
+        buildId: buildView.buildId,
+        action: "approve_and_resume",
+        approvalId: buildView.approvalPending.approvalId,
+        stepId: buildView.approvalPending.stepId,
+      });
+      setBuildView((prev) =>
+        prev
+          ? { ...prev, status: "running", activeLabel: "Godkender og genoptager…", approvalPending: null }
+          : prev
+      );
+      onBuildStatusChange?.(true);
+      startBuildPolling();
+    } catch (error: any) {
+      toast({ title: "Fejl", description: error.message, variant: "destructive" });
+    } finally {
+      setPlanBusy(false);
+    }
   };
 
   const stopBuildRun = async () => {
@@ -480,7 +796,7 @@ export default function AIBuilderPanel({
         accessToken: session.access_token,
         buildId: buildView.buildId,
       });
-      onStateChange(result.newState as BuilderStateData, "Fortryd AI-bygning");
+      onStateChange(result.newState as BuilderStateData, "Fortryd AI-bygning", result.revision);
       setBuildView((prev) => (prev ? { ...prev, status: "undone", canUndo: false } : prev));
       toast({ title: "Bygningen er fortrudt", description: "Websitet er tilbage som før." });
     } catch (error: any) {
@@ -506,7 +822,7 @@ export default function AIBuilderPanel({
         content: data.explanation || "Ændringerne er gennemført!",
         report: data.report as BuildReport | undefined,
       }));
-      onStateChange(data.newState, "AI: godkendt ændring");
+      onStateChange(data.newState, "AI: godkendt ændring", data.revision);
     } catch (error: any) {
       toast({ title: "Fejl", description: error.message, variant: "destructive" });
     } finally {
@@ -540,7 +856,7 @@ export default function AIBuilderPanel({
       }
       const data = await response.json();
       if (data.newState) {
-        onStateChange(data.newState, `AI: Byggede ${plan.siteName}`);
+        onStateChange(data.newState, `AI: Byggede ${plan.siteName}`, data.revision);
       }
       patchMessage(messageId, (m) => ({
         ...m,
@@ -613,136 +929,138 @@ export default function AIBuilderPanel({
   };
 
   return (
-    <div className="flex flex-col h-full bg-background" data-testid="ai-builder-panel">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-            <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
-          </div>
-          <h3 className="font-semibold text-sm leading-tight">AI-assistent</h3>
-        </div>
+    <div className="flex flex-col h-full" data-testid="ai-builder-panel">
+      {/* CSS keyframes — scoped to this panel via a unique animation name prefix */}
+      <style>{`
+        @keyframes ai-msg-in {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes ai-dot-pulse {
+          0%, 60%, 100% { transform: translateY(0);   opacity: 0.35; }
+          30%            { transform: translateY(-4px); opacity: 1; }
+        }
+      `}</style>
 
-        {/* Plan først, eller byg direkte */}
-        <div
-          className="flex items-center rounded-lg border bg-muted/50 p-0.5"
-          data-testid="assistant-mode-switch"
-        >
-          <button
-            type="button"
-            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-              mode === "plan"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => setMode("plan")}
-            disabled={isLoading}
-            data-testid="button-mode-plan"
-          >
-            <ListChecks className="h-3 w-3" />
-            Plan
-          </button>
-          <button
-            type="button"
-            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-              mode === "chat"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => setMode("chat")}
-            disabled={isLoading}
-            data-testid="button-mode-build"
-          >
-            <Hammer className="h-3 w-3" />
-            Byg
-          </button>
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 border-b px-3 py-2 shrink-0 bg-background">
+        <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center shadow-sm shrink-0">
+          <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
         </div>
+        <span className="font-semibold text-[13px] tracking-tight leading-none mr-1">AI</span>
 
-        <div className="flex items-center gap-0.5">
-          <TooltipProvider delayDuration={300}>
+        <ModeToggle mode={mode} onChange={setMode} disabled={isLoading} />
+
+        <div className="flex-1" />
+
+        <TooltipProvider delayDuration={400}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost" size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={onUndo}
+                disabled={!hasPendingEdit && (!history || !canUndo(history))}
+                data-testid="button-undo"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Fortryd (⌘Z)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost" size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={onRedo}
+                disabled={!history || !canRedo(history)}
+                data-testid="button-redo"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">Annuller fortryd</TooltipContent>
+          </Tooltip>
+          {messages.length > 0 && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="ghost"
-                  size="icon"
+                  variant="ghost" size="icon"
                   className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={onUndo}
-                  disabled={!hasPendingEdit && (!history || !canUndo(history))}
-                  data-testid="button-undo"
+                  onClick={clearConversation}
+                  disabled={isLoading}
+                  data-testid="button-clear-chat"
                 >
-                  <Undo2 className="w-3.5 h-3.5" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">Fortryd</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs">Ryd chatten</TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={onRedo}
-                  disabled={!history || !canRedo(history)}
-                  data-testid="button-redo"
-                >
-                  <Redo2 className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">Annuller fortryd</TooltipContent>
-            </Tooltip>
-            {messages.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                    onClick={clearConversation}
-                    disabled={isLoading}
-                    data-testid="button-clear-chat"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">Ryd chatten</TooltipContent>
-              </Tooltip>
-            )}
-          </TooltipProvider>
-        </div>
+          )}
+        </TooltipProvider>
       </div>
 
-      {/* Thread */}
-      <ScrollArea className="flex-1 px-4" ref={scrollRef}>
-        <div className="space-y-4 py-4">
+      {/* ── Thread ─────────────────────────────────────────────────────────── */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto"
+        onScroll={() => {
+          const el = scrollRef.current;
+          if (!el) return;
+          userScrolledUpRef.current = (el.scrollHeight - el.scrollTop - el.clientHeight) > 80;
+        }}
+      >
+        <div className="px-3 py-4 space-y-4">
+          {/* Empty state */}
           {messages.length === 0 && (
-            <p className="text-center text-xs text-muted-foreground pt-10 max-w-[260px] mx-auto leading-relaxed">
-              {mode === "plan"
-                ? "Fortæl hvad du gerne vil have. Jeg læser hjemmesiden og laver en plan, du kan rette i og godkende — der bliver ikke ændret noget, før du siger til."
-                : "Beskriv hvad du vil bygge eller ændre — fx en hel hjemmeside, en ny sektion, nye farver eller tekst. Jeg spørger, hvis noget er en stor ændring."}
-            </p>
+            <div className="flex flex-col items-center text-center pt-8 pb-2">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-3">
+                <Sparkles className="w-5 h-5 text-primary/70" />
+              </div>
+              <p className="text-[12px] text-muted-foreground max-w-[220px] leading-relaxed">
+                {mode === "plan"
+                  ? "Fortæl hvad du ønsker. Jeg laver en plan, du kan rette og godkende — intet ændres, før du siger til."
+                  : "Beskriv hvad du vil bygge eller ændre. Jeg spørger kun ved større ændringer."}
+              </p>
+            </div>
           )}
 
+          {/* Messages */}
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`flex items-end gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              style={{ animation: "ai-msg-in 180ms ease-out both" }}
             >
+              {/* AI avatar mark */}
+              {message.role === "assistant" && (
+                <div className="w-5 h-5 rounded-md bg-primary flex items-center justify-center shrink-0 mb-px shadow-sm">
+                  <Sparkles className="w-2.5 h-2.5 text-primary-foreground" />
+                </div>
+              )}
+
               <div
-                className={`max-w-[92%] ${
+                className={`min-w-0 ${
                   message.role === "user"
-                    ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md px-3.5 py-2.5 shadow-sm"
+                    ? "max-w-[84%] bg-primary text-primary-foreground rounded-[18px] rounded-br-[5px] px-3.5 py-2.5 shadow-sm"
                     : message.error
-                    ? "bg-destructive/10 border border-destructive/30 text-destructive rounded-2xl rounded-bl-md px-3.5 py-2.5"
-                    : "bg-muted/70 rounded-2xl rounded-bl-md px-3.5 py-2.5 w-full"
+                    ? "max-w-[88%] bg-rose-50 border border-rose-200 text-rose-800 rounded-[18px] rounded-bl-[5px] px-3.5 py-2.5"
+                    : "max-w-[88%] bg-muted/50 border border-border/40 rounded-[18px] rounded-bl-[5px] px-3.5 py-2.5 w-full"
                 }`}
               >
+                {/* Thinking dots: show when working and nothing has appeared yet */}
+                {message.working && !message.content && (message.steps?.length ?? 0) === 0 && (
+                  <ThinkingDots />
+                )}
+
                 {message.content && (
                   <p className="text-[13px] leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 )}
 
-                {/* Live agent activity: what it is actually doing, step by step */}
+                {/* Live agent steps */}
                 {(message.steps?.length ?? 0) > 0 && (
-                  <ol className="mt-1 space-y-1 list-none p-0 m-0" data-testid="agent-steps">
+                  <ol className="mt-1.5 space-y-1 list-none p-0 m-0" data-testid="agent-steps">
                     {message.steps!.map((step, i) => (
                       <li key={i} className="flex items-start gap-1.5 text-[11.5px] leading-snug">
                         {step.ok ? (
@@ -756,9 +1074,8 @@ export default function AIBuilderPanel({
                       </li>
                     ))}
                     {message.working && (
-                      <li className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-                        <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                        Arbejder…
+                      <li className="flex items-center gap-1.5 mt-1">
+                        <ThinkingDots />
                       </li>
                     )}
                   </ol>
@@ -802,20 +1119,85 @@ export default function AIBuilderPanel({
                       />
                     )}
                     {display.kind === "designTokens" && <DesignTokensCard tokens={display.value} />}
+                    {display.kind === "designDirections" && (
+                      <DesignDirectionCards
+                        directions={display.value}
+                        chosenId={display.chosenId}
+                        disabled={isLoading}
+                        onChoose={(dir) => {
+                          // Mark the chosen direction and send the selection
+                          // back to the agent as a chat message so it can call
+                          // apply_design_direction with the correct proposalId.
+                          patchMessage(message.id, (m) => ({
+                            ...m,
+                            displays: m.displays?.map((d, j) =>
+                              j === i && d.kind === "designDirections"
+                                ? { ...d, chosenId: dir.id }
+                                : d
+                            ),
+                          }));
+                          sendMessage(
+                            `Vælg designretningen "${dir.name}" (proposalId: ${dir.id}) og anvend den på websitet.`
+                          );
+                        }}
+                        onDismissAll={() => {
+                          // Reject each pending proposal on the server, then hide this card group.
+                          for (const dir of display.value) {
+                            fetch(
+                              `/api/websites/${websiteId}/ai/proposals/${dir.id}/reject`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${session.access_token}`,
+                                },
+                              }
+                            ).catch(() => {/* best-effort — already hidden client-side */});
+                          }
+                          // Remove the message from the panel immediately.
+                          setMessages((prev) => prev.filter((m) => m.id !== message.id));
+                        }}
+                      />
+                    )}
                   </div>
                 ))}
 
-                {/* Large change: nothing was saved until the user decides */}
+                {/* Brand evolution offer — shown after an experimental direction is applied */}
+                {message.brandEvolutionOffer && (
+                  <BrandEvolutionOfferCard
+                    offer={message.brandEvolutionOffer}
+                    disabled={isLoading}
+                    websiteId={websiteId}
+                    accessToken={session.access_token}
+                    onSuccess={(_outcomeKind, newState, revision) => {
+                      if (revision !== undefined) {
+                        onStateChange(newState, "AI: designretning udvidet", revision);
+                      }
+                      patchMessage(message.id, (m) => ({
+                        ...m,
+                        brandEvolutionOffer: undefined,
+                      }));
+                    }}
+                    onDismiss={() =>
+                      patchMessage(message.id, (m) => ({
+                        ...m,
+                        brandEvolutionOffer: undefined,
+                      }))
+                    }
+                  />
+                )}
+
+                {/* Large-change approval card */}
                 {message.approval && (
                   <div
-                    className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-900 dark:bg-amber-950/40"
+                    className="mt-2.5 rounded-xl border border-amber-200 bg-amber-50/80 p-3"
                     data-testid="agent-approval-card"
                   >
-                    <p className="text-[11.5px] font-semibold text-amber-900 dark:text-amber-200 m-0">
+                    <p className="text-[11.5px] font-semibold text-amber-800">
                       Kræver din godkendelse
                     </p>
                     {message.approval.summary.length > 0 && (
-                      <ul className="mt-1.5 mb-0 pl-4 text-[11.5px] text-amber-900/80 dark:text-amber-200/80">
+                      <ul className="mt-1.5 pl-3.5 text-[11.5px] text-amber-800/80 space-y-0.5">
                         {message.approval.summary.map((line) => (
                           <li key={line}>{line}</li>
                         ))}
@@ -824,7 +1206,7 @@ export default function AIBuilderPanel({
                     <div className="mt-2.5 flex gap-1.5">
                       <Button
                         size="sm"
-                        className="h-7 text-[11.5px]"
+                        className="h-7 text-[11.5px] rounded-lg"
                         disabled={isLoading}
                         onClick={() => approveAgentRun(message.id, message.approval!.mutations)}
                         data-testid="button-approve-agent-run"
@@ -845,15 +1227,43 @@ export default function AIBuilderPanel({
                   </div>
                 )}
 
+                {/* Retry failed plan */}
+                {message.retryPrompt && (
+                  <div className="mt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[11.5px] rounded-lg"
+                      disabled={isLoading}
+                      onClick={() => retryPlan(message.id, message.retryPrompt!)}
+                      data-testid="button-retry-plan"
+                    >
+                      Prøv igen med samme beskrivelse
+                    </Button>
+                  </div>
+                )}
+
+                {/* Build report + self-review */}
                 {message.role === "assistant" && message.report && (
-                  <BuildReportCard report={message.report} />
+                  <>
+                    <BuildReportCard report={message.report} />
+                    {message.report.review && (
+                      <SelfReviewSection
+                        review={message.report.review}
+                        disabled={isLoading}
+                        onApprove={(proposal) => sendMessage(proposal.instruction)}
+                      />
+                    )}
+                  </>
                 )}
               </div>
+
+              {/* Spacer so user bubble doesn't hug the right edge */}
+              {message.role === "user" && <div className="w-1 shrink-0" />}
             </div>
           ))}
 
-          {/* The plan the customer approves, and the build running it. Kept
-              at the foot of the thread so they stay in view as work lands. */}
+          {/* Plan checklist at foot of thread */}
           {plan && !buildView && (
             <PlanChecklistCard
               plan={plan}
@@ -861,14 +1271,18 @@ export default function AIBuilderPanel({
               onSave={savePlan}
               onApprove={approvePlan}
               onBuild={startBuildRun}
+              onRevise={revisePlan}
             />
           )}
 
+          {/* Build progress */}
           {buildView && (
             <>
               <BuildProgressCard
                 view={buildView}
                 busy={planBusy}
+                onApproveProposal={(proposal) => sendMessage(proposal.instruction)}
+                onApproveStep={buildView.approvalPending ? approveStep : undefined}
                 onStop={stopBuildRun}
                 onResume={() => continueBuild("resume")}
                 onSkip={() => continueBuild("skip")}
@@ -888,10 +1302,13 @@ export default function AIBuilderPanel({
               )}
             </>
           )}
-        </div>
-      </ScrollArea>
 
-      {/* Hidden file input for inspiration uploads */}
+          {/* Scroll sentinel — always below the last message */}
+          <div ref={threadEndRef} />
+        </div>
+      </div>
+
+      {/* Hidden file input for inspiration image uploads */}
       <input
         ref={fileInputRef}
         type="file"
@@ -900,16 +1317,16 @@ export default function AIBuilderPanel({
         onChange={(e) => uploadInspiration(e.target.files)}
       />
 
-      {/* Composer */}
-      <div className="p-3 border-t bg-background/95 backdrop-blur-sm">
-        <div className="flex gap-2 items-end">
-          <TooltipProvider delayDuration={300}>
+      {/* ── Composer ─────────────────────────────────────────────────────────── */}
+      <div className="shrink-0 border-t bg-background/95 backdrop-blur-sm">
+        <div className="flex items-end gap-2 px-3 pt-2.5 pb-2">
+          {/* Inspiration upload */}
+          <TooltipProvider delayDuration={400}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-[44px] w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                  variant="ghost" size="icon"
+                  className="h-9 w-9 rounded-full shrink-0 text-muted-foreground hover:text-foreground mb-0.5"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isLoading || isUploading}
                   data-testid="button-upload-inspiration"
@@ -920,15 +1337,26 @@ export default function AIBuilderPanel({
               <TooltipContent side="top" className="text-xs">Vedhæft inspirationsbillede</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <Textarea
+
+          {/* Auto-growing textarea */}
+          <textarea
+            ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            rows={1}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // auto-resize
+              const el = e.currentTarget;
+              el.style.height = "auto";
+              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+            }}
             placeholder={
               mode === "plan"
-                ? "Beskriv hvad du vil have — så laver jeg en plan først…"
-                : "Beskriv hvad jeg skal bygge eller ændre…"
+                ? "Beskriv dit mål — jeg laver en plan…"
+                : "Beskriv hvad du vil bygge…"
             }
-            className="min-h-[44px] max-h-[100px] resize-none text-[13px] rounded-xl border-muted-foreground/20"
+            className="flex-1 resize-none rounded-2xl border border-border/60 bg-muted/30 px-3.5 py-2.5 text-[13px] leading-relaxed focus:outline-none focus:border-primary/40 focus:bg-background transition-colors placeholder:text-muted-foreground/60"
+            style={{ minHeight: "42px", maxHeight: "120px", overflowY: "auto" }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -937,22 +1365,113 @@ export default function AIBuilderPanel({
             }}
             data-testid="input-ai-prompt"
           />
-          <Button
-            size="icon"
-            className="h-[44px] w-[44px] rounded-xl shrink-0 shadow-sm"
+
+          {/* Circular send button */}
+          <button
+            type="button"
             onClick={() => sendMessage(input)}
             disabled={!input.trim() || isLoading}
+            aria-label="Send"
+            className={`h-9 w-9 rounded-full shrink-0 flex items-center justify-center mb-0.5 shadow-sm transition-all duration-150 ${
+              !input.trim() || isLoading
+                ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
+                : "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95"
+            }`}
             data-testid="button-send-ai"
           >
             {isLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Send className="w-4 h-4" />
+              <Send className="w-3.5 h-3.5" />
             )}
-          </Button>
+          </button>
         </div>
+        {/* Keyboard hint */}
+        <p className="text-center text-[10px] text-muted-foreground/50 pb-2 leading-none select-none">
+          ↵ send · ⇧↵ linjeskift
+        </p>
       </div>
     </div>
+  );
+}
+
+/* ============ ThinkingDots — expressive thinking indicator ============ */
+
+function ThinkingDots() {
+  return (
+    <span className="inline-flex items-center gap-[3px] h-4" aria-label="AI tænker">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="w-[5px] h-[5px] rounded-full bg-current"
+          style={{ animation: `ai-dot-pulse 1.3s ease-in-out ${i * 0.18}s infinite` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/* ============ ModeToggle — mode badge with tooltips ============ */
+
+function ModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: "chat" | "plan";
+  onChange: (m: "chat" | "plan") => void;
+  disabled: boolean;
+}) {
+  return (
+    <TooltipProvider delayDuration={400}>
+      <div
+        className="flex items-center rounded-lg border bg-muted/40 p-0.5 gap-0.5"
+        data-testid="assistant-mode-switch"
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => onChange("plan")}
+              disabled={disabled}
+              data-testid="button-mode-plan"
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
+                mode === "plan"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ListChecks className="h-3 w-3" />
+              Plan
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs max-w-[180px] text-center">
+            Lav en plan, ret den og godkend — intet bygges, før du siger til
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => onChange("chat")}
+              disabled={disabled}
+              data-testid="button-mode-build"
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors duration-150 ${
+                mode === "chat"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Hammer className="h-3 w-3" />
+              Byg
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs max-w-[180px] text-center">
+            Byg direkte — AI'en spørger kun ved store ændringer
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -1077,6 +1596,240 @@ function DesignTokensCard({ tokens }: { tokens: Record<string, unknown> }) {
       )}
       {typeof tokens.mood === "string" && (
         <p className="mt-1.5 text-[11px] text-muted-foreground leading-snug">{tokens.mood}</p>
+      )}
+    </div>
+  );
+}
+
+/* ============ Design direction cards (streamed by propose_design_directions) ============ */
+
+const DEVIATION_LABELS: Record<string, string> = {
+  none: "Uændret",
+  low: "Lille afvigelse",
+  medium: "Brandudvikling",
+  high: "Eksperimentel",
+};
+
+const DEVIATION_COLORS: Record<string, string> = {
+  none: "text-green-700 bg-green-50 border-green-200",
+  low: "text-blue-700 bg-blue-50 border-blue-200",
+  medium: "text-amber-700 bg-amber-50 border-amber-200",
+  high: "text-purple-700 bg-purple-50 border-purple-200",
+};
+
+function DesignDirectionCards({
+  directions,
+  chosenId,
+  disabled,
+  onChoose,
+  onDismissAll,
+}: {
+  directions: DesignDirection[];
+  chosenId?: string;
+  disabled: boolean;
+  onChoose: (dir: DesignDirection) => void;
+  /** Optional: call POST .../reject for each pending proposal and hide the card group. */
+  onDismissAll?: () => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-2" data-testid="design-direction-cards">
+      <div className="flex items-center justify-between mb-0.5">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+          Vælg en designretning
+        </p>
+        {onDismissAll && !chosenId && (
+          <button
+            className="text-[10.5px] text-muted-foreground hover:text-foreground"
+            disabled={disabled}
+            onClick={onDismissAll}
+            data-testid="button-dismiss-directions"
+          >
+            Afvis
+          </button>
+        )}
+      </div>
+      {directions.map((dir) => {
+        const chosen = chosenId === dir.id;
+        const deviationColor = DEVIATION_COLORS[dir.brandDeviation.level] ?? DEVIATION_COLORS.low;
+        return (
+          <button
+            key={dir.id}
+            className={`rounded-lg border p-2.5 text-left transition-colors bg-card ${
+              chosen ? "border-primary ring-1 ring-primary" : "hover:border-primary/50"
+            } ${chosenId && !chosen ? "opacity-50" : ""}`}
+            disabled={disabled || !!chosenId}
+            onClick={() => onChoose(dir)}
+            data-testid={`design-direction-card-${dir.id}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold truncate">{dir.name}</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span
+                  className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${deviationColor}`}
+                >
+                  {DEVIATION_LABELS[dir.brandDeviation.level] ?? dir.brandDeviation.level}
+                </span>
+                {chosen && <Check className="w-3.5 h-3.5 text-primary" />}
+              </div>
+            </div>
+            {dir.concept && (
+              <p className="mt-1 text-[11px] text-muted-foreground leading-snug">{dir.concept}</p>
+            )}
+            {dir.brandDeviation.changes.length > 0 && (
+              <ul className="mt-1.5 pl-3 text-[10.5px] text-muted-foreground space-y-0.5 list-disc">
+                {dir.brandDeviation.changes.slice(0, 3).map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============ Brand evolution offer card ============ */
+
+type EvolutionOfferOutcome = "idle" | "applying" | "done" | "error";
+
+function BrandEvolutionOfferCard({
+  offer,
+  disabled,
+  websiteId,
+  accessToken,
+  onSuccess,
+  onDismiss,
+}: {
+  offer: {
+    proposalId: string;
+    directionName: string;
+    designIntent: string;
+    brandDeviation: { level: string; changes: string[]; rationale: string };
+  };
+  disabled: boolean;
+  websiteId: string;
+  accessToken: string;
+  /** Called when any structured action completes. Receives the new state and revision if available. */
+  onSuccess: (outcome: "site-wide" | "guide" | "kept", newState?: any, revision?: number) => void;
+  onDismiss: () => void;
+}) {
+  const [outcome, setOutcome] = useState<EvolutionOfferOutcome>("idle");
+  const [outcomeLabel, setOutcomeLabel] = useState<string>("");
+
+  const keepHere = async () => {
+    setOutcome("applying");
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/ai/proposals/${offer.proposalId}/keep-here`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Fejl");
+      setOutcome("done");
+      setOutcomeLabel("✓ Retningen bevaret på de allerede opdaterede sider.");
+      onSuccess("kept");
+    } catch (err: any) {
+      // Reset to idle so the user can retry.
+      setOutcome("idle");
+      setOutcomeLabel(err.message ?? "Noget gik galt. Prøv igen.");
+    }
+  };
+
+  const postProposalAction = async (action: "apply-site-wide" | "add-to-brand-guide") => {
+    setOutcome("applying");
+    try {
+      const res = await fetch(
+        `/api/websites/${websiteId}/ai/proposals/${offer.proposalId}/${action}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Fejl");
+      setOutcome("done");
+      if (action === "apply-site-wide") {
+        const count = data.pagesUpdated ?? 0;
+        setOutcomeLabel(
+          count > 0
+            ? `✓ Retningen er nu anvendt på ${count} yderligere ${count === 1 ? "side" : "sider"}.`
+            : "✓ Globale stilændringer er tilføjet."
+        );
+        onSuccess("site-wide", data.newState, data.revision);
+      } else {
+        setOutcomeLabel("✓ Brand guide er opdateret med retningens tokens.");
+        onSuccess("guide", data.newState, data.revision);
+      }
+    } catch (err: any) {
+      // On failure (including 409 CAS conflicts), reset to idle so the user
+      // can retry any of the three choices without reloading.
+      setOutcome("idle");
+      setOutcomeLabel(err.message ?? "Noget gik galt. Prøv igen.");
+    }
+  };
+
+  const busy = disabled || outcome === "applying";
+
+  return (
+    <div
+      className="mt-2.5 rounded-xl border border-purple-200 bg-purple-50/80 p-3"
+      data-testid="brand-evolution-offer-card"
+    >
+      <p className="text-[11.5px] font-semibold text-purple-800">
+        Eksperimentel retning anvendt: "{offer.directionName}"
+      </p>
+      {offer.brandDeviation.rationale && (
+        <p className="mt-1 text-[11px] text-purple-700/80 leading-snug">
+          {offer.brandDeviation.rationale}
+        </p>
+      )}
+      {outcome === "done" || outcome === "error" ? (
+        <p className={`mt-2 text-[11px] font-medium ${outcome === "error" ? "text-red-600" : "text-green-700"}`}>
+          {outcomeLabel}
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-[11px] text-purple-800/70 font-medium">Hvad vil du gøre med den?</p>
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11.5px] rounded-lg border-purple-300 text-purple-800 hover:bg-purple-100"
+              disabled={busy}
+              onClick={() => postProposalAction("apply-site-wide")}
+              data-testid="button-apply-site-wide"
+            >
+              {outcome === "applying" ? "Anvender…" : "Anvend på hele websitet"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11.5px] rounded-lg border-purple-300 text-purple-800 hover:bg-purple-100"
+              disabled={busy}
+              onClick={() => postProposalAction("add-to-brand-guide")}
+              data-testid="button-add-to-guide"
+            >
+              {outcome === "applying" ? "Tilføjer…" : "Tilføj til brand guide"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-[11.5px] text-muted-foreground"
+              disabled={busy}
+              onClick={keepHere}
+              data-testid="button-keep-here"
+            >
+              Behold kun her
+            </Button>
+          </div>
+        </>
       )}
     </div>
   );

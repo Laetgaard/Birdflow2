@@ -1,0 +1,51 @@
+#105 - Three-level self-review
+What & Why
+Phase 9 of the AI Builder Capability Programme, and the phase that ties the rest together.
+The post-build self-check is deterministic and auto-repairing, which is the right instinct, but it is narrow: broken button links, explicit colour contrast, and a few responsive hazards in custom component trees. It does not look at information architecture, content quality, brand consistency, semantics and accessibility, functional bindings, performance, motion safety, publishing parity or SEO. Most seriously, it can report a build as successful when the published renderer cannot reproduce what the customer just approved in the preview.
+The right structure is three levels, because the three kinds of finding deserve three different responses:
+Level A — deterministic repair. Provable problems, fixed automatically.
+Level B — AI design review. Subjective recommendations, reported and never applied on their own.
+Level C — approved redesign. Broad changes that need the customer to say yes first.
+This runs last because each earlier phase gives it something real to check: parity gives it a pass/fail signal, tokens give it a definition of brand consistency, page roles give it enforceable protections for legal and booking pages, and the business context gives it protected facts to defend.
+Done looks like
+Level A repairs only safe, provable problems automatically — and now includes publish parity, so a build is never reported successful when the published output diverges from the preview
+Level B writes design and content recommendations without changing anything
+Level C proposes broad changes and waits for the customer's approval
+Coverage extends past links and contrast to information architecture, content quality, brand and token consistency, semantics and accessibility, functional bindings, performance, motion safety and SEO
+Legal, booking and draft pages are protected according to their role
+The customer gets one clear Danish report: what was fixed, what is recommended, what needs approval
+Out of scope
+Rewriting the build orchestrator
+Applying Level B or Level C findings automatically under any circumstances
+Third-party auditing services
+Steps
+Three-level framework — Restructure the self-check into repair, recommend and approve, each with its own result type and its own place in the report.
+Parity in Level A — Include the publish-parity result and block a successful build outcome when it fails. Critical constraint: parity is deterministic and provable, so it belongs in Level A, not in the advisory tier.
+Deterministic coverage — Add checks for token consistency, functional bindings, motion safety, basic performance budgets and SEO completeness.
+Accessibility and semantics — Extend beyond colour contrast to heading order, alt text, link text and focus targets.
+Role-based protections — Enforce page-role rules, so legal and booking pages are not rewritten by a broad content pass.
+Level B review — An AI pass that reports information-architecture and content-quality recommendations and applies none of them.
+Level C proposals — Present broad redesign suggestions for explicit approval before anything changes.
+Report UI — One Danish report grouped into fixed, recommended and needs approval.
+Tests — Cover the deterministic checks with pure-function tests. Note: the development database is currently unreachable, so these must not depend on it.
+Relevant files
+server/selfCheck.ts
+server/responsiveGuard.ts
+server/copyRules.ts
+server/aiReport.ts
+server/buildOrchestrator.ts
+server/aiAgentTools.ts
+server/largeChange.ts
+shared/assistantPlan.ts
+client/src/components/builder/BuildProgressCard.tsx
+client/src/components/builder/PlanChecklistCard.tsx
+Dependencies
+Phase 3 — Let one colour or font change update the whole website
+Open task
+Phase 2 — Stop published sites looking different from the preview
+Open task
+Phase 4 — Page order, navigation, SEO and one shared header/footer
+Open task
+Phase 5 — Tell the AI what the practice does, and stop invented claims
+Open task
+

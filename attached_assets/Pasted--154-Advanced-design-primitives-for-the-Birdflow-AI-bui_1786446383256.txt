@@ -1,0 +1,435 @@
+# #154 — Advanced design primitives for the Birdflow AI builder
+
+Upgrade Birdflow's builder and AI tool layer with the missing design primitives needed for the AI agent to create genuinely custom, premium responsive websites.
+
+This task should build capabilities into Birdflow's underlying design system — not solve individual designs with one-off hacks.
+
+Before implementing anything, audit:
+
+* `ComponentStyles`
+* component registry
+* builder renderer
+* published-site renderer/generator
+* motion system
+* existing responsive behavior
+* custom component architecture
+* AI agent tool schemas
+* self-review
+* builder/publisher parity tests
+
+The most important requirement is:
+
+Anything the AI creates in builder preview must behave the same after publishing.
+
+Do not add a design feature to preview without publisher parity.
+
+---
+
+# Capability 1 — Responsive style overrides
+
+Do NOT add a growing collection of fields like:
+
+```ts
+paddingMobile
+paddingTablet
+marginMobile
+fontSizeMobile
+gapMobile
+...
+```
+
+That architecture will not scale.
+
+Instead introduce a generic responsive style override model.
+
+Conceptually:
+
+```ts
+styles: {
+  padding: "96px 24px",
+  minHeight: "700px",
+
+  responsive: {
+    tablet: {
+      padding: "72px 20px"
+    },
+    mobile: {
+      padding: "48px 16px",
+      minHeight: "auto"
+    }
+  }
+}
+```
+
+Adapt the schema to Birdflow's existing architecture.
+
+Support at minimum:
+
+* desktop/default
+* tablet
+* mobile
+
+Use the builder's existing breakpoint philosophy if one already exists.
+
+Responsive overrides should support relevant safe style fields such as:
+
+* padding
+* margin where supported
+* gap
+* minHeight
+* maxWidth
+* fontSize/text size
+* alignment
+* columns/layout properties where structurally appropriate
+* radius
+* image sizing where appropriate
+
+Do not allow arbitrary unsafe CSS strings if the existing style system is typed/validated.
+
+Create a central allowlist/schema so preview, publisher and AI use the same rules.
+
+Add parity tests.
+
+---
+
+# Capability 2 — Parallax
+
+Add `parallax` as a supported motion/design capability.
+
+Do NOT apply parallax transform directly to the entire section if that can conflict with:
+
+* entrance transforms
+* hover transforms
+* animations
+
+Prefer a layered architecture such as:
+
+```text
+Section
+├── Parallax/background layer
+└── Content layer
+```
+
+Parallax should affect the intended visual layer independently.
+
+Support something equivalent to:
+
+```ts
+effect: "parallax"
+scrollSpeed: 0.1 - 0.9
+```
+
+with a sensible default.
+
+Do not use IntersectionObserver as the entire scroll engine.
+
+Use it to determine when an element is active/visible, then perform scroll-position updates efficiently, preferably through `requestAnimationFrame`.
+
+Avoid React state updates on every scroll frame if direct style updates or an existing motion runtime is more appropriate.
+
+Requirements:
+
+* performant scrolling
+* no accumulating event listeners
+* cleanup on unmount
+* builder preview parity
+* published site parity
+* mobile-safe behavior
+* works with existing entrance motion
+* honors `prefers-reduced-motion`
+
+Add tests where practical.
+
+---
+
+# Capability 3 — Motion schema validation
+
+The current system can accept partial motion specs without an `effect`, producing silent failures.
+
+Fix this at TWO layers.
+
+## Layer 1 — write-time validation
+
+Agent tools that create/update motion must reject invalid specs.
+
+If motion contains configuration but no effect, return structured feedback like:
+
+```text
+Invalid motion specification:
+motion.effect is required when motion settings are present.
+```
+
+The AI should be able to fix the request and retry.
+
+## Layer 2 — self-review
+
+`runSelfCheck` should scan existing website data for malformed historical motion specs.
+
+Return useful warnings with:
+
+* page
+* component name/id
+* problem
+* suggested correction
+
+Do not make self-review the primary validator.
+
+Add tests.
+
+---
+
+# Capability 4 — SVG shape registry
+
+Create a reusable SVG design primitive registry.
+
+Include approximately 8–12 useful shapes such as:
+
+* wave-gentle
+* wave-bold
+* wave-asymmetric
+* curve-bottom
+* curve-top
+* blob-soft
+* blob-wide
+* organic-divider
+* circle-deco
+* arch-divider
+
+Do not represent the library only as functions returning arbitrary SVG strings.
+
+Create structured shape definitions where possible.
+
+For example:
+
+```ts
+{
+  id: "wave-gentle",
+  viewBox: "0 0 1440 180",
+  paths: [
+    {
+      d: "...",
+      colorSlot: "primary"
+    }
+  ],
+  configurable: {
+    height: true,
+    flipX: true,
+    flipY: true,
+    opacity: true
+  }
+}
+```
+
+Each shape should support safe configurable properties such as:
+
+* named color slots
+* height
+* horizontal/vertical flipping where sensible
+* opacity where sensible
+* responsive sizing
+
+Use correct `viewBox` and `preserveAspectRatio`.
+
+Shapes must resize cleanly without clipping.
+
+---
+
+# Capability 5 — `insert_svg_shape`
+
+Add an AI tool for inserting a named registry shape.
+
+Example concept:
+
+```json
+{
+  "shape": "wave-gentle",
+  "height": 120,
+  "flipY": false,
+  "colors": {
+    "primary": "brand.surface"
+  }
+}
+```
+
+The tool should:
+
+* validate the shape name
+* create the correct Birdflow custom/design component
+* create editable color slots
+* preserve builder editability
+* render identically after publishing
+* return component/page IDs
+
+If a requested unique design cannot be achieved with the registry, the existing custom-component architecture may still be used as a fallback.
+
+Do not remove the AI's ability to create unique custom SVGs when truly needed.
+
+Sanitize custom SVG output according to the existing security model.
+
+---
+
+# Capability 6 — `find_text`
+
+Add a read-only agent tool that searches user-visible text across all pages.
+
+It should search nested relevant component props, not just one top-level field.
+
+Return structured matches:
+
+```json
+{
+  "pageId": "...",
+  "pageName": "...",
+  "componentId": "...",
+  "componentType": "...",
+  "path": "props.buttonText",
+  "value": "Book tid"
+}
+```
+
+Support exact and contains-style matching.
+
+Avoid matching internal metadata unless explicitly requested.
+
+This tool must never mutate site data.
+
+---
+
+# Capability 7 — `batch_update_components`
+
+Add a safe batch-editing tool so the agent can perform site-wide changes without wasting one agent step per component.
+
+Support filters such as:
+
+* page IDs
+* component type
+* prop path
+* current value
+* contains/equality where appropriate
+* style path
+
+Support updating a defined prop/style path to a new value.
+
+Important: implement a preview/dry-run mode.
+
+Concept:
+
+```ts
+batch_update_components({
+  filter: {...},
+  delta: {...},
+  mode: "preview"
+})
+```
+
+returns:
+
+* number of matches
+* pages affected
+* component IDs
+* paths
+* previous values
+* proposed values
+
+Then:
+
+```ts
+mode: "apply"
+```
+
+performs the mutation.
+
+Do not allow arbitrary object-wide uncontrolled replacements.
+
+Validate updates through the same component/style schemas used elsewhere.
+
+For destructive or unusually broad updates, make it possible for the agent runtime to require confirmation.
+
+Return a useful change summary after applying.
+
+---
+
+# Capability 8 — AI documentation/system prompt
+
+Update the builder agent's internal tool/capability documentation so Kimi understands:
+
+* responsive overrides
+* breakpoint behavior
+* parallax
+* motion requirements
+* named SVG registry shapes
+* when to use registry shape vs custom SVG
+* `find_text`
+* `batch_update_components`
+* preview before broad batch edits
+
+Include correct examples.
+
+Do not overload the system prompt with huge duplicated schema documentation if tool schemas can carry the information.
+
+---
+
+# Capability 9 — Builder/publisher parity
+
+For every new capability, verify BOTH:
+
+```text
+Builder preview
+=
+published standalone website
+```
+
+Specifically test:
+
+* responsive overrides
+* parallax
+* SVG shapes
+* motion
+* custom component output
+
+Use shared runtime/schema code wherever possible instead of implementing two unrelated versions.
+
+If preview and publisher currently duplicate logic, reduce unnecessary drift where practical without expanding this into a full renderer rewrite.
+
+---
+
+# Done looks like
+
+The AI can successfully handle requests such as:
+
+“Make the hero taller on desktop but compact on mobile.”
+
+“Add a subtle parallax background to the hero.”
+
+“Use a gentle organic wave between the hero and services.”
+
+“Find every button that says Book tid and change it to Bestil tid.”
+
+“Reduce mobile padding across all service sections.”
+
+And:
+
+* all changes appear correctly in preview
+* all changes publish identically
+* responsive styling uses generic overrides instead of dozens of `...Mobile` fields
+* malformed motion is rejected before saving
+* self-review catches legacy malformed motion
+* SVG registry shapes are editable
+* custom SVG remains available as fallback
+* batch updates support preview before apply
+* text search returns exact data paths
+* reduced-motion accessibility works
+* existing tests pass
+* new parity tests pass
+
+At the end, provide:
+
+1. architecture decisions,
+2. exact files changed,
+3. schema changes,
+4. new agent tools,
+5. tests added,
+6. preview/publisher parity confirmation,
+7. remaining limitations.
+
+Do not build screenshot/visual AI review in this task. That is Task #155.

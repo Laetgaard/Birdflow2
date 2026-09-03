@@ -99,7 +99,9 @@ describe("the folded-in flows exist as agent tools", () => {
   });
 
   it("plan_site delegates to the architect and keeps SSRF protection", () => {
-    expect(toolsSource).toContain("analyzeAndPlanWebsite(prompt, imageBase64, sourceUrl)");
+    // The architect call passes the same three inputs, plus the run's meter.
+    expect(toolsSource).toContain("analyzeAndPlanWebsite(");
+    expect(toolsSource).toMatch(/analyzeAndPlanWebsite\(\s*prompt,\s*imageBase64,\s*sourceUrl,/);
     expect(toolsSource).toContain("captureWebsiteScreenshot(sourceUrl)");
   });
 

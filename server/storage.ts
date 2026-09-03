@@ -3,6 +3,8 @@ import pkg from "pg";
 const { Pool } = pkg;
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
+import { performSvgExtraction } from "./svgExtraction";
+import { svgAssetSchemaReady } from "./svgAssetSchema";
 
 // Encryption helpers for sensitive data
 // ENCRYPTION_KEY must be a 64-character hex string (32 bytes)
@@ -58,6 +60,7 @@ import {
   customers, type Customer, type InsertCustomer,
   products, type Product, type InsertProduct,
   mediaAssets, type MediaAsset, type InsertMediaAsset,
+  svgAssets, type SvgAsset, type InsertSvgAsset,
   bookingServices, type BookingService, type InsertBookingService,
   bookingTeamMembers, type BookingTeamMember, type InsertBookingTeamMember,
   bookingOpenSlots, type BookingOpenSlot, type InsertBookingOpenSlot,
@@ -80,6 +83,7 @@ import {
   serviceBlockedDates, type ServiceBlockedDate, type InsertServiceBlockedDate,
   serviceDateRanges, type ServiceDateRange, type InsertServiceDateRange,
   supportTickets, type SupportTicket, type InsertSupportTicket,
+  accountComponents, type AccountComponent, type InsertAccountComponent,
   adminAuditLog, type AdminAuditEntry, type InsertAdminAuditEntry,
   publicStats,
   type AdminOverviewStats, type AdminGrowthData, type AdminFunnelStep,
@@ -231,7 +235,11 @@ export interface IStorage {
   
   // Builder state methods
   getBuilderState(websiteId: string): Promise<BuilderState | undefined>;
-  createBuilderState(websiteId: string, state?: BuilderStateData): Promise<BuilderState>;
+  createBuilderState(
+    websiteId: string,
+    state?: BuilderStateData,
+    opts?: { svgAssetOrigin?: "ai" | "customer" }
+  ): Promise<BuilderState>;
   /**
    * Persist builder state and bump its revision.
    *
@@ -241,11 +249,16 @@ export interface IStorage {
    * long time (the AI assistant, a multi-step build) MUST pass it — omitting
    * it means "last write wins", which is only correct for the canvas's own
    * immediate save.
+   *
+   * Both write methods run inline-SVG extraction on the state first (this is
+   * the persistence choke point no writer can bypass); AI writers pass
+   * `opts.svgAssetOrigin: "ai"` so extracted assets are labelled correctly.
    */
   updateBuilderState(
     websiteId: string,
     state: BuilderStateData,
-    expectedRevision?: number
+    expectedRevision?: number,
+    opts?: { svgAssetOrigin?: "ai" | "customer" }
   ): Promise<BuilderState | undefined>;
   
   // Custom domain methods
@@ -424,6 +437,19 @@ export interface IStorage {
   getSupportTickets(): Promise<SupportTicket[]>;
   getUserTickets(userId: string): Promise<SupportTicket[]>;
   updateTicketStatus(ticketId: string, status: string): Promise<SupportTicket | undefined>;
+
+  // Account component library methods
+  createAccountComponent(data: InsertAccountComponent): Promise<AccountComponent>;
+  getAccountComponent(id: string, ownerId: string): Promise<AccountComponent | undefined>;
+  listAccountComponents(ownerId: string): Promise<AccountComponent[]>;
+  updateAccountComponent(id: string, ownerId: string, data: Partial<InsertAccountComponent>): Promise<AccountComponent | undefined>;
+  deleteAccountComponent(id: string, ownerId: string): Promise<boolean>;
+  /** Create a new version of an existing component (bumps `version`, new row keeps same id).
+   *  Actually updates in-place and increments version — master/instance semantics. */
+  createNewAccountComponentVersion(id: string, ownerId: string, tree: unknown, schema: unknown): Promise<AccountComponent | undefined>;
+  /** Scan all builder states owned by this user and update instances whose
+   *  `libraryRef.accountComponentId === componentId` to the latest tree/schema. */
+  updateAllLinkedInstances(componentId: string, ownerId: string): Promise<{ updatedWebsites: string[] }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -642,7 +668,32 @@ export class DatabaseStorage implements IStorage {
     return result[0] as BuilderState | undefined;
   }
 
-  async createBuilderState(websiteId: string, state?: BuilderStateData): Promise<BuilderState> {
+  /**
+   * Move inline illustration markup into the svg_assets store before a
+   * builder-state write lands. This lives INSIDE the persistence layer on
+   * purpose: every writer — canvas autosave, AI builds, onboarding
+   * generation, Plan/Byg steps, undo restores, future callers — goes through
+   * createBuilderState/updateBuilderState, so none of them can forget it.
+   * Never throws; when the store is not ready the markup stays inline and
+   * the next save tries again.
+   */
+  private async extractSvgAssetsBeforeSave(
+    websiteId: string,
+    state: BuilderStateData,
+    origin?: "ai" | "customer"
+  ): Promise<void> {
+    await performSvgExtraction(state, origin ?? "customer", {
+      schemaReady: () => svgAssetSchemaReady(db),
+      createAsset: (input) => this.createSvgAsset({ websiteId, ...input }),
+    });
+  }
+
+  async createBuilderState(
+    websiteId: string,
+    state?: BuilderStateData,
+    opts?: { svgAssetOrigin?: "ai" | "customer" }
+  ): Promise<BuilderState> {
+    if (state) await this.extractSvgAssetsBeforeSave(websiteId, state, opts?.svgAssetOrigin);
     const result = await db
       .insert(builderState)
       .values({
@@ -656,8 +707,10 @@ export class DatabaseStorage implements IStorage {
   async updateBuilderState(
     websiteId: string,
     state: BuilderStateData,
-    expectedRevision?: number
+    expectedRevision?: number,
+    opts?: { svgAssetOrigin?: "ai" | "customer" }
   ): Promise<BuilderState | undefined> {
+    await this.extractSvgAssetsBeforeSave(websiteId, state, opts?.svgAssetOrigin);
     const where =
       typeof expectedRevision === "number"
         ? and(eq(builderState.websiteId, websiteId), eq(builderState.revision, expectedRevision))
@@ -1084,6 +1137,44 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(mediaAssets)
       .where(and(eq(mediaAssets.id, mediaId), eq(mediaAssets.websiteId, websiteId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  // SVG assets methods (reusable illustrations referenced by svgAssetId)
+  async getSvgAssets(websiteId: string): Promise<SvgAsset[]> {
+    return db.select().from(svgAssets).where(eq(svgAssets.websiteId, websiteId));
+  }
+
+  async getSvgAsset(assetId: string, websiteId: string): Promise<SvgAsset | undefined> {
+    const result = await db.select().from(svgAssets).where(
+      and(eq(svgAssets.id, assetId), eq(svgAssets.websiteId, websiteId))
+    ).limit(1);
+    return result[0];
+  }
+
+  /**
+   * Insert-or-return-existing, keyed on (website_id, content_hash): saving
+   * the same illustration twice must reuse the row, so extraction and
+   * re-uploads stay idempotent. The no-op update makes RETURNING yield the
+   * existing row on conflict.
+   */
+  async createSvgAsset(asset: InsertSvgAsset): Promise<SvgAsset> {
+    const result = await db
+      .insert(svgAssets)
+      .values(asset as any)
+      .onConflictDoUpdate({
+        target: [svgAssets.websiteId, svgAssets.contentHash],
+        set: { updatedAt: new Date() },
+      })
+      .returning();
+    return result[0];
+  }
+
+  async deleteSvgAsset(assetId: string, websiteId: string): Promise<boolean> {
+    const result = await db
+      .delete(svgAssets)
+      .where(and(eq(svgAssets.id, assetId), eq(svgAssets.websiteId, websiteId)))
       .returning();
     return result.length > 0;
   }
@@ -2995,6 +3086,149 @@ export class DatabaseStorage implements IStorage {
       .where(eq(supportTickets.id, ticketId))
       .returning();
     return result[0];
+  }
+
+  // ── Account component library ─────────────────────────────────────────────
+
+  async createAccountComponent(data: InsertAccountComponent): Promise<AccountComponent> {
+    const result = await db.insert(accountComponents).values({
+      ownerId: data.ownerId,
+      name: data.name,
+      description: data.description ?? null,
+      category: data.category ?? null,
+      tags: data.tags ?? null,
+      tree: data.tree as any,
+      schema: (data.schema ?? null) as any,
+      designMetadata: (data.designMetadata ?? null) as any,
+      origin: data.origin ?? "customer",
+      createdFromWebsiteId: data.createdFromWebsiteId ?? null,
+      version: data.version ?? 1,
+    }).returning();
+    return result[0]!;
+  }
+
+  async getAccountComponent(id: string, ownerId: string): Promise<AccountComponent | undefined> {
+    const result = await db
+      .select()
+      .from(accountComponents)
+      .where(and(eq(accountComponents.id, id), eq(accountComponents.ownerId, ownerId)));
+    return result[0];
+  }
+
+  async listAccountComponents(ownerId: string): Promise<AccountComponent[]> {
+    return db
+      .select()
+      .from(accountComponents)
+      .where(eq(accountComponents.ownerId, ownerId))
+      .orderBy(desc(accountComponents.createdAt));
+  }
+
+  async updateAccountComponent(
+    id: string,
+    ownerId: string,
+    data: Partial<InsertAccountComponent>
+  ): Promise<AccountComponent | undefined> {
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.category !== undefined) updateData.category = data.category;
+    if (data.tags !== undefined) updateData.tags = data.tags as any;
+    if (data.tree !== undefined) updateData.tree = data.tree as any;
+    if (data.schema !== undefined) updateData.schema = data.schema as any;
+    if (data.designMetadata !== undefined) updateData.designMetadata = data.designMetadata as any;
+    const result = await db
+      .update(accountComponents)
+      .set(updateData as any)
+      .where(and(eq(accountComponents.id, id), eq(accountComponents.ownerId, ownerId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteAccountComponent(id: string, ownerId: string): Promise<boolean> {
+    const result = await db
+      .delete(accountComponents)
+      .where(and(eq(accountComponents.id, id), eq(accountComponents.ownerId, ownerId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async createNewAccountComponentVersion(
+    id: string,
+    ownerId: string,
+    tree: unknown,
+    schema: unknown
+  ): Promise<AccountComponent | undefined> {
+    const result = await db
+      .update(accountComponents)
+      .set({
+        tree: tree as any,
+        schema: schema as any,
+        version: sql`${accountComponents.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(accountComponents.id, id), eq(accountComponents.ownerId, ownerId)))
+      .returning();
+    return result[0];
+  }
+
+  async updateAllLinkedInstances(
+    componentId: string,
+    ownerId: string
+  ): Promise<{ updatedWebsites: string[] }> {
+    // 1. Get the latest version of the component.
+    const comp = await this.getAccountComponent(componentId, ownerId);
+    if (!comp) return { updatedWebsites: [] };
+
+    // 2. Find all websites owned by this user that reference this component
+    //    in their builder state (LIKE scan over JSONB text — acceptable for
+    //    the few websites a typical user has).
+    const rows = await db.execute(sql`
+      SELECT bs.website_id, bs.state, bs.revision
+      FROM builder_state bs
+      JOIN websites w ON w.id = bs.website_id
+      WHERE w.owner_id = ${ownerId}
+        AND bs.state::text LIKE ${'%"accountComponentId":"' + componentId + '"%'}
+    `);
+
+    const updated: string[] = [];
+    for (const row of rows.rows as any[]) {
+      try {
+        const state = row.state as import("@shared/schema").BuilderStateData;
+        let changed = false;
+        for (const page of state.pages ?? []) {
+          for (const component of page.components ?? []) {
+            const props = (component as any).props ?? {};
+            if (props?.libraryRef?.accountComponentId === componentId) {
+              props.customTree = comp.tree;
+              if (comp.schema != null) props.customSchema = comp.schema;
+              props.libraryRef = {
+                ...props.libraryRef,
+                version: comp.version,
+              };
+              changed = true;
+            }
+          }
+        }
+        if (changed) {
+          // Increment the revision so any open builder client sees a conflict
+          // signal on its next guarded save rather than silently overwriting
+          // the newly propagated tree. This mirrors the same revision-bump
+          // that updateBuilderState applies on every normal save.
+          await db
+            .update(builderState)
+            .set({
+              state: state as any,
+              updatedAt: new Date(),
+              revision: sql`${builderState.revision} + 1`,
+            })
+            .where(eq(builderState.websiteId, row.website_id));
+          updated.push(row.website_id);
+        }
+      } catch {
+        // Skip websites we can't update — non-fatal
+      }
+    }
+    return { updatedWebsites: updated };
   }
 }
 

@@ -1,3 +1,4 @@
+import { useLocale } from "@/lib/locale";
 import { JOURNEY } from "./copy";
 
 /* The three numbered steps of the Birdflow journey. Rendered twice:
@@ -5,13 +6,15 @@ import { JOURNEY } from "./copy";
    under the form on mobile (tone="onLight"), from the same copy. */
 
 export function AuthJourney({ tone }: { tone: "onPurple" | "onLight" }) {
+  const { lang } = useLocale();
+  const steps = JOURNEY[lang];
   const onPurple = tone === "onPurple";
   const text = onPurple ? "#FFFFFF" : "#000000";
   const rule = onPurple ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.12)";
 
   return (
     <ol className="list-none m-0 p-0" data-testid={`auth-journey-${tone}`}>
-      {JOURNEY.map((step, i) => (
+      {steps.map((step, i) => (
         <li
           key={step.number}
           className={onPurple ? "py-4 lg:py-5" : "py-3"}

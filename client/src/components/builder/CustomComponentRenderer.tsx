@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import type React from "react";
 import { ImageIcon } from "lucide-react";
 import type { BuilderComponentData, ComponentStyles } from "@shared/componentRegistry";
@@ -6,9 +6,20 @@ import {
   resolvePrimitiveStyles,
   sanitizeLinkHref,
   PRIMITIVE_TEXT_TAGS,
+  effectiveEditableSchema,
+  fieldBindingForNode,
+  CAPABILITY_LABELS,
+  CAPABILITY_ICONS,
+  BEHAVIOR_LABELS,
   type PrimitiveNode,
+  type CapabilityType,
+  type BehaviorType,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
+import { TOKEN_FALLBACKS, readableTextOn, resolveDesignTokens } from "@shared/designTokens";
+import { applySvgAssetColors, type SvgAssetLike } from "@shared/svgAssets";
+import { MOTION_TABLES, computeMotion, staggerChildSpec, type MotionSpec } from "@shared/motion";
+import { useMotionPhase } from "./useMotionPhase";
 
 type DeviceMode = "desktop" | "tablet" | "mobile";
 
@@ -34,6 +45,8 @@ type Props = {
   editingField?: string | null;
   onEditField?: (field: string | null) => void;
   globalStyles?: GlobalStylesLike;
+  /** Stored illustrations by id — svg nodes with svgAssetId resolve here. */
+  svgAssets?: Record<string, SvgAssetLike>;
 };
 
 /** Ensure inline SVG scales to its wrapper node. */
@@ -53,9 +66,15 @@ function buttonVariantStyles(
   variant: PrimitiveNode["variant"],
   globalStyles?: GlobalStylesLike
 ): React.CSSProperties {
-  const primary = globalStyles?.primaryColor || "#4f46e5";
-  const secondary = globalStyles?.secondaryColor || "#06b6d4";
-  const radius = globalStyles?.borderRadius || "8px";
+  const primary = globalStyles?.primaryColor || TOKEN_FALLBACKS.primaryColor;
+  const secondary = globalStyles?.secondaryColor || TOKEN_FALLBACKS.secondaryColor;
+  const radius = globalStyles?.borderRadius || TOKEN_FALLBACKS.borderRadius;
+  // The label colour follows the button colour rather than being white for
+  // ever: a pale brand colour with white text on it is unreadable, and it is
+  // the customer's brand that decides, not this file. Same rule (the same
+  // shared function) on the published site.
+  const onPrimary = readableTextOn(primary);
+  const onSecondary = readableTextOn(secondary);
   const base: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -73,7 +92,7 @@ function buttonVariantStyles(
   };
   switch (variant) {
     case "secondary":
-      return { ...base, backgroundColor: secondary, color: "#ffffff" };
+      return { ...base, backgroundColor: secondary, color: onSecondary };
     case "outline":
       return { ...base, backgroundColor: "transparent", color: primary, borderColor: primary };
     case "ghost":
@@ -82,7 +101,7 @@ function buttonVariantStyles(
       return { ...base, backgroundColor: "transparent", color: primary, padding: "0", textDecoration: "underline" };
     case "primary":
     default:
-      return { ...base, backgroundColor: primary, color: "#ffffff" };
+      return { ...base, backgroundColor: primary, color: onPrimary };
   }
 }
 
@@ -183,7 +202,22 @@ type NodeRendererProps = {
   editingField?: string | null;
   onEditField?: (field: string | null) => void;
   globalStyles?: GlobalStylesLike;
+  /**
+   * When present (component has a STORED editable schema), inline editing is
+   * limited to nodes bound to a text field — the same contract the panel
+   * enforces. Absent for legacy components: everything stays editable.
+   */
+  canInlineEdit?: (nodeId: string) => boolean;
+  svgAssets?: Record<string, SvgAssetLike>;
+  /** Resolved design tokens for {color.*} refs in svg colour overrides. */
+  svgTokens?: Record<string, string>;
   depth: number;
+  /**
+   * Set when the parent box staggers its children: the parent's motion spec
+   * plus this node's position among its siblings. A child with its own
+   * entrance opts out (staggerChildSpec returns null for it).
+   */
+  staggerParent?: { spec: MotionSpec; index: number };
 };
 
 function NodeRenderer({
@@ -196,9 +230,49 @@ function NodeRenderer({
   editingField,
   onEditField,
   globalStyles,
+  canInlineEdit,
+  svgAssets,
+  svgTokens,
   depth,
+  staggerParent,
 }: NodeRendererProps) {
-  const resolved = resolvePrimitiveStyles(node, deviceMode) as React.CSSProperties;
+  // Hover is a real style layer, not an editor nicety: the published site
+  // emits the same declarations as a `:hover` rule, so what the customer
+  // sees here is what visitors get. A hover PRESET from the motion
+  // vocabulary counts too — resolvePrimitiveStyles merges it in.
+  const [isHovered, setIsHovered] = useState(false);
+  const hasHover =
+    (!!node.hoverStyles && Object.keys(node.hoverStyles).length > 0) ||
+    !!(node.motion?.hover && node.motion.hover !== "none");
+  const resolved = resolvePrimitiveStyles(node, deviceMode, hasHover && isHovered) as React.CSSProperties;
+
+  // Entrance motion — same shared model as the published site. A box with
+  // `stagger` set does not hide itself: its children inherit its entrance,
+  // one after another, via staggerParent.
+  const ownMotion = node.motion;
+  const hasOwnEntrance = !!ownMotion?.effect && ownMotion.effect !== "none";
+  const staggerStepMs =
+    node.type === "box" && ownMotion?.stagger ? MOTION_TABLES.staggers[ownMotion.stagger] ?? 0 : 0;
+  const isStaggerBox = staggerStepMs > 0;
+  const inheritedSpec =
+    !hasOwnEntrance && staggerParent ? staggerChildSpec(staggerParent.spec, ownMotion) : null;
+  const entranceSpec = isStaggerBox ? null : hasOwnEntrance ? ownMotion : inheritedSpec;
+  const entranceResolved = computeMotion(
+    MOTION_TABLES,
+    entranceSpec,
+    inheritedSpec && staggerParent ? staggerParent.index : undefined
+  );
+  // Changing any motion property replays the entrance — the live preview
+  // while editing in the panel.
+  const motion = useMotionPhase(entranceResolved, JSON.stringify(ownMotion ?? null));
+  const motionProps = motion.active ? { ref: motion.ref, "data-motion": "" } : {};
+  const motionStyle = motion.active ? motion.style : {};
+  const hoverHandlers = hasHover
+    ? {
+        onMouseEnter: () => setIsHovered(true),
+        onMouseLeave: () => setIsHovered(false),
+      }
+    : {};
   const isNodeSelected = !isPreview && selectedNodeId === node.id;
 
   const selectionStyles: React.CSSProperties = isNodeSelected
@@ -216,6 +290,7 @@ function NodeRenderer({
   const dataAttrs = {
     "data-node-id": node.id,
     "data-node-type": node.type,
+    ...hoverHandlers,
   };
 
   switch (node.type) {
@@ -225,10 +300,32 @@ function NodeRenderer({
         flexDirection: "column",
         ...resolved,
         ...selectionStyles,
+        ...motionStyle,
       };
       return (
-        <div {...dataAttrs} style={style} onClick={handleNodeClick}>
-          {(node.children ?? []).map((child) => (
+        <div {...dataAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
+          {/* Behavior badge — editor-only indicator showing the interaction type */}
+          {!isPreview && node.behavior && (
+            <div
+              style={{
+                alignSelf: "flex-start",
+                backgroundColor: "#7c3aed",
+                color: "#fff",
+                fontSize: "10px",
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                marginBottom: "4px",
+                lineHeight: "16px",
+                pointerEvents: "none",
+                letterSpacing: "0.03em",
+                flexShrink: 0,
+              }}
+            >
+              {BEHAVIOR_LABELS[(node.behavior as { type: BehaviorType }).type] || (node.behavior as { type: string }).type}
+            </div>
+          )}
+          {(node.children ?? []).map((child, childIndex) => (
             <NodeRenderer
               key={child.id}
               node={child}
@@ -240,7 +337,13 @@ function NodeRenderer({
               editingField={editingField}
               onEditField={onEditField}
               globalStyles={globalStyles}
+              canInlineEdit={canInlineEdit}
+              svgAssets={svgAssets}
+              svgTokens={svgTokens}
               depth={depth + 1}
+              staggerParent={
+                isStaggerBox && ownMotion ? { spec: ownMotion, index: childIndex } : undefined
+              }
             />
           ))}
           {!isPreview && (node.children ?? []).length === 0 && (
@@ -263,18 +366,25 @@ function NodeRenderer({
 
     case "text": {
       const isHeading = node.tag && ["h1", "h2", "h3", "h4"].includes(node.tag);
+      // Use the token-resolved stacks ('Lato, sans-serif', 'Playfair Display, serif')
+      // rather than raw fontPair strings ('Lato', 'Playfair Display') so the builder
+      // preview matches the published site and the font-pairing parity tests hold.
+      // svgTokens is optional when NodeRenderer is called without a token map.
       const fontFamily =
         resolved.fontFamily ||
-        (isHeading ? globalStyles?.fontPair?.heading : globalStyles?.fontPair?.body) ||
+        (isHeading
+          ? (svgTokens?.['font.heading'] as string | undefined)
+          : (svgTokens?.['font.body'] as string | undefined)) ||
         undefined;
       const field = `node:${node.id}:text`;
+      const inlineEditable = !canInlineEdit || canInlineEdit(node.id);
       return (
-        <div {...dataAttrs} style={{ ...selectionStyles }} onClick={handleNodeClick}>
+        <div {...dataAttrs} {...motionProps} style={{ ...selectionStyles, ...motionStyle }} onClick={handleNodeClick}>
           <NodeEditableText
             value={node.text ?? ""}
             field={field}
             isEditing={editingField === field}
-            onEdit={onEditField}
+            onEdit={inlineEditable ? onEditField : undefined}
             onChange={onTextChange}
             style={{ ...resolved, fontFamily }}
             tag={node.tag || "p"}
@@ -290,6 +400,7 @@ function NodeRenderer({
         maxWidth: "100%",
         ...resolved,
         ...selectionStyles,
+        ...motionStyle,
       };
       if (!node.src) {
         if (isPreview) return null;
@@ -317,7 +428,7 @@ function NodeRenderer({
           </div>
         );
       }
-      return <img {...dataAttrs} src={node.src} alt={node.alt ?? ""} style={style} onClick={handleNodeClick} />;
+      return <img {...dataAttrs} {...motionProps} src={node.src} alt={node.alt ?? ""} style={style} onClick={handleNodeClick} />;
     }
 
     case "button": {
@@ -346,18 +457,20 @@ function NodeRenderer({
       }
       if (isPreview) {
         return (
-          <a {...dataAttrs} href={sanitizeLinkHref(node.href)} style={style}>
+          <a {...dataAttrs} {...motionProps} href={sanitizeLinkHref(node.href)} style={{ ...style, ...motionStyle }}>
             {node.label ?? ""}
           </a>
         );
       }
+      const inlineEditable = !canInlineEdit || canInlineEdit(node.id);
       return (
         <span
           {...dataAttrs}
-          style={style}
+          {...motionProps}
+          style={{ ...style, ...motionStyle }}
           onClick={handleNodeClick}
           onDoubleClick={
-            onEditField
+            onEditField && inlineEditable
               ? (e) => {
                   e.stopPropagation();
                   onEditField(field);
@@ -371,7 +484,15 @@ function NodeRenderer({
     }
 
     case "svg": {
-      const safe = sanitizeSvg(node.svg);
+      // Asset-backed nodes resolve their reference here; legacy nodes keep
+      // rendering their inline markup. A referenced asset that is not in
+      // the map (store unreachable, stale id) falls back to the same
+      // placeholder an empty node gets — never a broken canvas.
+      const asset = node.svgAssetId && svgAssets ? svgAssets[node.svgAssetId] : undefined;
+      const markup = asset
+        ? applySvgAssetColors(asset.svg, asset.colorSlots ?? undefined, node.svgColors, svgTokens)
+        : node.svg;
+      const safe = sanitizeSvg(markup);
       const style: React.CSSProperties = {
         display: "block",
         lineHeight: 0,
@@ -406,10 +527,51 @@ function NodeRenderer({
       return (
         <div
           {...dataAttrs}
-          style={style}
+          {...motionProps}
+          style={{ ...style, ...motionStyle }}
           onClick={handleNodeClick}
           dangerouslySetInnerHTML={{ __html: fitSvg(safe) }}
         />
+      );
+    }
+
+    case "capability": {
+      // Capability nodes embed trusted Birdflow functionality. In the builder
+      // canvas they render as a labelled placeholder — Birdflow owns the full
+      // implementation; the publisher generates it. Clicking selects the node
+      // so the user can reposition or wrap it.
+      const capType = node.capability as CapabilityType | undefined;
+      const label = (capType && CAPABILITY_LABELS[capType]) || String(capType || "Widget");
+      const icon = (capType && CAPABILITY_ICONS[capType]) || "⚙️";
+      return (
+        <div
+          {...dataAttrs}
+          onClick={handleNodeClick}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            minHeight: "100px",
+            padding: "20px 16px",
+            backgroundColor: "#eff6ff",
+            border: "2px dashed #60a5fa",
+            borderRadius: "12px",
+            color: "#1d4ed8",
+            fontWeight: 600,
+            fontSize: "14px",
+            textAlign: "center",
+            cursor: "default",
+            ...selectionStyles,
+          }}
+        >
+          <span style={{ fontSize: "28px", lineHeight: 1 }}>{icon}</span>
+          <span>{label}</span>
+          <span style={{ fontSize: "11px", color: "#3b82f6", fontWeight: 400, opacity: 0.75, marginTop: "2px" }}>
+            Birdflow-widget · kun placering her
+          </span>
+        </div>
       );
     }
 
@@ -436,14 +598,44 @@ export default function CustomComponentRenderer({
   editingField,
   onEditField,
   globalStyles,
+  svgAssets,
 }: Props) {
   const tree = component.props.customTree;
   const sectionStyles: ComponentStyles = component.styles || {};
 
+  // Flat token map for {color.*} refs in svg colour overrides — same
+  // resolution the publisher runs at generation time.
+  const svgTokens = useMemo(
+    () => resolveDesignTokens((globalStyles ?? {}) as Parameters<typeof resolveDesignTokens>[0]),
+    [globalStyles]
+  );
+
+  // Only a STORED schema gates inline editing: legacy components without one
+  // keep every text node editable exactly as before.
+  const canInlineEdit = useMemo(() => {
+    if (isPreview || !tree) return undefined;
+    const effective = effectiveEditableSchema(component.props);
+    if (!effective || effective.source !== "stored") return undefined;
+    const cache = new Map<string, boolean>();
+    return (nodeId: string) => {
+      const cached = cache.get(nodeId);
+      if (cached !== undefined) return cached;
+      const binding = fieldBindingForNode(tree, effective.schema, nodeId);
+      const editable = !!binding && (binding.itemField?.type ?? binding.field.type) === "text";
+      cache.set(nodeId, editable);
+      return editable;
+    };
+  }, [component.props, tree, isPreview]);
+
+  // Use the token-resolved body font so paired-font sites get 'Lato, sans-serif'
+  // rather than the stored fontFamily literal — the same resolution that every
+  // other section runs via resolveFontFamily(styles, globalStyles) in
+  // ComponentRenderer.tsx, which reads fontPair.body first.
+  // svgTokens is optional when the renderer is called without a token map.
   const wrapperStyle: React.CSSProperties = {
     backgroundColor: sectionStyles.backgroundColor || "transparent",
     padding: sectionStyles.padding || "0px",
-    fontFamily: globalStyles?.fontFamily,
+    fontFamily: (svgTokens?.['font.body'] as string | undefined) || globalStyles?.fontFamily,
     color: globalStyles?.textColor,
     position: "relative",
   };
@@ -490,6 +682,9 @@ export default function CustomComponentRenderer({
         editingField={editingField}
         onEditField={onEditField}
         globalStyles={globalStyles}
+        canInlineEdit={canInlineEdit}
+        svgAssets={svgAssets}
+        svgTokens={svgTokens}
         depth={0}
       />
     </section>

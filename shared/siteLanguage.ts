@@ -136,6 +136,8 @@ export type PublishedSiteStrings = {
   bookingOpenSlot: string;
   bookingLegendAvailable: string;
   bookingLegendBlocked: string;
+  /** Sentence before the "privacy policy" link on the booking form details step. */
+  bookingDataNoticePre: string;
   // Products
   productsTitle: string;
   productsLoading: string;
@@ -302,6 +304,7 @@ export const PUBLISHED_SITE_STRINGS: Record<SiteLanguage, PublishedSiteStrings> 
     bookingOpenSlot: "Åben tid",
     bookingLegendAvailable: "Ledig",
     bookingLegendBlocked: "Lukket",
+    bookingDataNoticePre: "Dine oplysninger bruges kun til at håndtere din booking – se vores",
 
     productsTitle: "Produkter",
     productsLoading: "Henter produkter…",
@@ -465,6 +468,7 @@ export const PUBLISHED_SITE_STRINGS: Record<SiteLanguage, PublishedSiteStrings> 
     bookingOpenSlot: "Open slot",
     bookingLegendAvailable: "Available",
     bookingLegendBlocked: "Blocked",
+    bookingDataNoticePre: "Your details are only used to process your booking — see our",
 
     productsTitle: "Products",
     productsLoading: "Loading products…",

@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { resolveBirdflowApiUrl } from "./platformUrl";
+import { resolvePlatformUrl, resolveBirdflowApiUrl } from "./platformUrl";
 
-// Locks in the rule that published sites never get a dev-workspace URL
-// baked into their tracker: explicit env var first, REPLIT_DOMAINS only
-// inside a production deployment, otherwise null (publish fails loudly).
-describe("resolveBirdflowApiUrl", () => {
+// Locks in the rule that published sites never get a dev-workspace or
+// environment-derived URL baked into their tracker. The platform URL must
+// always be set explicitly as BIRDFLOW_PUBLIC_PLATFORM_URL (primary) or
+// BIRDFLOW_API_URL (legacy fallback). REPLIT_DEPLOYMENT / REPLIT_DOMAINS are
+// intentionally NOT a fallback — publishing must work from the dev workspace.
+describe("resolvePlatformUrl", () => {
   const saved: Record<string, string | undefined> = {};
-  const KEYS = ["BIRDFLOW_API_URL", "REPLIT_DEPLOYMENT", "REPLIT_DOMAINS"];
+  const KEYS = ["BIRDFLOW_PUBLIC_PLATFORM_URL", "BIRDFLOW_API_URL"] as const;
 
   beforeEach(() => {
     for (const k of KEYS) {
@@ -22,30 +24,59 @@ describe("resolveBirdflowApiUrl", () => {
     }
   });
 
+  it("returns null when nothing is configured", () => {
+    expect(resolvePlatformUrl()).toBeNull();
+  });
+
+  it("accepts BIRDFLOW_PUBLIC_PLATFORM_URL and strips trailing slashes", () => {
+    process.env.BIRDFLOW_PUBLIC_PLATFORM_URL = "https://bird-flow.app///";
+    expect(resolvePlatformUrl()).toBe("https://bird-flow.app");
+  });
+
+  it("BIRDFLOW_PUBLIC_PLATFORM_URL takes precedence over BIRDFLOW_API_URL", () => {
+    process.env.BIRDFLOW_PUBLIC_PLATFORM_URL = "https://bird-flow.app";
+    process.env.BIRDFLOW_API_URL = "https://legacy.bird-flow.com";
+    expect(resolvePlatformUrl()).toBe("https://bird-flow.app");
+  });
+
+  it("falls back to BIRDFLOW_API_URL when primary is absent", () => {
+    process.env.BIRDFLOW_API_URL = "https://bird-flow.com";
+    expect(resolvePlatformUrl()).toBe("https://bird-flow.com");
+  });
+
   it("prefers explicit BIRDFLOW_API_URL and strips trailing slashes", () => {
     process.env.BIRDFLOW_API_URL = "https://bird-flow.com///";
-    process.env.REPLIT_DEPLOYMENT = "1";
-    process.env.REPLIT_DOMAINS = "bird-flow.app,bird-flow.com";
-    expect(resolveBirdflowApiUrl()).toBe("https://bird-flow.com");
+    expect(resolvePlatformUrl()).toBe("https://bird-flow.com");
+  });
+
+  it("ignores BIRDFLOW_PUBLIC_PLATFORM_URL without a protocol", () => {
+    process.env.BIRDFLOW_PUBLIC_PLATFORM_URL = "bird-flow.app";
+    expect(resolvePlatformUrl()).toBeNull();
   });
 
   it("ignores BIRDFLOW_API_URL without a protocol", () => {
     process.env.BIRDFLOW_API_URL = "bird-flow.com";
-    expect(resolveBirdflowApiUrl()).toBeNull();
+    expect(resolvePlatformUrl()).toBeNull();
   });
 
-  it("uses the first REPLIT_DOMAINS entry inside a production deployment", () => {
-    process.env.REPLIT_DEPLOYMENT = "1";
-    process.env.REPLIT_DOMAINS = "bird-flow.app,bird-flow.com,bird-flow.replit.app";
-    expect(resolveBirdflowApiUrl()).toBe("https://bird-flow.app");
+  it("falls through to BIRDFLOW_API_URL when primary lacks protocol", () => {
+    process.env.BIRDFLOW_PUBLIC_PLATFORM_URL = "bird-flow.app";
+    process.env.BIRDFLOW_API_URL = "https://bird-flow.com";
+    expect(resolvePlatformUrl()).toBe("https://bird-flow.com");
   });
 
-  it("never uses REPLIT_DOMAINS outside a deployment (dev workspace domain)", () => {
-    process.env.REPLIT_DOMAINS = "something-long.riker.replit.dev";
-    expect(resolveBirdflowApiUrl()).toBeNull();
+  it("REPLIT_DEPLOYMENT and REPLIT_DOMAINS are never used (removed from resolution)", () => {
+    (process.env as any).REPLIT_DEPLOYMENT = "1";
+    (process.env as any).REPLIT_DOMAINS = "bird-flow.replit.app,bird-flow.app";
+    // Without either explicit URL var, must return null even inside a deployment
+    expect(resolvePlatformUrl()).toBeNull();
+    delete (process.env as any).REPLIT_DEPLOYMENT;
+    delete (process.env as any).REPLIT_DOMAINS;
   });
 
-  it("returns null when nothing is configured", () => {
-    expect(resolveBirdflowApiUrl()).toBeNull();
+  it("legacy alias resolveBirdflowApiUrl delegates to resolvePlatformUrl", () => {
+    process.env.BIRDFLOW_API_URL = "https://bird-flow.com";
+    expect(resolveBirdflowApiUrl()).toBe("https://bird-flow.com");
+    expect(resolveBirdflowApiUrl()).toBe(resolvePlatformUrl());
   });
 });

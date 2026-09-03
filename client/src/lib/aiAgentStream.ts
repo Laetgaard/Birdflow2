@@ -24,6 +24,18 @@ export type AgentStreamEvent =
   | { type: "note"; text: string }
   | { type: "approval_required"; reason: string; summary: string[]; mutations: BuilderMutation[] }
   | { type: "done"; summary: string }
+  | {
+      /**
+       * Emitted after apply_design_direction succeeds for an experimental
+       * (high-deviation) direction. The client renders a three-choice card:
+       * "Keep only here / Apply across website / Add to brand guide".
+       */
+      type: "brand_evolution_offer";
+      proposalId: string;
+      directionName: string;
+      designIntent: string;
+      brandDeviation: { level: string; changes: string[]; rationale: string };
+    }
   | { type: "error"; message: string }
   | {
       type: "result";
@@ -32,6 +44,8 @@ export type AgentStreamEvent =
       steps: number;
       newState: BuilderStateData;
       report?: unknown;
+      /** The revision the server wrote; adopt it or the next autosave looks stale. */
+      revision?: number;
     }
   | {
       type: "result";
@@ -193,7 +207,7 @@ export async function applyApprovedMutations(args: {
   websiteId: string;
   accessToken: string;
   mutations: BuilderMutation[];
-}): Promise<{ newState: BuilderStateData; report?: unknown; explanation?: string }> {
+}): Promise<{ newState: BuilderStateData; report?: unknown; explanation?: string; revision?: number }> {
   const response = await fetch(`/api/websites/${args.websiteId}/ai/apply`, {
     method: "POST",
     headers: {

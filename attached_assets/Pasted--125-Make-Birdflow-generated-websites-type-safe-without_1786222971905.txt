@@ -1,0 +1,585 @@
+# #125 — Make Birdflow generated websites type-safe without relying on `@ts-nocheck`
+
+## What & Why
+
+Task #124 intentionally uses `// @ts-nocheck` as a publishing reliability safeguard for machine-generated page files.
+
+That is acceptable as an immediate production fix, but it also means TypeScript can no longer detect genuine typing problems inside those generated files.
+
+Birdflow is moving toward increasingly complex websites, including:
+
+```text
+AI-generated layouts
+custom components
+brand-specific components
+responsive properties
+motion settings
+SVG illustrations
+custom typography
+new component variants
+custom pages
+```
+
+As this grows, the publisher needs a stable contract between:
+
+```text
+Builder
+ComponentData
+AI generation
+ComponentRenderer
+Publisher
+Generated Next.js website
+```
+
+The long-term goal is for Birdflow's generated sites to remain publish-safe while retaining useful compile-time validation.
+
+---
+
+# Goal
+
+Create one reliable component-data contract used by both the builder and publishing system.
+
+The architecture should prevent TypeScript literal widening and schema drift from breaking generated Vercel deployments.
+
+The publisher should eventually be able to generate strongly typed component data without depending on `// @ts-nocheck`.
+
+Do not remove the current safeguard until the replacement has been proven with integration tests and real publishes.
+
+---
+
+# Phase 1 — Audit the component contract
+
+Map where `ComponentData` and related types currently originate and where they are recreated or transformed.
+
+Inspect at minimum:
+
+```text
+shared/componentRegistry.ts
+ComponentData definitions
+ComponentRenderer
+server/publisher/templates.ts
+AI builder actions
+custom component system
+page persistence/database representation
+published Next.js templates
+```
+
+Document the path:
+
+```text
+Component created
+      ↓
+stored
+      ↓
+loaded into builder
+      ↓
+rendered in preview
+      ↓
+serialized for publish
+      ↓
+embedded into generated code
+      ↓
+rendered by generated ComponentRenderer
+```
+
+Identify any location where the component shape is:
+
+```text
+duplicated
+redeclared
+manually mapped
+cast
+serialized/deserialized
+loosely typed
+```
+
+---
+
+# Phase 2 — Establish a shared canonical schema
+
+Birdflow should have one canonical definition for the data that represents a website component.
+
+Example conceptual structure:
+
+```ts
+type ComponentData = {
+  id: string;
+  type: ComponentType;
+  props: ComponentProps;
+  styles: ComponentStyles;
+};
+```
+
+The exact implementation should follow the existing architecture rather than blindly using this example.
+
+The important rule is:
+
+```text
+Builder ComponentData
+=
+Publisher ComponentData
+=
+Generated-site ComponentData
+```
+
+Avoid separate almost-identical definitions.
+
+---
+
+# Phase 3 — Preserve literal types during generation
+
+Investigate the best approach for generated page data.
+
+Potential approaches include:
+
+### Option A
+
+```ts
+const components: ComponentData[] = [...]
+```
+
+### Option B
+
+```ts
+const components = [...] satisfies ComponentData[];
+```
+
+### Option C
+
+Generate data separately and validate/import it through a schema.
+
+For example:
+
+```text
+page.tsx
+components.json
+runtime validator
+renderer
+```
+
+Evaluate which option provides the best balance of:
+
+```text
+build reliability
+type safety
+bundle size
+generation simplicity
+AI extensibility
+runtime performance
+custom-component support
+```
+
+Prefer `satisfies` or explicit canonical typing when possible because they retain validation without unnecessarily changing the resulting value.
+
+---
+
+# Phase 4 — Stop generating fragile TypeScript literals where possible
+
+Evaluate whether component content should be embedded directly into every:
+
+```text
+app/[slug]/page.tsx
+```
+
+or whether pages should instead load a standardized generated data object.
+
+Possible architecture:
+
+```text
+app/behandlinger/page.tsx
+        ↓
+page-data/behandlinger.ts
+        ↓
+ComponentRenderer
+```
+
+or:
+
+```text
+app/behandlinger/page.tsx
+        ↓
+generated-site-data.ts
+        ↓
+page components
+        ↓
+ComponentRenderer
+```
+
+This could reduce duplicated generated code and centralize validation.
+
+Do not refactor just for abstraction.
+
+Only adopt this if it materially improves reliability and maintainability.
+
+---
+
+# Phase 5 — Add runtime validation at the publish boundary
+
+TypeScript only protects code at compile time.
+
+Birdflow's website data may also come from:
+
+```text
+database records
+AI actions
+older websites
+migrations
+custom components
+future component versions
+```
+
+Introduce validation before generating the published project.
+
+Use the project's existing validation approach if one exists.
+
+Otherwise evaluate a schema system such as Zod.
+
+Conceptually:
+
+```text
+Builder data
+     ↓
+validate
+     ↓
+normalize/default missing values
+     ↓
+publisher
+     ↓
+generated website
+```
+
+A bad component should fail with a useful Birdflow publishing error before being sent to Vercel.
+
+Example:
+
+```text
+Cannot publish page "Behandlinger".
+
+Component:
+hero-9281
+
+Invalid property:
+alignment = "middle"
+
+Allowed values:
+left | center | right
+```
+
+This is much better than discovering the issue from a Vercel TypeScript stack trace.
+
+---
+
+# Phase 6 — Introduce normalization
+
+Older websites and AI-generated data may contain slightly different representations.
+
+Create a normalization step where useful.
+
+Example:
+
+```ts
+normalizeComponent(component)
+```
+
+could:
+
+```text
+apply missing defaults
+normalize enum values
+remove obsolete properties
+migrate old component versions
+validate responsive settings
+validate custom component structure
+```
+
+The publishing pipeline then becomes:
+
+```text
+stored website data
+        ↓
+normalize
+        ↓
+validate
+        ↓
+generate
+        ↓
+build
+        ↓
+deploy
+```
+
+---
+
+# Phase 7 — Give components schema versions
+
+As Birdflow evolves, old customer websites must continue publishing.
+
+Consider introducing:
+
+```ts
+schemaVersion
+```
+
+either per website or per component.
+
+Example:
+
+```ts
+{
+  schemaVersion: 2,
+  type: "hero",
+  props: ...
+}
+```
+
+This enables migrations such as:
+
+```text
+v1 alignment property
+      ↓
+migration
+      ↓
+v2 layout property
+```
+
+instead of permanently supporting every historical shape inside the renderer.
+
+Only introduce versioning if it fits the existing persistence model cleanly.
+
+---
+
+# Phase 8 — Make custom components use the same contract
+
+This is especially important for Birdflow's upcoming AI-generated custom components.
+
+Custom components should not bypass the publishing contract.
+
+The lifecycle should be:
+
+```text
+AI designs component
+       ↓
+component schema generated
+       ↓
+validate
+       ↓
+preview
+       ↓
+responsive validation
+       ↓
+save to user's custom component library
+       ↓
+publish using same renderer/data contract
+```
+
+Do not create a completely separate publisher for AI custom components unless technically necessary.
+
+Built-in and custom components should share as much infrastructure as possible.
+
+---
+
+# Phase 9 — Add publisher contract tests
+
+Create fixtures for representative component categories.
+
+Include:
+
+```text
+Hero
+Text/content section
+Image section
+CTA
+Testimonials
+Booking
+Contact
+Pricing
+FAQ
+Navigation
+Footer
+Custom component
+SVG/illustration
+Responsive layout
+```
+
+For each fixture verify:
+
+```text
+data validates
+generation succeeds
+generated TypeScript compiles
+renderer accepts the component
+production build succeeds
+```
+
+---
+
+# Phase 10 — Add preview/publish parity tests
+
+Birdflow's most important product guarantee should be:
+
+> What users see in the builder is what gets published.
+
+Create tests around representative pages that compare the same component input through both systems.
+
+Conceptually:
+
+```text
+ComponentData
+    ↙        ↘
+Builder      Published renderer
+    ↓              ↓
+expected structure/behavior
+```
+
+You do not necessarily need pixel-perfect screenshot testing for everything.
+
+Start with:
+
+```text
+component order
+text content
+links
+images
+styles
+responsive values
+component variants
+page metadata
+```
+
+Visual regression testing can later cover critical components.
+
+---
+
+# Phase 11 — Add a pre-deployment build gate
+
+Birdflow should ideally discover broken generated websites before presenting a publish as successful.
+
+Publisher lifecycle should become:
+
+```text
+Generate
+↓
+Validate
+↓
+Compile/build check
+↓
+Deploy
+↓
+Wait for Vercel deployment state
+↓
+Verify public URL
+↓
+Mark publish successful
+```
+
+If Vercel itself is used as the build environment, Birdflow must at minimum correctly monitor the deployment result and translate failures into useful errors.
+
+Do not return:
+
+```text
+Published successfully
+```
+
+until the deployment is genuinely usable.
+
+---
+
+# Phase 12 — Better publishing diagnostics
+
+Create structured publish stages.
+
+Example:
+
+```text
+Preparing website
+Generating pages
+Validating components
+Creating deployment
+Building website
+Assigning domain
+Verifying website
+Published
+```
+
+If something fails, preserve:
+
+```text
+stage
+page
+component id
+component type
+original error
+Vercel deployment id
+timestamp
+```
+
+Admin diagnostics should make it possible to understand failures without opening raw Vercel logs.
+
+---
+
+# Removing `@ts-nocheck`
+
+Do not remove `// @ts-nocheck` from generated files immediately after implementing the new typing system.
+
+First run:
+
+```text
+unit tests
+generator tests
+generated-build tests
+custom component tests
+existing-site fixtures
+real Vercel test publishes
+```
+
+Then temporarily run generated projects without `@ts-nocheck` in CI.
+
+Once there are no meaningful failures across representative websites, remove the safeguard.
+
+---
+
+# Desired final publishing architecture
+
+```text
+Birdflow Builder
+       ↓
+Canonical ComponentData
+       ↓
+Normalize
+       ↓
+Schema validation
+       ↓
+Publisher
+       ↓
+Generated Next.js project
+       ↓
+Type-safe generated data
+       ↓
+Production build
+       ↓
+Vercel deploy
+       ↓
+Deployment verification
+       ↓
+Stable public URL
+```
+
+The builder and published site should use the same conceptual rendering contract.
+
+---
+
+# Done looks like
+
+* One canonical component-data model exists.
+* Builder and publisher no longer maintain drifting component shapes.
+* Literal-union props do not widen into invalid `string` types during generation.
+* Generated pages compile with normal TypeScript checking.
+* Invalid components are caught before deployment.
+* Errors identify the page/component causing the issue.
+* Existing older customer websites continue to publish.
+* Built-in components work.
+* AI-generated custom components work.
+* Generated-site integration tests run successfully.
+* Real Vercel test publishes succeed.
+* Builder preview and published website maintain parity.
+* `// @ts-nocheck` can eventually be safely removed from generated page and renderer files.

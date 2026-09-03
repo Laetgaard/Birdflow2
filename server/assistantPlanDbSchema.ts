@@ -93,6 +93,40 @@ export const ASSISTANT_PLAN_DDL: SchemaStatement[] = [
           ON assistant_builds (website_id)
           WHERE status IN ('running', 'paused')`,
   },
+  // Enriched build metadata — added after initial release.
+  {
+    label: "assistant_builds.pages_added",
+    sql: `ALTER TABLE assistant_builds ADD COLUMN IF NOT EXISTS pages_added integer NOT NULL DEFAULT 0`,
+  },
+  {
+    label: "assistant_builds.visual_qa_blocking",
+    sql: `ALTER TABLE assistant_builds ADD COLUMN IF NOT EXISTS visual_qa_blocking boolean NOT NULL DEFAULT false`,
+  },
+  {
+    label: "assistant_builds.model_used",
+    sql: `ALTER TABLE assistant_builds ADD COLUMN IF NOT EXISTS model_used text`,
+  },
+  // Customer-facing version history. A snapshot is taken after every
+  // completed build so the customer can browse back to an earlier state
+  // and restore it — independently of the publish-pipeline website_versions
+  // table, which is scoped to Vercel deployments.
+  {
+    label: "builder_snapshots",
+    sql: `CREATE TABLE IF NOT EXISTS builder_snapshots (
+      id          uuid    PRIMARY KEY DEFAULT gen_random_uuid(),
+      website_id  varchar NOT NULL,
+      build_id    integer NOT NULL,
+      label       text    NOT NULL,
+      content     jsonb   NOT NULL,
+      revision    integer NOT NULL,
+      created_at  timestamp NOT NULL DEFAULT now()
+    )`,
+  },
+  {
+    label: "builder_snapshots_website_idx",
+    sql: `CREATE INDEX IF NOT EXISTS builder_snapshots_website_idx
+          ON builder_snapshots (website_id, created_at DESC)`,
+  },
 ];
 
 /** Apply the DDL. Idempotent, so callers may run it on every boot. */

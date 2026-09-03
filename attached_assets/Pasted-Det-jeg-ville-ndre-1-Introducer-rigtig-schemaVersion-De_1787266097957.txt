@@ -1,0 +1,716 @@
+Det jeg ville ændre
+1. Introducer rigtig schemaVersion
+
+Det største hul i planen.
+
+Birdflow bør ikke forsøge at “gætte” sig til gamle formater for evigt.
+
+På website-state:
+
+{
+  schemaVersion: 7,
+  pages: [...],
+  globalComponents: {...},
+  navigation: {...},
+  ...
+}
+
+Og så eksplicitte migrations:
+
+v1 → v2
+v2 → v3
+v3 → v4
+...
+v6 → v7
+
+Ikke:
+
+if (site.header && !site.sharedHeader) ...
+if (component.type === "oldHero") ...
+
+spredt rundt i publisheren.
+
+Det bliver ellers teknisk gæld meget hurtigt.
+
+Min anbefalede #190-plan
+Goal
+
+Make every Birdflow website that contains valid historical customer content publishable through the current canonical generated-site pipeline, regardless of which previous builder/publisher version originally created it.
+
+Publishing must remain transactional:
+
+stored site
+   ↓
+read-only source state
+   ↓
+detect schema/version
+   ↓
+migrate in memory
+   ↓
+canonical publish snapshot
+   ↓
+validate
+   ↓
+generate
+   ↓
+build gate
+   ↓
+Vercel deployment
+   ↓
+verify deployment
+   ↓
+switch/update live publication metadata
+
+If anything before the final successful deployment fails:
+
+CURRENT LIVE WEBSITE REMAINS UNCHANGED
+1. Add explicit site-state versioning
+Add
+
+Preferably in:
+
+shared/siteStructure.ts
+server/publisher/migrations/
+
+Introduce something along these lines:
+
+CURRENT_SITE_SCHEMA_VERSION = X
+
+Every current site state should identify its schema version.
+
+For historical records without one:
+
+detectHistoricalSchemaVersion(state)
+
+should determine which known historical shape it belongs to.
+
+Then:
+
+migrateSiteStateToCurrent({
+  state,
+  detectedVersion,
+  targetVersion: CURRENT_SITE_SCHEMA_VERSION
+})
+Important
+
+Migration needs to be:
+
+deterministic
+idempotent
+lossless
+side-effect free
+independent of React/browser state
+
+Meaning:
+
+migrate(migrate(oldSite))
+
+should effectively produce the same canonical state as:
+
+migrate(oldSite)
+2. Keep compatibility migration separate from normalization
+
+I would specifically not dump everything into normalize.ts.
+
+Have three concepts:
+
+migration
+↓
+normalization
+↓
+validation
+Migration
+
+Understands old Birdflow formats.
+
+Example:
+
+hero_v1 → hero
+siteHeader → shared.header
+old navigation structure → current navigation structure
+old image prop → current asset reference
+Normalization
+
+Makes already-compatible data consistent.
+
+Example:
+
+missing optional padding → default
+undefined alignment → "left"
+missing responsive config → backwards-compatible default
+Validation
+
+Determines whether publishing is safe.
+
+Example:
+
+page references missing component
+asset cannot be resolved
+navigation links to deleted page
+unknown component type
+corrupted custom component
+
+Those responsibilities should not be mixed.
+
+3. Historical components need an alias registry
+
+This is important for Birdflow because you've changed components during development.
+
+Instead of conditions spread around the generator:
+
+if (type === "oldHero")
+if (type === "hero-section")
+if (type === "HeroComponent")
+
+have something like:
+
+historicalComponentAliases = {
+  "hero-section": "hero",
+  "HeroComponent": "hero",
+  "old-contact": "contact",
+}
+
+But aliases alone are insufficient if the props changed.
+
+Therefore:
+
+componentMigrations = {
+  oldHero: migrateOldHero,
+  oldBooking: migrateOldBooking,
+}
+
+This lets Birdflow distinguish:
+
+renamed component
+
+from:
+
+structurally changed component
+4. Create an immutable publish snapshot
+
+This is probably the most important publishing safeguard.
+
+When the user presses Publish, create:
+
+PublishSnapshot
+
+containing the exact canonical state that will be deployed.
+
+For example:
+
+{
+  jobId,
+  siteId,
+  sourceRevision,
+  sourceSchemaVersion,
+  targetSchemaVersion,
+  pages,
+  sharedComponents,
+  navigation,
+  assets,
+  brandGuide,
+  customComponents,
+  settings
+}
+
+The worker should publish that snapshot, not continuously reread mutable project data.
+
+Otherwise:
+
+user clicks publish
+migration starts
+user edits website
+worker reads newer state
+deployment represents a mixture of states
+
+That's exactly the kind of intermittent publishing bug that becomes horrible later.
+
+5. Never silently delete unsupported content
+
+This should explicitly become a Done criterion.
+
+If an old project contains:
+
+component type Birdflow no longer understands
+
+Birdflow must not do:
+
+unknown component → skip
+
+That could turn:
+
+7-section homepage
+
+into:
+
+4-section homepage
+
+while still reporting a successful publish.
+
+Instead:
+
+PUBLISH_BLOCKED_UNSUPPORTED_COMPONENT
+
+with information such as:
+
+“The page ‘Forside’ contains an older FAQ component that cannot yet be safely converted. Your existing website remains live.”
+
+And preferably internally:
+
+{
+  code: "UNSUPPORTED_HISTORICAL_COMPONENT",
+  pageId,
+  componentId,
+  componentType,
+  detectedSchemaVersion
+}
+6. Add a real publish preflight
+
+Before you touch Vercel:
+
+migration
+↓
+canonical validation
+↓
+asset validation
+↓
+route validation
+↓
+generator
+↓
+production build
+
+Only after all succeed:
+
+Vercel upload/deploy
+
+This is better than finding generator problems after you've already begun deployment.
+
+I'd make the phases visible internally:
+
+preparing
+migrating
+validating
+generating
+building
+deploying
+verifying
+activating
+complete
+
+Then Builder can say:
+
+“Could not migrate an older booking section.”
+
+instead of:
+
+“Publish failed.”
+
+7. Add compatibility reports
+
+I'd have migration return:
+
+{
+  migratedState,
+  report: {
+    sourceVersion,
+    targetVersion,
+    migrationsApplied: [],
+    warnings: [],
+    blockers: []
+  }
+}
+
+Example:
+
+{
+  "sourceVersion": 3,
+  "targetVersion": 7,
+  "migrationsApplied": [
+    "navigation-v3-to-v4",
+    "shared-header-v4-to-v5",
+    "component-alias-v5-to-v6"
+  ],
+  "warnings": [],
+  "blockers": []
+}
+
+This will save you a ridiculous amount of debugging time later.
+
+8. Collaborator publishing needs site access, not owner equality
+
+The plan correctly identifies this, but I'd tighten it.
+
+Avoid checks like:
+
+site.userId === req.user.id
+
+Publishing should call the same centralized permission function used elsewhere:
+
+requireSitePermission({
+  siteId,
+  userId,
+  permission: "publish"
+})
+
+Ideally distinguish:
+
+view
+edit
+publish
+manage
+owner
+
+Even if currently edit === publish.
+
+Don't hardcode “collaborator means everything owner can do.”
+
+Job polling
+
+This is also important.
+
+Don't authorize:
+
+GET /publish-job/:id
+
+only by job creator.
+
+Authorize through:
+
+job.siteId → site permissions
+
+So:
+
+Owner starts publish
+Collaborator can see progress
+
+and vice versa.
+
+But:
+
+unrelated user → 403
+9. Vercel project recovery needs stronger identity rules
+
+The current plan says:
+
+Detect and validate compatible existing Vercel projects.
+
+Correct, but define priority.
+
+I would resolve deployment target roughly as:
+
+1. stored Vercel project ID
+2. stored team/account ID
+3. verified existing project mapping
+4. historical project-name lookup
+5. create new project ONLY if definitively no project exists
+
+The dangerous option is:
+
+can't find old project → create another
+
+That can lead to:
+
+customer-site
+customer-site-2
+customer-site-abc123
+
+and domains pointing at the wrong deployment.
+
+Store IDs, not names
+
+Your canonical record should ultimately contain:
+
+vercelProjectId
+vercelTeamId
+projectName
+productionAlias
+customDomains[]
+
+IDs should be authoritative.
+
+Names are recovery hints.
+
+10. Separate “deploy” from “activate”
+
+This should be absolutely explicit.
+
+Do:
+
+build succeeds
+↓
+deployment succeeds
+↓
+deployment responds successfully
+↓
+aliases/domain confirmed
+↓
+commit publication state
+
+Not:
+
+update database to publishing URL
+↓
+try deployment
+
+The current live state should remain:
+
+publishedUrl
+lastSuccessfulDeploymentId
+publishedAt
+
+until the new version is confirmed.
+
+Then atomically replace them.
+
+11. Don't let Vercel failure alter published state
+
+Tests should specifically prove:
+
+Starting state:
+
+publishedUrl = "https://customer-domain.dk"
+published = true
+deploymentId = "old-good-deployment"
+
+New deployment fails.
+
+Expected:
+
+publishedUrl === "https://customer-domain.dk"
+published === true
+deploymentId === "old-good-deployment"
+
+Plus:
+
+latestPublishJob.status === "failed"
+
+Publishing status and current production state are two separate concepts.
+
+12. Add renderer parity to historical migrations
+
+This is especially important in Birdflow because you've previously had differences between:
+
+builder React preview
+
+and:
+
+generated Vercel website
+
+For every historical fixture:
+
+historical site
+↓ migrate
+canonical state
+
+Then assert that both:
+
+ComponentRenderer
+
+and:
+
+generated-site renderer
+
+can consume equivalent output.
+
+renderer-parity.test.tsx should become a major piece of #190, not just a final smoke test.
+
+Historical fixtures I would require
+
+Don't make just one fake “old website”.
+
+Have something like:
+
+fixtures/publishing/
+  schema-v1-basic.json
+  schema-v2-navigation.json
+  schema-v3-shared-header-footer.json
+  schema-v4-booking.json
+  schema-v5-custom-components.json
+  schema-v6-assets.json
+  corrupted-unknown-component.json
+  corrupted-missing-page.json
+
+And importantly use sanitized copies of real historical Birdflow project structures if possible.
+
+Synthetic tests often miss the exact weirdness that old production data contains.
+
+Tests I would add
+Migration
+old state → current canonical state
+
+assert:
+
+same page count
+same page IDs where appropriate
+same content
+same navigation targets
+same images
+same links
+same shared header/footer
+same booking configuration
+Idempotence
+migrate(old) === migrate(migrate(old))
+Unknown component
+
+Must fail before deployment.
+
+Old optional property
+
+Must receive backwards-compatible default.
+
+Collaborator
+owner → publish allowed
+editor → publish allowed
+stranger → blocked
+Publish job
+owner-created job visible to collaborator
+collaborator-created job visible to owner
+stranger cannot inspect either
+Existing Vercel project
+
+Ensure:
+
+same project ID
+
+is reused.
+
+Historical project name
+
+Old name is correctly resolved without creating a duplicate.
+
+Team mismatch
+
+Fail with actionable error before touching production.
+
+Generator failure
+
+Old website remains active.
+
+Vercel failure
+
+Old website remains active.
+
+Alias activation failure
+
+Old website remains active.
+
+Successful deployment
+
+Only then change:
+
+publishedUrl
+deploymentId
+publishedAt
+I would also change the UI slightly
+
+In builder.tsx, don't expose low-level errors.
+
+Have structured publish errors.
+
+For example:
+
+type PublishError = {
+  code: string;
+  stage:
+    | "migration"
+    | "validation"
+    | "generation"
+    | "build"
+    | "deployment"
+    | "activation";
+  userMessage: string;
+  technicalDetails?: unknown;
+  recoverable: boolean;
+};
+
+User sees:
+
+Denne hjemmeside er lavet i en ældre Birdflow-version.
+Vi kunne ikke sikkert konvertere bookingsektionen på siden “Booking”. Din nuværende hjemmeside er stadig online og er ikke blevet ændret.
+
+Rather than:
+
+500 Internal Server Error
+
+I'd modify the relevant files like this
+File	Responsibility
+shared/siteStructure.ts	Canonical current schema + schema version
+server/publisher/migrations/*	Historical version migrations
+server/publisher/normalize.ts	Current-state normalization only
+server/publisher/validate.ts	Publish blockers and compatibility checks
+server/publisher/index.ts	Orchestrates preflight → deployment
+server/publisher/generator.ts	Accept canonical snapshot only
+server/publisher/worker.ts	Immutable job execution/stages
+server/publisher/vercel.ts	Existing project/team/domain recovery
+server/routes.ts	Permission-aware publish/job API
+builder.tsx	Stage/status/error UX
+tests/renderer-parity.test.tsx	Builder ↔ generated output compatibility
+One architectural rule I'd give Replit
+
+The generator should eventually know nothing about legacy Birdflow formats.
+
+That's the clean boundary:
+
+LEGACY DATA
+    ↓
+migration layer
+    ↓
+CURRENT CANONICAL SITE
+    ↓
+publisher/generator
+
+Not:
+
+                    ↗ old format
+generator handles → medium-old format
+                    ↘ current format
+
+That second architecture will become increasingly fragile every time you update Birdflow.
+
+Revised Done Looks Like
+
+I'd replace Replit's Done section with:
+
+Any recognized historical Birdflow site state can be deterministically migrated into the current canonical schema without mutating the stored source state during publish.
+Migration preserves all supported pages, components, text, links, media/assets, navigation, shared components, booking configuration and relevant site settings.
+Unknown or unsafe legacy data blocks publishing before deployment rather than being dropped, guessed or replaced.
+Publishing operates from an immutable canonical snapshot.
+The generated-site validator and production build gate succeed before a Vercel deployment is allowed to affect production state.
+Owners and authorized collaborators can start publishing and inspect publish-job progress using centralized site permissions; unrelated users receive no access.
+Existing Vercel project/team/domain relationships are recovered and reused using stable IDs where available; uncertainty causes a preflight error rather than an automatic duplicate project.
+A failed migration, validation, generation, build, deployment, verification or alias activation leaves the previous successful deployment, URL, domain and published status unchanged.
+Publication metadata changes only after the new deployment has been successfully verified and activated.
+Historical fixtures cover every known historical schema generation plus real sanitized legacy project shapes.
+Automated tests prove migration idempotence, content preservation, renderer parity, collaborator access, existing-project reuse, duplicate prevention and production preservation on every failure stage.
+One more thing
+
+I would actually make this issue #190A compatibility infrastructure + #190B legacy publish rollout if Replit starts producing a huge implementation. This touches authentication, site schemas, migrations, generator, worker and Vercel state simultaneously.
+
+The architecture I'd aim for going forward is:
+
+Builder State
+     │
+     ├── schemaVersion
+     │
+Historical State
+     ↓
+Migration Engine
+     ↓
+Canonical Site Schema
+     ↓
+Immutable Publish Snapshot
+     ↓
+Validator
+     ↓
+Generated Site
+     ↓
+Production Build Gate
+     ↓
+Vercel Deployment
+     ↓
+Health Verification
+     ↓
+Atomic Production Activation
+
+If you build #190 that way, you're not only fixing the old projects — you're making it much less likely that the updates you're building today become another publishing compatibility problem six months from

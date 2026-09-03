@@ -1,0 +1,872 @@
+# Task — Migrate Birdflow publish backend from Replit Production to Supabase + Vercel
+
+## Goal
+
+Refactor Birdflow's publishing architecture so publishing no longer depends on the Birdflow Express server being deployed through Replit Production.
+
+The desired long-term architecture is:
+
+```text
+Birdflow Builder
+        ↓
+Supabase backend / Edge Functions
+        ↓
+Vercel Deployment API
+        ↓
+Published customer website
+```
+
+Supabase should become the control plane for publishing:
+
+* authentication
+* authorization
+* publish jobs
+* website/version snapshots
+* deployment state
+* Vercel API orchestration
+* webhook handling
+* publish errors
+* deployment URLs
+* Realtime status updates
+
+Vercel should continue handling:
+
+* installing dependencies
+* building the generated website
+* deploying it
+* hosting it
+* assigning the public `.vercel.app` production alias
+
+Do NOT attempt to run heavy Next.js builds inside Supabase Edge Functions.
+
+---
+
+# Current problem
+
+Publishing currently depends on:
+
+```ts
+resolveBirdflowApiUrl()
+```
+
+and environment assumptions such as:
+
+```text
+BIRDFLOW_API_URL
+REPLIT_DEPLOYMENT
+```
+
+In the Replit development workspace there is no production deployment environment, so publishing fails before the deployment even reaches Vercel.
+
+There is also another issue:
+
+On the first Vercel deployment, the stable production `.vercel.app` alias may not exist immediately.
+
+The existing publisher can then fall back to the hashed Vercel deployment URL:
+
+```text
+site-name-randomhash.vercel.app
+```
+
+That URL may be protected by Vercel SSO / Deployment Protection and therefore must NOT be stored as the customer-facing production URL.
+
+---
+
+# Important existing files
+
+Inspect these first:
+
+```text
+server/publisher/platformUrl.ts
+server/publisher/index.ts
+server/publisher/vercel.ts
+server/routes.ts
+```
+
+Especially inspect:
+
+```text
+server/publisher/index.ts:100-158
+server/publisher/vercel.ts:223-248
+server/routes.ts:2842-2978
+```
+
+Also identify:
+
+* how website data is currently collected for publishing
+* how source files are generated
+* how the Vercel deployment is created
+* whether the server currently builds anything locally
+* how custom domains are attached
+* where deployment URLs are stored
+* how the builder receives publish status
+* all database tables related to websites/deployments
+* current Supabase integration
+* current RLS model
+* existing publish tests
+
+Do not start by rewriting everything.
+
+First understand the current pipeline and preserve working functionality.
+
+---
+
+# Target architecture
+
+Refactor publishing toward:
+
+```text
+Builder
+   ↓
+publish-site API
+   ↓
+authorization
+   ↓
+create immutable website version
+   ↓
+create publish_job
+   ↓
+generate deployment source
+   ↓
+Vercel Create Deployment API
+   ↓
+return jobId to builder
+   ↓
+Vercel builds asynchronously
+   ↓
+Vercel webhook
+   ↓
+resolve stable production alias
+   ↓
+update publish_job + website
+   ↓
+Supabase Realtime
+   ↓
+Builder shows Published
+```
+
+---
+
+# 1. Remove Replit Production as a publish dependency
+
+Publishing must NOT require:
+
+```text
+REPLIT_DEPLOYMENT
+```
+
+or a live Replit deployment.
+
+Do not make the dev workspace call itself through a Replit URL.
+
+The core publishing system should work regardless of whether Birdflow itself is running:
+
+* in Replit development
+* locally
+* through another frontend host
+* through a future production platform
+
+Remove Replit-specific assumptions from the publisher where possible.
+
+Do not remove Replit tooling needed for development.
+
+Only remove Replit as a runtime dependency of publishing.
+
+---
+
+# 2. Separate platform URLs
+
+The existing:
+
+```text
+BIRDFLOW_API_URL
+```
+
+appears to have multiple responsibilities.
+
+Separate these concepts.
+
+For example:
+
+```text
+BIRDFLOW_PUBLIC_PLATFORM_URL
+```
+
+Used by published websites for APIs such as:
+
+```text
+booking
+contact forms
+analytics
+email callbacks
+```
+
+And publishing itself should use the Supabase backend directly rather than depending on Birdflow's Express production URL.
+
+Do not blindly rename variables.
+
+Trace every current usage of `BIRDFLOW_API_URL` first.
+
+Create a migration that prevents breaking existing published websites.
+
+---
+
+# 3. Add publish_jobs
+
+Create or extend a proper publish job model.
+
+Recommended structure:
+
+```text
+publish_jobs
+
+id
+website_id
+requested_by
+status
+attempt
+idempotency_key
+
+vercel_project_id
+vercel_deployment_id
+
+deployment_url
+production_url
+
+error_code
+error_message
+
+created_at
+started_at
+completed_at
+updated_at
+```
+
+Suggested status lifecycle:
+
+```text
+queued
+generating
+uploading
+deploying
+waiting_for_alias
+published
+failed
+```
+
+Use enums/check constraints if consistent with the current database architecture.
+
+Add appropriate indexes.
+
+Add RLS.
+
+Users must only be able to see publishing information for websites they own/have permission to manage.
+
+Never allow users to manually set trusted fields such as:
+
+```text
+vercel_deployment_id
+production_url
+status
+error_code
+```
+
+through direct client updates.
+
+Those should only be updated through trusted backend execution.
+
+---
+
+# 4. Add immutable website versions/snapshots
+
+A publish should deploy a snapshot, not continuously query mutable website state during the deployment.
+
+Create something equivalent to:
+
+```text
+website_versions
+
+id
+website_id
+publish_job_id
+version_number
+content
+created_at
+```
+
+The exact schema may differ depending on Birdflow's existing website/page/component tables.
+
+Do not unnecessarily duplicate huge datasets.
+
+Choose an architecture appropriate for the existing database.
+
+The important rule is:
+
+> Once a deployment starts, the version being deployed must not change when the user continues editing the website.
+
+---
+
+# 5. Supabase publish endpoint
+
+Create a Supabase-based publishing entry point.
+
+Prefer an Edge Function such as:
+
+```text
+supabase/functions/publish-site/
+```
+
+Responsibilities:
+
+1. Authenticate the current user.
+2. Validate website ownership/permissions.
+3. Prevent invalid concurrent publishes if necessary.
+4. Create website version/snapshot.
+5. Create publish job.
+6. Generate or collect deployment source.
+7. Send deployment to Vercel.
+8. Store `vercel_deployment_id`.
+9. Set status to `deploying`.
+10. Return immediately with something like:
+
+```json
+{
+  "jobId": "...",
+  "status": "deploying"
+}
+```
+
+Prefer HTTP `202 Accepted` for asynchronous deployment.
+
+Do NOT keep the HTTP request open waiting for the entire Vercel deployment unless there is a very strong architectural reason.
+
+---
+
+# 6. Keep heavy builds on Vercel
+
+Inspect the current publisher.
+
+If Birdflow currently runs:
+
+```text
+npm install
+next build
+large esbuild operations
+sharp processing
+Docker
+large filesystem builds
+```
+
+do NOT simply move those operations into Supabase Edge Functions.
+
+Instead restructure deployment so Birdflow sends Vercel the generated source/project files and Vercel performs the actual build.
+
+Supabase should orchestrate.
+
+Vercel should build.
+
+If some part of the current publishing process genuinely cannot run within an Edge Function, isolate it behind a clean publisher worker abstraction rather than creating a hidden dependency on Replit again.
+
+Document anything that cannot safely be moved.
+
+---
+
+# 7. Refactor Vercel integration
+
+Extract the Vercel integration into runtime-independent modules where practical.
+
+Preserve existing functionality for:
+
+* creating/updating Vercel projects
+* creating deployments
+* environment variables
+* custom domains
+* project configuration
+* deployment polling if needed
+
+Do not break working custom-domain publishing.
+
+Custom domain attachment is OUT OF SCOPE except where refactoring is necessary to preserve it.
+
+---
+
+# 8. Never use the hashed deployment URL as productionUrl
+
+After a Vercel deployment becomes ready, distinguish between:
+
+```text
+deployment URL
+```
+
+and:
+
+```text
+public production alias
+```
+
+For example:
+
+```ts
+deploymentUrl:
+site-name-git-randomhash.vercel.app
+
+productionUrl:
+site-abc123.vercel.app
+```
+
+These are NOT interchangeable.
+
+Never do:
+
+```ts
+productionUrl = alias ?? deploymentUrl;
+```
+
+The hashed deployment URL may require Vercel authentication.
+
+Only store a URL as customer-facing `productionUrl` if it is confirmed to be the stable public production alias or a configured custom domain.
+
+---
+
+# 9. Alias retry
+
+Vercel may take a few seconds after `READY` before the production alias appears.
+
+Add retry logic around:
+
+```ts
+getProductionAliasUrl()
+```
+
+or its refactored equivalent.
+
+Example strategy:
+
+```text
+attempt 1 immediately
+wait 3 seconds
+attempt 2
+wait 3 seconds
+attempt 3
+wait 3 seconds
+attempt 4
+```
+
+Use a small reusable retry utility with:
+
+* bounded attempts
+* useful logs
+* no infinite polling
+
+Exact retry values can be adjusted if existing infrastructure suggests a better value.
+
+---
+
+# 10. Handle missing alias safely
+
+If deployment succeeds but no stable production alias can be resolved:
+
+DO NOT store the hashed deployment URL as the published customer URL.
+
+Instead set the publish job to something like:
+
+```text
+failed
+```
+
+with:
+
+```text
+error_code = PRODUCTION_ALIAS_UNAVAILABLE
+```
+
+and a useful internal message.
+
+The builder should show a recoverable publish error and allow the user to republish.
+
+Example user-facing message:
+
+```text
+Website deployed, but Vercel did not finish assigning its public URL. Try publishing again.
+```
+
+Do not expose technical Vercel internals unnecessarily to normal customers.
+
+---
+
+# 11. Add Vercel webhook handling
+
+Prefer event-driven deployment completion instead of keeping a long server request alive.
+
+Add something like:
+
+```text
+supabase/functions/vercel-webhook/
+```
+
+Handle relevant Vercel events such as deployment success/ready/error.
+
+Webhook responsibilities:
+
+1. Verify that the request genuinely came from Vercel.
+2. Identify the relevant deployment/project.
+3. Find the associated `publish_job`.
+4. Update deployment state.
+5. Resolve the stable public alias.
+6. Retry alias lookup briefly if necessary.
+7. Update:
+
+```text
+publish_jobs.status
+publish_jobs.production_url
+website published URL
+website published version
+```
+
+8. Record clear error state on failure.
+
+Make webhook processing idempotent.
+
+Receiving the same webhook more than once must not corrupt state.
+
+---
+
+# 12. Supabase Realtime
+
+Where appropriate, make the builder subscribe to its current publish job.
+
+Desired UX:
+
+```text
+Preparing website...
+Publishing...
+Deploying...
+Finalizing public URL...
+Published
+```
+
+The user should not need to manually refresh.
+
+If the existing builder already polls publish state, preserve compatibility initially and migrate toward Realtime without introducing unnecessary regressions.
+
+---
+
+# 13. Concurrency + idempotency
+
+Protect against:
+
+* double-clicking Publish
+* network retries
+* duplicate API requests
+* duplicate Vercel webhooks
+* two simultaneous deployments overwriting each other's production state
+
+Use an `idempotency_key` or equivalent design.
+
+Only the newest valid successful publish should become the website's active published version if multiple deployments overlap.
+
+Do not let an older slow deployment overwrite a newer successful deployment.
+
+---
+
+# 14. Secrets
+
+Move deployment secrets to trusted backend infrastructure.
+
+Examples:
+
+```text
+VERCEL_TOKEN
+VERCEL_TEAM_ID
+VERCEL_*
+```
+
+Do not expose these to the browser.
+
+Use Supabase secrets for Edge Functions where appropriate.
+
+The browser should never directly call privileged Vercel deployment endpoints using Birdflow's secret credentials.
+
+---
+
+# 15. Security
+
+Review security as part of this migration.
+
+Ensure:
+
+* publish endpoint requires authentication
+* website ownership is checked server-side
+* users cannot publish other users' websites
+* users cannot manipulate another website's publish job
+* trusted status fields cannot be edited from the browser
+* Vercel webhook signatures are verified
+* secrets never reach the client
+* RLS is enabled for new tables
+* service-role credentials never reach the frontend
+
+---
+
+# 16. Keep custom domains working
+
+Existing custom-domain publishing already works and is not the target of this task.
+
+Preserve the behavior.
+
+Desired logic:
+
+```text
+IF website has custom domain:
+    continue using the working custom-domain flow
+
+ELSE:
+    use stable public Vercel production alias
+```
+
+Do not regress:
+
+* domain attachment
+* DNS state
+* existing Vercel projects
+* republishing existing websites
+
+---
+
+# 17. Backward compatibility
+
+There may already be existing websites with:
+
+```text
+deploymentUrl
+publishedUrl
+customDomain
+vercelProjectId
+```
+
+Inspect the current schema.
+
+Do not create duplicate concepts without a migration strategy.
+
+Reuse existing columns where sensible.
+
+If schema changes are required:
+
+* create migrations
+* preserve existing production values
+* keep current sites working
+* document migration behavior
+
+---
+
+# 18. Builder UI
+
+Update the Publish flow to support asynchronous publishing.
+
+Desired behavior:
+
+```text
+Click Publish
+
+→ POST publish request
+→ receive jobId
+→ show publishing state
+→ subscribe/poll job
+→ deployment succeeds
+→ production alias confirmed
+→ show Visit Website
+```
+
+If publish fails:
+
+```text
+Publishing failed
+[Try again]
+```
+
+The UI must never present an SSO-protected hashed Vercel deployment URL as the customer's live website.
+
+---
+
+# 19. Logging
+
+Add structured logging around:
+
+```text
+publish_requested
+snapshot_created
+vercel_deployment_created
+vercel_deployment_ready
+alias_lookup_attempt
+production_alias_found
+publish_completed
+publish_failed
+```
+
+Include useful identifiers:
+
+```text
+websiteId
+publishJobId
+deploymentId
+vercelProjectId
+```
+
+Never log:
+
+```text
+VERCEL_TOKEN
+Supabase service role key
+private environment secrets
+```
+
+---
+
+# 20. Testing
+
+Preserve all existing publish tests.
+
+Add tests for at least:
+
+### Publish without domain
+
+```text
+website has no custom domain
+→ deployment created
+→ stable .vercel.app alias returned
+→ publish succeeds
+```
+
+### Alias delayed
+
+```text
+deployment READY
+alias initially missing
+alias appears after retry
+→ publish succeeds
+```
+
+### Alias never appears
+
+```text
+deployment READY
+alias missing after retries
+→ publish fails safely
+→ hashed deployment URL not stored as productionUrl
+```
+
+### Custom domain
+
+```text
+existing custom domain
+→ existing domain flow remains functional
+```
+
+### Duplicate publish request
+
+```text
+same idempotency key
+→ does not produce unintended duplicate state
+```
+
+### Old deployment finishes after newer deployment
+
+```text
+publish A starts
+publish B starts
+publish B finishes first
+publish A finishes later
+
+→ A must not overwrite B as active production version
+```
+
+### Authorization
+
+```text
+user A attempts to publish user B website
+→ rejected
+```
+
+Run:
+
+* publish E2E tests
+* backend tests
+* frontend tests
+* TypeScript checks
+* parity tests
+* full test suite
+
+Do not consider the task complete with failing existing tests unless the failure is demonstrably unrelated and documented.
+
+---
+
+# 21. Implementation approach
+
+Before editing code:
+
+1. Map the current publish architecture.
+2. Identify what is Replit-specific.
+3. Identify what can run safely inside Supabase Edge Functions.
+4. Identify anything that requires a long-running worker.
+5. Inspect existing Supabase schema/RLS.
+6. Inspect existing Vercel project/deployment abstraction.
+7. Inspect custom domain behavior.
+8. Create a migration plan.
+
+Then implement in small stages.
+
+Prefer refactoring existing working Vercel code over rewriting it completely.
+
+---
+
+# Definition of Done
+
+The task is complete when:
+
+* Publishing no longer depends on Replit Production.
+* `REPLIT_DEPLOYMENT` is not required by the publish system.
+* A customer can publish a website without a custom domain.
+* The website reaches Vercel successfully.
+* Vercel performs the website build.
+* The stored customer-facing URL is the stable public `.vercel.app` alias.
+* The hashed deployment URL is never used as the production fallback.
+* Alias availability is retried briefly.
+* Missing alias produces an explicit recoverable error.
+* Publishing is represented as an asynchronous job.
+* Supabase stores deployment/publish state.
+* The builder receives publish status updates.
+* Existing custom-domain publishing still works.
+* Existing websites remain compatible.
+* Publish operations are authorized securely.
+* Duplicate/late deployments cannot corrupt production state.
+* Existing publish tests pass.
+* New publish architecture tests pass.
+* TypeScript and full test suites remain green.
+
+---
+
+# Important constraints
+
+Do NOT:
+
+* make Replit Production a hidden dependency again
+* expose Vercel credentials to the browser
+* build a full Next.js project inside an Edge Function if it exceeds Edge runtime constraints
+* remove existing custom-domain functionality
+* replace working code unnecessarily
+* store an SSO-protected hashed deployment URL as the website URL
+* make long HTTP requests wait indefinitely for Vercel
+* allow older deployments to overwrite newer successful deployments
+* disable RLS just to make publishing work
+
+Prefer a strong long-term architecture over a temporary patch.
+
+At the end, provide:
+
+1. architecture before vs after
+2. files changed
+3. database migrations added
+4. Supabase functions added
+5. environment/secrets I need to configure manually
+6. anything that could not safely be migrated
+7. tests run and their results
+8. any follow-up tasks you recommend, separated from this implementation

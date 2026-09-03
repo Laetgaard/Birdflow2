@@ -17,6 +17,8 @@ import {
 import { componentRegistry } from "@shared/componentRegistry";
 import { sectionRegistry, type SectionType } from "@shared/sectionRegistry";
 import { stylePresets, getPresetTokens } from "@shared/stylePresets";
+import { migrateStateToTokens } from "@shared/designTokens";
+import { pageRole, reorderPages, syncNavigationWithPages } from "@shared/siteStructure";
 import type { BuilderStateData, BuilderComponent, StylePreset, DesignTokens } from "@shared/schema";
 import {
   sanitizePrimitiveTree,
@@ -28,11 +30,22 @@ import {
   MAX_CUSTOM_TREE_NODES,
   MAX_CUSTOM_TREE_DEPTH,
   PRIMITIVE_STYLE_KEYS,
+  sanitizeEditableSchema,
+  validateEditableSchema,
+  inferEditableSchema,
+  findFunctionalBindings,
+  cloneLibrarySource,
+  findDuplicateLibraryEntry,
+  normalizeLibraryEntryInPlace,
+  type EditableSchema,
   type PrimitiveNode,
   type CustomComponentEntry,
 } from "@shared/customComponents";
 
-import { getOpenAI } from "./openaiClient";
+import { buildBusinessContextPrompt } from "@shared/businessContext";
+import { meteredChat } from "./aiCall";
+import { checkMutationClaims, scrubGeneratedComponent } from "./claimRules";
+import type { SpendMeter } from "./aiSpend";
 
 const VALID_ACTIONS = [
   'add_component',
@@ -43,6 +56,9 @@ const VALID_ACTIONS = [
   'add_page',
   'remove_page',
   'update_page',
+  'reorder_pages',
+  'update_navigation',
+  'update_site_chrome',
   'update_global_styles',
   'apply_preset',
   'add_section',
@@ -54,6 +70,15 @@ const VALID_ACTIONS = [
 const BASE_SYSTEM_PROMPT = `You are an elite AI website architect and web designer with 15+ years of professional UI/UX expertise. You think like a $200/hour design consultant who obsesses over conversion rates, visual polish, and user psychology. You create stunning, conversion-focused, well-structured websites using structured JSON mutations.
 
 All generated content MUST be in Danish by default unless the user specifically requests another language. You respond with explanations in Danish.
+
+## FACTS & CLAIMS POLICY (OVERRIDES EVERYTHING ELSE IN THIS PROMPT)
+The BUSINESS FACTS block in the context is the ONLY thing you know about this business. You may rephrase those facts freely, but you must NEVER invent:
+- testimonials, reviews, ratings, review counts or customer names
+- prices or discounts
+- statistics, client counts, percentages or years of experience
+- qualifications, certifications, authorisations or memberships
+- treatment results, outcome promises or guarantees
+If a fact is not supplied, write persuasive copy WITHOUT concrete claims — or leave the section out entirely. A page with no social-proof section is correct; a page with an invented one is broken. Facts marked PROTECTED must be used verbatim, never paraphrased. The server rejects mutations containing unbacked claims, so inventing them only wastes the run.
 
 ## YOUR DESIGN PHILOSOPHY
 1. **Think in SECTIONS, not components** - Design pages as a collection of purpose-driven sections
@@ -126,9 +151,10 @@ All generated content MUST be in Danish by default unless the user specifically 
   - DÅRLIG: "Vi tilbyder professionelle webdesign-løsninger til din virksomhed" (too long, feature-focused)
 
 ### Subheadlines (H2/Supporting)
-- Support the headline with SPECIFICS: numbers, timeframes, concrete outcomes
+- Support the headline with substance: who it is for, what it solves, what happens next
 - 12-20 words that expand on the headline's promise
-- Example: "Over 2.000 danske virksomheder bruger vores platform til at øge deres online salg med op til 40%"
+- Use numbers ONLY when the business facts supply them; otherwise stay concrete without figures
+- Example: "Samtaleterapi for voksne og unge — trygge rammer, uden ventelister og lange forløb uden retning"
 
 ### Call-to-Action (CTA) Buttons
 - Use SPECIFIC action verbs - tell users exactly what happens when they click
@@ -139,11 +165,9 @@ All generated content MUST be in Danish by default unless the user specifically 
 - Maximum 2 CTAs per section. One primary, one secondary.
 
 ### Social Proof & Testimonials
-- Use SPECIFIC numbers: "4.8/5 baseret på 347 anmeldelser" not "Mange glade kunder"
-- Real-sounding Danish names with job titles: "Maria Jensen, Indehaver af Café Norden" not "Kunde A"
-- Diverse testimonials: mix genders, industries, company sizes
-- Include concrete results: "Vores omsætning steg 65% på 3 måneder" not "Godt produkt"
-- Always include at least 3 testimonials - one is not believable, two looks limited
+- Social proof comes EXCLUSIVELY from the business facts: only quote testimonials, ratings, review counts and results the customer has supplied
+- If the facts contain no testimonials or numbers, OMIT social-proof sections entirely — never pad with invented names, ratings or outcomes
+- When real testimonials exist, reproduce their content faithfully (a rephrased quote is a fabricated quote) and attribute them exactly as supplied
 
 ### Feature Descriptions
 - Follow the **Benefit → Feature → How** pattern:
@@ -167,17 +191,18 @@ All generated content MUST be in Danish by default unless the user specifically 
   1. Clear value proposition headline (what + for whom + benefit)
   2. Supporting subheadline with specifics
   3. Primary CTA button (high contrast, action-oriented text)
-  4. Trust signal (e.g., "Brugt af 2.000+ virksomheder" or star rating)
+  4. Trust signal ONLY if the business facts back one (e.g. a real membership or client count); otherwise skip it
   5. Optional: hero image or illustration that supports the message
 - Users decide in 3-5 seconds whether to stay. The hero must answer: "What is this? Is it for me? What do I do next?"
 
 ### AIDA Framework (structure every landing page this way)
 1. **Attention** (Hero): Bold headline, striking visuals, immediate value proposition
 2. **Interest** (Features/Benefits): Expand on the promise, show how it works, address pain points
-3. **Desire** (Social Proof + Results): Testimonials, case studies, stats, before/after - make them WANT it
+3. **Desire** (Social Proof + Results): Testimonials, case studies, stats - but ONLY those the business facts supply; with none, build desire through vivid benefit copy instead
 4. **Action** (CTA): Clear, easy next step with reduced friction. Repeat CTA after every major section.
 
 ### Social Proof Placement Strategy
+- (Applies only to social proof that exists in the business facts)
 - Place social proof AFTER every major decision point:
   - After hero (quick trust: logos, rating, customer count)
   - After features (detailed testimonials proving the features work)
@@ -187,7 +212,7 @@ All generated content MUST be in Danish by default unless the user specifically 
 ### Friction Reduction
 - Minimal form fields: name + email + one relevant field maximum for initial contact
 - Clear, transparent pricing - hidden costs kill conversions
-- Trust signals near every CTA: "Ingen kreditkort påkrævet", "30 dages pengene-tilbage-garanti", "Gratis prøveperiode"
+- Trust signals near every CTA - but only ones the business facts support; never invent guarantees or free-trial promises
 - FAQ section to pre-answer objections before the user leaves
 - Progress indicators for multi-step processes
 
@@ -200,6 +225,8 @@ All generated content MUST be in Danish by default unless the user specifically 
 ---
 
 ## INDUSTRY-SPECIFIC DESIGN EXPERTISE
+
+NOTE: The sections below suggest LAYOUT and TONE. Where they mention stats, testimonials, certifications, guarantees or specific figures, that content still has to come from the business facts — with none supplied, skip those sections rather than invent numbers (FACTS & CLAIMS POLICY above always wins).
 
 ### Restaurant / Café
 - **Preset**: modern or playful
@@ -288,12 +315,12 @@ All generated content MUST be in Danish by default unless the user specifically 
 
 1. **NEVER use placeholder text** - No "Lorem ipsum", no "Tekst her", no "[Indsæt navn]". Always write realistic, business-appropriate Danish content.
 2. **Image URLs must be real Unsplash URLs** - Use format: https://images.unsplash.com/photo-[ID]?w=1200&h=800&fit=crop for proper sizing. Choose images relevant to the business type.
-3. **Minimum content depth** - Each features section: minimum 3 items (ideally 4-6). Each testimonials section: minimum 3 testimonials. Pricing: 3 tiers. FAQ: minimum 4 questions.
+3. **Minimum content depth** - Each features section: minimum 3 items (ideally 4-6). FAQ: minimum 4 questions. Testimonials/pricing sections: only with backing facts, and then show ALL supplied entries rather than inventing extras to fill a layout.
 4. **Typography consistency** - Do NOT mix serif and sans-serif fonts without clear purpose. Headings and body must feel like they belong to the same design system.
 5. **Color contrast compliance** - All text MUST pass WCAG AA contrast ratio (4.5:1 for normal text). Dark text on light bg: minimum #374151. Light text on dark bg: minimum #e5e7eb.
 6. **Button affordance** - Buttons must look clickable: sufficient padding (12px 24px minimum), clear color contrast against background, hover state implied by solid/gradient styles.
 7. **Danish content by default** - All text content, button labels, section titles, testimonial names, FAQ questions - everything in Danish unless the user explicitly requests otherwise.
-8. **Realistic testimonial names** - Use common Danish names: Lars Nielsen, Mette Andersen, Thomas Pedersen, Camilla Sørensen, Mikkel Hansen, etc. Include realistic job titles and company names.
+8. **No invented people** - Testimonial names, job titles and quotes may ONLY come from the business facts. Never generate plausible-sounding Danish names as customers.
 9. **Consistent icon usage** - Use Lucide icon names that match the feature: "zap" for speed, "shield" for security, "clock" for time-saving, "trending-up" for growth, "heart" for care, "check-circle" for reliability.
 
 ---
@@ -347,7 +374,18 @@ When applying a theme like "luxury", update ALL components:
 - ALL text: appropriate text colors for dark backgrounds (#ffffff, #f5f5f5)
 
 ## AVAILABLE ACTIONS (use EXACTLY these strings)
-"add_component" | "update_component" | "remove_component" | "move_component" | "duplicate_component" | "add_page" | "remove_page" | "update_page" | "update_global_styles" | "apply_preset" | "add_section" | "add_custom_component" | "update_custom_component" | "update_brand_guide"
+"add_component" | "update_component" | "remove_component" | "move_component" | "duplicate_component" | "add_page" | "remove_page" | "update_page" | "reorder_pages" | "update_navigation" | "update_site_chrome" | "update_global_styles" | "apply_preset" | "add_section" | "add_custom_component" | "update_custom_component" | "update_brand_guide"
+
+## SITE STRUCTURE (pages, menu, shared header/footer, SEO)
+The order of the pages is the order they appear in; "reorder_pages" takes the full
+order at once. Every page has a role (home, service, legal, booking, landing,
+draft) and its own SEO title and description - set them with "update_page", and
+never leave two pages sharing one title. The menu is stored, not derived: edit it
+with "update_navigation", where a label is free text and only "pageId" ties a link
+to a page. The header and footer are stored ONCE in the shared chrome and drawn on
+every page - change them with "update_site_chrome", never by editing a header
+section on one page, and never by adding a header/footer section to a page that
+already gets the shared one.
 
 ## SECTION-BASED DESIGN (PREFERRED APPROACH)
 
@@ -465,21 +503,53 @@ When applying a theme like "luxury", update ALL components:
   "styles": { ... }
 }
 
-### update_global_styles (for custom design tokens)
+### update_global_styles (the brand itself - see DESIGN TOKENS below)
 {
   "action": "update_global_styles",
   "styles": {
     "primaryColor": "#hexcolor",
     "secondaryColor": "#hexcolor",
+    "accentColor": "#hexcolor",
     "backgroundColor": "#hexcolor",
+    "surfaceColor": "#hexcolor",
     "textColor": "#hexcolor",
+    "typeScale": "modern | editorial | classic | bold",
     "borderRadius": "8px",
     "spacingScale": "compact | comfortable | spacious",
     "sectionGap": "64px",
+    "shadowLevel": "none | subtle | elevated",
+    "containerWidth": "1200px",
     "buttonStyle": "solid | outline | ghost | gradient",
     "cardStyle": "flat | elevated | bordered | glass"
   }
 }
+This is the ONLY place a brand colour or font is written as a hex or a font
+stack. Changing more than one brand colour or the fonts at once replaces the
+palette, which requires the customer's approval first.
+
+## DESIGN TOKENS (how sections refer to the brand)
+
+Component styles must point at the brand instead of repeating it. Write the
+token reference, not the value:
+
+  "styles": { "backgroundColor": "{color.surface}", "textColor": "{color.text}" }
+
+Available references:
+- Colours: {color.primary} {color.secondary} {color.accent} {color.background}
+  {color.surface} {color.text} {color.muted} {color.border} {color.onPrimary}
+  {color.onSecondary} {color.onAccent}
+- Fonts: {font.heading} {font.body}
+- Type sizes (already responsive): {text.display} {text.h1} {text.h2} {text.h3}
+  {text.lead} {text.body} {text.small}
+- Spacing: {space.section} {space.block} {space.gap} {space.inline}
+- Radius: {radius.sm} {radius.md} {radius.lg} {radius.pill}
+- Shadow: {shadow.sm} {shadow.md} {shadow.lg}
+- Width: {size.container}
+
+Use {color.onPrimary} for text sitting on {color.primary} - it is already the
+readable one. Only write a literal hex in a component's styles when the
+customer asked for that exact one-off colour; a literal is an override that
+stops following the brand when the brand changes.
 
 ## COMPONENT PROPS REFERENCE
 
@@ -607,8 +677,12 @@ IMPORTANT: never use "update_custom_component" on a component you create in the 
   "tree": { "type": "box", "name": "Sektion", "styles": {...}, "children": [...] },
   "position": 2,            // optional, defaults to end of page
   "saveToLibrary": false,   // true if reusable across pages → appears under "Mine komponenter"
+  "description": "Kort dansk beskrivelse af sektionen (≤200 tegn)",  // with saveToLibrary
+  "category": "hero",       // with saveToLibrary: hero|sektion|kort|cta|galleri|dekoration|andet
+  "tags": ["bånd", "usp"],  // with saveToLibrary: few short Danish keywords
   "styles": {}              // optional section-level styles (incl. animation keys)
 }
+When saveToLibrary is true, ALWAYS include description, category and tags so the library stays searchable. If the library already holds a structurally identical component, it is reused — no duplicate entry is created.
 
 Node types & fields:
 - "box": container; "children": [nodes]; layout via styles (display flex/grid, gap, padding…)
@@ -625,13 +699,31 @@ Responsive rules (MANDATORY):
 - fontSize ≥ 48px needs a smaller mobileStyles.fontSize (roughly 60%)
 
 "update_custom_component" edits an existing component of type "custom". "tree" REPLACES the whole tree — always return the COMPLETE tree with your changes merged in, keeping existing node ids where possible:
-{ "action": "update_custom_component", "pageId": "...", "componentId": "...", "tree": {...}, "styles": {...} }
+{ "action": "update_custom_component", "pageId": "...", "componentId": "...", "tree": {...}, "schema": {...}, "styles": {...} }
+
+## EDITABLE FIELDS ("schema" — ALWAYS include it with a custom component)
+Customers edit custom components through named fields ("Overskrift", "Knap – link"), never through raw nodes. Every add_custom_component MUST include a "schema" that declares what is editable:
+- Give an explicit "id" (e.g. "n1", "n2") to EVERY node the schema references — the server rejects fields that do not resolve to a real node.
+- "schema": { "fields": [ { "key": "headline", "label": "Overskrift", "type": "text", "nodeId": "n1" }, ... ] }
+- Field types:
+  - "text" → binds a text node (edits its text) or a button (edits its label)
+  - "link" → binds a button (edits its href); "image" → binds an image node
+  - "color" → any node, plus "styleKey": "backgroundColor" | "color"
+  - "styleGroup" → any node, plus "keys": [allowed style keys] for advanced styling
+  - "repeater" → a LIST (cards, steps, USP'er): "nodeId" points at the box whose children are the item boxes (every item the SAME structure). Describe each item's editable parts with "itemFields": [{ "key": "t0", "label": "Titel", "type": "text", "nodeType": "text", "nth": 0 }] where "nth" = index among that node type INSIDE one item, document order. Repeaters let the customer add/remove/reorder items — always model lists this way instead of flat one-off fields.
+- "label" is what the customer sees: short, Danish, concrete ("Overskrift", "Knap – link", "Pris 2").
+- Cover everything a customer will want to change: headings, body text, button labels + links, images, list items, the section background colour. Skip purely decorative nodes.
+- On update_custom_component: keep node ids and schema keys stable where you can; include "schema" again whenever the structure changed.
+
+## VISUAL-ONLY (hard rule)
+Custom components are static visuals. They cannot run code, submit forms, take bookings, collect payments, log users in or fetch data — the server REJECTS trees with functional bindings (scripts, form markup, javascript:/data: links). NEVER imitate a booking flow, contact form, price checkout, login or search with primitives: the result looks real but does nothing, which is worse than nothing. When the user wants functionality, insert the trusted section type (booking, contact-form, pricing-table, newsletter) and build custom visuals AROUND it as separate sections.
 
 ## INLINE SVG (decorative graphics)
 svg nodes let you draw on-brand decoration: section dividers, organic blobs, abstract patterns, simple icons, underline strokes.
 - Always include viewBox; size via node styles (width/height), not attributes
 - Use brand-guide colors or "currentColor" for fills/strokes
 - Keep markup small (under 2000 chars), pure vector shapes — scripts and event handlers are stripped automatically
+- Existing svg nodes may carry "svgAssetId"/"svgColors" instead of inline markup (a stored illustration reference). When update_custom_component returns a full tree, KEEP those two fields exactly as they are — never invent, change or drop them. New drawings still use inline "svg" markup; the server stores it automatically.
 Example: { "type": "svg", "name": "Bølge-divider", "svg": "<svg viewBox=\\"0 0 1440 120\\" fill=\\"none\\"><path d=\\"M0 60 Q360 0 720 60 T1440 60 V120 H0 Z\\" fill=\\"#0ea5e9\\"/></svg>", "styles": { "width": "100%" } }
 
 ## MOTION (entrance animations)
@@ -1016,7 +1108,20 @@ function expandHighLevelMutations(
         sectionMutation.position,
         currentState?.globalStyles
       );
-      expandedMutations.push(...componentMutations);
+      // Registry defaults materialize AFTER validateMutation ran on the
+      // high-level add_section, so sample quotes/numbers in the blueprint
+      // would ship unchecked. Scrub each materialized component against the
+      // live site's evidence; fully-unbacked social proof is not added.
+      for (const cm of componentMutations) {
+        if (!currentState || (cm as any).action !== 'add_component' || !(cm as any).component) {
+          expandedMutations.push(cm);
+          continue;
+        }
+        const { component, keep } = scrubGeneratedComponent((cm as any).component, currentState);
+        if (!keep) continue;
+        (cm as any).component = component;
+        expandedMutations.push(cm);
+      }
     } else if (mutation.action === 'apply_preset') {
       const presetMutation = mutation as {
         action: 'apply_preset';
@@ -1043,11 +1148,16 @@ function compactCustomTree(node: PrimitiveNode): Record<string, unknown> {
   return compact;
 }
 
-function getCurrentStateContext(state: BuilderStateData): string {
+export function getCurrentStateContext(state: BuilderStateData): string {
   const pages = state.pages.map(page => ({
     id: page.id,
     name: page.name,
     path: page.path,
+    role: pageRole(page),
+    hidden: page.hidden === true,
+    seo: page.seo ?? null,
+    usesSharedHeader: page.useSharedHeader !== false,
+    usesSharedFooter: page.useSharedFooter !== false,
     componentCount: page.components.length,
     components: page.components.map(c => {
       const props = c.props as Record<string, unknown>;
@@ -1063,10 +1173,21 @@ function getCurrentStateContext(state: BuilderStateData): string {
 
   const library = (state.customComponents ?? []).map(e => ({ id: e.id, name: e.name }));
 
+  const navigation = state.navigation
+    ? state.navigation.items.map(item => ({ label: item.label, target: item.target, pageId: item.pageId }))
+    : null;
+  const chrome = [
+    state.siteChrome?.header ? 'delt header' : null,
+    state.siteChrome?.footer ? 'delt footer' : null,
+  ].filter(Boolean);
+
   return `Current website state:
-- Pages: ${state.pages.length} (${state.pages.map(p => p.name).join(', ')})
+- Pages: ${state.pages.length} (${state.pages.map(p => p.name).join(', ')}), in menu order
+- Navigation: ${navigation ? JSON.stringify(navigation) : 'derived from the visible pages (not stored yet)'}
+- Shared chrome: ${chrome.length ? chrome.join(' + ') + ' (stored once, drawn on every page that has not opted out)' : 'none — each page has its own header/footer sections'}
 - Global styles: ${JSON.stringify(state.globalStyles)}
 - Brand guide:\n${state.brandGuide ? buildBrandContext(state.brandGuide) : 'none defined yet — follow the user request and general design principles'}
+- Business facts:\n${buildBusinessContextPrompt(state.businessContext)}
 - Component library ("Mine komponenter"): ${library.length > 0 ? JSON.stringify(library) : 'empty'}
 - Page details: ${JSON.stringify(pages, null, 2)}`;
 }
@@ -1077,13 +1198,14 @@ export async function processAIBuildRequest(
   prompt: string,
   currentState: BuilderStateData,
   mode: CreativeMode = 'creative',
-  language: SiteLanguage = DEFAULT_SITE_LANGUAGE
+  language: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<AIResponse> {
   const stateContext = getCurrentStateContext(currentState);
   const systemPrompt = getSystemPrompt(mode, language);
-  
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
+
+  const response = await meteredChat("siteGeneration", {
     messages: [
       { role: "system", content: systemPrompt },
       { 
@@ -1100,8 +1222,7 @@ Generate unique component IDs using: componenttype-${Date.now()}`
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 16384,
-  });
+  }, meter);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -1158,97 +1279,28 @@ Generate unique component IDs using: componenttype-${Date.now()}`
   }
 }
 
-function validateMutationsInternal(mutations: any[], initialState: BuilderStateData): string[] {
+export function validateMutationsInternal(mutations: any[], initialState: BuilderStateData): string[] {
   const errors: string[] = [];
   let currentState = structuredClone(initialState);
   
   for (let i = 0; i < mutations.length; i++) {
     const mutation = mutations[i];
-    const action = mutation?.action;
     
-    if (action === 'add_component') {
-      const componentType = mutation.component?.type;
-      if (componentType && !componentTypes.includes(componentType)) {
-        errors.push(`Step ${i + 1}: Unknown component type "${componentType}"`);
-        continue;
-      }
-      if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      }
+    // EVERY mutation — content writes included — goes through the same
+    // validator as the agent and /ai/apply paths. The invented-claims gate
+    // lives at the end of validateMutation, so a subset-of-actions shortcut
+    // here would be a bypass for the one-shot builder and the onboarding
+    // enhancement pass. Structural checks are identical (validateMutation
+    // is a superset of what this loop used to duplicate inline).
+    const verdict = validateMutation(mutation, currentState);
+    if (!verdict.valid) {
+      errors.push(`Step ${i + 1}: ${verdict.error}`);
+      continue;
     }
     
-    if (['update_component', 'remove_component', 'move_component', 'duplicate_component'].includes(action)) {
-      const page = currentState.pages.find(p => p.id === mutation.pageId);
-      if (!page) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      } else if (mutation.componentId && !page.components.some(c => c.id === mutation.componentId)) {
-        errors.push(`Step ${i + 1}: Component "${mutation.componentId}" not found`);
-        continue;
-      }
-    }
-    
-    if (['remove_page', 'update_page'].includes(action)) {
-      if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      }
-    }
-    
-    if (action === 'add_custom_component') {
-      if (mutation.pageId && !currentState.pages.some(p => p.id === mutation.pageId)) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      }
-      const tree = measureAiTree(mutation.tree);
-      if (tree.nodes === 0) {
-        errors.push(`Step ${i + 1}: Custom component tree is empty or invalid`);
-        continue;
-      }
-      if (tree.nodes > MAX_CUSTOM_TREE_NODES) {
-        errors.push(`Step ${i + 1}: Custom component tree exceeds ${MAX_CUSTOM_TREE_NODES} nodes`);
-        continue;
-      }
-      if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
-        errors.push(`Step ${i + 1}: Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels`);
-        continue;
-      }
-    }
-    
-    if (action === 'update_custom_component') {
-      const page = currentState.pages.find(p => p.id === mutation.pageId);
-      if (!page) {
-        errors.push(`Step ${i + 1}: Page "${mutation.pageId}" not found`);
-        continue;
-      }
-      const component = page.components.find(c => c.id === mutation.componentId);
-      if (!component) {
-        errors.push(`Step ${i + 1}: Component "${mutation.componentId}" not found`);
-        continue;
-      }
-      if (component.type !== 'custom') {
-        errors.push(`Step ${i + 1}: Component "${mutation.componentId}" is not a custom component — use update_component instead`);
-        continue;
-      }
-      if (mutation.tree) {
-        const tree = measureAiTree(mutation.tree);
-        if (tree.nodes === 0) {
-          errors.push(`Step ${i + 1}: Custom component tree is empty or invalid`);
-          continue;
-        }
-        if (tree.nodes > MAX_CUSTOM_TREE_NODES) {
-          errors.push(`Step ${i + 1}: Custom component tree exceeds ${MAX_CUSTOM_TREE_NODES} nodes`);
-          continue;
-        }
-        if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
-          errors.push(`Step ${i + 1}: Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels`);
-          continue;
-        }
-      }
-    }
-    
-    // Simulate applying this mutation so subsequent steps see the updated state
+    // Simulate applying this mutation so subsequent steps see the updated
+    // state — later mutations may legitimately echo copy an earlier valid
+    // mutation just introduced.
     try {
       currentState = simulateMutation(currentState, mutation);
     } catch (e) {
@@ -1369,10 +1421,10 @@ function simulateMutation(state: BuilderStateData, mutation: any): BuilderStateD
         const component = page.components.find(c => c.id === mutation.componentId);
         if (component) {
           const index = page.components.findIndex(c => c.id === mutation.componentId);
-          const duplicate = {
-            ...structuredClone(component),
-            id: `${component.type}-${Date.now()}`,
-          };
+          // Fresh component id, fresh primitive node ids and a remapped
+          // editable schema — duplicates must never share node ids
+          // (published per-node CSS classes would collide).
+          const duplicate = cloneLibrarySource(component);
           page.components.splice(index + 1, 0, duplicate);
         }
       }
@@ -1398,8 +1450,7 @@ export async function processAIThinkingRequest(
   const stateContext = getCurrentStateContext(currentState);
   const systemPrompt = getSystemPrompt(mode, language);
   
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
+  const response = await meteredChat("siteThinking", {
     messages: [
       { role: "system", content: systemPrompt },
       { 
@@ -1425,7 +1476,6 @@ Generate unique component IDs using: componenttype-${Date.now()}`
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 16384,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -1541,12 +1591,13 @@ Respond with a JSON object:
 }`;
 
 export async function analyzeDesign(
-  currentState: BuilderStateData
+  currentState: BuilderStateData,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<DesignAnalysis> {
   const stateContext = getCurrentStateContext(currentState);
   
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
+  const response = await meteredChat("designAnalysis", {
     messages: [
       { role: "system", content: DESIGN_ANALYSIS_PROMPT },
       { 
@@ -1559,8 +1610,7 @@ Provide a comprehensive design analysis with specific, actionable recommendation
       }
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 8192,
-  });
+  }, meter);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -1633,10 +1683,10 @@ export function applyMutation(
         const component = page.components.find(c => c.id === mutation.componentId);
         if (component) {
           const index = page.components.findIndex(c => c.id === mutation.componentId);
-          const duplicate: BuilderComponent = {
-            ...structuredClone(component),
-            id: `${component.type}-${Date.now()}`,
-          };
+          // Fresh component id, fresh primitive node ids and a remapped
+          // editable schema — duplicates must never share node ids
+          // (published per-node CSS classes would collide).
+          const duplicate: BuilderComponent = cloneLibrarySource(component);
           page.components.splice(index + 1, 0, duplicate);
         }
       }
@@ -1666,7 +1716,43 @@ export function applyMutation(
       if (page) {
         if (mutation.name) page.name = mutation.name;
         if (mutation.path) page.path = mutation.path;
+        if (mutation.role) page.role = mutation.role;
+        if (mutation.seo) page.seo = { ...page.seo, ...mutation.seo };
+        if (mutation.hidden !== undefined) page.hidden = mutation.hidden;
+        if (mutation.useSharedHeader !== undefined) page.useSharedHeader = mutation.useSharedHeader;
+        if (mutation.useSharedFooter !== undefined) page.useSharedFooter = mutation.useSharedFooter;
+        // A renamed, re-pathed or newly hidden page must not leave a menu
+        // link pointing at nothing.
+        if (newState.navigation) {
+          newState.navigation = syncNavigationWithPages(newState.navigation, newState.pages);
+        }
       }
+      break;
+    }
+
+    case 'reorder_pages': {
+      newState.pages = reorderPages(newState.pages, mutation.pageIds);
+      break;
+    }
+
+    case 'update_navigation': {
+      // Stored as given: the order of the array is the order of the menu,
+      // and a label is whatever the customer (or the assistant) called it.
+      newState.navigation = { items: mutation.items };
+      break;
+    }
+
+    case 'update_site_chrome': {
+      const chrome = { ...(newState.siteChrome ?? {}) };
+      if (mutation.header !== undefined) {
+        if (mutation.header === null) delete chrome.header;
+        else chrome.header = mutation.header as BuilderComponent;
+      }
+      if (mutation.footer !== undefined) {
+        if (mutation.footer === null) delete chrome.footer;
+        else chrome.footer = mutation.footer as BuilderComponent;
+      }
+      newState.siteChrome = chrome;
       break;
     }
     
@@ -1682,20 +1768,41 @@ export function applyMutation(
         const component: BuilderComponent = {
           id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           type: 'custom',
-          props: { customTree: tree } as BuilderComponent['props'],
+          props: {
+            customTree: tree,
+            // Every AI-built component ships with an editable schema: the
+            // emitted one when it survives sanitization, otherwise a
+            // best-effort inferred one — never none.
+            ...(tree ? { customSchema: resolveCustomSchema(mutation.schema, tree) } : {}),
+          } as BuilderComponent['props'],
           styles: { backgroundColor: 'transparent', padding: '0px', ...(mutation.styles ?? {}) } as BuilderComponent['styles'],
         };
         const position = mutation.position ?? page.components.length;
         page.components.splice(position, 0, component);
         
         if (mutation.saveToLibrary) {
-          const entry: CustomComponentEntry = {
-            id: generateComponentId(),
-            name: mutation.name,
-            source: structuredClone(component) as CustomComponentEntry['source'],
-            createdAt: new Date().toISOString(),
-          };
-          newState.customComponents = [...(newState.customComponents ?? []), entry];
+          const source = structuredClone(component) as CustomComponentEntry['source'];
+          // Duplicate guard: if the library already holds a structurally
+          // identical component, reuse it instead of growing the library.
+          // The component itself still lands on the page either way.
+          const duplicate = findDuplicateLibraryEntry(newState.customComponents, source);
+          if (!duplicate) {
+            const entry: CustomComponentEntry = {
+              id: generateComponentId(),
+              name: mutation.name,
+              source,
+              createdAt: new Date().toISOString(),
+              ...(mutation.description ? { description: mutation.description } : {}),
+              ...(mutation.category ? { category: mutation.category as CustomComponentEntry['category'] } : {}),
+              ...(mutation.tags?.length ? { tags: mutation.tags } : {}),
+              origin: 'ai',
+              version: 1,
+            };
+            // Clamps the metadata, validates the category and generates the
+            // wireframe thumbnail — same normalization every save runs.
+            normalizeLibraryEntryInPlace(entry);
+            newState.customComponents = [...(newState.customComponents ?? []), entry];
+          }
         }
       }
       break;
@@ -1705,9 +1812,18 @@ export function applyMutation(
       const page = newState.pages.find(p => p.id === mutation.pageId);
       const component = page?.components.find(c => c.id === mutation.componentId);
       if (component && component.type === 'custom') {
+        const props = component.props as { customTree?: PrimitiveNode; customSchema?: unknown };
         if (mutation.tree) {
-          (component.props as { customTree?: PrimitiveNode }).customTree =
-            sanitizePrimitiveTree(normalizeAiTree(mutation.tree));
+          const tree = sanitizePrimitiveTree(normalizeAiTree(mutation.tree));
+          props.customTree = tree;
+          if (tree) {
+            // A replaced tree needs its schema re-anchored: prefer a freshly
+            // emitted schema, else keep the surviving parts of the stored one
+            // (ids are kept where possible), else infer from scratch.
+            props.customSchema = resolveCustomSchema(mutation.schema ?? props.customSchema, tree);
+          }
+        } else if (mutation.schema && props.customTree) {
+          props.customSchema = resolveCustomSchema(mutation.schema, props.customTree);
         }
         if (mutation.styles) {
           component.styles = { ...component.styles, ...mutation.styles } as BuilderComponent['styles'];
@@ -1741,8 +1857,15 @@ export function applyMutation(
       break;
     }
   }
-  
-  return newState;
+
+  // Whatever the assistant wrote, colours and fonts that match the brand end
+  // up pointing at it. Asking the model nicely to emit "{color.primary}" is
+  // not enough on its own - it will type a hex sooner or later, and a hex is
+  // a section that quietly stops following the brand. This is applied to the
+  // finished state rather than to the mutation, so sections expanded from
+  // add_section templates are covered too. It never changes how anything
+  // looks: a reference resolves back to the literal it replaced.
+  return migrateStateToTokens(newState);
 }
 
 /**
@@ -1750,6 +1873,20 @@ export function applyMutation(
  * The result still goes through sanitizePrimitiveTree (style allowlist, SVG
  * sanitizing, href checks, depth/node caps).
  */
+/**
+ * The schema stored on a custom component: the AI-emitted one when it
+ * survives sanitization against the (sanitized) tree, otherwise a
+ * best-effort inferred one. Components therefore ALWAYS carry a schema
+ * after an AI write.
+ */
+function resolveCustomSchema(emitted: unknown, tree: PrimitiveNode): EditableSchema {
+  if (emitted) {
+    const sanitized = sanitizeEditableSchema(tree, emitted);
+    if (sanitized) return sanitized;
+  }
+  return inferEditableSchema(tree);
+}
+
 function normalizeAiTree(tree: AIPrimitiveNode): PrimitiveNode {
   const seen = new Set<string>();
   const normalize = (node: AIPrimitiveNode): PrimitiveNode => {
@@ -1832,6 +1969,57 @@ export function validateMutation(
     }
   }
   
+  if (action === 'reorder_pages') {
+    const ids: unknown = mutation.pageIds;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { valid: false, error: 'reorder_pages kræver mindst ét side-id' };
+    }
+    const known = new Set(state.pages.map(p => p.id));
+    const unknownIds = ids.filter(id => !known.has(id as string));
+    if (unknownIds.length) {
+      return {
+        valid: false,
+        error: `Ukendte sider: ${unknownIds.join(', ')}. Available pages: ${state.pages.map(p => p.id).join(', ')}`,
+      };
+    }
+  }
+
+  if (action === 'update_navigation') {
+    const items: any[] = Array.isArray(mutation.items) ? mutation.items : [];
+    const known = new Set(state.pages.map(p => p.id));
+    for (const item of items) {
+      // A link to a page that does not exist is a dead menu entry on every
+      // single page of the website, so it is refused rather than repaired.
+      if (item?.pageId && !known.has(item.pageId)) {
+        return {
+          valid: false,
+          error: `Menupunktet "${item.label}" peger på siden "${item.pageId}" som ikke findes`,
+        };
+      }
+      if (!item?.pageId && typeof item?.target === 'string' && item.target.startsWith('/')) {
+        const path = item.target.split('#')[0].split('?')[0];
+        if (path && path !== '/' && !state.pages.some(p => p.path === path)) {
+          return {
+            valid: false,
+            error: `Menupunktet "${item.label}" peger på "${item.target}" som ikke findes på websitet`,
+          };
+        }
+      }
+    }
+  }
+
+  if (action === 'update_site_chrome') {
+    for (const [slot, expected] of [['header', 'header'], ['footer', 'footer']] as const) {
+      const component = mutation[slot];
+      if (component && component.type !== expected) {
+        return {
+          valid: false,
+          error: `Den delte ${slot} skal være en ${expected}-sektion, ikke "${component.type}"`,
+        };
+      }
+    }
+  }
+
   if (action === 'add_section') {
     const pageExists = state.pages.some(p => p.id === mutation.pageId);
     if (!pageExists) {
@@ -1870,10 +2058,34 @@ export function validateMutation(
       return { valid: false, error: 'Custom component tree is empty or invalid' };
     }
     if (tree.nodes > MAX_CUSTOM_TREE_NODES) {
-      return { valid: false, error: `Custom component tree exceeds ${MAX_CUSTOM_TREE_NODES} nodes` };
+      return {
+        valid: false,
+        error:
+          `Custom component tree exceeds the limit: ${tree.nodes} nodes (limit: ${MAX_CUSTOM_TREE_NODES}). ` +
+          'Break it into 2–3 smaller create_custom_component calls, each covering one visual area. ' +
+          'Place the resulting components side-by-side or stacked with add_component.',
+      };
     }
     if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
       return { valid: false, error: `Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels` };
+    }
+    // Visual-only enforcement: reject (don't silently strip) functional
+    // bindings so the model learns to use trusted components instead.
+    const functional = findFunctionalBindings(mutation.tree);
+    if (functional.length > 0) {
+      return {
+        valid: false,
+        error: `Custom components are visual-only. ${functional.join(' ')} For real functionality (booking, forms, payments) insert the trusted section types (booking, contact-form, pricing-table) instead of imitating them.`,
+      };
+    }
+    if (mutation.schema) {
+      const check = validateEditableSchema(normalizeAiTree(mutation.tree), { version: 1, fields: mutation.schema.fields });
+      if (!check.ok) {
+        return {
+          valid: false,
+          error: `Editable schema does not match the tree: ${check.errors.join(' ')} Give every node the schema references an explicit "id" in the tree.`,
+        };
+      }
     }
   }
   
@@ -1891,15 +2103,55 @@ export function validateMutation(
     }
     if (mutation.tree) {
       const tree = measureAiTree(mutation.tree);
-      if (tree.nodes === 0 || tree.nodes > MAX_CUSTOM_TREE_NODES) {
-        return { valid: false, error: `Custom component tree is invalid (empty or more than ${MAX_CUSTOM_TREE_NODES} nodes)` };
+      if (tree.nodes === 0) {
+        return { valid: false, error: 'Custom component tree is empty or invalid' };
+      }
+      if (tree.nodes > MAX_CUSTOM_TREE_NODES) {
+        return {
+          valid: false,
+          error:
+            `Custom component tree exceeds the limit: ${tree.nodes} nodes (limit: ${MAX_CUSTOM_TREE_NODES}). ` +
+            'Break it into 2–3 smaller create_custom_component calls, each covering one visual area. ' +
+            'Place the resulting components side-by-side or stacked with add_component.',
+        };
       }
       if (tree.depth > MAX_CUSTOM_TREE_DEPTH) {
         return { valid: false, error: `Custom component tree is nested deeper than ${MAX_CUSTOM_TREE_DEPTH} levels` };
       }
+      const functional = findFunctionalBindings(mutation.tree);
+      if (functional.length > 0) {
+        return {
+          valid: false,
+          error: `Custom components are visual-only. ${functional.join(' ')} For real functionality (booking, forms, payments) insert the trusted section types (booking, contact-form, pricing-table) instead of imitating them.`,
+        };
+      }
+    }
+    if (mutation.schema) {
+      const targetTree = mutation.tree
+        ? normalizeAiTree(mutation.tree)
+        : (component.props as { customTree?: PrimitiveNode } | undefined)?.customTree;
+      if (targetTree) {
+        const check = validateEditableSchema(targetTree, { version: 1, fields: mutation.schema.fields });
+        if (!check.ok) {
+          return {
+            valid: false,
+            error: `Editable schema does not match the tree: ${check.errors.join(' ')} Give every node the schema references an explicit "id" in the tree.`,
+          };
+        }
+      }
     }
   }
-  
+
+  // Invented-claims gate (server-side, deterministic — the prompt asks,
+  // this refuses). Copy the mutation writes may only contain testimonials,
+  // prices, statistics, qualifications, credentials or treatment results
+  // that the customer supplied (business facts) or that already stand on
+  // the site. Runs LAST so structural errors keep their specific messages.
+  const claimFindings = checkMutationClaims(mutation, state);
+  if (claimFindings.length > 0) {
+    return { valid: false, error: claimFindings.map((f) => f.message).join(' ') };
+  }
+
   return { valid: true };
 }
 

@@ -17,6 +17,7 @@ export default defineConfig({
   test: {
     include: [
       "tests/**/*.test.ts",
+      "tests/**/*.test.tsx",
       "shared/**/*.test.ts",
       "server/**/*.test.ts",
       "client/src/**/*.test.{ts,tsx}",

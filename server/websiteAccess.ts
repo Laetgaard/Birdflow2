@@ -92,9 +92,10 @@ const OWNER_PERMISSIONS: Record<WebsitePermission, boolean> = {
 
 // Administrators editing a client site: builder, media and the manage
 // dashboard's business resources (orders, bookings, products, services,
-// team, submissions, customers, analytics). publish, billing, domains
-// and paid AI stay owner-only on purpose: they spend the client's money,
-// deploy on their behalf, or affect account-level state.
+// team, submissions, customers, analytics). Publishing is also permitted:
+// an administrator can already alter the site they are reviewing, and a
+// publish is needed to make an approved client change visible. Account-level
+// billing, domains and paid AI remain owner-only.
 const ADMIN_PERMISSIONS: Record<WebsitePermission, boolean> = {
   readBuilder: true,
   updateBuilder: true,
@@ -102,7 +103,7 @@ const ADMIN_PERMISSIONS: Record<WebsitePermission, boolean> = {
   updateManage: true,
   manageMedia: true,
   manageCustomComponents: false,
-  publish: false,
+  publish: true,
   usePaidAI: false,
   manageBilling: false,
   manageDomains: false,

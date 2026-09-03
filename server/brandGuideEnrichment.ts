@@ -28,7 +28,8 @@ import {
   type BrandGuideTone,
   type BrandGuideTypographySpec,
 } from "@shared/customComponents";
-import { getOpenAI } from "./openaiClient";
+import { meteredChat } from "./aiCall";
+import type { SpendMeter } from "./aiSpend";
 
 export type BrandEnrichmentContext = {
   businessName: string;
@@ -244,7 +245,8 @@ const EnrichmentSchema = z.object({
 async function askModel(
   guide: BrandGuide,
   ctx: BrandEnrichmentContext,
-  imageCount: number
+  imageCount: number,
+  meter?: SpendMeter
 ): Promise<z.infer<typeof EnrichmentSchema> | null> {
   const brief = `Virksomhed: ${ctx.businessName}
 Branche: ${ctx.industry ?? "ukendt"}
@@ -260,9 +262,10 @@ Tone of voice indtil nu: ${guide.toneOfVoice || "ikke beskrevet"}
 Nøgleord: ${(guide.keywords ?? []).join(", ") || "ingen"}
 Der findes allerede ${imageCount} billede(r) på sitet, som brandguiden viser som eksempler.`;
 
-  const response = await getOpenAI().chat.completions.create({
-    model: "gpt-5.1",
-    messages: [
+  const response = await meteredChat(
+    "brandGuide",
+    {
+      messages: [
       {
         role: "system",
         content: `Du er dansk brand designer og skriver den præsenterende del af en brandguide. Alt output skal være på dansk.
@@ -279,11 +282,13 @@ Regler:
 
 Svar med JSON med præcis disse felter.`,
       },
-      { role: "user", content: brief },
-    ],
-    response_format: { type: "json_object" },
-    max_completion_tokens: 2048,
-  });
+        { role: "user", content: brief },
+      ],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 2048,
+    },
+    meter
+  );
 
   const raw = response.choices[0]?.message?.content;
   if (!raw) return null;
@@ -301,7 +306,9 @@ Svar med JSON med præcis disse felter.`,
 export async function enrichBrandGuide(
   guide: BrandGuide,
   ctx: BrandEnrichmentContext,
-  state: BuilderStateData | undefined
+  state: BuilderStateData | undefined,
+  /** The meter of the run that asked, when this is part of a larger run. */
+  meter?: SpendMeter
 ): Promise<BrandGuide> {
   const enriched: BrandGuide = { ...guide };
   const siteImages = collectSiteImages(state);
@@ -320,7 +327,7 @@ export async function enrichBrandGuide(
 
   let ai: z.infer<typeof EnrichmentSchema> | null = null;
   try {
-    ai = await askModel(guide, ctx, siteImages.length);
+    ai = await askModel(guide, ctx, siteImages.length, meter);
   } catch (error) {
     console.error("[BrandEnrichment] model pass failed, keeping deterministic guide:", error);
   }

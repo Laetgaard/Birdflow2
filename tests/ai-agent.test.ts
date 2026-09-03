@@ -233,6 +233,43 @@ describe("write tools", () => {
     const hero = c.state.pages[0].components.find((x) => x.id === "c1")!;
     expect(hero.styles).toMatchObject({ animationType: "fade-in", animationTrigger: "load" });
   });
+
+  it("set_motion replaces the whole motion overlay on every call", async () => {
+    const c = ctx();
+    const hero = () => c.state.pages[0].components.find((x) => x.id === "c1")!;
+
+    await tool("set_motion").run(
+      { pageId: "home", componentId: "c1", animationType: "zoom-in", easing: "spring", repeat: "every-view" },
+      c
+    );
+    expect(hero().styles.motion).toEqual({ easing: "spring", repeat: "every-view" });
+
+    // A later call that omits easing/distance/repeat clears them — it must
+    // not inherit the spring/replay from the previous call.
+    await tool("set_motion").run(
+      { pageId: "home", componentId: "c1", animationType: "slide-up" },
+      c
+    );
+    expect(hero().styles.motion).toEqual({});
+    expect(hero().styles.animationType).toBe("slide-up");
+  });
+
+  it("set_motion 'none' clears overrides so a re-enable starts from defaults", async () => {
+    const c = ctx();
+    const hero = () => c.state.pages[0].components.find((x) => x.id === "c1")!;
+
+    await tool("set_motion").run(
+      { pageId: "home", componentId: "c1", animationType: "bounce", easing: "spring", repeat: "every-view", distance: "long" },
+      c
+    );
+    await tool("set_motion").run({ pageId: "home", componentId: "c1", animationType: "none" }, c);
+    expect(hero().styles.motion).toEqual({});
+    expect(hero().styles.animationType).toBe("none");
+
+    await tool("set_motion").run({ pageId: "home", componentId: "c1", animationType: "fade-in" }, c);
+    expect(hero().styles.motion).toEqual({});
+    expect(hero().styles.animationType).toBe("fade-in");
+  });
 });
 
 describe("generate_image budget", () => {
@@ -299,12 +336,15 @@ describe("agent loop invariants (source tripwires)", () => {
   const tools = readFileSync(join(__dirname, "..", "server", "aiAgentTools.ts"), "utf8");
 
   it("is a real tool-calling loop with a step cap", () => {
-    expect(agent).toContain("tools: openAITools");
-    expect(agent).toContain('tool_choice: "auto"');
-    // The cap is a parameter now (Build mode runs the same loop per plan
-    // step with a smaller one), but it still defaults to MAX_STEPS and the
-    // loop still cannot run unbounded.
-    expect(agent).toContain("while (steps < maxSteps)");
+    expect(agent).toContain("tools: toolDefinitions");
+    // Tool choice is free every turn except a forced final call, which is
+    // what stops a run from ending having produced nothing.
+    expect(agent).toContain('            : "auto",');
+    expect(agent).toContain("function: { name: args.finalTurn.toolName }");
+    // The effective cap (maxStepsEffective) starts at maxSteps and is extended
+    // by continuation passes — the loop still cannot run unbounded, and the
+    // parameter still defaults to MAX_STEPS.
+    expect(agent).toContain("while (steps < maxStepsEffective)");
     expect(agent).toContain("args.maxSteps ?? MAX_STEPS");
     expect(agent).toContain("MAX_TOTAL_COMPLETION_TOKENS");
   });

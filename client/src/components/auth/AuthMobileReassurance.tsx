@@ -1,3 +1,4 @@
+import { useLocale } from "@/lib/locale";
 import { BLUSH } from "@/components/bf2/theme";
 import { AuthJourney } from "./AuthJourney";
 import { MOBILE_NOTE } from "./copy";
@@ -7,6 +8,7 @@ import { MOBILE_NOTE } from "./copy";
    form instead of the reassurance disappearing altogether. */
 
 export function AuthMobileReassurance() {
+  const { lang } = useLocale();
   return (
     <div className="md:hidden mt-10" data-testid="auth-mobile-reassurance">
       <div
@@ -19,7 +21,7 @@ export function AuthMobileReassurance() {
         className="mt-4 m-0 text-[13.5px] leading-[1.6]"
         style={{ color: "rgba(0,0,0,0.7)" }}
       >
-        {MOBILE_NOTE}
+        {MOBILE_NOTE[lang]}
       </p>
     </div>
   );

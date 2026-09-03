@@ -1,0 +1,321 @@
+# #124 — Fix generated page files crashing Vercel builds
+
+## What & Why
+
+Birdflow publishing still fails for some websites even after adding `// @ts-nocheck` to the generated `ComponentRenderer.tsx`.
+
+The reason is that Birdflow generates multiple TypeScript files during publishing.
+
+The builder flow is roughly:
+
+```text
+Builder component data
+        ↓
+Birdflow publisher
+        ↓
+Generate standalone Next.js project
+        ↓
+Generate app/[page]/page.tsx files
+        ↓
+Generate ComponentRenderer.tsx
+        ↓
+Vercel next build
+        ↓
+Published customer website
+```
+
+The previous fix only protected the generated `ComponentRenderer.tsx`.
+
+Generated page files such as:
+
+```text
+app/behandlinger/page.tsx
+app/om-mig/page.tsx
+app/kontakt/page.tsx
+```
+
+still contain baked-in component JSON/data that TypeScript validates independently.
+
+A generated value such as:
+
+```ts
+alignment: "center"
+```
+
+may be inferred as:
+
+```ts
+string
+```
+
+while Birdflow's `ComponentData` type expects:
+
+```ts
+"center" | "left" | "right" | undefined
+```
+
+This causes `next build` on Vercel to exit with code 1 even though the website works correctly in the Birdflow builder preview.
+
+Example failure:
+
+```text
+./app/behandlinger/page.tsx:274:17
+
+Type error:
+The types of 'props.alignment' are incompatible between these types.
+
+Type 'string' is not assignable to type
+'"center" | "left" | "right" | undefined'.
+```
+
+## Goal
+
+Generated page files must not fail publishing because of TypeScript inference differences in machine-generated component data.
+
+This task is a publishing reliability hotfix.
+
+Do not redesign the entire component typing system in this task.
+
+---
+
+## Implementation
+
+### 1. Update `generatePageFile()`
+
+File:
+
+```text
+server/publisher/templates.ts
+```
+
+Find:
+
+```ts
+generatePageFile()
+```
+
+around the current page-template generator.
+
+The returned file must begin with:
+
+```ts
+// @ts-nocheck
+```
+
+It must be the very first line of every generated page file.
+
+Change the template from approximately:
+
+```ts
+return `${componentsImport}
+```
+
+to:
+
+```ts
+return `// @ts-nocheck
+${componentsImport}
+```
+
+Use the same approach already used by:
+
+```ts
+generateComponentRenderer()
+```
+
+Do not add the comment conditionally.
+
+Every generated Next.js page should receive it.
+
+---
+
+### 2. Confirm all generated page routes use this generator
+
+Inspect the publishing pipeline and verify that normal pages generated from Birdflow builder data are routed through `generatePageFile()`.
+
+Check at minimum:
+
+```text
+/
+about / om-os
+services / behandlinger
+contact / kontakt
+custom user-created pages
+```
+
+Do not assume only the failing `/behandlinger` route matters.
+
+If another page generator exists that embeds the same `ComponentData`, identify it and determine whether it needs the same protection.
+
+Do not make unrelated changes.
+
+---
+
+### 3. Add generator smoke test
+
+File:
+
+```text
+tests/generator-smoke.test.ts
+```
+
+Add a regression test for `generatePageFile()`.
+
+The test should generate a normal page and assert:
+
+```ts
+expect(output.startsWith("// @ts-nocheck")).toBe(true);
+```
+
+Also ensure the comment appears before imports.
+
+Example expected beginning:
+
+```ts
+// @ts-nocheck
+import ...
+```
+
+Not:
+
+```ts
+import ...
+// @ts-nocheck
+```
+
+---
+
+### 4. Add a representative component fixture
+
+The smoke/build fixture should contain component props with constrained string unions, including at minimum:
+
+```ts
+alignment: "left"
+alignment: "center"
+alignment: "right"
+```
+
+Also include several normal Birdflow component types so the test is representative of a real generated website rather than an empty page.
+
+Where appropriate include props such as:
+
+```text
+alignment
+layout
+variant
+button styles
+spacing
+typography
+colors
+images
+responsive settings
+```
+
+The purpose is to prevent another literal-inference issue from silently reintroducing the same publishing failure.
+
+---
+
+### 5. Add generated-site build regression coverage
+
+Do not stop at checking the generated string.
+
+Create or extend a publishing/generator test that verifies the generated Next.js output can actually compile.
+
+Preferred flow:
+
+```text
+fixture website
+      ↓
+publisher generator
+      ↓
+generated Next.js files
+      ↓
+next build / equivalent production build
+      ↓
+exit code 0
+```
+
+The test should represent the same architecture Birdflow sends to Vercel.
+
+If running a full Next.js build in every unit-test run is too expensive, put this in a dedicated publishing/integration test suite.
+
+The important thing is that CI has at least one test that checks generated output as a complete site, not just individual template strings.
+
+---
+
+### 6. Test an actual Birdflow publish
+
+Publish a real test website containing multiple pages and different component types.
+
+Verify:
+
+```text
+Builder preview works
+↓
+Publish endpoint succeeds
+↓
+Generated project reaches Vercel
+↓
+Vercel build completes
+↓
+Deployment becomes Ready
+↓
+Public URL loads
+↓
+All pages load
+↓
+Components visually match builder preview
+```
+
+Specifically verify there is no:
+
+```text
+Type error
+```
+
+during the Vercel build.
+
+---
+
+## Important constraints
+
+Do not solve this by changing the global TypeScript configuration.
+
+Do not disable TypeScript checking for the Birdflow application itself.
+
+Do not weaken the builder's own `ComponentData` types.
+
+The change applies only to machine-generated customer-site files produced by the publishing system.
+
+Do not manually special-case:
+
+```text
+alignment
+```
+
+The underlying issue can happen with any literal-union prop generated as plain JSON.
+
+The purpose of the hotfix is to make generated page files resilient to this entire class of TypeScript inference errors.
+
+---
+
+## Done looks like
+
+* `generatePageFile()` outputs `// @ts-nocheck` as line 1.
+* Generated imports start on line 2 or later.
+* `generator-smoke.test.ts` verifies this behavior.
+* Existing generator tests still pass.
+* Representative generated component data is covered.
+* A generated Next.js test site successfully completes a production build.
+* A real Birdflow publish successfully deploys to Vercel.
+* The published site loads through its public URL.
+* Builder preview and published website remain visually/functionally consistent.
+* No TypeScript error from generated component props blocks publishing.
+
+---
+
+## Do not include in this task
+
+Do not attempt a full redesign of generated component typing.
+
+That should be handled separately in task #125.

@@ -78,6 +78,7 @@ export function danishDate(date: Date): string {
 async function embedImages(guide: BrandGuide): Promise<{
   logo: string | null;
   examples: Array<{ url: string; caption: string }>;
+  brandPhotos: Array<{ url: string; caption: string }>;
 }> {
   const toDataUri = async (url: string, maxDim: number): Promise<string | null> => {
     if (url.indexOf("data:image/") === 0) return url;
@@ -99,12 +100,21 @@ async function embedImages(guide: BrandGuide): Promise<{
   };
 
   const logo = guide.logoUrl ? await toDataUri(guide.logoUrl, 512) : null;
+
   const examples: Array<{ url: string; caption: string }> = [];
   for (const example of (guide.imageryExamples ?? []).slice(0, 6)) {
     const data = await toDataUri(example.url, 900);
     if (data) examples.push({ url: data, caption: example.caption });
   }
-  return { logo, examples };
+
+  // Embed uploaded brand photos (up to 6 in the PDF; the rest are too many for a single page)
+  const brandPhotos: Array<{ url: string; caption: string }> = [];
+  for (const photo of (guide.brandPhotos ?? []).slice(0, 6)) {
+    const data = await toDataUri(photo.url, 600);
+    if (data) brandPhotos.push({ url: data, caption: photo.caption ?? "" });
+  }
+
+  return { logo, examples, brandPhotos };
 }
 
 const SPACING_LABEL: Record<BrandGuide["spacing"], string> = {
@@ -128,10 +138,23 @@ const MOTION_LABEL: Record<BrandGuide["motion"], string> = {
   expressive: "Tydelige, legende bevægelser",
 };
 
+const MOTION_PRESET_LABEL: Record<NonNullable<BrandGuide["motionPreset"]>, string> = {
+  subtle: "Diskret — blide fades og løft, næsten usynlige",
+  standard: "Standard — balancerede slide-ins og fades",
+  bold: "Markant — tydelige entranser og stærke bevægelser",
+  playful: "Legende — spring, elastik og forskudte animationer",
+};
+
 /** The printable document. Inline CSS only - nothing is fetched at open time. */
 export function renderBrandGuideHtml(
   guide: BrandGuide,
-  options: { businessName: string; generatedAt: Date; logo: string | null; examples: Array<{ url: string; caption: string }> }
+  options: {
+    businessName: string;
+    generatedAt: Date;
+    logo: string | null;
+    examples: Array<{ url: string; caption: string }>;
+    brandPhotos: Array<{ url: string; caption: string }>;
+  }
 ): string {
   const colors = guide.colors;
   const metaByKey = new Map<BrandGuideColorKey, { name: string; role: string; usage: string }>();
@@ -259,7 +282,19 @@ export function renderBrandGuideHtml(
   <section>
     <h2>Billeder</h2>
     <p>${escapeHtml(guide.imageryNotes || "")}</p>
-    ${exampleCells ? `<div class="examples">${exampleCells}</div>` : ""}
+    ${guide.illustrationStyle ? `
+    <h3>Illustrationsstil</h3>
+    <p>${escapeHtml(guide.illustrationStyle)}</p>
+    ${guide.illustrationReferenceUrl ? `<p style="font-size:8.5pt;color:#667085">Reference: <span style="word-break:break-all">${escapeHtml(guide.illustrationReferenceUrl)}</span></p>` : ""}` : ""}
+    ${options.brandPhotos.length > 0 ? `
+    <h3>Brandfotos</h3>
+    <div class="examples">${options.brandPhotos.map(photo => `
+      <figure class="example">
+        <img src="${photo.url}" alt="" />
+        ${photo.caption ? `<figcaption>${escapeHtml(photo.caption)}</figcaption>` : ""}
+      </figure>`).join("")}
+    </div>` : ""}
+    ${exampleCells ? `<h3>Billedeksempler</h3><div class="examples">${exampleCells}</div>` : ""}
   </section>
 
   <section>
@@ -292,6 +327,8 @@ export function renderBrandGuideHtml(
       <tr><td>Hjørner</td><td>${escapeHtml(RADIUS_LABEL[guide.radius])}</td></tr>
       <tr><td>Skygger</td><td>${escapeHtml(SHADOW_LABEL[guide.shadow])}</td></tr>
       <tr><td>Bevægelse</td><td>${escapeHtml(MOTION_LABEL[guide.motion])}${guide.motionSpeed ? ` · tempo: ${escapeHtml(guide.motionSpeed)}` : ""}</td></tr>
+      ${guide.motionPreset ? `<tr><td>Profil</td><td>${escapeHtml(MOTION_PRESET_LABEL[guide.motionPreset])}</td></tr>` : ""}
+      ${guide.motionDescription ? `<tr><td>Retning</td><td>${escapeHtml(guide.motionDescription)}</td></tr>` : ""}
       <tr><td>Kanter</td><td>1 px, ${escapeHtml(colors.surface)} mod ${escapeHtml(colors.background)}</td></tr>
       ${guide.keywords?.length ? `<tr><td>Nøgleord</td><td>${guide.keywords.map((k) => `<span class="pill">${escapeHtml(k)}</span>`).join("")}</td></tr>` : ""}
     </table>
@@ -314,6 +351,7 @@ export async function generateBrandGuidePdf(
     generatedAt,
     logo: embedded.logo,
     examples: embedded.examples,
+    brandPhotos: embedded.brandPhotos,
   });
 
   const browser = await puppeteer.launch({

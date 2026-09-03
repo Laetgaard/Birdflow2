@@ -87,6 +87,8 @@ export default function OnboardingPreviewPage() {
         pages={data?.pages ?? []}
         activePageId={activePageId ?? undefined}
         globalStyles={data?.globalStyles}
+        chrome={data?.chrome}
+        navItems={data?.navItems}
         device={device}
         onNavigate={(pageId) => {
           setActivePageId(pageId);

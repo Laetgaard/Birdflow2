@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -51,7 +51,7 @@ import {
   type ComponentProps,
   type ComponentStyles
 } from "@shared/componentRegistry";
-import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext } from "@shared/schema";
+import type { BuilderStateData, BuilderPage, DesignTokens, WebsiteAdminContext, SvgAsset, AccountComponent } from "@shared/schema";
 import {
   cloneLibrarySource,
   clonePrimitiveTree,
@@ -59,13 +59,32 @@ import {
   brandGuideToDesignTokens,
   generateLibraryEntryId,
   updatePrimitiveNode,
+  applySemanticEdit,
+  effectiveEditableSchema,
+  fieldBindingForNode,
+  findDuplicateLibraryEntry,
+  inferLibraryCategory,
+  normalizeLibraryEntryInPlace,
+  LIBRARY_CATEGORIES,
+  LIBRARY_CATEGORY_LABELS,
+  type LibraryCategory,
   type CustomComponentEntry,
   type PrimitiveNode,
 } from "@shared/customComponents";
+import { sanitizeSvg } from "@shared/svgSanitizer";
 import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
+import BusinessFactsPanel from "@/components/builder/BusinessFactsPanel";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
+import { topLevelComponents } from "@shared/rendering/contract";
+import { migrateStateToTokens } from "@shared/designTokens";
+import {
+  composePageComponents,
+  migrateSiteStructure,
+  resolveNavItems,
+  syncNavigationWithPages,
+} from "@shared/siteStructure";
 import PropertiesPanel from "@/components/builder/PropertiesPanel";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
@@ -77,6 +96,8 @@ import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
 import DragDropLayer from "@/components/builder/DragDropLayer";
 import MobileBottomSheet from "@/components/builder/MobileBottomSheet";
 import GlobalStylesPanel from "@/components/builder/GlobalStylesPanel";
+import { SiteStructurePanel } from "@/components/builder/SiteStructurePanel";
+import VersionHistoryPanel from "@/components/builder/VersionHistoryPanel";
 import SpacingIndicators from "@/components/builder/SpacingIndicators";
 import { ElementSelectionProvider } from "@/components/builder/ElementSelectionContext";
 import ElementOverlay from "@/components/builder/ElementOverlay";
@@ -135,18 +156,44 @@ export default function BuilderPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishJobId, setPublishJobId] = useState<string | null>(null);
+  const [publishProgress, setPublishProgress] = useState('');
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
   const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "ai" | "brand">("components");
+  const [sidebarTab, setSidebarTab] = useState<"components" | "properties" | "structure" | "ai" | "brand">("components");
+  // True while a background AI build is running — badge shown on the AI tab.
+  const [isBuildRunning, setIsBuildRunning] = useState(false);
   // Node selection inside custom components (primitive node trees)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Clicking a list item (pricing plan, FAQ entry, timeline step) on the
+  // canvas focuses its card in the properties panel.
+  const [focusItemIndex, setFocusItemIndex] = useState<number | null>(null);
   // Custom component library dialogs
   const [saveComponentOpen, setSaveComponentOpen] = useState(false);
   const [saveComponentName, setSaveComponentName] = useState("");
+  const [saveComponentDescription, setSaveComponentDescription] = useState("");
+  const [saveComponentCategory, setSaveComponentCategory] = useState<LibraryCategory | "">("");
+  const [saveComponentTags, setSaveComponentTags] = useState("");
+  // Duplicate warning: set when saving would duplicate an existing entry;
+  // the customer confirms once to save anyway (warn, never block).
+  const [saveDuplicateOf, setSaveDuplicateOf] = useState<CustomComponentEntry | null>(null);
   const [renameEntry, setRenameEntry] = useState<CustomComponentEntry | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
+  // Library browse controls (search + category filter)
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [libraryCategory, setLibraryCategory] = useState<LibraryCategory | null>(null);
+  // Account-level component library (cross-site reusable components).
+  const [accountLibraryEntries, setAccountLibraryEntries] = useState<AccountComponent[]>([]);
+  const [accountLibraryLoading, setAccountLibraryLoading] = useState(false);
+  // Track which entry ids came from account library for menu options.
+  const accountEntryIds = useMemo(
+    () => new Set(accountLibraryEntries.map((e) => e.id)),
+    [accountLibraryEntries]
+  );
+  // Stored SVG illustrations (svg_assets) — svg nodes reference them by id.
+  const [svgAssets, setSvgAssets] = useState<SvgAsset[]>([]);
   const [device, setDevice] = useState<DeviceType>('desktop');
   const [pageDialogOpen, setPageDialogOpen] = useState(false);
   const [editingPage, setEditingPage] = useState<BuilderPage | null>(null);
@@ -162,6 +209,10 @@ export default function BuilderPage() {
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const saveInFlightRef = useRef(false);
+  // Monotone counter incremented by every restore.  executeSave captures the
+  // current value at call time and silently discards 409/success handling if
+  // a restore has happened by the time the response arrives.
+  const saveGenerationRef = useRef(0);
   const pendingSaveRef = useRef<BuilderStateData | null>(null);
   const lastSavedStateRef = useRef<string>('');
   // builder_state.revision as this tab last saw it. Sent with every save so
@@ -187,6 +238,11 @@ export default function BuilderPage() {
       return true;
     }
 
+    // Capture the restore generation so that if a restore happens while this
+    // PATCH is in-flight, the response handler recognises it is stale and
+    // discards any state/revision mutations that would overwrite the snapshot.
+    const capturedGeneration = saveGenerationRef.current;
+
     setIsSaving(true);
     saveInFlightRef.current = true;
     try {
@@ -205,6 +261,10 @@ export default function BuilderPage() {
           ...(revisionRef.current !== null ? { expectedRevision: revisionRef.current } : {}),
         }),
       });
+
+      // A restore has happened while this PATCH was in-flight — discard the
+      // response entirely so it cannot overwrite the restored snapshot.
+      if (saveGenerationRef.current !== capturedGeneration) return false;
 
       if (response.status === 409) {
         // Someone else — usually an AI build a step ahead of us — has moved
@@ -345,8 +405,45 @@ export default function BuilderPage() {
     });
   }, [flushPendingHistory, scheduleAutoSave]);
 
+  /**
+   * Is this the shared header or footer rather than a section on the page?
+   *
+   * The chrome is drawn on every page but stored once, so an edit to it has
+   * to be written to `siteChrome` — writing it into the active page would
+   * change one page and lose the edit everywhere else.
+   */
+  const chromeSlotOf = useCallback((componentId: string, state = builderState): 'header' | 'footer' | null => {
+    if (!state?.siteChrome) return null;
+    if (state.siteChrome.header?.id === componentId) return 'header';
+    if (state.siteChrome.footer?.id === componentId) return 'footer';
+    return null;
+  }, [builderState]);
+
   const deleteComponent = useCallback((componentId: string) => {
     if (!builderState) return;
+
+    // Deleting the shared header on one page means "this page does not use
+    // it", not "delete it everywhere" - the other pages keep theirs.
+    const slot = chromeSlotOf(componentId);
+    if (slot) {
+      const flag = slot === 'header' ? 'useSharedHeader' : 'useSharedFooter';
+      const newState: BuilderStateData = {
+        ...builderState,
+        pages: builderState.pages.map(page =>
+          page.id === builderState.activePage ? { ...page, [flag]: false } : page
+        ),
+      };
+      updateStateWithHistory(
+        newState,
+        slot === 'header' ? 'Fjern delt header fra siden' : 'Fjern delt footer fra siden'
+      );
+      setSelectedComponentId(null);
+      toast({
+        title: slot === 'header' ? "Header fjernet fra siden" : "Footer fjernet fra siden",
+        description: "De øvrige sider bruger den stadig. Slå den til igen under sideindstillinger.",
+      });
+      return;
+    }
 
     const newState: BuilderStateData = {
       ...builderState,
@@ -359,7 +456,7 @@ export default function BuilderPage() {
 
     updateStateWithHistory(newState, 'Delete component');
     setSelectedComponentId(null);
-  }, [builderState, updateStateWithHistory]);
+  }, [builderState, updateStateWithHistory, chromeSlotOf, toast]);
 
   const moveComponent = useCallback((componentId: string, direction: 'up' | 'down') => {
     if (!builderState) return;
@@ -396,22 +493,11 @@ export default function BuilderPage() {
     if (componentIndex === -1) return;
 
     const originalComponent = activePage.components[componentIndex];
-    const duplicatedComponent: BuilderComponentData = {
-      ...originalComponent,
-      id: `${originalComponent.type}-${Date.now()}`,
-      props: { ...originalComponent.props },
-      styles: { ...originalComponent.styles },
-    };
-
-    // Custom trees need fresh node ids — published sites emit per-node CSS
-    // classes, so shared ids across duplicates would make their styles collide.
-    const customTree = (duplicatedComponent.props as { customTree?: PrimitiveNode }).customTree;
-    if (customTree) {
-      duplicatedComponent.props = {
-        ...duplicatedComponent.props,
-        customTree: clonePrimitiveTree(customTree),
-      };
-    }
+    // cloneLibrarySource assigns a fresh component id AND fresh node ids
+    // (published per-node CSS classes must not collide across duplicates),
+    // and remaps the editable schema onto those new ids so the duplicate
+    // keeps its named fields.
+    const duplicatedComponent: BuilderComponentData = cloneLibrarySource(originalComponent);
 
     const newComponents = [...activePage.components];
     newComponents.splice(componentIndex + 1, 0, duplicatedComponent);
@@ -576,13 +662,25 @@ export default function BuilderPage() {
                 backgroundColor: '#ffffff',
               },
             };
-            setBuilderState(migratedState);
-            setHistory(createHistory(migratedState));
-            lastSavedStateRef.current = JSON.stringify(migratedState);
+            const tokenised = migrateSiteStructure(migrateStateToTokens(migratedState));
+            setBuilderState(tokenised);
+            setHistory(createHistory(tokenised));
+            lastSavedStateRef.current = JSON.stringify(tokenised);
           } else {
-            setBuilderState(state);
-            setHistory(createHistory(state));
-            lastSavedStateRef.current = JSON.stringify(state);
+            // Colours and fonts that already match the brand start pointing at
+            // it, so the next brand change reaches sections built before
+            // tokens existed. Nothing looks different: every reference
+            // resolves back to the literal it replaced. The migrated form is
+            // held in memory and saved with the customer's next real edit
+            // rather than autosaved here, which would bump the revision (and
+            // with it the approval state) just for opening the editor.
+            // Pages, navigation and shared chrome are brought up to date in
+            // memory too. The migration is value-preserving, so the editor
+            // looks the same; it is saved with the customer's next real edit.
+            const tokenised = migrateSiteStructure(migrateStateToTokens(state));
+            setBuilderState(tokenised);
+            setHistory(createHistory(tokenised));
+            lastSavedStateRef.current = JSON.stringify(tokenised);
           }
           if (typeof builderData.revision === "number") {
             revisionRef.current = builderData.revision;
@@ -638,6 +736,61 @@ export default function BuilderPage() {
     }
   }, [isLoading, builderState]);
 
+  // Poll job status every 3 s until the publish succeeds or fails.
+  // The effect is activated by storing a jobId in publishJobId state after
+  // POST /api/websites/:id/publish returns 202.
+  useEffect(() => {
+    if (!publishJobId || !session) return;
+
+    const LABELS: Record<string, string> = {
+      queued: 'Queued…',
+      generating: 'Generating site…',
+      uploading: 'Uploading files…',
+      deploying: 'Deploying…',
+      waiting_for_alias: 'Finalising URL…',
+      activating: 'Making the new version live…',
+    };
+
+    const intervalId = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/publish-jobs/${publishJobId}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!r.ok) return; // transient error — keep polling
+
+        const job = await r.json();
+        if (LABELS[job.status]) setPublishProgress(LABELS[job.status]);
+
+        if (job.status === 'published') {
+          clearInterval(intervalId);
+          setPublishJobId(null);
+          setIsPublishing(false);
+          setPublishProgress('');
+          if (job.productionUrl) {
+            setWebsite(prev =>
+              prev ? { ...prev, status: 'published', deploymentUrl: job.productionUrl } : prev
+            );
+          }
+          toast({ title: 'Published!', description: `Your site is live at ${job.productionUrl}` });
+        } else if (job.status === 'failed') {
+          clearInterval(intervalId);
+          setPublishJobId(null);
+          setIsPublishing(false);
+          setPublishProgress('');
+          toast({
+            title: 'Publish failed',
+            description: job.errorMessage || 'An error occurred while publishing. Please try again.',
+            variant: 'destructive',
+          });
+        }
+      } catch {
+        // Transient network error — keep polling
+      }
+    }, 3_000);
+
+    return () => clearInterval(intervalId);
+  }, [publishJobId, session, toast]);
+
   const publishSite = useCallback(async () => {
     if (!session || !id || !builderState) return;
 
@@ -653,6 +806,11 @@ export default function BuilderPage() {
     }
 
     setIsPublishing(true);
+    setPublishProgress('Queued…');
+    // Local flag — tracks whether this invocation handed off to the polling
+    // effect. Checked in `finally` instead of reading React state, which is
+    // stale inside closures (publishJobId is null at callback creation time).
+    let handedOff = false;
     try {
       const response = await fetch(`/api/websites/${id}/publish`, {
         method: "POST",
@@ -660,24 +818,42 @@ export default function BuilderPage() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
+        body: JSON.stringify({
+          idempotencyKey: `${id}-${Date.now()}`,
+        }),
       });
 
       const data = await response.json();
+
+      if (response.status === 202) {
+        // Async publish: store the jobId so the polling effect kicks in.
+        // Set handedOff BEFORE setPublishJobId so the finally guard is correct
+        // even if React batches the state write.
+        handedOff = true;
+        setPublishJobId(data.jobId);
+        if (data.warning) {
+          toast({ title: "Publishing…", description: data.warning });
+        }
+        // isPublishing stays true — the polling effect will clear it
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(data.error || data.message || "Failed to publish");
       }
 
+      // Synchronous success (should not happen with new backend, kept for safety)
       setWebsite(prev => prev ? { ...prev, status: 'published', deploymentUrl: data.deploymentUrl } : prev);
-      
-      toast({ 
-        title: "Published!", 
-        description: `Your site is live at ${data.deploymentUrl}`,
-      });
+      toast({ title: "Published!", description: `Your site is live at ${data.deploymentUrl}` });
     } catch (error: any) {
       toast({ title: "Publish failed", description: error.message, variant: "destructive" });
     } finally {
-      setIsPublishing(false);
+      // Only reset publishing state when this call owns it — not when the
+      // polling effect is running (it clears the state when the job resolves).
+      if (!handedOff) {
+        setIsPublishing(false);
+        setPublishProgress('');
+      }
     }
   }, [session, id, builderState, saveState, toast]);
 
@@ -732,6 +908,25 @@ export default function BuilderPage() {
     updateComponentRef.current = (componentId: string, updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => {
       if (!builderState) return;
 
+      const slot = chromeSlotOf(componentId);
+      if (slot) {
+        const current = builderState.siteChrome?.[slot];
+        if (!current) return;
+        const newState: BuilderStateData = {
+          ...builderState,
+          siteChrome: {
+            ...builderState.siteChrome,
+            [slot]: {
+              ...current,
+              props: { ...current.props, ...updates.props },
+              styles: { ...current.styles, ...updates.styles },
+            },
+          },
+        };
+        debouncedHistoryPush(newState, 'Update shared chrome');
+        return;
+      }
+
       const newState: BuilderStateData = {
         ...builderState,
         pages: builderState.pages.map(page =>
@@ -754,7 +949,7 @@ export default function BuilderPage() {
 
       debouncedHistoryPush(newState, 'Update component properties');
     };
-  }, [builderState, debouncedHistoryPush]);
+  }, [builderState, debouncedHistoryPush, chromeSlotOf]);
 
   const handleTextChange = useCallback((componentId: string) => (field: string, value: string | { text?: string; [key: string]: any }) => {
     setBuilderState(prev => {
@@ -784,14 +979,9 @@ export default function BuilderPage() {
         return { ...props, [first]: updateNested(props[first] || {}, restPath, val) };
       };
       
-      const newState = {
-        ...prev,
-        pages: prev.pages.map(page =>
-          page.id === prev.activePage
-            ? {
-                ...page,
-                components: page.components.map(comp => {
-                  if (comp.id !== componentId) return comp;
+      // One editor for a section's text, whether that section is on the page
+      // or is the header every page shares.
+      const editComponent = (comp: BuilderComponentData): BuilderComponentData => {
                   // Inline edits inside custom components address primitive
                   // nodes by id: field format "node:<nodeId>:<text|label>"
                   if (field.startsWith('node:')) {
@@ -799,6 +989,28 @@ export default function BuilderPage() {
                     const tree = comp.props.customTree;
                     if (!tree || !nodeId) return comp;
                     const textValue = typeof value === 'string' ? value : ((value as any)?.text ?? '');
+                    // One editing path: when the node is bound to a schema
+                    // field, the inline canvas edit goes through the exact
+                    // same semantic edit the properties panel uses.
+                    const effective = effectiveEditableSchema(comp.props);
+                    if (effective) {
+                      const binding = fieldBindingForNode(tree, effective.schema, nodeId);
+                      const bindingType = binding ? (binding.itemField?.type ?? binding.field.type) : null;
+                      if (binding && bindingType === 'text') {
+                        const result = applySemanticEdit(tree, effective.schema, {
+                          kind: 'set-text',
+                          target: binding.target,
+                          value: textValue,
+                        });
+                        if (result.ok) {
+                          return { ...comp, props: { ...comp.props, customTree: result.tree } };
+                        }
+                      }
+                      // A STORED schema is the single source of truth for
+                      // what is editable: unbound nodes stay read-only.
+                      // Inferred schemas never remove editability.
+                      if (effective.source === 'stored') return comp;
+                    }
                     const key = nodeKey === 'label' ? 'label' : 'text';
                     return {
                       ...comp,
@@ -809,6 +1021,31 @@ export default function BuilderPage() {
                     };
                   }
                   return { ...comp, props: updateNested(comp.props, field, value) };
+      };
+
+      const chromeSlot = prev.siteChrome?.header?.id === componentId
+        ? 'header' as const
+        : prev.siteChrome?.footer?.id === componentId
+          ? 'footer' as const
+          : null;
+
+      const newState = chromeSlot
+        ? {
+            ...prev,
+            siteChrome: {
+              ...prev.siteChrome,
+              [chromeSlot]: editComponent(prev.siteChrome![chromeSlot]!),
+            },
+          }
+        : {
+        ...prev,
+        pages: prev.pages.map(page =>
+          page.id === prev.activePage
+            ? {
+                ...page,
+                components: page.components.map(comp => {
+                  if (comp.id !== componentId) return comp;
+                  return editComponent(comp);
                 }),
               }
             : page
@@ -843,8 +1080,11 @@ export default function BuilderPage() {
       activePage: template.builderState.activePage || template.builderState.pages[0]?.id || 'home',
       globalStyles: template.builderState.globalStyles,
     };
-    
-    updateStateWithHistory(newState, `Apply template: ${template.name}`);
+
+    // Templates are written with their colours typed out. Point them at the
+    // template's own brand as they land, so the customer's first colour
+    // change afterwards updates the whole template instead of one section.
+    updateStateWithHistory(migrateStateToTokens(newState), `Apply template: ${template.name}`);
     setSelectedComponentId(null);
 
     toast({
@@ -860,7 +1100,12 @@ export default function BuilderPage() {
   const selectedComponent = (() => {
     if (!builderState || !selectedComponentId) return null;
     const activePage = builderState.pages.find(p => p.id === builderState.activePage);
-    return activePage?.components.find(c => c.id === selectedComponentId) || null;
+    const onPage = activePage?.components.find(c => c.id === selectedComponentId);
+    if (onPage) return onPage;
+    // The shared header and footer are not in the page's list, but they are
+    // selectable on the canvas and edited through the same panel.
+    const slot = chromeSlotOf(selectedComponentId);
+    return slot ? builderState.siteChrome?.[slot] ?? null : null;
   })();
 
   // Clear node selection whenever the selected component changes
@@ -870,9 +1115,131 @@ export default function BuilderPage() {
 
   // ============ Custom component library ("Mine komponenter") ============
 
+  // Stored SVG illustrations: svg nodes carrying svgAssetId resolve against
+  // this map on the canvas. Loaded alongside the site; reloaded after the
+  // editor stores a new drawing. Unreachable store = empty list, and nodes
+  // that still hold inline markup keep rendering exactly as before.
+  const reloadSvgAssets = useCallback(async () => {
+    if (!session || !id) return;
+    try {
+      const res = await fetch(`/api/websites/${id}/svg-assets`, {
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+      if (res.ok) setSvgAssets(await res.json());
+    } catch {
+      // keep whatever we have — the canvas falls back per node
+    }
+  }, [session, id]);
+
+  useEffect(() => {
+    void reloadSvgAssets();
+  }, [reloadSvgAssets]);
+
+  // Fetch the account-level component library once on mount.
+  const reloadAccountLibrary = useCallback(async () => {
+    if (!session) return;
+    setAccountLibraryLoading(true);
+    try {
+      const res = await fetch("/api/account/components", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.ok) setAccountLibraryEntries(await res.json());
+    } catch {
+      // keep whatever we have
+    } finally {
+      setAccountLibraryLoading(false);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    void reloadAccountLibrary();
+  }, [reloadAccountLibrary]);
+
+  const svgAssetMap = useMemo(() => {
+    const map: Record<string, SvgAsset> = {};
+    for (const asset of svgAssets) map[asset.id] = asset;
+    return map;
+  }, [svgAssets]);
+
+  // Library browsing: free-text search over name/description/tags plus a
+  // category filter. Chips only appear for categories actually in use.
+  // Account-level entries are shown first; local-only entries (not yet in the
+  // account library) are appended for backward compatibility.
+  const accountEntryIdsFromState = useMemo(
+    () => new Set(accountLibraryEntries.map((e) => e.id)),
+    [accountLibraryEntries]
+  );
+
+  const libraryEntries: CustomComponentEntry[] = useMemo(() => {
+    // Map each AccountComponent to the shape the panel already knows.
+    const fromAccount: CustomComponentEntry[] = accountLibraryEntries.map((comp) => ({
+      id: comp.id,
+      name: comp.name,
+      description: comp.description ?? undefined,
+      category: (comp.category as LibraryCategory) ?? undefined,
+      tags: (comp.tags as string[] | undefined) ?? undefined,
+      source: {
+        id: `account-${comp.id}`,
+        type: "custom" as const,
+        props: {
+          customTree: comp.tree,
+          customSchema: comp.schema ?? undefined,
+          libraryRef: {
+            entryId: comp.id,
+            version: comp.version,
+            accountComponentId: comp.id,
+          },
+        },
+        styles: {} as any,
+      } as any,
+      origin: (comp.origin as "ai" | "customer") ?? "customer",
+      version: comp.version,
+      thumbnail: (comp.designMetadata as any)?.thumbnail,
+      createdAt: new Date(comp.createdAt).toISOString(),
+    }));
+    // Local entries not yet promoted to the account library
+    const localOnly = (builderState?.customComponents ?? []).filter(
+      (e) => !accountEntryIdsFromState.has(e.id)
+    );
+    return [...fromAccount, ...localOnly];
+  }, [accountLibraryEntries, builderState?.customComponents, accountEntryIdsFromState]);
+
+  const libraryCategoriesInUse = useMemo(() => {
+    const present = new Set(libraryEntries.map((entry) => entry.category ?? "andet"));
+    return LIBRARY_CATEGORIES.filter((category) => present.has(category));
+  }, [libraryEntries]);
+
+  const filteredLibraryEntries = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+    return libraryEntries.filter((entry) => {
+      if (libraryCategory && (entry.category ?? "andet") !== libraryCategory) return false;
+      if (!query) return true;
+      const haystack = [entry.name, entry.description ?? "", ...(entry.tags ?? [])]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [libraryEntries, librarySearch, libraryCategory]);
+
   const insertLibraryEntry = useCallback((entry: CustomComponentEntry) => {
     if (!builderState) return;
     const instance = cloneLibrarySource(entry.source);
+    // Provenance: remember which entry (and version) this copy came from.
+    // The instance stays fully detached — this is bookkeeping, not linking.
+    // Preserve accountComponentId when inserting from the account library.
+    const sourceRef = (entry.source?.props as any)?.libraryRef;
+    instance.props = {
+      ...instance.props,
+      libraryRef: {
+        entryId: entry.id,
+        version: entry.version ?? 1,
+        ...(sourceRef?.accountComponentId
+          ? { accountComponentId: sourceRef.accountComponentId }
+          : accountEntryIds.has(entry.id)
+          ? { accountComponentId: entry.id }
+          : {}),
+      },
+    } as typeof instance.props;
     const newState: BuilderStateData = {
       ...builderState,
       pages: builderState.pages.map(page =>
@@ -886,22 +1253,123 @@ export default function BuilderPage() {
     setSidebarTab("properties");
   }, [builderState, updateStateWithHistory]);
 
-  const saveSelectionAsComponent = () => {
+  const resetSaveComponentDialog = () => {
+    setSaveComponentOpen(false);
+    setSaveComponentName("");
+    setSaveComponentDescription("");
+    setSaveComponentCategory("");
+    setSaveComponentTags("");
+    setSaveDuplicateOf(null);
+  };
+
+  const saveSelectionAsComponent = async () => {
     if (!builderState || !selectedComponent) return;
     const name = saveComponentName.trim();
     if (!name) return;
+
+    // Duplicate check: warn once, never block — the second click saves anyway.
+    if (!saveDuplicateOf) {
+      const duplicate = findDuplicateLibraryEntry(
+        builderState.customComponents,
+        selectedComponent as BuilderComponentData
+      );
+      if (duplicate) {
+        setSaveDuplicateOf(duplicate);
+        return;
+      }
+    }
+
+    const tags = saveComponentTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+
+    // Try to save to the account library first so we can use its UUID as the
+    // canonical entry id in both the local customComponents list and the placed
+    // component's libraryRef. This means the client-side merge (which
+    // deduplicates by id) produces exactly one entry, not two.
+    let canonicalId = generateLibraryEntryId(); // fallback if API is unavailable
+    let accountComp: any = null;
+    const customTree = selectedComponent.type === "custom"
+      ? (selectedComponent.props as any)?.customTree
+      : null;
+    const customSchema = selectedComponent.type === "custom"
+      ? ((selectedComponent.props as any)?.customSchema ?? null)
+      : null;
+
+    if (session && customTree) {
+      try {
+        const resp = await fetch("/api/account/components", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            name,
+            description: saveComponentDescription.trim() || undefined,
+            category: saveComponentCategory || undefined,
+            tags: tags.length ? tags : undefined,
+            tree: customTree,
+            schema: customSchema ?? undefined,
+            origin: "customer",
+            createdFromWebsiteId: id,
+          }),
+        });
+        if (resp.ok) {
+          accountComp = await resp.json();
+          if (accountComp?.id) {
+            canonicalId = accountComp.id;
+            setAccountLibraryEntries((prev) => [accountComp, ...prev]);
+          }
+        }
+      } catch {
+        /* fallback to local-only save with the generated id */
+      }
+    }
+
     const entry: CustomComponentEntry = {
-      id: generateLibraryEntryId(),
+      id: canonicalId,
       name,
       source: JSON.parse(JSON.stringify(selectedComponent)),
       createdAt: new Date().toISOString(),
+      ...(saveComponentDescription.trim() ? { description: saveComponentDescription.trim() } : {}),
+      ...(saveComponentCategory ? { category: saveComponentCategory } : {}),
+      ...(tags.length ? { tags } : {}),
+      origin: "customer",
+      version: 1,
     };
+    // The snapshot is its own origin now — drop any provenance it inherited
+    // from the section it was cloned from.
+    delete (entry.source.props as { libraryRef?: unknown }).libraryRef;
+    // Same clamps and backfills (incl. the wireframe thumbnail) that the
+    // server runs on every save.
+    normalizeLibraryEntryInPlace(entry);
+
+    // Stamp the currently placed component with the canonical libraryRef so
+    // "Update all instances" can find it later.
+    const libraryRef = {
+      entryId: canonicalId,
+      version: 1,
+      ...(accountComp?.id ? { accountComponentId: canonicalId } : {}),
+    };
+    const pagesWithStamp = builderState.pages.map((page) => ({
+      ...page,
+      components: page.components.map((c) => {
+        if (c.id !== selectedComponentId) return c;
+        return { ...c, props: { ...c.props, libraryRef } } as typeof c;
+      }),
+    }));
+
     updateStateWithHistory(
-      { ...builderState, customComponents: [...(builderState.customComponents ?? []), entry] },
+      {
+        ...builderState,
+        pages: pagesWithStamp,
+        customComponents: [...(builderState.customComponents ?? []), entry],
+      },
       `Gem komponent: ${name}`
     );
-    setSaveComponentOpen(false);
-    setSaveComponentName("");
+    resetSaveComponentDialog();
     toast({ title: "Komponent gemt", description: `"${name}" ligger nu under Mine komponenter.` });
   };
 
@@ -918,6 +1386,26 @@ export default function BuilderPage() {
       },
       `Omdøb komponent: ${name}`
     );
+    // Also rename in the account library if it's an account entry.
+    if (accountEntryIds.has(renameEntry.id) && session) {
+      fetch(`/api/account/components/${renameEntry.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ name }),
+      })
+        .then((r) => r.json())
+        .then((updated) => {
+          if (updated?.id) {
+            setAccountLibraryEntries((prev) =>
+              prev.map((e) => (e.id === updated.id ? updated : e))
+            );
+          }
+        })
+        .catch(() => {});
+    }
     setRenameEntry(null);
   };
 
@@ -928,8 +1416,40 @@ export default function BuilderPage() {
       { ...builderState, customComponents: (builderState.customComponents ?? []).filter(e => e.id !== entryId) },
       `Slet komponent${entry ? `: ${entry.name}` : ''}`
     );
+    // Also delete from account library if it's an account entry.
+    if (accountEntryIds.has(entryId) && session) {
+      fetch(`/api/account/components/${entryId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+        .then(() => {
+          setAccountLibraryEntries((prev) => prev.filter((e) => e.id !== entryId));
+        })
+        .catch(() => {});
+    }
     setDeleteEntryId(null);
     toast({ title: "Komponent slettet", description: entry ? `"${entry.name}" er fjernet fra Mine komponenter.` : undefined });
+  };
+
+  const updateAllLinkedInstances = (entryId: string) => {
+    if (!session) return;
+    fetch(`/api/account/components/${entryId}/update-instances`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        const count = (result?.updatedWebsites ?? []).length;
+        toast({
+          title: "Instanser opdateret",
+          description: count > 0
+            ? `${count} website${count === 1 ? "" : "s"} er opdateret til den nyeste version.`
+            : "Ingen instanser at opdatere.",
+        });
+      })
+      .catch(() => {
+        toast({ title: "Fejl", description: "Kunne ikke opdatere instanserne.", variant: "destructive" });
+      });
   };
 
   useEffect(() => {
@@ -999,9 +1519,16 @@ export default function BuilderPage() {
       components: [],
     };
 
+    const pages = [...builderState.pages, newPage];
     const newState: BuilderStateData = {
       ...builderState,
-      pages: [...builderState.pages, newPage],
+      pages,
+      // A new page appears in the menu, the way it did when the menu was
+      // derived. Removing it again is a navigation edit, not a page edit.
+      navigation: syncNavigationWithPages(
+        builderState.navigation ?? { items: [] },
+        pages
+      ),
       activePage: newPage.id,
     };
 
@@ -1019,13 +1546,19 @@ export default function BuilderPage() {
       ? '/' 
       : `/${generateUniqueSlug(newPageName, existingPaths, editingPage.path)}`;
     
+    const pages = builderState.pages.map(page =>
+      page.id === editingPage.id
+        ? { ...page, name: newPageName.trim(), path: newPath }
+        : page
+    );
     const newState: BuilderStateData = {
       ...builderState,
-      pages: builderState.pages.map(page =>
-        page.id === editingPage.id
-          ? { ...page, name: newPageName.trim(), path: newPath }
-          : page
-      ),
+      pages,
+      // The menu label is the customer's to edit, so renaming a page moves
+      // its link but leaves the label alone.
+      navigation: builderState.navigation
+        ? syncNavigationWithPages(builderState.navigation, pages)
+        : undefined,
     };
 
     updateStateWithHistory(newState, `Rename page: ${newPageName.trim()}`);
@@ -1045,6 +1578,9 @@ export default function BuilderPage() {
     const newState: BuilderStateData = {
       ...builderState,
       pages: remainingPages,
+      navigation: builderState.navigation
+        ? syncNavigationWithPages(builderState.navigation, remainingPages)
+        : undefined,
       activePage: newActivePage,
     };
 
@@ -1072,6 +1608,25 @@ export default function BuilderPage() {
   if (!website || !builderState) return null;
 
   const activePage = builderState.pages.find(p => p.id === builderState.activePage);
+  // What the page actually shows: the shared header, its own sections, the
+  // shared footer. The publisher folds them together the same way, which is
+  // what keeps the canvas and the live site the same picture.
+  const canvasComponents = activePage
+    ? composePageComponents(activePage, builderState.siteChrome)
+    : [];
+  const canvasNavItems = resolveNavItems(builderState);
+  // The canvas draws the shared header above the page's own sections, so a
+  // position on screen is one further along than the same position in the
+  // page. Insert points translate back before anything is added, or "add a
+  // section at the top" would land under the footer.
+  const chromeOffset = canvasComponents.length - (activePage?.components.length ?? 0) > 0
+    && canvasComponents[0] && canvasComponents[0].id === builderState.siteChrome?.header?.id
+      ? 1
+      : 0;
+  const addSectionAtCanvasIndex = (type: ComponentType, canvasIndex: number) => {
+    const own = activePage?.components.length ?? 0;
+    addComponentAtIndex(type, Math.max(0, Math.min(own, canvasIndex - chromeOffset)));
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -1109,6 +1664,21 @@ export default function BuilderPage() {
               >
                 <ExternalLink className="w-3 h-3 flex-shrink-0" />
                 {customDomain}
+              </a>
+            ) : website.deploymentUrl ? (
+              /* No custom domain yet — show the auto-generated Vercel URL so
+                 the customer can visit their live site immediately. */
+              <a
+                href={website.deploymentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-primary hover:underline truncate max-w-[120px] sm:max-w-[180px] md:max-w-[220px]"
+                title={website.deploymentUrl}
+                data-testid="link-vercel-domain"
+              >
+                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                <span className="hidden sm:inline">Se hjemmeside</span>
+                <span className="sm:hidden">Se side</span>
               </a>
             ) : (
               <button
@@ -1179,7 +1749,7 @@ export default function BuilderPage() {
           {!website.adminContext && (
             <Button size="sm" variant="secondary" className="gap-1 md:gap-2 px-2 md:px-3" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
               {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              <span className="hidden sm:inline">{isPublishing ? 'Publishing...' : 'Publish'}</span>
+              <span className="hidden sm:inline">{isPublishing ? (publishProgress || 'Publishing…') : 'Publish'}</span>
             </Button>
           )}
         </div>
@@ -1337,7 +1907,7 @@ export default function BuilderPage() {
           }}
           hoveredId={hoveredComponentId}
           onHoverChange={setHoveredComponentId}
-          components={activePage?.components}
+          components={canvasComponents}
           onUpdateComponent={handleSelectionUpdate}
           onDeleteComponent={deleteComponent}
           onDuplicateComponent={duplicateComponent}
@@ -1380,7 +1950,7 @@ export default function BuilderPage() {
                 borderRadius: device === 'mobile' ? '24px' : '8px',
               }}
             >
-              {activePage?.components.length === 0 ? (
+              {canvasComponents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-12">
                   <div className="w-20 h-20 rounded-3xl bg-muted/80 flex items-center justify-center mb-6">
                     <Layout className="w-10 h-10 opacity-30" />
@@ -1401,8 +1971,8 @@ export default function BuilderPage() {
               ) : (
                 <>
                   {/* Insert point before first component */}
-                  <SectionInsertPoint index={0} onAddComponent={addComponentAtIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
-                  {activePage?.components.map((comp, idx) => (
+                  <SectionInsertPoint index={0} onAddComponent={addSectionAtCanvasIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
+                  {topLevelComponents(canvasComponents).map((comp, idx) => (
                     <div key={comp.id}>
                       <ComponentRenderer
                         component={comp}
@@ -1413,6 +1983,17 @@ export default function BuilderPage() {
                         }}
                         websiteId={id}
                         pages={builderState?.pages}
+                        navItems={canvasNavItems}
+                        allComponents={canvasComponents}
+                        onComponentClick={(componentId) => {
+                          setSelectedComponentId(componentId);
+                          setSidebarTab("properties");
+                        }}
+                        onItemFocus={(index) => {
+                          setSelectedComponentId(comp.id);
+                          setFocusItemIndex(index);
+                          setSidebarTab("properties");
+                        }}
                         onTextChange={handleTextChange(comp.id)}
                         editingField={selectedComponentId === comp.id ? editingField : null}
                         onEditField={selectedComponentId === comp.id ? setEditingField : undefined}
@@ -1421,6 +2002,7 @@ export default function BuilderPage() {
                         onHover={setHoveredComponentId}
                         deviceMode={device}
                         globalStyles={builderState?.globalStyles}
+                        svgAssets={svgAssetMap}
                         selectedNodeId={selectedComponentId === comp.id ? selectedNodeId : null}
                         onNodeSelect={(nodeId) => {
                           setSelectedComponentId(comp.id);
@@ -1429,7 +2011,7 @@ export default function BuilderPage() {
                         }}
                       />
                       {/* Insert point after each component */}
-                      <SectionInsertPoint index={idx + 1} onAddComponent={addComponentAtIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
+                      <SectionInsertPoint index={idx + 1} onAddComponent={addSectionAtCanvasIndex} activeInsertIndex={activeInsertIndex} onActivate={setActiveInsertIndex} />
                     </div>
                   ))}
                 </>
@@ -1477,18 +2059,21 @@ export default function BuilderPage() {
           <SpacingIndicators />
           <MobileBottomSheet />
 
-        {/* Right Sidebar */}
+        {/* Right Sidebar — on desktop: fixed-width panel; on mobile: bottom sheet */}
         {sidebarOpen && (
-          <aside className="w-full md:w-80 border-l bg-card flex flex-col shrink-0 overflow-hidden absolute md:relative right-0 top-0 h-full z-50 shadow-lg md:shadow-none">
-            {/* Mobile close button */}
-            <div className="md:hidden flex items-center justify-between p-3 border-b">
-              <span className="font-medium text-sm">Panel</span>
-              <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)}>
-                <X className="h-4 w-4" />
-              </Button>
+          <aside className="
+            md:w-80 md:border-l md:relative md:h-full md:shadow-none md:rounded-none md:translate-y-0
+            fixed bottom-0 left-0 right-0 h-[88vh] z-50
+            bg-card flex flex-col shrink-0 overflow-hidden
+            rounded-t-2xl border-t shadow-[0_-8px_32px_rgba(0,0,0,0.14)]
+            transition-transform duration-300 ease-out translate-y-0
+          ">
+            {/* Mobile drag handle */}
+            <div className="md:hidden flex flex-col items-center pt-2.5 pb-1.5 cursor-grab touch-none shrink-0">
+              <div className="w-10 h-1 rounded-full bg-border" />
             </div>
           <Tabs value={sidebarTab} onValueChange={(v) => setSidebarTab(v as any)} className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid w-full grid-cols-4 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
+            <TabsList className="grid w-full grid-cols-5 m-4 mb-0" style={{ width: "calc(100% - 32px)" }}>
               <TabsTrigger value="components" data-testid="tab-components" className="px-1">
                 <Plus className="w-4 h-4 mr-1" />
                 Add
@@ -1497,15 +2082,70 @@ export default function BuilderPage() {
                 <Settings className="w-4 h-4 mr-1" />
                 Edit
               </TabsTrigger>
-              <TabsTrigger value="ai" data-testid="tab-ai" className="px-1">
+              <TabsTrigger value="structure" data-testid="tab-structure" className="px-1">
+                <FileText className="w-4 h-4 mr-1" />
+                Sider
+              </TabsTrigger>
+              <TabsTrigger value="ai" data-testid="tab-ai" className="px-1 relative">
                 <Sparkles className="w-4 h-4 mr-1" />
                 AI
+                {isBuildRunning && (
+                  <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-primary animate-pulse" />
+                )}
               </TabsTrigger>
               <TabsTrigger value="brand" data-testid="tab-brand" className="px-1">
                 <Palette className="w-4 h-4 mr-1" />
                 Brand
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="structure" className="flex-1 p-4 pt-2 overflow-auto">
+              {builderState && (
+                <SiteStructurePanel
+                  state={builderState}
+                  onChange={(next, description) => updateStateWithHistory(next, description)}
+                  activePageId={builderState.activePage}
+                  onSelectPage={switchPage}
+                />
+              )}
+              {website && session && (
+                <>
+                  <Separator className="my-3" />
+                  <VersionHistoryPanel
+                    websiteId={website.id}
+                    accessToken={session.access_token}
+                    onRestored={(restoredState, revision) => {
+                      // Increment the generation FIRST so any in-flight PATCH
+                      // that races with this restore sees a stale generation
+                      // in its response handler and silently discards its
+                      // state/revision mutations — preventing it from
+                      // overwriting the restored snapshot.
+                      saveGenerationRef.current += 1;
+
+                      // Cancel any queued autosave or history debounce that
+                      // carries the pre-restore canvas — if either fires after
+                      // this point it would overwrite the restored snapshot.
+                      if (autoSaveTimerRef.current) {
+                        clearTimeout(autoSaveTimerRef.current);
+                        autoSaveTimerRef.current = null;
+                      }
+                      pendingSaveRef.current = null;
+                      if (historyDebounceRef.current) {
+                        clearTimeout(historyDebounceRef.current);
+                        historyDebounceRef.current = null;
+                      }
+                      // Adopt the restored state as the new ground truth.
+                      revisionRef.current = revision;
+                      lastSavedStateRef.current = JSON.stringify(restoredState);
+                      setIsDirty(false);
+                      setHasPendingEdit(false);
+                      setBuilderState(restoredState);
+                      setHistory(createHistory(restoredState));
+                    }}
+                  />
+                </>
+              )}
+            </TabsContent>
 
             <TabsContent value="components" className="flex-1 p-4 pt-2 overflow-auto">
               <div className="space-y-3">
@@ -1575,16 +2215,74 @@ export default function BuilderPage() {
                     Vælg en sektion og klik "Gem som komponent" — så kan du genbruge den her på alle sider.
                   </p>
                 ) : (
-                  <div className="space-y-1.5">
-                    {(builderState?.customComponents ?? []).map((entry) => (
+                  <div className="space-y-2">
+                    {libraryEntries.length > 3 && (
+                      <Input
+                        placeholder="Søg i komponenter…"
+                        value={librarySearch}
+                        onChange={(e) => setLibrarySearch(e.target.value)}
+                        className="h-8 text-xs"
+                        data-testid="library-search"
+                      />
+                    )}
+                    {libraryCategoriesInUse.length > 1 && (
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          onClick={() => setLibraryCategory(null)}
+                          className={`px-2 py-0.5 rounded-full border text-[11px] transition-colors ${
+                            libraryCategory === null
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-background text-muted-foreground hover:border-primary/40"
+                          }`}
+                          data-testid="library-category-all"
+                        >
+                          Alle
+                        </button>
+                        {libraryCategoriesInUse.map((category) => (
+                          <button
+                            key={category}
+                            onClick={() => setLibraryCategory(libraryCategory === category ? null : category)}
+                            className={`px-2 py-0.5 rounded-full border text-[11px] transition-colors ${
+                              libraryCategory === category
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-background text-muted-foreground hover:border-primary/40"
+                            }`}
+                            data-testid={`library-category-${category}`}
+                          >
+                            {LIBRARY_CATEGORY_LABELS[category]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {filteredLibraryEntries.length === 0 && (
+                      <p className="text-xs text-muted-foreground" data-testid="library-empty-filter">
+                        Ingen komponenter matcher søgningen.
+                      </p>
+                    )}
+                    {filteredLibraryEntries.map((entry) => (
                       <div key={entry.id} className="flex items-center gap-1">
                         <button
                           onClick={() => insertLibraryEntry(entry)}
-                          className="flex-1 min-w-0 flex items-center gap-2 p-2.5 rounded-lg border bg-background hover:bg-primary/5 hover:border-primary/30 transition-all text-left"
+                          title={entry.description}
+                          className="flex-1 min-w-0 flex items-center gap-2 p-2 rounded-lg border bg-background hover:bg-primary/5 hover:border-primary/30 transition-all text-left"
                           data-testid={`insert-custom-component-${entry.id}`}
                         >
-                          <Puzzle className="w-4 h-4 text-primary shrink-0" />
-                          <span className="text-xs font-medium truncate">{entry.name}</span>
+                          {entry.thumbnail ? (
+                            <span
+                              aria-hidden="true"
+                              className="w-12 h-8 shrink-0 rounded border bg-white overflow-hidden [&>svg]:w-full [&>svg]:h-full"
+                              dangerouslySetInnerHTML={{ __html: sanitizeSvg(entry.thumbnail) }}
+                            />
+                          ) : (
+                            <Puzzle className="w-4 h-4 text-primary shrink-0" />
+                          )}
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-xs font-medium truncate">{entry.name}</span>
+                            <span className="block text-[10px] text-muted-foreground truncate">
+                              {LIBRARY_CATEGORY_LABELS[entry.category ?? "andet"]}
+                              {entry.origin === "ai" ? " · AI" : ""}
+                            </span>
+                          </span>
                         </button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1597,6 +2295,15 @@ export default function BuilderPage() {
                               <Pencil className="w-4 h-4 mr-2" />
                               Omdøb
                             </DropdownMenuItem>
+                            {accountEntryIds.has(entry.id) && (
+                              <DropdownMenuItem
+                                onClick={() => updateAllLinkedInstances(entry.id)}
+                                data-testid={`update-instances-${entry.id}`}
+                              >
+                                <BookmarkPlus className="w-4 h-4 mr-2" />
+                                Opdater alle instanser
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
                               onClick={() => setDeleteEntryId(entry.id)}
@@ -1631,6 +2338,8 @@ export default function BuilderPage() {
                               ? 'Min komponent'
                               : componentRegistry[selectedComponent.type]?.name ?? 'Min komponent'
                           );
+                          setSaveComponentCategory(inferLibraryCategory(selectedComponent as BuilderComponentData));
+                          setSaveDuplicateOf(null);
                           setSaveComponentOpen(true);
                         }}
                         data-testid="save-as-component"
@@ -1645,8 +2354,13 @@ export default function BuilderPage() {
                         onMove={(dir) => moveComponent(selectedComponent.id, dir)}
                         websiteId={id || ''}
                         accessToken={session?.access_token || ''}
+                        globalStyles={builderState?.globalStyles}
                         selectedNodeId={selectedNodeId}
                         onNodeSelect={setSelectedNodeId}
+                        focusItemIndex={focusItemIndex}
+                        onFocusItemHandled={() => setFocusItemIndex(null)}
+                        svgAssets={svgAssetMap}
+                        onSvgAssetsChanged={reloadSvgAssets}
                       />
                     </>
                   ) : (
@@ -1682,6 +2396,12 @@ export default function BuilderPage() {
                   hasPendingEdit={hasPendingEdit}
                   onUndo={handleUndo}
                   onRedo={handleRedo}
+                  onBuildStatusChange={(running) => {
+                    setIsBuildRunning(running);
+                    // Auto-switch to the AI tab when a background build finishes
+                    // so the customer sees the result without clicking.
+                    if (!running) setSidebarTab("ai");
+                  }}
                 />
               )}
             </TabsContent>
@@ -1708,6 +2428,20 @@ export default function BuilderPage() {
                   websiteId={id || ''}
                   accessToken={session?.access_token || ''}
                 />
+              )}
+              {builderState && (
+                <>
+                  <Separator className="my-5" />
+                  <BusinessFactsPanel
+                    value={builderState.businessContext}
+                    onChange={(ctx) =>
+                      updateStateWithHistory(
+                        { ...builderState, businessContext: ctx },
+                        'Opdater forretningsfakta'
+                      )
+                    }
+                  />
+                </>
               )}
             </TabsContent>
           </Tabs>
@@ -1809,7 +2543,7 @@ export default function BuilderPage() {
       </AlertDialog>
 
       {/* Save selection as custom component */}
-      <Dialog open={saveComponentOpen} onOpenChange={setSaveComponentOpen}>
+      <Dialog open={saveComponentOpen} onOpenChange={(open) => { if (!open) resetSaveComponentDialog(); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Gem som komponent</DialogTitle>
@@ -1817,7 +2551,7 @@ export default function BuilderPage() {
               Komponenten gemmes i "Mine komponenter", så du kan genbruge den på alle sider.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4 space-y-3">
             <Input
               placeholder="Navn på komponent"
               value={saveComponentName}
@@ -1825,11 +2559,56 @@ export default function BuilderPage() {
               onKeyDown={(e) => e.key === 'Enter' && saveSelectionAsComponent()}
               data-testid="input-component-name"
             />
+            <textarea
+              placeholder="Kort beskrivelse (valgfrit)"
+              value={saveComponentDescription}
+              onChange={(e) => setSaveComponentDescription(e.target.value)}
+              maxLength={200}
+              rows={2}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+              data-testid="input-component-description"
+            />
+            <div className="flex gap-2">
+              <select
+                value={saveComponentCategory}
+                onChange={(e) => setSaveComponentCategory(e.target.value as LibraryCategory | "")}
+                className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                data-testid="select-component-category"
+              >
+                <option value="">Vælg kategori…</option>
+                {LIBRARY_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {LIBRARY_CATEGORY_LABELS[category]}
+                  </option>
+                ))}
+              </select>
+              <Input
+                placeholder="Tags, adskilt med komma"
+                value={saveComponentTags}
+                onChange={(e) => setSaveComponentTags(e.target.value)}
+                className="flex-1"
+                data-testid="input-component-tags"
+              />
+            </div>
+            {saveDuplicateOf && (
+              <div
+                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                data-testid="duplicate-component-warning"
+              >
+                Denne sektion ligner "{saveDuplicateOf.name}", som allerede ligger i biblioteket.
+                Vil du gemme den alligevel?
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSaveComponentOpen(false)}>Annuller</Button>
-            <Button onClick={saveSelectionAsComponent} disabled={!saveComponentName.trim()} data-testid="button-save-component">
-              Gem komponent
+            <Button variant="outline" onClick={resetSaveComponentDialog}>Annuller</Button>
+            <Button
+              onClick={saveSelectionAsComponent}
+              disabled={!saveComponentName.trim()}
+              variant={saveDuplicateOf ? "destructive" : "default"}
+              data-testid="button-save-component"
+            >
+              {saveDuplicateOf ? "Gem alligevel" : "Gem komponent"}
             </Button>
           </DialogFooter>
         </DialogContent>
