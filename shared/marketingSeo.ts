@@ -61,7 +61,7 @@ export interface MarketingRoute {
 
 /* ───────────────────────── Home FAQ ─────────────────────────
    MUST mirror the FAQ visible on the landing page (Danish copy in
-   client/src/pages/birdflow-landing.tsx). A test asserts every question
+   client/src/pages/homepage-redesign.tsx). A test asserts every question
    below appears verbatim in that file — structured data may only describe
    what the visitor can see. */
 export const HOME_FAQ_DA: FaqItem[] = [

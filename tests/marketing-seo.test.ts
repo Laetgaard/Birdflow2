@@ -152,13 +152,20 @@ describe("resolved SEO per route", () => {
     expect(seo.title).toBe(NOT_FOUND_TITLE);
   });
 
-  it("the home FAQ JSON-LD mirrors copy that is actually visible on the landing page", () => {
-    const landing = read("client/src/pages/birdflow-landing.tsx");
+  it("the home FAQ JSON-LD is rendered by the component actually routed at /", () => {
+    // This used to check birdflow-landing.tsx, which App.tsx has not routed
+    // for some time — so the schema could describe an FAQ no visitor could
+    // see, and did. Follow the route instead of a filename.
+    const app = read("client/src/App.tsx");
+    expect(app).toContain('<Route path="/" component={HomepageRedesign} />');
+    expect(app).toContain('import HomepageRedesign from "@/pages/homepage-redesign"');
+
+    const home = read("client/src/pages/homepage-redesign.tsx");
     expect(HOME_FAQ_DA.length).toBeGreaterThanOrEqual(4);
-    for (const item of HOME_FAQ_DA) {
-      expect(landing, `FAQ question missing from landing: ${item.q}`).toContain(item.q);
-      expect(landing, `FAQ answer missing from landing: ${item.q}`).toContain(item.a);
-    }
+    // The page renders the constant rather than restating the strings, which
+    // is what makes the schema and the page impossible to drift apart.
+    expect(home).toContain("HOME_FAQ_DA");
+    expect(home).toContain('from "@shared/marketingSeo"');
   });
 });
 

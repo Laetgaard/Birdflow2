@@ -8,7 +8,6 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 import LandingPage from "@/pages/landing";
 import DIYPage from "@/pages/diy";
-import BirdflowLandingPage from "@/pages/birdflow-landing";
 import AuthPage from "@/pages/auth";
 import AuthCallback from "@/pages/auth-callback";
 import CheckEmail from "@/pages/check-email";
