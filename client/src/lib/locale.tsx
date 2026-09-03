@@ -39,6 +39,8 @@ const PUBLIC_MARKETING_PATHS = new Set([
   "/diy",
   "/services",
   "/pricing",
+  "/saadan-virker-det",
+  "/about",
   // Profession landing pages (bilingual, same lang toggle as the rest of
   // the marketing site). Keep in sync with shared/marketingSeo.ts.
   "/psykolog",

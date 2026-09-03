@@ -47,9 +47,31 @@ describe("bf2 design kit extraction", () => {
     expect(landing).not.toContain("function BandWave");
   });
 
-  it("navbar links to both new pages, in both languages", () => {
-    expect(nav).toContain('{ href: "/services", label: { da: "Ydelser", en: "Services" } }');
+  it("navbar carries the four approved pages, in both languages", () => {
+    // The redesign trimmed the nav to Forside / Priser / Sådan virker det /
+    // Om os. /services keeps a home in the footer — see the check below.
+    expect(nav).toContain('{ href: "/", label: { da: "Forside", en: "Home" } }');
     expect(nav).toContain('{ href: "/pricing", label: { da: "Priser", en: "Pricing" } }');
+    expect(nav).toContain(
+      '{ href: "/saadan-virker-det", label: { da: "Sådan virker det", en: "How it works" } }',
+    );
+    expect(nav).toContain('{ href: "/about", label: { da: "Om os", en: "About" } }');
+  });
+
+  it("the footer keeps the pages the nav no longer lists reachable", () => {
+    const footer = read("client", "src", "components", "bf2", "MarketingFooter.tsx");
+    // Dropping /services from the nav must not orphan it, and the legal
+    // pages have no other entry point at all.
+    expect(footer).toContain('href="/services"');
+    expect(footer).toContain('href="/privacy"');
+    expect(footer).toContain('href="/terms"');
+  });
+
+  it("the mobile menu is operable without a mouse", () => {
+    expect(nav).toContain("aria-expanded={open}");
+    expect(nav).toContain('aria-controls="bf2-mobile-menu"');
+    expect(nav).toContain('id="bf2-mobile-menu"');
+    expect(nav).toContain('e.key === "Escape"');
   });
 
   it("anchors resolve off the landing page", () => {

@@ -123,6 +123,24 @@ export const MARKETING_ROUTES: MarketingRoute[] = [
     shortName: { da: "Priser", en: "Pricing" },
   },
   {
+    path: "/saadan-virker-det",
+    kind: "core",
+    title: "Sådan virker det — hele platformen forklaret | BirdFlow",
+    titleEn: "How it works — the whole platform explained | BirdFlow",
+    description:
+      "Se hvordan BirdFlow fungerer: overblik, hjemmeside, booking, automatiske e-mails, analyse, økonomi og butik — gennemgået skærm for skærm.",
+    shortName: { da: "Sådan virker det", en: "How it works" },
+  },
+  {
+    path: "/about",
+    kind: "core",
+    title: "Om os — hvorfor BirdFlow findes | BirdFlow",
+    titleEn: "About us — why BirdFlow exists | BirdFlow",
+    description:
+      "Historien bag BirdFlow og hvordan vi arbejder: en platform bygget omkring behandleres og klinikkers hverdag frem for omkring teknikken.",
+    shortName: { da: "Om os", en: "About" },
+  },
+  {
     path: "/diy",
     kind: "core",
     title: "Byg selv din hjemmeside med AI | BirdFlow",
