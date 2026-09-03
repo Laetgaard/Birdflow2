@@ -918,8 +918,12 @@ export default function HomepageRedesign() {
         <HomeWave from="blush" to="lime" compact />
         <Expectations copy={copy} />
         <ProductDemo copy={copy} />
-        <ClientJourney copy={copy} />
+        {/* Pricing renders its own lime→blush wave, so none is needed here. */}
         <Pricing copy={copy} />
+        {/* Klientens vej sits after the price, as the reassurance that follows
+            it rather than an interruption before it. */}
+        <ClientJourney copy={copy} />
+        <HomeWave from="blush" to="lime" compact />
         <Faq copy={copy} />
       </main>
       <MarketingFooter />
