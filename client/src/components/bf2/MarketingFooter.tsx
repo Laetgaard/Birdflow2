@@ -19,6 +19,7 @@ const COPY: Record<Lang, {
   navHeading: string;
   moreHeading: string;
   services: string;
+  contact: string;
   privacy: string;
   terms: string;
   rights: string;
@@ -28,6 +29,7 @@ const COPY: Record<Lang, {
     navHeading: "Sider",
     moreHeading: "Mere",
     services: "Ydelser",
+    contact: "Kontakt Birdflow",
     privacy: "Privatlivspolitik",
     terms: "Handelsbetingelser",
     rights: "Alle rettigheder forbeholdes.",
@@ -37,6 +39,7 @@ const COPY: Record<Lang, {
     navHeading: "Pages",
     moreHeading: "More",
     services: "Services",
+    contact: "Contact Birdflow",
     privacy: "Privacy policy",
     terms: "Terms and conditions",
     rights: "All rights reserved.",
@@ -90,6 +93,12 @@ export function MarketingFooter() {
                 <Link href="/services" className={linkClass}>
                   {t.services}
                 </Link>
+              </li>
+              <li>
+                {/* The only public contact route — there is no /book-demo. */}
+                <a href="/dfy#kontakt" className={linkClass}>
+                  {t.contact}
+                </a>
               </li>
               <li>
                 <Link href="/privacy" className={linkClass}>

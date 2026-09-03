@@ -170,3 +170,48 @@ describe("routing", () => {
     expect(app).toContain("<LocaleProvider>");
   });
 });
+
+describe("homepage", () => {
+  const home = read("client", "src", "pages", "homepage-redesign.tsx");
+
+  it("renders the FAQ that the FAQPage schema describes", () => {
+    // jsonLdForRoute() emits faqPageLd(HOME_FAQ_DA) for "/". Before this
+    // section existed the schema described an FAQ that was nowhere on the
+    // page — structured data must describe visible content.
+    expect(home).toContain("HOME_FAQ_DA");
+    expect(home).toContain('from "@shared/marketingSeo"');
+    expect(home).toContain('id="faq"');
+  });
+
+  it("builds the FAQ from buttons, not clickable divs", () => {
+    expect(home).toContain("aria-expanded={isOpen}");
+    expect(home).toContain("aria-controls={`bh-faq-panel-${i}`}");
+    expect(home).toContain("aria-labelledby={`bh-faq-button-${i}`}");
+  });
+
+  it("uses the shared marketing chrome", () => {
+    // It used to carry its own header and footer, so it missed shared fixes.
+    expect(home).toContain("<Nav />");
+    expect(home).toContain("<MarketingFooter />");
+    expect(home).not.toContain("function HomeHeader");
+    expect(home).not.toContain("function HomeFooter");
+  });
+
+  it("tells the client-journey story the design calls for", () => {
+    expect(home).toContain('id="klientens-vej"');
+    expect(home).toContain("function ClientJourney");
+  });
+});
+
+describe("home FAQ copy", () => {
+  it("has the same questions in both languages", async () => {
+    // The Danish list feeds the JSON-LD; the English one only renders. If
+    // they fall out of step, an answer shows under the wrong question.
+    const { HOME_FAQ_DA, HOME_FAQ_EN } = await import("../shared/marketingSeo");
+    expect(HOME_FAQ_EN).toHaveLength(HOME_FAQ_DA.length);
+    for (const item of [...HOME_FAQ_DA, ...HOME_FAQ_EN]) {
+      expect(item.q.length).toBeGreaterThan(0);
+      expect(item.a.length).toBeGreaterThan(0);
+    }
+  });
+});

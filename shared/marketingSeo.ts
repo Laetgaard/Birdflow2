@@ -93,6 +93,42 @@ export const HOME_FAQ_DA: FaqItem[] = [
 
 /* ───────────────────── Route registry ───────────────────── */
 
+/**
+ * English rendering of HOME_FAQ_DA, for visitors who switched to EN.
+ *
+ * Only the Danish list feeds the FAQPage JSON-LD — the canonical page is
+ * Danish — so this exists purely so the visible FAQ switches language with
+ * the rest of the homepage. Keep the two in the same order and length; a
+ * test asserts that, because a mismatch would show an answer under the
+ * wrong question.
+ */
+export const HOME_FAQ_EN: FaqItem[] = [
+  {
+    q: "Do I have to build the website myself?",
+    a: "No. We build the first version from your practice — who you help, the kinds of sessions you offer, and the tone the site should have. You review all of it, adjust, and approve before anything goes live.",
+  },
+  {
+    q: "Can I change it afterwards?",
+    a: "Yes. Text, sections and pages you edit yourself in Birdflow — directly on the page, with no code and no plugins. You publish when you are ready.",
+  },
+  {
+    q: "I already have a website — can Birdflow still make sense?",
+    a: "Yes — many people arrive from an older WordPress setup. We start from what already works for your practice, and the content can move across.",
+  },
+  {
+    q: "Can I use my own domain?",
+    a: "Yes. Your existing domain is connected to the website and we help you set that up. You still buy and own the domain itself with your current provider.",
+  },
+  {
+    q: "Can clients book directly on the website?",
+    a: "Yes. The client picks a service and a time and fills in their details — directly on your website. The booking is in Birdflow immediately and the confirmation is sent automatically. Which times are open is entirely up to you.",
+  },
+  {
+    q: "What happens when I get started?",
+    a: "You create an account and tell us briefly about your practice — who you help, the sessions you offer, and the tone the site should have. Birdflow then builds the first draft, which you review and correct. Nothing goes live until you say so.",
+  },
+];
+
 export const MARKETING_ROUTES: MarketingRoute[] = [
   {
     path: "/",
