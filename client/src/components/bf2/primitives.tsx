@@ -6,7 +6,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { BLUSH, LIME, PURPLE, fadeUp } from "./theme";
+import { BLUSH, LIME, PURPLE, fadeUp, prefersReducedMotion } from "./theme";
 
 /* ─────────────────────────────────────────────────────────────
    bf2 shared primitives: scroll-reveal, the Birdflow bird, and the
@@ -24,19 +24,48 @@ export function useInView<T extends HTMLElement>(threshold = 0.2) {
       setInView(true);
       return;
     }
+    // Someone who asked for less motion gets the content, not the entrance.
+    if (prefersReducedMotion()) {
+      setInView(true);
+      return;
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const show = () => {
+      setInView(true);
+      io.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
-          if (e.isIntersecting) {
-            setInView(true);
-            io.disconnect();
-          }
+          if (e.isIntersecting) show();
         });
       },
       { threshold },
     );
     io.observe(el);
-    return () => io.disconnect();
+
+    // Safety net. A threshold can be missed two ways: an element taller than
+    // the viewport can never reach the required ratio, and a fast scroll can
+    // carry one past the viewport inside a single frame. Either way the
+    // content would sit at opacity 0 for good, so once the element has been
+    // scrolled to at all, reveal it regardless.
+    const sweep = () => {
+      const box = el.getBoundingClientRect();
+      if (box.top < window.innerHeight && box.bottom > 0) show();
+    };
+    window.addEventListener("scroll", sweep, { passive: true });
+    window.addEventListener("resize", sweep);
+    timer = setTimeout(show, 4000);
+
+    return () => {
+      io.disconnect();
+      window.removeEventListener("scroll", sweep);
+      window.removeEventListener("resize", sweep);
+      if (timer) clearTimeout(timer);
+    };
   }, [threshold]);
   return [ref, inView] as const;
 }

@@ -215,3 +215,16 @@ describe("home FAQ copy", () => {
     }
   });
 });
+
+describe("scroll reveal", () => {
+  const primitives = read("client", "src", "components", "bf2", "primitives.tsx");
+
+  it("never leaves content stranded at opacity 0", () => {
+    // A threshold can be missed two ways: an element taller than the viewport
+    // never reaches the ratio, and a fast scroll can carry one past inside a
+    // single frame. Both used to leave the block invisible permanently.
+    expect(primitives).toContain("prefersReducedMotion()");
+    expect(primitives).toContain("const sweep =");
+    expect(primitives).toContain("setTimeout(show,");
+  });
+});
