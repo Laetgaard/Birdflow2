@@ -9,15 +9,16 @@ import { Link } from "wouter";
 
    Render order is defined once, in the page assembly at the bottom
    of this file — the sections below are NOT declared in that order:
-     hero → sticky story → kundeoplevelse → FAQ → klientens vej →
-     sådan virker det → final CTA + footer
+     hero → sådan fungerer det → kundeoplevelser → hvad du kan
+     forvente → plug and play → priser → klientens vej → FAQ →
+     final CTA + footer
    Every section sits on LIME or BLUSH and the waves between them
    carry those two colours, so reordering sections means re-deriving
    the wave arguments in the assembly to match their new neighbours.
    ───────────────────────────────────────────────────────────── */
 
 import {
-  PURPLE, BLUE, LIME, BLUSH, GREEN, EASE,
+  PURPLE, BLUE, LIME, BLUSH, GREEN,
   PAGE_CSS, prefersReducedMotion, fadeUp, popIn,
 } from "@/components/bf2/theme";
 import {
@@ -26,6 +27,7 @@ import {
 import { Nav, SIGNUP_HREF, useSignupLabel } from "@/components/bf2/Nav";
 import { PricingTeaser, ProfessionFooterLinks } from "@/components/bf2/AudienceSections";
 import { MarketingFooter } from "@/components/bf2/MarketingFooter";
+import { BrandVisual, FlowVisual, SystemVisual } from "@/components/marketing/HomeVisuals";
 import { HOME_FAQ_DA, HOME_FAQ_EN } from "@shared/marketingSeo";
 import { useLocale, pick, type Lang } from "@/lib/locale";
 
@@ -74,81 +76,6 @@ type LandingCopy = {
     newEnquiriesSuffix: string; // "nye henvendelser"
     seeInBirdflow: string;
   };
-  // STICKY PRODUCT STORY (mindre administration)
-  story: {
-    headingLead: string;
-    headingEm: string;
-    body: string;
-    steps: string[];
-    adminListTitle: string;
-    adminTodos: string[];
-    forYouSuffix: string; // "til dig"
-    doneByBirdflow: string;
-    today: string;
-    conversation: string;
-    clinic: string;
-    online: string;
-    bookedSelf: string;
-    adminBetween: string;
-    zeroMin: string;
-    chips: Array<{ title: string; sub: string }>;
-    finale: string;
-    overview: {
-      greeting: string;
-      date: string;
-      todayLabel: string;
-      todayRows: Array<[string, string, string]>;
-      newTag: string; // "· ny" suffix marker
-      stats: Array<[string, string]>;
-      newEnquiries: string;
-      confirmMail: string;
-      active: string;
-      website: string;
-      published: string;
-      visitsThisMonth: string;
-      navItems: string[]; // sidebar
-    };
-  };
-  // PROCESS (sådan virker det)
-  process: {
-    headingLead: string;
-    headingEm: string;
-    bodyMobile: string;
-    bodyDesktopA: string;
-    bodyDesktopB: string;
-    workspace: {
-      seeWebsite: string;
-      visualExpression: string;
-      direction: string;
-      directionTags: string[];
-      colours: string;
-      typography: string;
-      headings: string;
-      bodyText: string;
-      madeWith: string;
-      haveBrandQ: string;
-      haveBrandA: string;
-      siteReady: string;
-      pages: string[];
-      footerServices: string[];
-      footerLinks: string;
-    };
-    liveEdit: {
-      title: string;
-      fixSmall: string;
-      textImages: string;
-      quoteEdit: string;
-      editText: string;
-      changeImage: string;
-      developMore: string;
-      developSub: string;
-    };
-    techFlow: {
-      title: string;
-      rows: Array<[string, string]>;
-      allRunning: string;
-    };
-  };
   // KUNDEOPLEVELSE (Amalie case)
   case: {
     site: {
@@ -164,13 +91,12 @@ type LandingCopy = {
       builtWith: string;
     };
     mockupAlt: string;
-    badge: string;
-    heading: string;
-    quoteShort: string;
+    kicker: string;
+    headingLead: string;
+    headingRest: string;
+    quote: string;
+    starsLabel: string;
     attr: string;
-    quoteFull: string;
-    hideQuote: string;
-    readFullQuote: string;
     seeSite: string;
   };
   // JOURNEY (klientens vej)
@@ -269,104 +195,6 @@ const COPY: Record<Lang, LandingCopy> = {
       newEnquiriesSuffix: "nye henvendelser",
       seeInBirdflow: "Se i Birdflow →",
     },
-    story: {
-      headingLead: "Mindre administration.",
-      headingEm: "Mere ro i praksissen.",
-      body: "Din opmærksomhed skal ligge hos klienterne — ikke i det digitale bagved. Følg med i, hvad der bliver klaret for dig:",
-      steps: [
-        "Du er hos dine klienter",
-        "Bekræftelsen — sendt for dig",
-        "Kalenderen — opdateret for dig",
-        "Henvendelsen — fulgt op for dig",
-        "Påmindelsen — planlagt for dig",
-        "Overblikket venter, når du er klar",
-      ],
-      adminListTitle: "Din admin-liste",
-      adminTodos: [
-        "Send bekræftelse til ny booking",
-        "Skriv tiden ind i kalenderen",
-        "Følg op på ny henvendelse",
-        "Planlæg påmindelse før samtalen",
-      ],
-      forYouSuffix: "til dig",
-      doneByBirdflow: "Klaret af Birdflow — mens du var i samtale",
-      today: "I DAG · TIRSDAG",
-      conversation: "Samtale",
-      clinic: "Klinik",
-      online: "Online",
-      bookedSelf: "NY — bookede sig selv",
-      adminBetween: "Admin mellem samtalerne:",
-      zeroMin: "0 min.",
-      chips: [
-        { title: "Bekræftelse sendt", sub: "Til klienten · automatisk" },
-        { title: "Kalenderen opdateret", sub: "Tirsdag d. 14. · kl. 13.30" },
-        { title: "Henvendelse fulgt op", sub: "Samlet med status i Birdflow" },
-        { title: "Påmindelse planlagt", sub: "Før samtalen i morgen" },
-      ],
-      finale: "Resten klarer Birdflow ✓",
-      overview: {
-        greeting: "God formiddag, Sofie",
-        date: "Tirsdag d. 14. oktober",
-        todayLabel: "I DAG",
-        todayRows: [
-          ["10.00", "Booket samtale", "Klinik"],
-          ["13.30", "Booket samtale · ny", "Klinik"],
-          ["15.00", "Booket samtale", "Online"],
-        ],
-        newTag: "",
-        stats: [],
-        newEnquiries: "Nye henvendelser",
-        confirmMail: "Bekræftelsesmail",
-        active: "Aktiv",
-        website: "Hjemmeside",
-        published: "Udgivet",
-        visitsThisMonth: "Besøg denne måned",
-        navItems: ["Overblik", "Hjemmeside", "Bookinger", "Henvendelser", "Automatiske mails", "Analyse"],
-      },
-    },
-    process: {
-      headingLead: "Vi bygger din hjemmeside.",
-      headingEm: "Du bliver ikke låst fast i den.",
-      bodyMobile: "Vi designer og bygger siden omkring din praksis — med dit eksisterende brand eller et nyt udtryk. Bagefter kan du selv rette tekst og billeder, mens booking, henvendelser og automatiske mails kører samlet i Birdflow.",
-      bodyDesktopA: "Vi skaber designet, bygger hjemmesiden og tilpasser den til din praksis. Har du allerede et brand, tager vi udgangspunkt i det. Ellers kan vi skabe det visuelle udtryk fra bunden.",
-      bodyDesktopB: "Når siden er live, kan du selv ændre tekst, billeder og indhold — eller få os til at videreudvikle løsningen. Booking, henvendelser og automatiske mails kører samlet i Birdflow.",
-      workspace: {
-        seeWebsite: "Se hjemmeside",
-        visualExpression: "DIT VISUELLE UDTRYK",
-        direction: "RETNING",
-        directionTags: ["Rolig", "Varm", "Enkel"],
-        colours: "FARVER",
-        typography: "TYPOGRAFI",
-        headings: "Lora · Overskrifter",
-        bodyText: "Nunito · Brødtekst",
-        madeWith: "Skabt med Birdflow",
-        haveBrandQ: "Har du allerede et brand?",
-        haveBrandA: "Vi bygger videre på det.",
-        siteReady: "✓ Din hjemmeside er klar",
-        pages: ["✓ Forside", "✓ Samtaleterapi", "✓ Om Sofie", "✓ Forløb & priser", "✓ Kontakt & booking"],
-        footerServices: ["Samtaleterapi", "Stressforløb", "Parterapi"],
-        footerLinks: "Kontakt · Praktisk info · Priser",
-      },
-      liveEdit: {
-        title: "Når siden er live",
-        fixSmall: "RET SELV DE SMÅ TING",
-        textImages: "Tekst, billeder og indhold",
-        quoteEdit: "»…står midt i en forandring i livet«",
-        editText: "Redigér tekst",
-        changeImage: "Skift billede",
-        developMore: "VIDEREUDVIKL MED BIRDFLOW",
-        developSub: "Nye sider, design og funktioner",
-      },
-      techFlow: {
-        title: "DET TEKNISKE FLOW",
-        rows: [
-          ["Booking", "Forbundet ✓"],
-          ["Henvendelser", "Forbundet ✓"],
-          ["Automatiske mails", "Aktive ✓"],
-        ],
-        allRunning: "Alt kører i Birdflow",
-      },
-    },
     case: {
       site: {
         role: "Psykolog",
@@ -385,13 +213,12 @@ const COPY: Record<Lang, LandingCopy> = {
         builtWith: "Bygget med Birdflow",
       },
       mockupAlt: "Amalie Vebers færdige hjemmeside vist på laptop og mobil — bygget med Birdflow",
-      badge: "KUNDEOPLEVELSE · AMALIE VEBER · PSYKOLOG I ROSKILDE",
-      heading: "Kundeoplevelse",
-      quoteShort: "»Christoffer har været lynhurtig til at fange min vision for hjemmesiden og formået at skabe lige den stemning jeg ønskede.«",
-      attr: "— AMALIE VEBER, PSYKOLOG I ROSKILDE",
-      quoteFull: "»Det har været en fornøjelse at opleve hvordan mine tanker og ønsker er kommet til live gennem Christoffers arbejde. Han har været god til at skabe overblik og klarhed i både den visuelle og tekstbaserede kommunikation på hjemmesiden. Christoffer er lydhør og behagelig at samarbejde med, og jeg giver ham mine bedste anbefalinger.«",
-      hideQuote: "Skjul udtalelsen",
-      readFullQuote: "Læs hele udtalelsen",
+      kicker: "KUNDEOPLEVELSER",
+      headingLead: "Kunders oplevelser",
+      headingRest: " med Birdflow",
+      quote: "»Det har været en fornøjelse at opleve hvordan mine tanker og ønsker er kommet til live gennem Christoffers arbejde. Han har været god til at skabe overblik og klarhed i både den visuelle og tekstbaserede kommunikation på hjemmesiden.«",
+      starsLabel: "Fem ud af fem stjerner",
+      attr: "AMALIE VEBER · PSYKOLOG I ROSKILDE",
       seeSite: "Se Amalie Vebers hjemmeside ↗",
     },
     journey: {
@@ -534,104 +361,6 @@ const COPY: Record<Lang, LandingCopy> = {
       newEnquiriesSuffix: "new enquiries",
       seeInBirdflow: "See in Birdflow →",
     },
-    story: {
-      headingLead: "Less admin.",
-      headingEm: "More calm in your practice.",
-      body: "Your attention belongs with your clients — not the digital work behind the scenes. Watch what gets handled for you:",
-      steps: [
-        "You're with your clients",
-        "The confirmation — sent for you",
-        "The calendar — updated for you",
-        "The enquiry — followed up for you",
-        "The reminder — scheduled for you",
-        "The overview is ready when you are",
-      ],
-      adminListTitle: "Your admin list",
-      adminTodos: [
-        "Send confirmation for the new booking",
-        "Write the time into the calendar",
-        "Follow up on a new enquiry",
-        "Schedule a reminder before the session",
-      ],
-      forYouSuffix: "for you",
-      doneByBirdflow: "Handled by Birdflow — while you were in session",
-      today: "TODAY · TUESDAY",
-      conversation: "Session",
-      clinic: "Clinic",
-      online: "Online",
-      bookedSelf: "NEW — booked online",
-      adminBetween: "Admin between sessions:",
-      zeroMin: "0 min.",
-      chips: [
-        { title: "Confirmation sent", sub: "To the client · automatically" },
-        { title: "Calendar updated", sub: "Tuesday the 14th · at 13.30" },
-        { title: "Enquiry followed up", sub: "Together with its status in Birdflow" },
-        { title: "Reminder scheduled", sub: "Before tomorrow's session" },
-      ],
-      finale: "Birdflow handles the rest ✓",
-      overview: {
-        greeting: "Good morning, Sofie",
-        date: "Tuesday 14 October",
-        todayLabel: "TODAY",
-        todayRows: [
-          ["10.00", "Booked session", "Clinic"],
-          ["13.30", "Booked session · new", "Clinic"],
-          ["15.00", "Booked session", "Online"],
-        ],
-        newTag: "",
-        stats: [],
-        newEnquiries: "New enquiries",
-        confirmMail: "Confirmation email",
-        active: "Active",
-        website: "Website",
-        published: "Published",
-        visitsThisMonth: "Visits this month",
-        navItems: ["Overview", "Website", "Bookings", "Enquiries", "Automatic emails", "Analytics"],
-      },
-    },
-    process: {
-      headingLead: "We build your website.",
-      headingEm: "You're never locked into it.",
-      bodyMobile: "We design and build the site around your practice — with your existing brand or a fresh look. Afterwards you edit text and images yourself, while booking, enquiries and automatic emails run together in Birdflow.",
-      bodyDesktopA: "We create the design, build the website and tailor it to your practice. If you already have a brand, we start from it. If not, we can create the visual look from scratch.",
-      bodyDesktopB: "Once the site is live, you can change text, images and content yourself — or have us develop it further. Booking, enquiries and automatic emails run together in Birdflow.",
-      workspace: {
-        seeWebsite: "See website",
-        visualExpression: "YOUR VISUAL LOOK",
-        direction: "DIRECTION",
-        directionTags: ["Calm", "Warm", "Simple"],
-        colours: "COLOURS",
-        typography: "TYPOGRAPHY",
-        headings: "Lora · Headings",
-        bodyText: "Nunito · Body text",
-        madeWith: "Made with Birdflow",
-        haveBrandQ: "Already have a brand?",
-        haveBrandA: "We build on it.",
-        siteReady: "✓ Your website is ready",
-        pages: ["✓ Home", "✓ Talking therapy", "✓ About Sofie", "✓ Programmes & pricing", "✓ Contact & booking"],
-        footerServices: ["Talking therapy", "Stress programme", "Couples therapy"],
-        footerLinks: "Contact · Practical info · Pricing",
-      },
-      liveEdit: {
-        title: "Once the site is live",
-        fixSmall: "FIX THE SMALL THINGS YOURSELF",
-        textImages: "Text, images and content",
-        quoteEdit: "“…in the middle of a change in life”",
-        editText: "Edit text",
-        changeImage: "Change image",
-        developMore: "DEVELOP FURTHER WITH BIRDFLOW",
-        developSub: "New pages, design and features",
-      },
-      techFlow: {
-        title: "THE TECHNICAL FLOW",
-        rows: [
-          ["Booking", "Connected ✓"],
-          ["Enquiries", "Connected ✓"],
-          ["Automatic emails", "Active ✓"],
-        ],
-        allRunning: "Everything runs in Birdflow",
-      },
-    },
     case: {
       site: {
         role: "Psychologist",
@@ -650,13 +379,12 @@ const COPY: Record<Lang, LandingCopy> = {
         builtWith: "Built with Birdflow",
       },
       mockupAlt: "Amalie Veber's finished website shown on laptop and mobile — built with Birdflow",
-      badge: "CUSTOMER STORY · AMALIE VEBER · PSYCHOLOGIST IN ROSKILDE",
-      heading: "Customer story",
-      quoteShort: "“Christoffer was lightning fast at grasping my vision for the website and managed to create exactly the mood I wanted.”",
-      attr: "— AMALIE VEBER, PSYCHOLOGIST IN ROSKILDE",
-      quoteFull: "“It has been a pleasure to see how my thoughts and wishes came to life through Christoffer's work. He was good at creating clarity and structure in both the visual and written communication on the website. Christoffer is a good listener and a pleasure to work with, and I give him my warmest recommendations.”",
-      hideQuote: "Hide the review",
-      readFullQuote: "Read the full review",
+      kicker: "CUSTOMER EXPERIENCES",
+      headingLead: "What customers say",
+      headingRest: " about Birdflow",
+      quote: "“It has been a pleasure to see how my thoughts and wishes came to life through Christoffer's work. He was good at creating clarity and structure in both the visual and written communication on the website.”",
+      starsLabel: "Five out of five stars",
+      attr: "AMALIE VEBER · PSYCHOLOGIST IN ROSKILDE",
       seeSite: "See Amalie Veber's website ↗",
     },
     journey: {
@@ -1106,6 +834,31 @@ function Hero() {
             {t.hero.body}
           </p>
 
+          {/* Phones: the two cloud figures sit between the promise and the
+              button, where the design's phone artboard and your mockup put
+              them. The example site is a desktop composition and stays
+              in the other column. */}
+          <div className="lg:hidden min-w-0" aria-hidden="true">
+            <div className="flex items-end justify-center gap-3 mt-6" style={fadeUp(heroIn, 0.35)}>
+              <img
+                src="/assets/home-redesign/hero-man-cloud-mobile.png"
+                alt=""
+                width={920}
+                height={920}
+                decoding="async"
+                className="block w-[48%] max-w-[230px] h-auto"
+              />
+              <img
+                src="/assets/home-redesign/hero-woman-cloud.png"
+                alt=""
+                width={920}
+                height={920}
+                decoding="async"
+                className="block w-[48%] max-w-[230px] h-auto"
+              />
+            </div>
+          </div>
+
           <div
             className="flex items-center gap-6 mt-[34px] flex-wrap"
             style={fadeUp(heroIn, 0.45)}
@@ -1162,30 +915,6 @@ function Hero() {
         </div>
 
         {/* The finished practice website, powered by Birdflow */}
-
-        {/* Phones: the two cloud figures side by side, as the design's
-            phone hero and your latest mockup draw it. The example site is a
-            desktop composition and stays there. */}
-        <div className="lg:hidden min-w-0" aria-hidden="true">
-          <div className="flex items-end justify-center gap-3 mt-2" style={fadeUp(heroIn, 0.35)}>
-            <img
-              src="/assets/home-redesign/hero-man-cloud-mobile.png"
-              alt=""
-              width={920}
-              height={920}
-              decoding="async"
-              className="block w-[48%] max-w-[230px] h-auto"
-            />
-            <img
-              src="/assets/home-redesign/hero-woman-cloud.png"
-              alt=""
-              width={920}
-              height={920}
-              decoding="async"
-              className="block w-[48%] max-w-[230px] h-auto"
-            />
-          </div>
-        </div>
 
         {/* Desktop: full-size composition with the floating workflow cards */}
         <div className="relative min-w-0 mt-6 lg:mt-0 lg:-mr-[100px] hidden lg:block">
@@ -1706,1113 +1435,393 @@ function ClientJourney() {
   );
 }
 
-/* ─────────── STICKY PRODUCT STORY (mindre administration) ─────────── */
-
-function AdminListCard({ step }: { step: number }) {
-  const st = useLandingCopy().story;
-  const ADMIN_TODOS = st.adminTodos;
+/* ─────────── section heading, the design's pattern ───────────
+   A purple 12px kicker, then an h2 whose opening phrase carries a thick
+   purple underline. The hero and the closing CTA keep the Agbalumo
+   display face; the design sets every section heading in the sans at
+   900, so these four do the same. */
+function SectionHead({
+  kicker,
+  lead,
+  rest,
+}: {
+  kicker: string;
+  lead: string;
+  rest?: string;
+}) {
   return (
-    <div
-      className="relative bg-white rounded-2xl border border-black/[0.08] px-[17px] py-[15px]"
-      style={{
-        ["--rot" as string]: "-1.2deg",
-        transform: "rotate(-1.2deg)",
-        animation: "bf2Float 8s ease-in-out -1s infinite",
-        boxShadow: "0 20px 48px rgba(20,5,40,0.17)",
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-[14px] font-black">{st.adminListTitle}</span>
-        <span
-          className="ml-auto text-[10px] font-extrabold rounded-full px-2.5 py-[3px]"
-          style={{ color: PURPLE, background: "rgba(128,22,195,0.09)" }}
-        >
-          {Math.max(0, 4 - step)} {st.forYouSuffix}
-        </span>
-      </div>
-      {ADMIN_TODOS.map((t, i) => {
-        const done = step >= i + 1;
-        return (
-          <div
-            key={t}
-            className={`flex items-center gap-2.5 py-2.5 ${i < 3 ? "border-b border-black/[0.06]" : ""}`}
-          >
-            <span
-              className="w-[18px] h-[18px] flex-none rounded-md flex items-center justify-center text-[10px] font-black text-white"
-              style={{
-                background: done ? GREEN : "#FFFFFF",
-                border: `1.5px solid ${done ? GREEN : "rgba(0,0,0,0.25)"}`,
-                transition: "background 0.55s",
-              }}
-            >
-              {done ? "✓" : ""}
-            </span>
-            <span
-              className="text-[12.5px] font-bold"
-              style={{
-                color: done ? "rgba(0,0,0,0.38)" : "#000000",
-                textDecoration: done ? "line-through" : "none",
-                transition: "color 0.55s",
-              }}
-            >
-              {t}
-            </span>
-          </div>
-        );
-      })}
-      <div
-        className="flex items-center gap-2 pt-2.5"
-        style={{
-          borderTop: "1.5px solid rgba(0,0,0,0.09)",
-          opacity: step >= 4 ? 1 : 0,
-          transition: "opacity 0.55s",
-        }}
-      >
-        <Bird className="w-4 h-[13px]" style={{ color: PURPLE }} />
-        <span className="text-[12px] font-black" style={{ color: PURPLE }}>
-          {st.doneByBirdflow}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function TodayCard({ step }: { step: number }) {
-  const st = useLandingCopy().story;
-  return (
-    <div
-      className="relative bg-white rounded-2xl border border-black/[0.08] px-[17px] py-[15px]"
-      style={{
-        ["--rot" as string]: "1.2deg",
-        transform: "rotate(1.2deg)",
-        animation: "bf2Float 8.5s ease-in-out -3s infinite",
-        boxShadow: "0 20px 48px rgba(20,5,40,0.17)",
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-          {st.today}
-        </span>
-        <span
-          className="ml-auto w-2 h-2 rounded-full"
-          style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }}
-        />
-      </div>
-      <div className="flex gap-2.5 items-center py-[9px] border-b border-black/[0.06]">
-        <span className="text-[12.5px] font-extrabold w-10">10.00</span>
-        <span className="text-[12px] font-bold">{st.conversation}</span>
-        <span className="ml-auto text-[10px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>{st.clinic}</span>
-      </div>
-      <div className="flex gap-2.5 items-center py-[9px] border-b border-black/[0.06]">
-        <span className="text-[12.5px] font-extrabold w-10">11.30</span>
-        <span className="text-[12px] font-bold">{st.conversation}</span>
-        <span className="ml-auto text-[10px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>{st.online}</span>
-      </div>
-      <div className="flex gap-2.5 items-center py-[9px]">
-        <span className="text-[12.5px] font-extrabold w-10" style={{ color: BLUE }}>13.30</span>
-        <span className="text-[12px] font-extrabold" style={{ color: BLUE }}>{st.conversation}</span>
-        <span
-          className="ml-auto text-[9px] font-extrabold text-white rounded-full px-2 py-[2px]"
-          style={{ background: BLUE, opacity: step >= 2 ? 1 : 0, transition: "opacity 0.55s" }}
-        >
-          {st.bookedSelf}
-        </span>
-      </div>
-      <div
-        className="mt-1.5 rounded-[9px] px-[11px] py-2 text-[11px] font-extrabold"
-        style={{ background: LIME, color: "rgba(0,0,0,0.75)" }}
-      >
-        {st.adminBetween} <span style={{ color: PURPLE }}>{st.zeroMin}</span>
-      </div>
-    </div>
-  );
-}
-
-const CHIP_ICONS = {
-  mail: (
-    <svg viewBox="0 0 24 24" className="w-[55%] h-[55%]" fill="none" stroke={GREEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
-      <path d="M3 6.5 L12 13 L21 6.5" />
-    </svg>
-  ),
-  calendar: (
-    <svg viewBox="0 0 24 24" className="w-[55%] h-[55%]" fill="none" stroke={BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4.5" width="18" height="16" rx="2.5" />
-      <path d="M3 9.5 L21 9.5" />
-      <path d="M8 2.5 L8 6.5 M16 2.5 L16 6.5" />
-      <path d="M9 14.5 L11.2 16.7 L15.5 12.5" />
-    </svg>
-  ),
-  chat: (
-    <svg viewBox="0 0 24 24" className="w-[55%] h-[55%]" fill="none" stroke={PURPLE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 11.5 C21 15.6 17 19 12 19 C10.8 19 9.7 18.8 8.7 18.5 L4 20 L5.6 16.4 C4 15.1 3 13.4 3 11.5 C3 7.4 7 4 12 4 C17 4 21 7.4 21 11.5 Z" />
-    </svg>
-  ),
-  clock: (
-    <svg viewBox="0 0 24 24" className="w-[55%] h-[55%]" fill="none" stroke={BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 7.5 L12 12 L15.2 13.8" />
-    </svg>
-  ),
-};
-
-/** Language-neutral chip styling; the text comes from the copy object by index. */
-const STORY_CHIPS: Array<{
-  icon: keyof typeof CHIP_ICONS;
-  iconBg: string;
-  rot: string;
-  anim: string;
-}> = [
-  { icon: "mail", iconBg: "rgba(46,125,79,0.12)", rot: "-3deg", anim: "bf2Float 7s ease-in-out -1s infinite" },
-  { icon: "calendar", iconBg: "rgba(48,109,218,0.12)", rot: "2.5deg", anim: "bf2Float 8s ease-in-out -3s infinite" },
-  { icon: "chat", iconBg: "rgba(128,22,195,0.1)", rot: "-2deg", anim: "bf2Float 8.5s ease-in-out -5s infinite" },
-  { icon: "clock", iconBg: "rgba(48,109,218,0.12)", rot: "2deg", anim: "bf2Float 7.5s ease-in-out -2s infinite" },
-];
-
-function StoryChip({ index }: { index: number }) {
-  const chip = STORY_CHIPS[index];
-  const text = useLandingCopy().story.chips[index];
-  return (
-    <div
-      className="relative flex items-center gap-[11px] bg-white rounded-2xl border border-black/[0.08] px-[15px] py-[11px]"
-      style={{
-        ["--rot" as string]: chip.rot,
-        transform: `rotate(${chip.rot})`,
-        animation: chip.anim,
-        boxShadow: "0 16px 38px rgba(20,5,40,0.18)",
-      }}
-    >
-      <span
-        className="absolute -top-2 -right-2 w-[22px] h-[22px] rounded-full text-white text-[10px] font-black flex items-center justify-center border-2 border-white"
-        style={{ background: GREEN }}
-      >
-        ✓
-      </span>
-      <span
-        className="w-9 h-9 flex-none rounded-full flex items-center justify-center"
-        style={{ background: chip.iconBg }}
-      >
-        {CHIP_ICONS[chip.icon]}
-      </span>
-      <span>
-        <span className="block text-[13px] font-extrabold">{text.title}</span>
-        <span className="block mt-[2px] text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
-          {text.sub}
-        </span>
-      </span>
-    </div>
-  );
-}
-
-function PuffCloud({ className, style }: { className?: string; style?: CSSProperties }) {
-  return (
-    <svg viewBox="0 0 220 100" className={className} style={style} aria-hidden="true">
-      <ellipse cx="112" cy="88" rx="78" ry="9" fill="#B4A8DA" opacity="0.4" filter="url(#bfSoftB)" />
-      <circle cx="52" cy="58" r="26" fill="url(#bfPuffBk)" />
-      <circle cx="168" cy="56" r="24" fill="url(#bfPuffBk)" />
-      <circle cx="82" cy="46" r="30" fill="url(#bfPuff)" />
-      <circle cx="132" cy="42" r="34" fill="url(#bfPuff)" />
-      <ellipse cx="110" cy="68" rx="58" ry="24" fill="url(#bfPuff)" />
-      <ellipse cx="120" cy="27" rx="26" ry="9" fill="#FFFFFF" opacity="0.9" filter="url(#bfSoftB)" />
-    </svg>
-  );
-}
-
-/** Man reclining on a cloud (fallback artwork while /landing/cloud-man.webp loads) */
-function CloudManArt({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 520 340" className={className} aria-hidden="true">
-      {/* cloud */}
-      <circle cx="118" cy="252" r="58" fill="url(#bfPuffBk)" />
-      <circle cx="408" cy="248" r="52" fill="url(#bfPuffBk)" />
-      <circle cx="185" cy="228" r="70" fill="url(#bfPuff)" />
-      <circle cx="305" cy="212" r="84" fill="url(#bfPuff)" />
-      <circle cx="395" cy="238" r="58" fill="url(#bfPuff)" />
-      <ellipse cx="258" cy="268" rx="188" ry="56" fill="url(#bfPuff)" />
-      <ellipse cx="300" cy="176" rx="56" ry="16" fill="#FFFFFF" opacity="0.9" filter="url(#bfSoftB)" />
-      {/* reclining figure */}
-      <g>
-        {/* extended leg */}
-        <path d="M212 196 L128 210" stroke="#2A2140" strokeWidth="21" strokeLinecap="round" fill="none" />
-        {/* bent leg */}
-        <path d="M214 198 L166 154 L124 190" stroke="#2A2140" strokeWidth="21" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        {/* feet */}
-        <path d="M128 210 L112 214" stroke="#3B3355" strokeWidth="14" strokeLinecap="round" />
-        <path d="M124 190 L108 196" stroke="#3B3355" strokeWidth="14" strokeLinecap="round" />
-        {/* torso, reclined */}
-        <path d="M214 196 L286 152" stroke={BLUE} strokeWidth="30" strokeLinecap="round" fill="none" />
-        {/* arm behind head */}
-        <path d="M276 154 L318 128 L306 104" stroke="#E8B48C" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        {/* head */}
-        <circle cx="298" cy="112" r="20" fill="#E8B48C" />
-        {/* hair */}
-        <path d="M280 106 a20 20 0 0 1 34 -8 c4 -1 8 2 8 6 c-6 -3 -12 -4 -18 -2 c-9 -4 -18 -2 -24 4 Z" fill="#3B2B20" />
-        {/* collar highlight */}
-        <path d="M262 168 L282 156" stroke="#5C8AE6" strokeWidth="10" strokeLinecap="round" opacity="0.8" />
-      </g>
-      {/* front puff overlapping the figure's hip */}
-      <ellipse cx="212" cy="242" rx="66" ry="30" fill="url(#bfPuff)" />
-    </svg>
-  );
-}
-
-function CloudScene({ lifted, showFinale }: { lifted: boolean; showFinale: boolean }) {
-  const { lang } = useLocale();
-  const st = pick(COPY, lang).story;
-  const cloudAlt =
-    lang === "en"
-      ? "A man sitting relaxed on a cloud, writing in his notebook"
-      : "Mand, der sidder afslappet på en sky og skriver i sin notesbog";
-  return (
-    <div
-      className="absolute left-[5%] top-[2%] w-[90%] h-[78%]"
-      style={{ transform: lifted ? "translateY(-10%) scale(0.85)" : "none", transition: `transform 0.55s ${EASE}` }}
-    >
-      <div
-        className="absolute left-1/2 top-[40%] w-[112%] h-[70%] -translate-x-1/2 -translate-y-1/2"
-        style={{
-          background:
-            "radial-gradient(closest-side, rgba(255,255,255,0.9), rgba(255,255,255,0.5) 46%, rgba(255,255,255,0) 76%)",
-        }}
-      />
-      <div
-        className="absolute left-1/2 bottom-[1%] w-[56%] h-[30px] rounded-full"
-        style={{
-          background:
-            "radial-gradient(closest-side, rgba(122,100,190,0.5), rgba(122,100,190,0.22) 55%, rgba(122,100,190,0) 100%)",
-          transform: "translateX(-50%)",
-          animation: "bf2Shadow 9s ease-in-out -3s infinite",
-        }}
-      />
-      <div className="relative w-full h-full" style={{ animation: "bf2Float 9s ease-in-out -3s infinite" }}>
-        <ImgWithFallback
-          src="/landing/cloud-man.webp"
-          alt={cloudAlt}
-          className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[74%] max-w-[460px] h-auto"
-          fallback={
-            <CloudManArt className="absolute left-1/2 bottom-[5%] -translate-x-1/2 w-[86%] max-w-[520px] h-auto" />
-          }
-        />
-        <Bird
-          className="absolute left-[21%] bottom-[13%] w-[42px] h-[34px]"
-          style={{
-            color: BLUE,
-            opacity: showFinale ? 1 : 0,
-            transform: "rotate(-6deg)",
-            transition: "opacity 0.55s 0.2s",
-          }}
-        />
-        <div
-          className="absolute right-[2%] top-[6%]"
-          style={{ opacity: showFinale ? 1 : 0, transition: "opacity 0.55s 0.3s" }}
-        >
-          <span
-            className="inline-block text-white text-[12px] lg:text-[13px] font-extrabold rounded-full px-[17px] py-2.5"
-            style={{ background: PURPLE, boxShadow: "0 14px 34px rgba(20,5,40,0.3)" }}
-          >
-            {st.finale}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function OverviewCard() {
-  const o = useLandingCopy().story.overview;
-  return (
-    <div
-      className="w-full bg-white rounded-2xl border border-black/[0.07] overflow-hidden flex"
-      style={{ boxShadow: "0 30px 80px rgba(20,5,40,0.22)" }}
-    >
-      <div className="w-[190px] flex-none border-r border-black/[0.07] py-[18px] hidden md:block bf2-w-block" style={{ background: "#FDFDFB" }}>
-        <div className="flex items-center gap-2 px-[18px] pb-3.5">
-          <Bird className="w-5 h-4" style={{ color: BLUE }} />
-          <span className="text-[13.5px] font-extrabold">Birdflow</span>
-        </div>
-        <div
-          className="text-[12.5px] font-extrabold px-[18px] py-[9px]"
-          style={{ color: BLUE, background: "rgba(48,109,218,0.08)", borderLeft: `2.5px solid ${BLUE}` }}
-        >
-          {o.navItems[0]}
-        </div>
-        {[o.navItems[1], o.navItems[2]].map((x) => (
-          <div key={x} className="text-[12.5px] font-bold px-[18px] py-[9px]" style={{ color: "rgba(0,0,0,0.6)" }}>
-            {x}
-          </div>
-        ))}
-        <div className="text-[12.5px] font-bold px-[18px] py-[9px] flex items-center" style={{ color: "rgba(0,0,0,0.6)" }}>
-          {o.navItems[3]}
-          <span className="ml-auto text-[10px] font-extrabold text-white rounded-[9px] px-2 py-[2px]" style={{ background: PURPLE }}>
-            7
-          </span>
-        </div>
-        {[o.navItems[4], o.navItems[5]].map((x) => (
-          <div key={x} className="text-[12.5px] font-bold px-[18px] py-[9px]" style={{ color: "rgba(0,0,0,0.6)" }}>
-            {x}
-          </div>
-        ))}
-      </div>
-      <div className="flex-1 px-4 py-4 lg:px-[26px] lg:py-[22px] min-w-0">
-        <div className="flex items-baseline gap-3.5 flex-wrap">
-          <span className="text-[17px] lg:text-[20px] font-black tracking-[-0.01em]">{o.greeting}</span>
-          <span className="text-[12px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {o.date}
-          </span>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-[1.3fr_1fr] bf2-w-cols-overview gap-4 mt-4">
-          <div className="rounded-[11px] px-4 py-3.5" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-            <p className="m-0 text-[10px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-              {o.todayLabel}
-            </p>
-            {o.todayRows.map(([time, label, place], i) => {
-              const isNew = i === 1;
-              return (
-              <div
-                key={i}
-                className={`flex gap-3 items-baseline py-[9px] ${i < 2 ? "border-b border-black/[0.06]" : ""}`}
-              >
-                <span className="text-[13px] font-extrabold w-11" style={isNew ? { color: BLUE } : undefined}>
-                  {time}
-                </span>
-                <span className={`text-[13px] ${isNew ? "font-extrabold" : "font-bold"}`} style={isNew ? { color: BLUE } : undefined}>
-                  {label}
-                </span>
-                <span className="ml-auto text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.45)" }}>
-                  {place}
-                </span>
-              </div>
-              );
-            })}
-          </div>
-          <div className="flex flex-col gap-3">
-            {[
-              [o.newEnquiries, <span key="v" className="text-[19px] font-black" style={{ color: PURPLE }}>7</span>],
-              [o.confirmMail, <span key="v" className="text-[11.5px] font-extrabold" style={{ color: GREEN }}>{o.active}</span>],
-              [o.website, <span key="v" className="text-[11.5px] font-extrabold" style={{ color: GREEN }}>{o.published}</span>],
-              [o.visitsThisMonth, <span key="v" className="text-[15px] font-black">184</span>],
-            ].map(([label, value]) => (
-              <div
-                key={label as string}
-                className="rounded-[11px] px-[15px] py-3 flex items-center"
-                style={{ border: "1px solid rgba(0,0,0,0.08)" }}
-              >
-                <span className="text-[12.5px] font-bold">{label as string}</span>
-                <span className="ml-auto">{value as ReactNode}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StoryRail({ step, fill }: { step: number; fill: string }) {
-  const STORY_STEPS = useLandingCopy().story.steps;
-  return (
-    <div className="relative mt-7">
-      <div className="absolute left-[15px] top-2 bottom-2 w-[3px] rounded-sm" style={{ background: "rgba(128,22,195,0.15)" }} />
-      <div
-        className="absolute left-[15px] top-2 w-[3px] rounded-sm"
-        style={{ background: PURPLE, height: fill, transition: "height 0.3s linear" }}
-      />
-      {STORY_STEPS.map((t, i) => (
-        <div
-          key={i}
-          className="relative flex gap-4 py-2.5"
-          style={{ opacity: i === step ? 1 : 0.38, transition: "opacity 0.55s" }}
-        >
-          <span
-            className="relative z-[1] w-[33px] h-[33px] flex-none rounded-full flex items-center justify-center text-[13px] font-extrabold"
-            style={{
-              background: i <= step ? PURPLE : LIME,
-              color: i <= step ? "#FFFFFF" : "rgba(0,0,0,0.5)",
-              border: `2.5px solid ${i <= step ? PURPLE : "rgba(0,0,0,0.25)"}`,
-              transition: "background 0.55s",
-            }}
-          >
-            {i + 1}
-          </span>
-          <span className="pt-1">
-            <span className="block text-[16px] lg:text-[17px] font-extrabold">{t}</span>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function StickyStory() {
-  const st = useLandingCopy().story;
-  /* desktop: scroll-driven pinned stage */
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const [prog, setProg] = useState(0);
-  useEffect(() => {
-    const onScroll = () => {
-      const stage = stageRef.current;
-      if (!stage || stage.offsetParent === null) return;
-      const vh = window.innerHeight;
-      const total = stage.offsetHeight - vh;
-      if (total <= 0) return;
-      const top = stage.getBoundingClientRect().top;
-      const p = Math.min(1, Math.max(0, -top / total));
-      setProg((prev) => (Math.abs(p - prev) > 0.004 || (p === 0 && prev !== 0) || (p === 1 && prev !== 1) ? p : prev));
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    onScroll();
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, []);
-  const step = Math.min(5, Math.floor(prog * 6));
-
-  /* mobile: play-once sequence when scrolled into view */
-  const [mRef, mIn] = useInView<HTMLDivElement>(0.15);
-  const [mStep, setMStep] = useState(0);
-  useEffect(() => {
-    if (!mIn) return;
-    if (prefersReducedMotion()) {
-      setMStep(4);
-      return;
-    }
-    let s = 0;
-    const t = setInterval(() => {
-      s += 1;
-      setMStep(s);
-      if (s >= 4) clearInterval(t);
-    }, 900);
-    return () => clearInterval(t);
-  }, [mIn]);
-
-  const heading = (
     <>
-      <h2 className="bf2-display m-0 text-[28px] sm:text-[34px] lg:text-[40px] leading-[1.2]">
-        {st.headingLead} <span style={{ color: PURPLE }}>{st.headingEm}</span>
-      </h2>
-      <p className="mt-4 mb-0 text-[16px] lg:text-[17px] leading-[1.6]" style={{ color: "rgba(0,0,0,0.75)" }}>
-        {st.body}
+      <p className="m-0 text-[12px] font-extrabold tracking-[0.14em]" style={{ color: PURPLE }}>
+        {kicker}
       </p>
+      <h2
+        className="mt-3.5 mb-0 font-black tracking-[-0.01em] text-[clamp(27px,3.4vw,40px)] leading-[1.18]"
+      >
+        <span
+          style={{
+            textDecoration: "underline",
+            textDecorationColor: PURPLE,
+            // thinner and tighter on a phone, where the phrase wraps and a
+            // 9px offset would drop the rule onto the line beneath it
+            textDecorationThickness: "clamp(2.5px, 0.35vw, 4px)",
+            textUnderlineOffset: "clamp(4px, 0.9vw, 9px)",
+          }}
+        >
+          {lead}
+        </span>
+        {rest}
+      </h2>
     </>
   );
+}
+
+/* ─────────── 02 · SÅDAN FUNGERER DET ─────────── */
+
+type PlatformCopy = {
+  kicker: string;
+  headingLead: string;
+  headingRest: string;
+  intro: string;
+  steps: Array<{ title: string; sub: string }>;
+  finale: string;
+};
+
+const PLATFORM_COPY: Record<Lang, PlatformCopy> = {
+  da: {
+    kicker: "SÅDAN FUNGERER DET",
+    headingLead: "Din opmærksomhed skal ligge hos klienterne",
+    headingRest: " — ikke i det digitale bagved.",
+    intro: "Følg med i, hvad der bliver klaret for dig, mens du er i samtalen:",
+    steps: [
+      {
+        title: "Du er hos dine klienter",
+        sub: "Samtalen er der, hvor din opmærksomhed hører hjemme.",
+      },
+      {
+        title: "Bekræftelsen — sendt for dig",
+        sub: "Klienten får tid, sted og praktisk information med det samme.",
+      },
+      {
+        title: "Kalenderen — opdateret for dig",
+        sub: "Den bookede tid lukker sig selv på hjemmesiden.",
+      },
+      {
+        title: "Henvendelsen — samlet for dig",
+        sub: "Kontaktformularen lander i Birdflow med status, ikke i indbakken.",
+      },
+      {
+        title: "Påmindelsen — planlagt for dig",
+        sub: "Går ud før aftalen, uden at du skal huske den.",
+      },
+    ],
+    finale: "Overblikket venter, når du er klar.",
+  },
+  en: {
+    kicker: "HOW IT WORKS",
+    headingLead: "Your attention belongs with your clients",
+    headingRest: " — not with the digital side of it.",
+    intro: "Follow what gets handled for you while you are in session:",
+    steps: [
+      {
+        title: "You are with your clients",
+        sub: "The session is where your attention belongs.",
+      },
+      {
+        title: "The confirmation — sent for you",
+        sub: "The client gets the time, the place and the practical details straight away.",
+      },
+      {
+        title: "The calendar — updated for you",
+        sub: "The booked slot closes itself on your website.",
+      },
+      {
+        title: "The enquiry — collected for you",
+        sub: "The contact form lands in Birdflow with a status, not in your inbox.",
+      },
+      {
+        title: "The reminder — scheduled for you",
+        sub: "It goes out before the appointment, without you having to remember it.",
+      },
+    ],
+    finale: "The overview is there when you are ready.",
+  },
+};
+
+/** The five step icons, in the design's line weight. */
+const STEP_ICONS = [
+  // the practitioner
+  <>
+    <circle cx="12" cy="8" r="3.4" />
+    <path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" />
+  </>,
+  // an envelope
+  <>
+    <rect x="3.2" y="5.5" width="17.6" height="13" rx="2.4" />
+    <path d="M4 7l8 6 8-6" />
+  </>,
+  // a calendar
+  <>
+    <rect x="3.4" y="5" width="17.2" height="15" rx="2.4" />
+    <path d="M3.4 10h17.2M8 3.5v3M16 3.5v3" />
+  </>,
+  // a message
+  <>
+    <path d="M20.5 12.6c0 3.9-3.8 7-8.5 7-1 0-2-.1-2.9-.4L4 20.5l1.4-3.8C4.2 15.5 3.5 14.1 3.5 12.6c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7z" />
+  </>,
+  // a bell
+  <>
+    <path d="M18 9.5a6 6 0 10-12 0c0 5.2-2 6.5-2 6.5h16s-2-1.3-2-6.5z" />
+    <path d="M13.7 19.5a2 2 0 01-3.4 0" />
+  </>,
+];
+
+function Platform() {
+  const { lang } = useLocale();
+  const t = pick(PLATFORM_COPY, lang);
 
   return (
-    <section id="platformen" data-testid="section-story" style={{ background: LIME }}>
-      {/* ── mobile / tablet: linear story ── */}
-      <div className="lg:hidden max-w-[1400px] mx-auto px-5 md:px-9 py-11 sm:py-14" ref={mRef}>
-        {heading}
-        <StoryRail step={mStep === 4 ? 5 : mStep} fill={mStep >= 4 ? "100%" : `${((mStep + 1) / 6) * 100}%`} />
-        <div className="mt-8 sm:mt-10 max-w-[340px]">
-          <AdminListCard step={mStep} />
-        </div>
-        <div className="relative mt-8 sm:mt-10 -mx-2">
-          <PuffCloud className="absolute left-0 top-[8%] w-24 opacity-90" style={{ animation: "bf2Drift 32s ease-in-out -9s infinite alternate" }} />
-          <PuffCloud className="absolute right-0 top-0 w-16 opacity-60" style={{ animation: "bf2Drift 24s ease-in-out -3s infinite alternate-reverse" }} />
-          <div className="relative h-[210px] sm:h-[380px]">
-            <CloudScene lifted={false} showFinale={mStep >= 4} />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3 sm:gap-4 mt-7 sm:mt-8">
-          {STORY_CHIPS.map((chip, i) => (
-            <div key={i} style={popIn(mStep >= i + 1, 0)}>
-              <StoryChip index={i} />
+    <section
+      id="platformen"
+      data-testid="section-platform"
+      style={{ background: BLUSH, scrollMarginTop: 96 }}
+    >
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-6 pb-16 lg:pt-[26px] lg:pb-24 grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-[52px] items-center">
+        <RevealOnView>
+          <SectionHead kicker={t.kicker} lead={t.headingLead} rest={t.headingRest} />
+          <p className="mt-[22px] mb-0 max-w-[470px] text-[clamp(16.5px,1.6vw,19px)] leading-[1.65]">
+            {t.intro}
+          </p>
+
+          <div className="mt-5 max-w-[520px]">
+            {t.steps.map((step, i) => (
+              <div
+                key={step.title}
+                className="flex gap-[18px] items-start py-[15px] border-t border-black/[0.09]"
+                data-testid={`platform-step-${i}`}
+              >
+                <span
+                  className="grid place-items-center w-9 h-9 rounded-[10px] shrink-0"
+                  style={{ background: "rgba(128,22,195,0.09)" }}
+                  aria-hidden="true"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="w-[19px] h-[19px]"
+                    fill="none"
+                    stroke={PURPLE}
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    {STEP_ICONS[i]}
+                  </svg>
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[16px] font-extrabold leading-snug">{step.title}</span>
+                  <span
+                    className="block mt-1 text-[14.5px] leading-[1.55]"
+                    style={{ color: "rgba(0,0,0,0.62)" }}
+                  >
+                    {step.sub}
+                  </span>
+                </span>
+              </div>
+            ))}
+
+            <div className="flex gap-3 items-center py-[15px] border-t border-black/[0.09]">
+              <Bird className="w-[26px] h-[21px] shrink-0" style={{ color: PURPLE }} />
+              <span className="text-[15px] font-extrabold" style={{ color: "rgba(0,0,0,0.66)" }}>
+                {t.finale}
+              </span>
             </div>
-          ))}
-        </div>
-        {/* the overview is a wide dashboard — on phones it reads as a
-            miniature rather than a stack of full-width rows */}
-        <RevealOnView className="mt-8 sm:mt-10" delay={0.1}>
-          <div className="sm:hidden">
-            <ScaleToFit designWidth={820}>
-              <OverviewCard />
-            </ScaleToFit>
-          </div>
-          <div className="hidden sm:block">
-            <OverviewCard />
           </div>
         </RevealOnView>
-      </div>
 
-      {/* ── desktop: 400vh pinned stage ── */}
-      <div ref={stageRef} className="relative h-[400vh] hidden lg:block">
-        <div className="sticky top-0 h-screen overflow-hidden flex items-center">
-          <div className="max-w-[1400px] w-full mx-auto px-9 grid grid-cols-[4fr_8fr] gap-[52px] items-center">
-            {/* left rail */}
-            <div>
-              {heading}
-              <StoryRail step={step} fill={`${(prog * 100).toFixed(1)}%`} />
-            </div>
-
-            {/* stage */}
-            <div className="relative h-[82vh] min-h-[540px] pointer-events-none" aria-hidden="true">
-              <svg viewBox="0 0 700 620" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
-                <path
-                  d="M-20 150 C130 80 320 60 450 120 C570 175 650 150 720 110"
-                  fill="none"
-                  stroke={PURPLE}
-                  strokeWidth="18"
-                  strokeLinecap="round"
-                  opacity="0.06"
-                />
-                <path
-                  d="M-20 480 C150 550 390 565 545 505 C625 474 680 440 720 425"
-                  fill="none"
-                  stroke={PURPLE}
-                  strokeWidth="18"
-                  strokeLinecap="round"
-                  opacity="0.06"
-                />
-                <path
-                  d="M-20 150 C130 80 320 60 450 120 C570 175 650 150 720 110"
-                  pathLength="1"
-                  fill="none"
-                  stroke={PURPLE}
-                  strokeWidth="7"
-                  strokeLinecap="round"
-                  opacity="0.3"
-                  style={{
-                    strokeDasharray: "1 1",
-                    strokeDashoffset: prog > 0.01 || step > 0 ? 0 : 1,
-                    transition: "stroke-dashoffset 2.6s cubic-bezier(0.3,1,0.4,1)",
-                  }}
-                />
-                <path
-                  d="M-20 480 C150 550 390 565 545 505 C625 474 680 440 720 425"
-                  pathLength="1"
-                  fill="none"
-                  stroke={PURPLE}
-                  strokeWidth="7"
-                  strokeLinecap="round"
-                  opacity="0.3"
-                  style={{
-                    strokeDasharray: "1 1",
-                    strokeDashoffset: prog > 0.01 || step > 0 ? 0 : 1,
-                    transition: "stroke-dashoffset 2.6s cubic-bezier(0.3,1,0.4,1) 0.4s",
-                  }}
-                />
-                {!prefersReducedMotion() && (
-                  <g>
-                    <circle r="11" fill={PURPLE} opacity="0.16">
-                      <animateMotion dur="17s" repeatCount="indefinite" path="M-20 480 C150 550 390 565 545 505 C625 474 680 440 720 425" />
-                    </circle>
-                    <circle r="4.5" fill={PURPLE} opacity="0.75">
-                      <animateMotion dur="17s" repeatCount="indefinite" path="M-20 480 C150 550 390 565 545 505 C625 474 680 440 720 425" />
-                    </circle>
-                  </g>
-                )}
-              </svg>
-
-              <CloudScene lifted={step === 5} showFinale={step === 5} />
-
-              {/* drifting puff clouds */}
-              <PuffCloud
-                className="absolute left-[2%] top-[44%] w-[138px]"
-                style={{ filter: "drop-shadow(0 12px 16px rgba(20,5,40,0.12))", animation: "bf2Drift 32s ease-in-out -9s infinite alternate" }}
-              />
-              <PuffCloud
-                className="absolute right-[4%] top-[52%] w-[104px] opacity-90"
-                style={{ filter: "drop-shadow(0 10px 14px rgba(20,5,40,0.1))", animation: "bf2Drift 24s ease-in-out -3s infinite alternate-reverse" }}
-              />
-              <PuffCloud className="absolute right-[27%] top-[11%] w-[74px] opacity-60" style={{ animation: "bf2Drift 40s ease-in-out -16s infinite alternate" }} />
-
-              {/* step chips appear around the cloud */}
-              <div className="absolute left-[1%] top-[51%] z-[2]" style={popIn(step >= 1 && step < 5)}>
-                <StoryChip index={0} />
-              </div>
-              <div className="absolute right-[1%] top-[51%] z-[2]" style={popIn(step >= 2 && step < 5)}>
-                <StoryChip index={1} />
-              </div>
-              <div className="absolute left-[2%] top-[66%] z-[2]" style={popIn(step >= 3 && step < 5)}>
-                <StoryChip index={2} />
-              </div>
-              <div className="absolute right-[5%] top-[64%] z-[2]" style={popIn(step >= 4 && step < 5)}>
-                <StoryChip index={3} />
-              </div>
-
-              {/* admin list + today cards */}
-              <div className="absolute left-0 top-[2%] w-[296px] z-[2]">
-                <AdminListCard step={step} />
-              </div>
-              <div className="absolute right-0 top-[10%] w-[250px] z-[2]">
-                <TodayCard step={step} />
-              </div>
-
-              {/* final overview */}
-              <div
-                className="absolute inset-0 flex items-center justify-center"
-                style={{
-                  opacity: step === 5 ? 1 : 0,
-                  transform: step === 5 ? "scale(1)" : "scale(0.96) translateY(20px)",
-                  transition: `opacity 0.55s ${EASE}, transform 0.55s ${EASE}`,
-                }}
-              >
-                <OverviewCard />
-              </div>
-            </div>
-          </div>
-        </div>
+        <RevealOnView delay={0.1} className="min-w-0">
+          <FlowVisual />
+        </RevealOnView>
       </div>
     </section>
   );
 }
 
-/* ─────────── HVAD DU KAN FORVENTE ─────────── */
+/* ─────────── 04 · HVAD DU KAN FORVENTE ─────────── */
 
-const EXPECT_COPY: Record<Lang, { title: string; bullets: string[]; note: string; alt: string }> = {
+type ExpectCopy = {
+  kicker: string;
+  headingLead: string;
+  headingRest: string;
+  points: Array<{ title: string; sub: string }>;
+  note: string;
+};
+
+const EXPECT_COPY: Record<Lang, ExpectCopy> = {
   da: {
-    title: "Hvad du kan forvente af Birdflow",
-    bullets: [
-      "Brug mindre tid på administration og digitale rutineopgaver",
-      "Vælg de funktioner, din praksis har brug for",
-      "Tilpas design og indhold uden at kode",
+    kicker: "HVAD DU KAN FORVENTE",
+    headingLead: "Hvad du kan forvente",
+    headingRest: " af Birdflow",
+    points: [
+      {
+        title: "Du kan spare timer hver uge",
+        sub: "Bekræftelser, påmindelser og henvendelser passer sig selv, i stedet for at ligge på dit skrivebord.",
+      },
+      {
+        title: "Du kan slå netop de funktioner til, din praksis behøver",
+        sub: "Booking, kontaktformular, betaling eller materialer — ikke en pakke med alt muligt du ikke bruger.",
+      },
+      {
+        title: "Du kan ændre siden selv bagefter",
+        sub: "Tekst, billeder og sektioner retter du direkte på siden. Ingen plugins, opdateringer eller kode.",
+      },
+      {
+        title: "Du kan se, hvad der faktisk virker",
+        sub: "Besøg, mest læste sider og hvor mange der klikker videre til booking.",
+      },
     ],
-    note: "Her vælger du typografi og farver til din hjemmeside",
-    alt: "Birdflow editor til typografi og farver",
+    note: "Her vælger man typografi og farver til sin hjemmeside.",
   },
   en: {
-    title: "What you can expect from Birdflow",
-    bullets: [
-      "Spend less time on administration and digital routines",
-      "Choose the functions your practice needs",
-      "Adjust design and content without code",
+    kicker: "WHAT YOU CAN EXPECT",
+    headingLead: "What you can expect",
+    headingRest: " from Birdflow",
+    points: [
+      {
+        title: "You can save hours every week",
+        sub: "Confirmations, reminders and enquiries look after themselves instead of sitting on your desk.",
+      },
+      {
+        title: "You can switch on exactly the features your practice needs",
+        sub: "Booking, contact form, payment or materials — not a bundle of things you never use.",
+      },
+      {
+        title: "You can change the site yourself afterwards",
+        sub: "Text, images and sections are edited straight on the page. No plugins, updates or code.",
+      },
+      {
+        title: "You can see what actually works",
+        sub: "Visits, the most-read pages, and how many click through to booking.",
+      },
     ],
-    note: "Choose typography and colours for your website here",
-    alt: "Birdflow editor for typography and colours",
+    note: "This is where you choose the typography and colours for your website.",
   },
 };
 
-/** One of the two real product screenshots we hold with practitioner
-    branding ("Psykolog Sofie Lund"), so this section uses it rather than
-    a reconstruction. */
 function Expectations() {
   const { lang } = useLocale();
   const t = pick(EXPECT_COPY, lang);
+
   return (
-    <section id="forvente" data-testid="section-expectations" style={{ background: LIME }}>
-      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-12 pb-14 lg:pt-20 lg:pb-24">
-        <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr] gap-10 lg:gap-14 items-center">
-          <RevealOnView>
-            <h2 className="m-0 text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.15] font-black tracking-[-0.01em]">
-              {t.title}
-            </h2>
-            <ul className="m-0 mt-7 p-0 list-none max-w-[480px]">
-              {t.bullets.map((b) => (
-                <li
-                  key={b}
-                  className="flex items-start gap-3 py-3 text-[15.5px] lg:text-[17px] font-semibold"
-                  style={{ borderTop: "1.5px solid rgba(0,0,0,0.1)" }}
+    <section
+      id="forvente"
+      data-testid="section-expectations"
+      style={{ background: LIME, scrollMarginTop: 96 }}
+    >
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-6 pb-16 lg:pt-[26px] lg:pb-[90px] grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-[52px] items-center">
+        <RevealOnView>
+          <SectionHead kicker={t.kicker} lead={t.headingLead} rest={t.headingRest} />
+          <ul className="m-0 mt-7 p-0 list-none max-w-[520px]">
+            {t.points.map((p, i) => (
+              <li
+                key={p.title}
+                className="flex items-start gap-3.5 py-[15px] border-t border-black/[0.09]"
+                data-testid={`expect-point-${i}`}
+              >
+                <span
+                  className="mt-[2px] grid place-items-center w-[22px] h-[22px] rounded-full shrink-0 text-white text-[12px] font-black"
+                  style={{ background: GREEN }}
+                  aria-hidden="true"
                 >
-                  <Bird className="w-5 h-4 mt-1 shrink-0" style={{ color: PURPLE }} />
-                  <span>{b}</span>
-                </li>
-              ))}
-            </ul>
-          </RevealOnView>
-          <RevealOnView delay={0.1}>
-            <figure className="m-0">
-              <picture>
-                <source media="(max-width: 767px)" srcSet="/assets/home-redesign/brand-editor-mobile.png" />
-                <img
-                  src="/assets/home-redesign/brand-editor-desktop.png"
-                  alt={t.alt}
-                  loading="lazy"
-                  decoding="async"
-                  className="block w-full h-auto rounded-[18px] border border-black/[0.08]"
-                  style={{ boxShadow: "0 30px 76px rgba(20,5,40,0.18)" }}
-                />
-              </picture>
-              <figcaption className="mt-3.5 flex items-center gap-2 text-[13.5px] font-extrabold" style={{ color: PURPLE }}>
-                <span className="w-2 h-2 rounded-full" style={{ background: GREEN }} aria-hidden="true" />
-                {t.note}
-              </figcaption>
-            </figure>
-          </RevealOnView>
-        </div>
+                  ✓
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[16px] font-extrabold leading-snug">{p.title}</span>
+                  <span
+                    className="block mt-1 text-[14.5px] leading-[1.55]"
+                    style={{ color: "rgba(0,0,0,0.62)" }}
+                  >
+                    {p.sub}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </RevealOnView>
+
+        <RevealOnView delay={0.1} className="min-w-0">
+          <figure className="m-0">
+            <BrandVisual />
+            <figcaption
+              className="mt-4 flex items-center gap-2 text-[13.5px] font-extrabold"
+              style={{ color: PURPLE }}
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: GREEN }} aria-hidden="true" />
+              {t.note}
+            </figcaption>
+          </figure>
+        </RevealOnView>
       </div>
     </section>
   );
 }
 
-/* ─────────── PROCESS (sådan virker det) ─────────── */
+/* ─────────── 05 · PLUG AND PLAY ─────────── */
 
-/** the Birdflow workspace mockup (visual identity + finished site) */
-function WorkspaceMockup() {
-  const t = useLandingCopy();
-  const w = t.process.workspace;
-  const s = t.siteMock;
+type SystemSectionCopy = {
+  kicker: string;
+  headingLead: string;
+  body: string;
+  more: string;
+};
+
+const SYSTEM_SECTION_COPY: Record<Lang, SystemSectionCopy> = {
+  da: {
+    kicker: "PLUG AND PLAY",
+    headingLead: "Sådan fungerer Birdflow",
+    body: "Plug and play med dit eget præg — uden at skulle forstå systemet bagved. Design din hjemmeside, som du ønsker den, og se resultatet undervejs. Enkelt for dig, der vil have et personligt udtryk uden at bruge timer på det.",
+    more: "Læs mere om systemet her →",
+  },
+  en: {
+    kicker: "PLUG AND PLAY",
+    headingLead: "How Birdflow works",
+    body: "Plug and play with your own stamp on it — without having to understand the system behind it. Design your website the way you want it and watch the result as you go. Simple, if you want a personal look without spending hours on it.",
+    more: "Read more about the system here →",
+  },
+};
+
+function SystemSection() {
+  const { lang } = useLocale();
+  const t = pick(SYSTEM_SECTION_COPY, lang);
+
   return (
-    <div
-      className="bg-white rounded-[18px] overflow-hidden border border-black/[0.08]"
-      style={{ boxShadow: "0 30px 76px rgba(20,5,40,0.18)" }}
+    <section
+      id="funktioner"
+      data-testid="section-system"
+      style={{ background: LIME, scrollMarginTop: 96 }}
     >
-      <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-5 py-[13px] border-b border-black/[0.07]">
-        <Bird className="w-5 h-4 flex-none" style={{ color: BLUE }} />
-        <span className="flex-none text-[13px] lg:text-[13.5px] font-extrabold">Birdflow</span>
-        <span className="flex-none w-px h-4 bg-black/10 hidden sm:block bf2-w-block" />
-        <span className="flex-none text-[12px] lg:text-[13px] font-bold hidden sm:inline bf2-w-inline" style={{ color: "rgba(0,0,0,0.65)" }}>
-          {s.barName}
-        </span>
-        <span
-          className="flex-none flex items-center gap-[7px] text-[10px] lg:text-[11.5px] font-extrabold rounded-full px-3 py-[5px]"
-          style={{ color: GREEN, background: "rgba(46,125,79,0.1)" }}
-        >
-          <span className="w-2 h-2 rounded-full" style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }} />
-          <span className="hidden sm:inline bf2-w-inline">{s.live}</span>
-          <span className="sm:hidden bf2-w-hide">{s.liveShort}</span>
-        </span>
-        <span
-          className="flex-none ml-auto text-[12px] font-extrabold rounded-lg px-[13px] py-[7px] hidden md:inline bf2-w-inline"
-          style={{ color: "rgba(0,0,0,0.6)", border: "1.5px solid rgba(0,0,0,0.14)" }}
-        >
-          {w.seeWebsite}
-        </span>
-        <span className="flex-none ml-auto md:ml-0 bf2-w-ml0 text-white text-[11px] lg:text-[12px] font-extrabold rounded-lg px-3 lg:px-3.5 py-2" style={{ background: BLUE }}>
-          {s.manageShort}
-        </span>
-      </div>
-      <div className="flex flex-col md:flex-row bf2-w-row">
-        {/* visual identity panel */}
-        <div className="w-full md:w-[246px] flex-none border-b md:border-b-0 md:border-r bf2-w-panel border-black/[0.07] px-5 pt-[18px] pb-5">
-          <p className="m-0 text-[9.5px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {w.visualExpression}
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pb-16 lg:pb-24">
+        <RevealOnView>
+          <SectionHead kicker={t.kicker} lead={t.headingLead} />
+          <p className="mt-[22px] mb-0 max-w-[760px] text-[clamp(16.5px,1.6vw,19px)] leading-[1.65]">
+            {t.body}
           </p>
-          <p className="mt-3 mb-0 text-[18px] font-bold" style={{ fontFamily: "Georgia, serif", color: "#2B2A26" }}>
-            Sofie Lund
-          </p>
-          <p className="mt-px mb-0 text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.5)" }}>
-            {s.role}
-          </p>
-          <p className="mt-4 mb-[7px] text-[9px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {w.direction}
-          </p>
-          <div className="flex gap-1.5 flex-wrap">
-            {w.directionTags.map((tag) => (
-              <span
-                key={tag}
-                className="text-[10.5px] font-extrabold rounded-full px-[11px] py-[5px]"
-                style={{ background: "rgba(128,22,195,0.09)", color: PURPLE }}
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-          <p className="mt-4 mb-[7px] text-[9px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {w.colours}
-          </p>
-          <div className="flex gap-2">
-            <span className="w-[26px] h-[26px] rounded-full" style={{ background: "#FBF7EF", border: "1px solid rgba(0,0,0,0.14)" }} />
-            <span className="w-[26px] h-[26px] rounded-full" style={{ background: "#4C5F50" }} />
-            <span className="w-[26px] h-[26px] rounded-full" style={{ background: "#B96D4A" }} />
-            <span className="w-[26px] h-[26px] rounded-full" style={{ background: "#2B2A26" }} />
-          </div>
-          <p className="mt-4 mb-[7px] text-[9px] font-extrabold tracking-[0.12em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-            {w.typography}
-          </p>
-          <div className="flex items-baseline gap-2.5 py-[7px] border-b border-black/[0.06]">
-            <span className="text-[19px]" style={{ fontFamily: "Georgia, serif" }}>Aa</span>
-            <span className="text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.6)" }}>{w.headings}</span>
-          </div>
-          <div className="flex items-baseline gap-2.5 py-[7px]">
-            <span className="text-[17px] font-extrabold">Aa</span>
-            <span className="text-[11px] font-bold" style={{ color: "rgba(0,0,0,0.6)" }}>{w.bodyText}</span>
-          </div>
-          <div
-            className="mt-3.5 inline-flex items-center gap-[7px] text-[10px] font-extrabold rounded-full px-3 py-[5px]"
-            style={{ color: PURPLE, background: "rgba(128,22,195,0.08)" }}
+        </RevealOnView>
+
+        <RevealOnView delay={0.1} className="mt-[34px] min-w-0">
+          <SystemVisual />
+        </RevealOnView>
+
+        <RevealOnView delay={0.15}>
+          <Link
+            href="/saadan-virker-det"
+            className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 mt-7 text-[15px] lg:text-[16px] font-extrabold hover:text-[#8016C3] transition-colors"
+            style={{ color: "#000000" }}
+            data-testid="link-system-more"
           >
-            <Bird className="w-[13px] h-[11px]" style={{ color: PURPLE }} />
-            {w.madeWith}
-          </div>
-          <div className="mt-3 rounded-[10px] px-3 py-2.5" style={{ border: "1.5px dashed rgba(0,0,0,0.14)" }}>
-            <p className="m-0 text-[11px] font-extrabold">{w.haveBrandQ}</p>
-            <p className="mt-[3px] mb-0 text-[10.5px] font-bold" style={{ color: "rgba(0,0,0,0.55)" }}>
-              {w.haveBrandA}
-            </p>
-          </div>
-        </div>
-        {/* website preview */}
-        <div className="flex-1 min-w-0 px-4 lg:px-5 pt-[18px] pb-5" style={{ background: "#F1EDE6" }}>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <span className="text-[13px] font-extrabold" style={{ color: GREEN }}>{w.siteReady}</span>
-            <span className="ml-auto flex gap-1.5 flex-wrap">
-              {w.pages.map((p) => (
-                <span
-                  key={p}
-                  className="text-[9.5px] font-extrabold bg-white rounded-full px-2.5 py-1"
-                  style={{ border: "1px solid rgba(0,0,0,0.08)", color: "rgba(0,0,0,0.65)" }}
-                >
-                  {p}
-                </span>
-              ))}
+            <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
+              {t.more}
             </span>
-          </div>
-          <div
-            className="mt-3.5 rounded-[10px] overflow-hidden"
-            style={{ background: "#FBF7EF", boxShadow: "0 12px 32px rgba(20,5,40,0.1)", fontFamily: "Georgia, serif", color: "#2B2A26" }}
-          >
-            <div className="flex items-center gap-3 px-4 lg:px-5 py-3 border-b" style={{ borderColor: "rgba(43,42,38,0.09)" }}>
-              <span className="text-[13px] lg:text-[13.5px] font-bold whitespace-nowrap">
-                Sofie Lund{" "}
-                <span className="italic text-[11px]" style={{ color: "rgba(43,42,38,0.55)" }}>· {s.role}</span>
-              </span>
-              <span
-                className="ml-auto hidden sm:flex bf2-w-flex gap-3 text-[10px] font-bold"
-                style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-              >
-                {s.navItems.map((it) => (
-                  <span key={it}>{it}</span>
-                ))}
-              </span>
-              <span
-                className="ml-auto sm:ml-0 bf2-w-ml0 text-[10px] font-extrabold rounded-md px-2.5 py-1.5 whitespace-nowrap"
-                style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
-              >
-                {s.bookConversation}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.8fr] bf2-w-cols-site gap-[18px] px-4 lg:px-5 py-[22px] items-center">
-              <div>
-                <p
-                  className="m-0 text-[9px] font-extrabold tracking-[0.18em]"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.5)" }}
-                >
-                  {s.eyebrow}
-                </p>
-                <p className="mt-3 mb-0 text-[20px] lg:text-[23px] leading-[1.28] max-w-[250px]">
-                  {s.heroTitle}
-                </p>
-                <p className="mt-[11px] mb-0 text-[11.5px] leading-[1.6] max-w-[250px]" style={{ color: "rgba(43,42,38,0.72)" }}>
-                  {s.heroBodyAlt}
-                </p>
-                <span
-                  className="inline-block mt-[13px] text-[11px] font-extrabold rounded-lg px-3.5 py-[9px]"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "#FBF7EF", background: "#4C5F50" }}
-                >
-                  {s.bookInitial}
-                </span>
-                <div
-                  className="flex gap-[13px] mt-3 text-[9.5px] font-bold flex-wrap"
-                  style={{ fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.6)" }}
-                >
-                  <span className="flex items-center gap-1">
-                    <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>{s.shortWait}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span style={{ color: "#4C5F50", fontWeight: 900 }}>✓</span>{s.cityOnline}
-                  </span>
-                </div>
-              </div>
-              <div className="relative pt-1.5 pr-1.5 max-w-[200px] sm:max-w-none mx-auto sm:mx-0 bf2-w-full w-full">
-                <div
-                  className="absolute -right-2 -top-[2px] w-[84%] h-[97%]"
-                  style={{ borderRadius: "999px 999px 14px 14px", background: "#E3DCCB" }}
-                />
-                <div
-                  className="relative h-[150px] lg:h-[186px] overflow-hidden"
-                  style={{ borderRadius: "999px 999px 12px 12px", background: "#EDE6D8" }}
-                >
-                  <PortraitSlot className="absolute inset-0 w-full h-full" />
-                </div>
-              </div>
-            </div>
-            <div
-              className="flex gap-4 items-center px-4 lg:px-5 py-[11px] border-t text-[9.5px] font-bold flex-wrap"
-              style={{ borderColor: "rgba(43,42,38,0.08)", fontFamily: "'Nunito', sans-serif", color: "rgba(43,42,38,0.55)" }}
-            >
-              {w.footerServices.map((fs) => (
-                <span key={fs}>{fs}</span>
-              ))}
-              <span className="ml-auto">{w.footerLinks}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** "Når siden er live" card */
-function LiveEditCard() {
-  const le = useLandingCopy().process.liveEdit;
-  return (
-    <div
-      className="bg-white rounded-2xl border border-black/[0.08] px-[22px] py-5"
-      style={{ boxShadow: "0 26px 60px rgba(20,5,40,0.2)" }}
-    >
-      <p className="m-0 text-[16px] font-black">{le.title}</p>
-      <div className="mt-3.5 rounded-xl px-4 py-3.5" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-        <p className="m-0 text-[10px] font-extrabold tracking-[0.12em]" style={{ color: PURPLE }}>
-          {le.fixSmall}
-        </p>
-        <p className="mt-[5px] mb-0 text-[12.5px] font-bold" style={{ color: "rgba(0,0,0,0.65)" }}>
-          {le.textImages}
-        </p>
-        <div className="flex items-center gap-2 mt-[11px] rounded-lg px-3 py-[9px] flex-wrap" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>
-          <span className="min-w-0 truncate text-[11.5px] font-bold" style={{ color: "rgba(0,0,0,0.7)" }}>
-            {le.quoteEdit}
-          </span>
-          <span
-            className="flex-none whitespace-nowrap ml-auto text-[9.5px] font-extrabold rounded-[5px] px-2 py-[3px]"
-            style={{ color: BLUE, background: "rgba(48,109,218,0.1)" }}
-          >
-            {le.editText}
-          </span>
-          <span
-            className="flex-none whitespace-nowrap text-[9.5px] font-extrabold rounded-[5px] px-2 py-[3px]"
-            style={{ color: BLUE, background: "rgba(48,109,218,0.1)" }}
-          >
-            {le.changeImage}
-          </span>
-        </div>
-      </div>
-      <div className="mt-2.5 rounded-xl px-4 py-3.5 flex items-center gap-3" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-        <span className="w-[34px] h-[34px] flex-none rounded-full flex items-center justify-center" style={{ background: "rgba(128,22,195,0.1)" }}>
-          <Bird className="w-4 h-[13px]" style={{ color: PURPLE }} />
-        </span>
-        <span>
-          <span className="block text-[10px] font-extrabold tracking-[0.12em]" style={{ color: PURPLE }}>
-            {le.developMore}
-          </span>
-          <span className="block mt-1 text-[12.5px] font-bold" style={{ color: "rgba(0,0,0,0.65)" }}>
-            {le.developSub}
-          </span>
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/** "Det tekniske flow" card */
-function TechFlowCard({ on }: { on: boolean }) {
-  const tf = useLandingCopy().process.techFlow;
-  const delays = [1, 1.15, 1.3];
-  return (
-    <div
-      className="bg-white rounded-2xl border border-black/[0.08] px-5 py-[18px]"
-      style={{ boxShadow: "0 26px 60px rgba(20,5,40,0.2)" }}
-    >
-      <p className="m-0 text-[10px] font-extrabold tracking-[0.14em]" style={{ color: "rgba(0,0,0,0.45)" }}>
-        {tf.title}
-      </p>
-      {tf.rows.map(([label, status], i) => (
-        <div
-          key={label}
-          className={`flex items-center py-[11px] text-[13px] font-bold ${i < 2 ? "border-b border-black/[0.07]" : ""}`}
-          style={{ opacity: on ? 1 : 0, transition: `opacity 0.5s ease ${delays[i]}s` }}
-        >
-          <span>{label}</span>
-          <span className="ml-auto text-[11.5px] font-extrabold" style={{ color: GREEN }}>
-            {status}
-          </span>
-        </div>
-      ))}
-      <div
-        className="flex items-center gap-2 mt-1.5 pt-3"
-        style={{ borderTop: "1.5px solid rgba(0,0,0,0.1)", opacity: on ? 1 : 0, transition: "opacity 0.5s ease 1.5s" }}
-      >
-        <span className="w-[9px] h-[9px] rounded-full" style={{ background: GREEN, animation: "bf2Pulse 2.4s ease-out infinite" }} />
-        <span className="text-[13.5px] font-black">{tf.allRunning}</span>
-      </div>
-    </div>
-  );
-}
-
-function Process() {
-  const [ref, on] = useInView<HTMLDivElement>(0.12);
-  const p = useLandingCopy().process;
-  return (
-    <section id="saadan-virker-det" data-testid="section-process" style={{ background: LIME }}>
-      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-16 pb-16 lg:pt-[104px] lg:pb-[120px]">
-        <h2 className="m-0 max-w-[760px] text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.15] font-black tracking-[-0.01em]">
-          {p.headingLead} <span style={{ color: PURPLE }}>{p.headingEm}</span>
-        </h2>
-        {/* two full paragraphs are a wall of text on a phone — the same two
-            points, tightened, sit above the workspace instead */}
-        <p className="sm:hidden m-0 mt-5 text-[16px] leading-[1.6]">
-          {p.bodyMobile}
-        </p>
-        <div className="hidden sm:grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-11 mt-6 max-w-[1020px]">
-          <p className="m-0 text-[16px] lg:text-[18.5px] leading-[1.65]">
-            {p.bodyDesktopA}
-          </p>
-          <p className="m-0 text-[16px] lg:text-[18.5px] leading-[1.65]">
-            {p.bodyDesktopB}
-          </p>
-        </div>
-
-        {/* ── mobile / tablet: stacked ──
-            The workspace is shown as a scaled miniature so the sidebar,
-            identity panel and live preview stay side by side; stacking them
-            at phone width turns one screenshot into a metre of scrolling. */}
-        <div className="lg:hidden mt-9 sm:mt-12 flex flex-col gap-7 sm:gap-8">
-          <RevealOnView>
-            <div className="sm:hidden">
-              <ScaleToFit designWidth={900}>
-                <WorkspaceMockup />
-              </ScaleToFit>
-            </div>
-            <div className="hidden sm:block">
-              <WorkspaceMockup />
-            </div>
-          </RevealOnView>
-          <RevealOnView delay={0.1} className="max-w-[400px]">
-            <LiveEditCard />
-          </RevealOnView>
-          <RevealOnView delay={0.15} className="max-w-[340px]">
-            <TechFlowCard on />
-          </RevealOnView>
-        </div>
-
-        {/* ── desktop: collage with winding path ── */}
-        <div ref={ref} className="relative h-[880px] mt-[66px] hidden lg:block">
-          <svg
-            viewBox="0 0 1168 880"
-            preserveAspectRatio="none"
-            className="absolute w-full h-full"
-            style={{ inset: 0, left: -3, top: -34 }}
-            aria-hidden="true"
-          >
-            <path
-              d="M-30 90 C220 40 560 70 800 130 C1060 196 1140 330 1096 450 C1060 550 960 570 880 610 C700 700 480 640 350 690 C260 725 210 770 150 812"
-              fill="none"
-              stroke={PURPLE}
-              strokeWidth="8"
-              strokeLinecap="round"
-              opacity="0.45"
-            />
-            <circle cx="150" cy="812" r="7" fill={BLUE} />
-            {!prefersReducedMotion() && (
-              <g>
-                <circle r="13" fill={PURPLE} opacity="0.14">
-                  <animateMotion
-                    dur="24s"
-                    repeatCount="indefinite"
-                    path="M-30 90 C220 40 560 70 800 130 C1060 196 1140 330 1096 450 C1060 550 960 570 880 610 C700 700 480 640 350 690 C260 725 210 770 150 812"
-                  />
-                </circle>
-                <circle r="5" fill={PURPLE} opacity="0.75">
-                  <animateMotion
-                    dur="24s"
-                    repeatCount="indefinite"
-                    path="M-30 90 C220 40 560 70 800 130 C1060 196 1140 330 1096 450 C1060 550 960 570 880 610 C700 700 480 640 350 690 C260 725 210 770 150 812"
-                  />
-                </circle>
-              </g>
-            )}
-          </svg>
-
-          <div className="absolute left-0 top-0 w-[930px] z-[1]" style={fadeUp(on, 0.05, 26)}>
-            <WorkspaceMockup />
-          </div>
-          <div className="absolute right-0 top-[492px] w-[400px] z-[2]" style={fadeUp(on, 0.5, 26)}>
-            <LiveEditCard />
-          </div>
-          <div className="absolute left-[26px] top-[588px] w-[300px] z-[2]" style={fadeUp(on, 0.8, 26)}>
-            <TechFlowCard on={on} />
-          </div>
-        </div>
+          </Link>
+        </RevealOnView>
       </div>
     </section>
   );
@@ -2918,97 +1927,85 @@ function AmalieSiteArt() {
   );
 }
 
+/* ─────────── 03 · KUNDEOPLEVELSER ─────────── */
+
 function CaseStudy() {
-  const [fullQuote, setFullQuote] = useState(false);
   const c = useLandingCopy().case;
   return (
-    <section id="kundecase" data-testid="section-case" style={{ background: BLUSH }}>
-      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-[90px] lg:pb-[130px]">
-        <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-10 lg:gap-14 items-center">
-          <RevealOnView className="order-2 lg:order-1">
-            {/* Real screenshot of Amalie's live site; the coded preview paints
-                behind it until the pixels load and stays if the file is missing.
-                Fixed aspect ratio (819×648) prevents layout shift. */}
-            <div
-              className="relative w-full max-w-[560px] mx-auto lg:max-w-none"
-              style={{ aspectRatio: "819 / 648" }}
-            >
-              <ImgWithFallback
-                src="/landing/amalie-mockup.webp"
-                alt={c.mockupAlt}
-                className="absolute inset-0 w-full h-full object-contain"
-                style={{ mixBlendMode: "multiply" }}
-                fallback={
-                  <div className="absolute inset-0 overflow-hidden">
-                    <div
-                      className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
-                      style={{ boxShadow: "0 30px 70px rgba(20,5,40,0.16)" }}
-                    >
-                      <div className="flex items-center gap-[5px] px-4 py-2.5 border-b border-black/[0.07]">
-                        <span className="w-2 h-2 rounded-full bg-black/10" />
-                        <span className="w-2 h-2 rounded-full bg-black/10" />
-                        <span className="w-2 h-2 rounded-full bg-black/10" />
-                        <span
-                          className="mx-auto text-[10.5px] font-bold rounded-md px-4 sm:px-6 py-1 truncate"
-                          style={{ color: "rgba(0,0,0,0.45)", background: "rgba(0,0,0,0.045)" }}
-                        >
-                          psykologamalieveber.laet.dk
-                        </span>
-                      </div>
-                      <AmalieSiteArt />
-                    </div>
-                  </div>
-                }
-              />
-            </div>
-          </RevealOnView>
-          <RevealOnView delay={0.1} className="order-1 lg:order-2">
-            <span
-              className="inline-block text-[11px] lg:text-[12px] font-extrabold tracking-[0.12em] rounded-full px-4 py-[7px] border-2"
-              style={{ color: PURPLE, borderColor: "rgba(128,22,195,0.35)" }}
-            >
-              {c.badge}
+    <section
+      id="kundecase"
+      data-testid="section-case"
+      style={{ background: BLUSH, scrollMarginTop: 96 }}
+    >
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pb-16 lg:pb-24 grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-[52px] items-center">
+        <RevealOnView>
+          <SectionHead kicker={c.kicker} lead={c.headingLead} rest={c.headingRest} />
+
+          <p className="mt-[26px] mb-0 max-w-[520px] text-[clamp(19px,2vw,23px)] leading-[1.6] font-bold">
+            {c.quote}
+          </p>
+
+          <div className="flex items-center gap-3 mt-6 flex-wrap">
+            <span className="text-[17px] tracking-[0.1em]" style={{ color: "#E3A21A" }} aria-hidden="true">
+              ★★★★★
             </span>
-            <h2 className="bf2-display mt-6 mb-0 text-[26px] sm:text-[32px] lg:text-[40px] leading-[1.22]">
-              {c.heading}
-            </h2>
-            <p className="mt-6 mb-0 max-w-[470px] text-[18px] lg:text-[22px] leading-[1.6] font-bold">
-              {c.quoteShort}
-            </p>
-            <p className="mt-4 mb-0 text-[13px] lg:text-[14px] font-extrabold tracking-[0.08em]" style={{ color: PURPLE }}>
+            <span className="sr-only">{c.starsLabel}</span>
+            <span className="text-[13px] font-extrabold tracking-[0.08em]" style={{ color: PURPLE }}>
               {c.attr}
-            </p>
-            {fullQuote && (
-              <p className="mt-5 mb-0 max-w-[470px] text-[15.5px] lg:text-[17px] leading-[1.7]" style={{ color: "rgba(0,0,0,0.8)" }}>
-                {c.quoteFull}
-              </p>
-            )}
-            <div className="flex items-center gap-x-[26px] gap-y-3 mt-6 flex-wrap">
-              <button
-                onClick={() => setFullQuote(!fullQuote)}
-                className="cursor-pointer bg-transparent p-0 inline-flex items-center min-h-[44px] lg:min-h-0 text-[15px] lg:text-[15.5px] font-extrabold hover:text-[#8016C3] transition-colors"
-                style={{ color: "#000000" }}
-                data-testid="button-toggle-quote"
-              >
-                <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
-                  {fullQuote ? c.hideQuote : c.readFullQuote}
-                </span>
-              </button>
-              <a
-                href="https://psykologamalieveber.laet.dk/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 text-[15px] lg:text-[15.5px] font-extrabold hover:text-[#8016C3] transition-colors"
-                style={{ color: "#000000" }}
-                data-testid="link-case-site"
-              >
-                <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
-                  {c.seeSite}
-                </span>
-              </a>
-            </div>
-          </RevealOnView>
-        </div>
+            </span>
+          </div>
+
+          <a
+            href="https://psykologamalieveber.laet.dk/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="no-underline inline-flex items-center min-h-[44px] lg:min-h-0 mt-7 text-[15px] lg:text-[16px] font-extrabold hover:text-[#8016C3] transition-colors"
+            style={{ color: "#000000" }}
+            data-testid="link-case-site"
+          >
+            <span className="pb-[2px]" style={{ borderBottom: `2.5px solid ${PURPLE}` }}>
+              {c.seeSite}
+            </span>
+          </a>
+        </RevealOnView>
+
+        <RevealOnView delay={0.1} className="min-w-0">
+          {/* Real screenshot of Amalie's live site; the coded preview paints
+              behind it until the pixels load and stays if the file is missing.
+              Fixed aspect ratio (819×648) prevents layout shift. */}
+          <div
+            className="relative w-full max-w-[560px] mx-auto lg:max-w-none"
+            style={{ aspectRatio: "819 / 648" }}
+          >
+            <ImgWithFallback
+              src="/landing/amalie-mockup.webp"
+              alt={c.mockupAlt}
+              className="absolute inset-0 w-full h-full object-contain"
+              style={{ mixBlendMode: "multiply" }}
+              fallback={
+                <div className="absolute inset-0 overflow-hidden">
+                  <div
+                    className="bg-white rounded-2xl overflow-hidden border border-black/[0.08]"
+                    style={{ boxShadow: "0 30px 70px rgba(20,5,40,0.16)" }}
+                  >
+                    <div className="flex items-center gap-[5px] px-4 py-2.5 border-b border-black/[0.07]">
+                      <span className="w-2 h-2 rounded-full bg-black/10" />
+                      <span className="w-2 h-2 rounded-full bg-black/10" />
+                      <span className="w-2 h-2 rounded-full bg-black/10" />
+                      <span
+                        className="mx-auto text-[10.5px] font-bold rounded-md px-4 sm:px-6 py-1 truncate"
+                        style={{ color: "rgba(0,0,0,0.45)", background: "rgba(0,0,0,0.045)" }}
+                      >
+                        psykologamalieveber.laet.dk
+                      </span>
+                    </div>
+                    <AmalieSiteArt />
+                  </div>
+                </div>
+              }
+            />
+          </div>
+        </RevealOnView>
       </div>
     </section>
   );
@@ -3225,19 +2222,19 @@ export default function BirdflowLandingPage() {
           ribbons add most of a screen of pure decoration to the scroll */}
       <main>
         <Hero />
-        {/* hero and the story both sit on lime, so the seam between them is a
-            purple ribbon rather than a colour change */}
-        <BandWave top={LIME} bottom={LIME} compact />
-        <StickyStory />
-        {/* lime → blush */}
+        {/* lime → blush, the design's wave A */}
         <WaveB compact />
+        <Platform />
+        {/* blush → blush: the case sits on the same ground as the platform,
+            so the seam between them is a ribbon rather than a colour change */}
+        <BandWave top={BLUSH} bottom={BLUSH} flip compact />
         <CaseStudy />
-        {/* blush → lime */}
+        {/* blush → lime, mirrored */}
         <BandWave top={BLUSH} bottom={LIME} compact />
         <Expectations />
-        {/* lime → lime: Process also sits on lime */}
+        {/* lime → lime: the system section sits on lime too */}
         <BandWave top={LIME} bottom={LIME} flip compact />
-        <Process />
+        <SystemSection />
         {/* lime → blush */}
         <BandWave top={LIME} bottom={BLUSH} compact />
         <PricingTeaser />
