@@ -81,10 +81,14 @@ describe("bf2 design kit extraction", () => {
     expect(nav).toContain("export function bookHref");
   });
 
-  it("the landing footer uses NavLink so route entries do not full-reload", () => {
-    const idx = landing.indexOf("navLinks.map");
-    expect(idx).toBeGreaterThan(-1);
-    expect(landing.slice(idx, idx + 400)).toContain("<NavLink");
+  it("the landing uses the shared footer, whose route entries are wouter Links", () => {
+    // The page-local footer row and its NavLink loop are gone; MarketingFooter
+    // renders every route through wouter's Link, so entries still never
+    // full-reload.
+    expect(landing).toContain("<MarketingFooter wide />");
+    expect(landing).not.toContain("navLinks.map");
+    const footer = read("client", "src", "components", "bf2", "MarketingFooter.tsx");
+    expect(footer).toContain('import { Link } from "wouter"');
   });
 });
 
@@ -122,8 +126,10 @@ describe("pricing page", () => {
   it("quotes the same entry price the homepage does", () => {
     // The homepage says "fra 999,95 kr./mdr."; that is the Starter tier.
     // If either number moves without the other, visitors get two answers.
-    const home = read("client", "src", "pages", "homepage-redesign.tsx");
-    expect(home).toContain("999,95");
+    // The routed homepage's price card is PricingTeaser in bf2/AudienceSections.
+    const teaser = read("client", "src", "components", "bf2", "AudienceSections.tsx");
+    expect(teaser).toContain('"999,95"');
+    expect(teaser).not.toContain("49,95");
     expect(pricing).toContain('"999,95"');
   });
 
@@ -134,9 +140,9 @@ describe("pricing page", () => {
   });
 
   it("shows the one-off website packages with their savings", () => {
-    expect(pricing).toContain('pages: "3 sider", price: "299"');
-    expect(pricing).toContain('price: "499,95", saving: "20"');
-    expect(pricing).toContain('price: "699,95", saving: "78"');
+    expect(pricing).toContain('pages: "3 sider", price: "4999,95"');
+    expect(pricing).toContain('price: "8999,95", saving: "20"');
+    expect(pricing).toContain('price: "14999,95", saving: "78"');
     expect(pricing).toContain("Svar inden for 24 timer");
   });
 
@@ -172,7 +178,9 @@ describe("routing", () => {
 });
 
 describe("homepage", () => {
-  const home = read("client", "src", "pages", "homepage-redesign.tsx");
+  // "/" is served by birdflow-landing.tsx again (pass 2); homepage-redesign.tsx
+  // is no longer routed.
+  const home = read("client", "src", "pages", "birdflow-landing.tsx");
 
   it("renders the FAQ that the FAQPage schema describes", () => {
     // jsonLdForRoute() emits faqPageLd(HOME_FAQ_DA) for "/". Before this
@@ -184,17 +192,64 @@ describe("homepage", () => {
   });
 
   it("builds the FAQ from buttons, not clickable divs", () => {
-    expect(home).toContain("aria-expanded={isOpen}");
-    expect(home).toContain("aria-controls={`bh-faq-panel-${i}`}");
-    expect(home).toContain("aria-labelledby={`bh-faq-button-${i}`}");
+    expect(home).toContain("aria-expanded={open}");
+    expect(home).toContain('data-testid={`button-faq-${i}`}');
   });
 
-  it("uses the shared marketing chrome", () => {
+  it("uses the shared marketing chrome, in its wider column", () => {
     // It used to carry its own header and footer, so it missed shared fixes.
-    expect(home).toContain("<Nav />");
-    expect(home).toContain("<MarketingFooter />");
+    // `wide` lines the chrome up with the homepage's 1400px content column;
+    // every other marketing page stays at 1240px.
+    expect(home).toContain("<Nav wide />");
+    expect(home).toContain("<MarketingFooter wide />");
     expect(home).not.toContain("function HomeHeader");
     expect(home).not.toContain("function HomeFooter");
+    expect(home).not.toContain("useNavLinks()");
+  });
+
+  it("carries the design's four middle sections, in its heading pattern", () => {
+    // 02-05 come from the current "Birdflow Landing.dc.html", not the
+    // archived one the page was first built from. Each is a purple kicker
+    // plus an h2 whose opening phrase is underlined — SectionHead draws
+    // that once, so losing it means the sections drifted apart again.
+    expect(home).toContain("function SectionHead");
+    expect(home).toContain("textDecorationColor: PURPLE");
+    for (const id of ['id="platformen"', 'id="kundecase"', 'id="forvente"', 'id="funktioner"']) {
+      expect(home).toContain(id);
+    }
+    for (const kicker of [
+      '"SÅDAN FUNGERER DET"',
+      '"KUNDEOPLEVELSER"',
+      '"HVAD DU KAN FORVENTE"',
+      '"PLUG AND PLAY"',
+    ]) {
+      expect(home).toContain(kicker);
+    }
+    // the pinned scroll story and the old process collage are gone with them
+    expect(home).not.toContain("function StickyStory");
+    expect(home).not.toContain("function WorkspaceMockup");
+  });
+
+  it("fills the design's three empty image slots with real visuals", () => {
+    // The design leaves "Visual til »Sådan fungerer det«", "Typografi- og
+    // farvevalg i Birdflow" and "Stort visual af Birdflow-systemet" empty.
+    // Nothing dashed or labelled "placeholder" may ship in their place.
+    const visuals = read("client", "src", "components", "marketing", "HomeVisuals.tsx");
+    for (const component of ["export function FlowVisual", "export function BrandVisual", "export function SystemVisual"]) {
+      expect(visuals).toContain(component);
+    }
+    for (const used of ["<FlowVisual />", "<BrandVisual />", "<SystemVisual />"]) {
+      expect(home).toContain(used);
+    }
+    // phones get their own board rather than the desktop one scaled to a third
+    expect(visuals).toContain("function SystemBoardPhone");
+    expect(visuals.toLowerCase()).not.toContain("placeholder");
+  });
+
+  it("puts the clinic photograph back in the example practice site", () => {
+    // The design's sofie-portrait slot was drawn for it; the frame stood
+    // empty for one pass while the image style was being settled.
+    expect(home).toContain("/landing/klinik-room.webp");
   });
 
   it("tells the client-journey story the design calls for", () => {

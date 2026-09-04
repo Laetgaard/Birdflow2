@@ -46,7 +46,8 @@ const COPY: Record<Lang, {
   },
 };
 
-export function MarketingFooter() {
+/** `wide` matches the homepage's wider content column; see Nav. */
+export function MarketingFooter({ wide = false }: { wide?: boolean } = {}) {
   const { lang } = useLocale();
   const t = pick(COPY, lang);
   const navLinks = useNavLinks();
@@ -57,7 +58,7 @@ export function MarketingFooter() {
 
   return (
     <footer style={{ background: PURPLE }} data-testid="footer-marketing">
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 py-12 lg:py-16">
+      <div className={`${wide ? "max-w-[1400px]" : "max-w-[1240px]"} mx-auto px-5 md:px-9 py-12 lg:py-16`}>
         <div className="flex flex-col md:flex-row gap-10 md:gap-8 md:items-start">
           <div className="md:flex-1 md:max-w-[360px]">
             <Link href="/" className="flex items-center gap-3 no-underline w-fit">

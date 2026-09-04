@@ -121,9 +121,9 @@ const COPY: Record<Lang, {
     packagesBody:
       "Engangspris for en færdig hjemmeside. Derefter vælger du selv det abonnement, der passer til driften.",
     packages: [
-      { pages: "3 sider", price: "299" },
-      { pages: "5 sider", price: "499,95", saving: "20" },
-      { pages: "9 sider", price: "699,95", saving: "78" },
+      { pages: "3 sider", price: "4999,95" },
+      { pages: "5 sider", price: "8999,95", saving: "20" },
+      { pages: "9 sider", price: "14999,95", saving: "78" },
     ],
     savingLabel: "spar",
     customTitle: "Speciel størrelse?",
@@ -183,9 +183,9 @@ const COPY: Record<Lang, {
     packagesBody:
       "A one-off price for a finished website. After that you pick whichever subscription suits running it.",
     packages: [
-      { pages: "3 pages", price: "299" },
-      { pages: "5 pages", price: "499.95", saving: "20" },
-      { pages: "9 pages", price: "699.95", saving: "78" },
+      { pages: "3 pages", price: "4999.95" },
+      { pages: "5 pages", price: "8999.95", saving: "20" },
+      { pages: "9 pages", price: "14999.95", saving: "78" },
     ],
     savingLabel: "save",
     customTitle: "Special size?",
