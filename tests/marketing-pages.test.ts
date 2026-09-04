@@ -207,6 +207,51 @@ describe("homepage", () => {
     expect(home).not.toContain("useNavLinks()");
   });
 
+  it("carries the design's four middle sections, in its heading pattern", () => {
+    // 02-05 come from the current "Birdflow Landing.dc.html", not the
+    // archived one the page was first built from. Each is a purple kicker
+    // plus an h2 whose opening phrase is underlined — SectionHead draws
+    // that once, so losing it means the sections drifted apart again.
+    expect(home).toContain("function SectionHead");
+    expect(home).toContain("textDecorationColor: PURPLE");
+    for (const id of ['id="platformen"', 'id="kundecase"', 'id="forvente"', 'id="funktioner"']) {
+      expect(home).toContain(id);
+    }
+    for (const kicker of [
+      '"SÅDAN FUNGERER DET"',
+      '"KUNDEOPLEVELSER"',
+      '"HVAD DU KAN FORVENTE"',
+      '"PLUG AND PLAY"',
+    ]) {
+      expect(home).toContain(kicker);
+    }
+    // the pinned scroll story and the old process collage are gone with them
+    expect(home).not.toContain("function StickyStory");
+    expect(home).not.toContain("function WorkspaceMockup");
+  });
+
+  it("fills the design's three empty image slots with real visuals", () => {
+    // The design leaves "Visual til »Sådan fungerer det«", "Typografi- og
+    // farvevalg i Birdflow" and "Stort visual af Birdflow-systemet" empty.
+    // Nothing dashed or labelled "placeholder" may ship in their place.
+    const visuals = read("client", "src", "components", "marketing", "HomeVisuals.tsx");
+    for (const component of ["export function FlowVisual", "export function BrandVisual", "export function SystemVisual"]) {
+      expect(visuals).toContain(component);
+    }
+    for (const used of ["<FlowVisual />", "<BrandVisual />", "<SystemVisual />"]) {
+      expect(home).toContain(used);
+    }
+    // phones get their own board rather than the desktop one scaled to a third
+    expect(visuals).toContain("function SystemBoardPhone");
+    expect(visuals.toLowerCase()).not.toContain("placeholder");
+  });
+
+  it("puts the clinic photograph back in the example practice site", () => {
+    // The design's sofie-portrait slot was drawn for it; the frame stood
+    // empty for one pass while the image style was being settled.
+    expect(home).toContain("/landing/klinik-room.webp");
+  });
+
   it("tells the client-journey story the design calls for", () => {
     expect(home).toContain('id="klientens-vej"');
     expect(home).toContain("function ClientJourney");
