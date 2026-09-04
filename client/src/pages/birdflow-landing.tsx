@@ -917,7 +917,11 @@ function Hero() {
         {/* The finished practice website, powered by Birdflow */}
 
         {/* Desktop: full-size composition with the floating workflow cards */}
-        <div className="relative min-w-0 mt-6 lg:mt-0 lg:-mr-[100px] hidden lg:block">
+        {/* The composition bleeds into the right gutter. 36px is exactly the
+            desktop gutter, so it reaches the viewport edge without being cut
+            off there — the old 100px was tuned to the narrower 1240 column
+            and now clips. */}
+        <div className="relative min-w-0 mt-6 lg:mt-0 lg:-mr-9 hidden lg:block">
           <div
             className="absolute -inset-[9%_-7%]"
             style={{
@@ -966,7 +970,7 @@ function Hero() {
           </div>
 
           <div
-            className="absolute z-[3] -right-1 sm:-right-4 lg:-right-[34px] -top-5 lg:top-[43%]"
+            className="absolute z-[3] -right-1 sm:-right-4 lg:right-2 -top-5 lg:top-[43%]"
             style={popIn(heroIn, 1.2)}
             aria-hidden="true"
           >
