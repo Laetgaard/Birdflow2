@@ -408,7 +408,8 @@ export function PricingTeaser() {
   const t = pick(PRICING_TEASER_COPY, lang);
   return (
     <section id="priser" data-testid="section-pricing-teaser" style={{ background: BLUSH }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-10 pb-14 lg:pt-16 lg:pb-24">
+      {/* the homepage's wider column — this section only renders there */}
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-10 pb-14 lg:pt-16 lg:pb-24">
         <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-8 lg:gap-14 items-center">
           <div>
             <h2 className="bf2-display m-0 text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.18] max-w-[560px]">

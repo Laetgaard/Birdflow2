@@ -114,7 +114,9 @@ export function NavLink({
   );
 }
 
-export function Nav() {
+/** `wide` opts into the homepage's wider content column so the chrome lines
+    up with it; every other marketing page keeps the 1240px column. */
+export function Nav({ wide = false }: { wide?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const navLinks = useNavLinks();
   const signupLabel = useSignupLabel();
@@ -138,7 +140,7 @@ export function Nav() {
 
   return (
     <header id="top" style={{ background: PURPLE }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 h-16 lg:h-[86px] flex items-center gap-4 lg:gap-9">
+      <div className={`${wide ? "max-w-[1400px]" : "max-w-[1240px]"} mx-auto px-5 md:px-9 h-16 lg:h-[86px] flex items-center gap-4 lg:gap-9`}>
         <Link href="/" className="flex items-center gap-3 no-underline" data-testid="link-logo">
           <Bird className="w-8 h-[26px] lg:w-10 lg:h-[33px] text-white" />
           <span className="bf2-display text-[22px] lg:text-[26px] text-white">Birdflow</span>

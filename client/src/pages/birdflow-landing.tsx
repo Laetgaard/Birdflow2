@@ -65,8 +65,7 @@ type LandingCopy = {
     eyebrow: string;
     titleLead: string;
     titleEm: string;
-    bodyMobile: string;
-    bodyDesktop: string;
+    body: string;
     checks: string[];
     seeExample: string;
     quote: string;
@@ -258,9 +257,8 @@ const COPY: Record<Lang, LandingCopy> = {
       eyebrow: "TIL BEHANDLERE & KLINIKKER",
       titleLead: "Din praksis online.",
       titleEm: "Uden at blive webdesigner.",
-      bodyMobile: "Hjemmeside, booking, henvendelser og automatiske mails — samlet ét sted og sat op omkring din praksis.",
-      bodyDesktop: "Birdflow samler din hjemmeside, booking, henvendelser og automatiske mails ét sted — sat op omkring dig og din måde at arbejde på.",
-      checks: ["Klar på få minutter", "Ingen teknisk forberedelse", "Du godkender, før den går live"],
+      body: "Hjemmeside, booking, henvendelser og automatiske mails — samlet ét sted og sat op omkring din praksis.",
+      checks: ["Mere overskud i hverdagen", "Spar tid på administrationen", "Alt din praksis behøver ét sted"],
       seeExample: "Se en eksempelpraksis →",
       quote: "»Lige den stemning jeg ønskede.«",
       quoteAttr: "— Amalie, psykolog",
@@ -524,9 +522,8 @@ const COPY: Record<Lang, LandingCopy> = {
       eyebrow: "FOR PRACTITIONERS & CLINICS",
       titleLead: "Your practice online.",
       titleEm: "Without becoming a web designer.",
-      bodyMobile: "Website, booking, enquiries and automatic emails — in one place and set up around your practice.",
-      bodyDesktop: "Birdflow brings your website, booking, enquiries and automatic emails together in one place — set up around you and the way you work.",
-      checks: ["Ready in minutes", "No technical preparation", "You approve it before it goes live"],
+      body: "Website, booking, enquiries and automatic emails — in one place and set up around your practice.",
+      checks: ["More room in your week", "Less time on admin", "Everything your practice needs in one place"],
       seeExample: "See an example practice →",
       quote: "“Exactly the mood I wanted.”",
       quoteAttr: "— Amalie, psychologist",
@@ -852,24 +849,26 @@ function ImgWithFallback({
   );
 }
 
-/** The picture frame inside the example practice-site mockups.
-    Deliberately figure-less: the photoreal cut-out figures are the only
-    illustration style on the site, no practitioner portrait exists in
-    that style, and the clinic photograph this used to show was a third
-    style. A calm panel keeps the mock plausible until one exists. */
+/** The picture frame inside the example practice-site mockups — the
+    design's `sofie-portrait` slot, filled with the clinic photograph it
+    was drawn for ("Slip et portrætfoto her — fx psykologen i klinikken").
+    Cropped to the bare room: the original had a decorative gold blob and
+    cream border baked into the pixels, which fought with the rounded
+    frames these mockups draw around it. The illustrated bust stands in
+    until the photo loads. */
 function PortraitSlot({ className }: { className?: string }) {
+  const { lang } = useLocale();
+  const alt =
+    lang === "en"
+      ? "A calm clinic room with sofas and skylights"
+      : "Roligt klinikrum med sofaer og ovenlysvinduer";
   return (
-    <div
-      className={`${className ?? ""} overflow-hidden`}
-      style={{ background: "linear-gradient(160deg, #EFE8DA 0%, #E3DCCB 62%, #D9CFBC 100%)" }}
-      aria-hidden="true"
-    >
-      <svg viewBox="0 0 200 260" preserveAspectRatio="xMidYMid slice" className="w-full h-full" aria-hidden="true">
-        <circle cx="100" cy="150" r="88" fill="#E9E1D0" opacity="0.9" />
-        <path d="M30 60 C60 38 140 38 170 60" fill="none" stroke="#B96D4A" strokeWidth="2" opacity="0.35" />
-        <path d="M146 222 c10 -10 16 -26 14 -40" fill="none" stroke="#B96D4A" strokeWidth="2.5" strokeLinecap="round" opacity="0.5" />
-      </svg>
-    </div>
+    <ImgWithFallback
+      src="/landing/klinik-room.webp"
+      alt={alt}
+      className={`${className ?? ""} object-cover`}
+      fallback={<PortraitArt className={className} />}
+    />
   );
 }
 
@@ -1057,7 +1056,7 @@ function Hero() {
 
   return (
     <section data-testid="section-hero" className="relative overflow-hidden" style={{ background: LIME }}>
-      <div className="relative z-[2] max-w-[1240px] mx-auto px-5 md:px-9 pt-10 pb-12 sm:pt-12 sm:pb-16 lg:pt-20 lg:pb-[104px] grid grid-cols-1 lg:grid-cols-[minmax(0,42fr)_minmax(0,58fr)] gap-8 sm:gap-12 lg:gap-14 items-center">
+      <div className="relative z-[2] max-w-[1400px] mx-auto px-5 md:px-9 pt-10 pb-12 sm:pt-12 sm:pb-16 lg:pt-20 lg:pb-[104px] grid grid-cols-1 lg:grid-cols-[minmax(0,42fr)_minmax(0,58fr)] gap-8 sm:gap-12 lg:gap-14 items-center">
         <div>
           <span
             className="inline-flex items-center gap-2 text-[11px] lg:text-[12px] font-extrabold tracking-[0.12em] rounded-full px-4 py-[7px] border-2"
@@ -1098,19 +1097,13 @@ function Hero() {
             </span>
           </h1>
 
-          {/* the full promise on wider screens, the same promise in one
-              breath on a phone — four lines of intro pushes the example site
-              and the CTA off the first screen */}
+          {/* one line, both breakpoints — the approved design carries the
+              same promise on the phone mockup and the desktop artboard */}
           <p
             className="mt-[22px] sm:mt-[26px] max-w-[450px] text-[17px] lg:text-[20px] leading-[1.6] sm:leading-[1.65]"
             style={fadeUp(heroIn, 0.3)}
           >
-            <span className="sm:hidden">
-              {t.hero.bodyMobile}
-            </span>
-            <span className="hidden sm:inline">
-              {t.hero.bodyDesktop}
-            </span>
+            {t.hero.body}
           </p>
 
           <div
@@ -1612,7 +1605,7 @@ function ClientJourney() {
 
   return (
     <section id="klientens-vej" data-testid="section-journey" style={{ background: BLUSH }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-24 lg:pb-[130px]">
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-24 lg:pb-[130px]">
         {/* ── mobile / tablet ── */}
         <div className="lg:hidden">
           {intro}
@@ -2208,7 +2201,7 @@ function StickyStory() {
   return (
     <section id="platformen" data-testid="section-story" style={{ background: LIME }}>
       {/* ── mobile / tablet: linear story ── */}
-      <div className="lg:hidden max-w-[1240px] mx-auto px-5 md:px-9 py-11 sm:py-14" ref={mRef}>
+      <div className="lg:hidden max-w-[1400px] mx-auto px-5 md:px-9 py-11 sm:py-14" ref={mRef}>
         {heading}
         <StoryRail step={mStep === 4 ? 5 : mStep} fill={mStep >= 4 ? "100%" : `${((mStep + 1) / 6) * 100}%`} />
         <div className="mt-8 sm:mt-10 max-w-[340px]">
@@ -2245,7 +2238,7 @@ function StickyStory() {
       {/* ── desktop: 400vh pinned stage ── */}
       <div ref={stageRef} className="relative h-[400vh] hidden lg:block">
         <div className="sticky top-0 h-screen overflow-hidden flex items-center">
-          <div className="max-w-[1240px] w-full mx-auto px-9 grid grid-cols-[4fr_8fr] gap-[52px] items-center">
+          <div className="max-w-[1400px] w-full mx-auto px-9 grid grid-cols-[4fr_8fr] gap-[52px] items-center">
             {/* left rail */}
             <div>
               {heading}
@@ -2398,7 +2391,7 @@ function Expectations() {
   const t = pick(EXPECT_COPY, lang);
   return (
     <section id="forvente" data-testid="section-expectations" style={{ background: LIME }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-12 pb-14 lg:pt-20 lg:pb-24">
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-12 pb-14 lg:pt-20 lg:pb-24">
         <div className="grid grid-cols-1 lg:grid-cols-[5fr_7fr] gap-10 lg:gap-14 items-center">
           <RevealOnView>
             <h2 className="m-0 text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.15] font-black tracking-[-0.01em]">
@@ -2731,7 +2724,7 @@ function Process() {
   const p = useLandingCopy().process;
   return (
     <section id="saadan-virker-det" data-testid="section-process" style={{ background: LIME }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-16 pb-16 lg:pt-[104px] lg:pb-[120px]">
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-16 pb-16 lg:pt-[104px] lg:pb-[120px]">
         <h2 className="m-0 max-w-[760px] text-[28px] sm:text-[34px] lg:text-[44px] leading-[1.15] font-black tracking-[-0.01em]">
           {p.headingLead} <span style={{ color: PURPLE }}>{p.headingEm}</span>
         </h2>
@@ -2930,7 +2923,7 @@ function CaseStudy() {
   const c = useLandingCopy().case;
   return (
     <section id="kundecase" data-testid="section-case" style={{ background: BLUSH }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-[90px] lg:pb-[130px]">
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-14 pb-16 lg:pt-[90px] lg:pb-[130px]">
         <div className="grid grid-cols-1 lg:grid-cols-[7fr_5fr] gap-10 lg:gap-14 items-center">
           <RevealOnView className="order-2 lg:order-1">
             {/* Real screenshot of Amalie's live site; the coded preview paints
@@ -3031,7 +3024,7 @@ function Faq() {
   const faq = { ...useLandingCopy().faq, items: lang === "en" ? HOME_FAQ_EN : HOME_FAQ_DA };
   return (
     <section id="faq" data-testid="section-faq" style={{ background: LIME }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-8 pb-16 lg:pb-[120px]">
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-8 pb-16 lg:pb-[120px]">
         <div className="grid grid-cols-1 lg:grid-cols-[4fr_8fr] gap-8 lg:gap-14">
           <div>
             <h2 className="m-0 text-[26px] sm:text-[30px] lg:text-[38px] leading-[1.15] font-black tracking-[-0.01em]">
@@ -3094,7 +3087,7 @@ function FinalCta() {
 
   return (
     <section id="kontakt" data-testid="section-cta" style={{ background: PURPLE }}>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-12 pb-16 lg:pb-[90px] text-center">
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-12 pb-16 lg:pb-[90px] text-center">
         <h2 className="bf2-display mx-auto my-0 max-w-[680px] text-white text-[30px] sm:text-[38px] lg:text-[46px] leading-[1.2]">
           {fc.heading}
         </h2>
@@ -3116,7 +3109,7 @@ function FinalCta() {
           <Bird className="w-[34px] h-7 text-white" />
         </div>
       </div>
-      <div className="max-w-[1240px] mx-auto px-5 md:px-9 pt-4">
+      <div className="max-w-[1400px] mx-auto px-5 md:px-9 pt-4">
         {/* crawlable links to the six profession pages */}
         <ProfessionFooterLinks />
       </div>
@@ -3214,7 +3207,7 @@ export default function BirdflowLandingPage() {
     >
       <style>{PAGE_CSS}</style>
       <BirdDefs />
-      <Nav />
+      <Nav wide />
       {/* nav wave edge */}
       <svg
         viewBox="0 0 1440 56"
@@ -3258,7 +3251,7 @@ export default function BirdflowLandingPage() {
         <EdgeWave other={LIME} flip="x" compact />
         <FinalCta />
       </main>
-      <MarketingFooter />
+      <MarketingFooter wide />
       <MobileStickyCta />
     </div>
   );

@@ -35,6 +35,7 @@ type Copy = {
   heroKicker: string;
   heroTitle: string;
   heroBody: string;
+  heroImageAlt: string;
   storyKicker: string;
   story: string[];
   methodKicker: string;
@@ -58,6 +59,8 @@ const COPY: Record<Lang, Copy> = {
     heroTitle: "Manden bag Birdflow",
     heroBody:
       "Birdflow bygges af én person, der arbejder tæt sammen med hver enkelt praksis. Det er også derfor, hjemmesiderne ikke ligner hinanden.",
+    heroImageAlt:
+      "Illustration: en person sidder med sin bærbare og bygger sin hjemmeside i Birdflow",
     storyKicker: "MIN HISTORIE",
     story: [
       "En passioneret webudvikler og AI-entusiast med en unik rejse formet af neurodivergence. Min historie begynder med nysgerrighed om digitale oplevelser og udvikler sig til en mission: at transformere idéer til virkelighed gennem innovative teknologiløsninger.",
@@ -91,6 +94,8 @@ const COPY: Record<Lang, Copy> = {
     heroTitle: "The person behind Birdflow",
     heroBody:
       "Birdflow is built by one person, working closely with each individual practice. That is also why no two of the websites look alike.",
+    heroImageAlt:
+      "Illustration: a person at a laptop building their website in Birdflow",
     storyKicker: "MY STORY",
     story: [
       "A passionate web developer and AI enthusiast on a journey shaped by neurodivergence. My story starts with curiosity about digital experiences and grows into a mission: turning ideas into reality through inventive technology.",
@@ -172,13 +177,10 @@ export default function AboutPage() {
                 </ul>
               </div>
 
-              {/* The design's curved portrait frame, kept — but figure-less.
-                  The photoreal cut-out figures are the only illustration style
-                  on the site and no founder portrait exists in it; the 3D
-                  cartoon that used to sit here was a second style. The frame
-                  carries the bird mark until a portrait in the right style
-                  exists. Nothing dashed, nothing labelled "placeholder". */}
-              <div className="flex-[0_1_380px] min-w-[min(100%,260px)] hidden sm:block" aria-hidden="true">
+              {/* The design's curved frame, now carrying the approved
+                  illustration. It is a cut-out on transparency, so the frame's
+                  own gradient reads as the backdrop behind it. */}
+              <div className="flex-[0_1_380px] min-w-[min(100%,260px)] mx-auto sm:mx-0 max-w-[320px] sm:max-w-none w-full">
                 <div
                   className="relative w-full flex items-end justify-center overflow-hidden"
                   style={{
@@ -190,9 +192,21 @@ export default function AboutPage() {
                     boxShadow: "0 26px 62px rgba(10,2,25,0.35)",
                   }}
                 >
-                  <svg viewBox="0 0 83 68" className="w-[42%] h-auto mb-[16%] text-white/90" aria-hidden="true">
-                    <use href="#bfbird" />
-                  </svg>
+                  <picture>
+                    <source
+                      type="image/webp"
+                      srcSet="/assets/home-redesign/about-founder-420.webp 420w, /assets/home-redesign/about-founder-840.webp 840w"
+                      sizes="(max-width: 639px) 300px, 380px"
+                    />
+                    <img
+                      src="/assets/home-redesign/about-founder-840.png"
+                      alt={t.heroImageAlt}
+                      width={840}
+                      height={821}
+                      decoding="async"
+                      className="block w-[86%] h-auto mb-[4%]"
+                    />
+                  </picture>
                 </div>
               </div>
             </div>

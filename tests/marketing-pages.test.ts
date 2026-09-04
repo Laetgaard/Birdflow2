@@ -85,7 +85,7 @@ describe("bf2 design kit extraction", () => {
     // The page-local footer row and its NavLink loop are gone; MarketingFooter
     // renders every route through wouter's Link, so entries still never
     // full-reload.
-    expect(landing).toContain("<MarketingFooter />");
+    expect(landing).toContain("<MarketingFooter wide />");
     expect(landing).not.toContain("navLinks.map");
     const footer = read("client", "src", "components", "bf2", "MarketingFooter.tsx");
     expect(footer).toContain('import { Link } from "wouter"');
@@ -140,9 +140,9 @@ describe("pricing page", () => {
   });
 
   it("shows the one-off website packages with their savings", () => {
-    expect(pricing).toContain('pages: "3 sider", price: "299"');
-    expect(pricing).toContain('price: "499,95", saving: "20"');
-    expect(pricing).toContain('price: "699,95", saving: "78"');
+    expect(pricing).toContain('pages: "3 sider", price: "4999,95"');
+    expect(pricing).toContain('price: "8999,95", saving: "20"');
+    expect(pricing).toContain('price: "14999,95", saving: "78"');
     expect(pricing).toContain("Svar inden for 24 timer");
   });
 
@@ -196,10 +196,12 @@ describe("homepage", () => {
     expect(home).toContain('data-testid={`button-faq-${i}`}');
   });
 
-  it("uses the shared marketing chrome", () => {
+  it("uses the shared marketing chrome, in its wider column", () => {
     // It used to carry its own header and footer, so it missed shared fixes.
-    expect(home).toContain("<Nav />");
-    expect(home).toContain("<MarketingFooter />");
+    // `wide` lines the chrome up with the homepage's 1400px content column;
+    // every other marketing page stays at 1240px.
+    expect(home).toContain("<Nav wide />");
+    expect(home).toContain("<MarketingFooter wide />");
     expect(home).not.toContain("function HomeHeader");
     expect(home).not.toContain("function HomeFooter");
     expect(home).not.toContain("useNavLinks()");
