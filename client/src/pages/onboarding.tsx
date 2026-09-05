@@ -49,9 +49,15 @@ import { useLocale } from "@/lib/locale";
 import { ONBOARDING_UI_COPY, type OnboardingUiCopy } from "./onboarding.copy";
 import { DecisionWorkspace, type DecisionCopy, type DecisionPage } from "@/components/onboarding/DecisionWorkspace";
 import { PaymentChoiceDialog } from "@/components/onboarding/PaymentChoiceDialog";
+import {
+  WebsiteImportStep,
+  type WebsiteImportReport as WebsiteImportUiReport,
+  type WebsiteImportSelection as WebsiteImportUiSelection,
+} from "@/components/onboarding/WebsiteImportStep";
 import type { PlatformMeeting } from "@/components/onboarding/MeetingBooking";
 import { PAGE_CSS, PURPLE, LIME, BLUSH } from "@/components/bf2/theme";
 import { Bird, BirdDefs } from "@/components/bf2/primitives";
+import type { WebsiteImportState } from "@shared/websiteImport";
 
 /* ─────────────────────────────────────────────────────────────
    The onboarding walkthrough: ONE conversation with Birdflows
@@ -793,7 +799,7 @@ export default function OnboardingPage() {
      Choosing a path does NOT start the conversation any more: the language
      question sits between the fork and the first agent turn, so the guide's
      very first question already arrives in the right language. */
-  const [pendingPath, setPendingPath] = useState<"ai" | "diy" | null>(null);
+  const [pendingPath, setPendingPath] = useState<"ai" | "diy" | "import" | null>(null);
 
   const chooseAiPath = async () => {
     if (isLoading) return;
@@ -804,6 +810,11 @@ export default function OnboardingPage() {
   const chooseDiyPath = async () => {
     if (isLoading) return;
     if (await record({ path: "diy" })) setPendingPath("diy");
+  };
+
+  const chooseImportPath = async () => {
+    if (isLoading) return;
+    if (await record({ path: "import" })) setPendingPath("import");
   };
 
   /* ---- The language step (second choice, client-rendered) ----
@@ -820,7 +831,97 @@ export default function OnboardingPage() {
       setDiyMode(true);
       return;
     }
+    if (path === "import") return;
     await sendMessage(ONBOARDING_UI_COPY[choice].say.aiPath);
+  };
+
+  const importState = answers.websiteImport as WebsiteImportState | undefined;
+  useEffect(() => {
+    if (answers.path !== "import" || importState?.phase !== "discovering" || !token) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const response = await fetch("/api/onboarding/import/status", { headers: authHeaders });
+        const body = await response.json();
+        if (!cancelled && response.ok && body.import) {
+          setAnswers((current) => ({ ...current, websiteImport: body.import }));
+        }
+      } catch {
+        // Discovery is persisted server-side; the next tick can recover.
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 1_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [answers.path, importState?.phase, token]);
+
+  const analyseExistingWebsite = async (selection: { url: string; direction: "preserve" | "improve" }) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/onboarding/import/start", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          sourceUrl: selection.url,
+          direction: selection.direction,
+          ownershipConfirmed: true,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || t.saveFailed);
+      setAnswers((current) => ({ ...current, path: "import", websiteImport: body.import }));
+    } catch (error: any) {
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const approveExistingWebsite = async (selection: WebsiteImportUiSelection) => {
+    if (!importState?.analysis) return;
+    setIsLoading(true);
+    try {
+      let targetWebsiteId = websiteId;
+      if (!targetWebsiteId) {
+        const create = await fetch("/api/onboarding/create-website", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({
+            name: importState.analysis.businessName,
+            mode: "import",
+          }),
+        });
+        const created = await create.json().catch(() => ({}));
+        if (!create.ok) throw new Error(created.message || t.createFailed);
+        targetWebsiteId = created.websiteId;
+        setWebsiteId(targetWebsiteId);
+      }
+      const response = await fetch("/api/onboarding/import/approve", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          websiteId: targetWebsiteId,
+          selection: {
+            pageUrls: selection.pageIds,
+            assetUrls: selection.assetIds,
+            bookingChoice: selection.booking,
+            correction: selection.correction,
+          },
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || t.saveFailed);
+      setAnswers((current) => ({ ...current, websiteImport: body.import }));
+      setGenStatus(body.status ?? null);
+      setView("generating");
+    } catch (error: any) {
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const createDiyWebsite = async (templateId: string, name: string) => {
@@ -984,6 +1085,22 @@ export default function OnboardingPage() {
 
   const restartBuild = async () => {
     setGenStalled(false);
+    if (answers.path === "import" && websiteId) {
+      try {
+        const response = await fetch("/api/onboarding/import/resume-generation", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({ websiteId }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || t.createFailed);
+        setGenStatus(body.status ?? null);
+        setView("generating");
+      } catch (error: any) {
+        toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+      }
+      return;
+    }
     setView("chat");
     await sendMessage(t.say.restart);
   };
@@ -1150,8 +1267,49 @@ export default function OnboardingPage() {
   // The fork is the first screen; the language question is the second. Both
   // are client-rendered and both disappear once they have been answered - a
   // returning customer whose language is already stored is never asked again.
-  const showFork = messages.length === 0 && !diyMode && !pendingPath && answers.path !== "ai";
+  const showFork = messages.length === 0 && !diyMode && !pendingPath && !answers.path;
   const showLanguageStep = pendingPath !== null;
+  const showImport = view === "chat" && answers.path === "import" && !showLanguageStep;
+  const importUiReport: WebsiteImportUiReport | null = importState?.report
+    ? {
+        pages: importState.report.pages.map((page) => ({
+          id: page.url,
+          title: page.title || new URL(page.url).pathname || page.url,
+          path: new URL(page.url).pathname || "/",
+          selected: true,
+        })),
+        assets: importState.report.assets
+          .filter((asset) => asset.type === "image" || asset.type === "document")
+          .map((asset) => ({
+            id: asset.url,
+            name: asset.alt || new URL(asset.url).pathname.split("/").pop() || "Image",
+            kind: asset.type === "image" ? "image" as const : "file" as const,
+            url: asset.url,
+            selected: true,
+          })),
+        facts: importState.report.facts
+          .filter((item) => item.kind !== "text")
+          .slice(0, 30)
+          .map((item, index) => ({
+            id: `${item.kind}-${index}`,
+            label: item.kind.replace(/_/g, " "),
+            value: item.value,
+            source: new URL(item.sourceUrl).pathname || "/",
+          })),
+        integrations: importState.report.integrations.map((item, index) => ({
+          id: `${item.name}-${index}`,
+          name: item.name,
+          detail: item.category,
+          supported: item.category === "booking" || item.category === "social",
+        })),
+        unsupportedItems: importState.report.unsupportedItems.map((item) => item.message),
+        warnings: importState.report.warnings,
+        missingItems: importState.report.missingItems.map((item) => item.message),
+        recommendations: (importState.analysis?.recommendations ?? []).map(
+          (item) => `${item.title}: ${item.rationale}`
+        ),
+      }
+    : null;
 
   return (
     <div className="bf2-page flex min-h-screen flex-col" style={{ background: BLUSH, color: "#111" }}>
@@ -1182,7 +1340,37 @@ export default function OnboardingPage() {
         <ProgressRail current={railProgress(answers, view)} labels={t.rail} />
 
         <AnimatePresence mode="wait">
-          {view === "chat" && (
+          {showImport ? (
+            <motion.div
+              key="website-import"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+            >
+              <WebsiteImportStep
+                key={importState?.updatedAt || "import-setup"}
+                language={storedLang}
+                phase={
+                  importState?.phase === "discovering"
+                    ? "analysing"
+                    : importState?.phase === "review"
+                    ? "review"
+                    : importState?.phase === "approved"
+                    ? "approved"
+                    : "setup"
+                }
+                report={importUiReport}
+                initialUrl={importState?.sourceUrl}
+                initialDirection={importState?.direction}
+                busy={isLoading}
+                error={importState?.phase === "failed" ? importState.error || null : null}
+                onAnalyse={analyseExistingWebsite}
+                onApprove={approveExistingWebsite}
+                onBack={() => setAnswers((current) => ({ ...current, path: undefined }))}
+                onRetry={() => setAnswers((current) => ({ ...current, websiteImport: undefined }))}
+              />
+            </motion.div>
+          ) : view === "chat" && (
             <motion.div
               key="chat"
               initial={{ opacity: 0, y: 12 }}
@@ -1205,6 +1393,10 @@ export default function OnboardingPage() {
                         <Button size="sm" variant="outline" onClick={chooseDiyPath} disabled={isLoading} data-testid="button-fork-diy">
                           <LayoutTemplate className="w-4 h-4 mr-1.5" />
                           {t.forkDiy}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={chooseImportPath} disabled={isLoading} data-testid="button-fork-import">
+                          <Globe className="w-4 h-4 mr-1.5" />
+                          {storedLang === "da" ? "Jeg har allerede en hjemmeside" : "I already have a website"}
                         </Button>
                       </div>
                     )}

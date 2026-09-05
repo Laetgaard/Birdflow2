@@ -126,6 +126,7 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         pages,
         brandGuide: guideOf(state, website.name),
         report: (resume.session?.genStatus as Record<string, unknown> | null)?.report ?? null,
+        migrationReport: resume.session?.answers?.websiteImport?.report ?? null,
       });
     } catch (error: any) {
       console.error("[Onboarding] decision payload failed:", error);
@@ -462,6 +463,30 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         });
       } catch (error: any) {
         console.error("[Onboarding] ready-for-review failed:", error);
+        res.status(500).json({ message: error.message });
+      }
+    }
+  );
+
+  /** Staff handoff: the booking already references this onboarding session and exact website. */
+  app.get(
+    "/api/admin/onboarding/:userId/migration-report",
+    requireAuth,
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const session = await storage.getOnboardingSession(req.params.userId);
+        if (!session?.answers?.websiteImport?.report) {
+          return res.status(404).json({ message: "Ingen migrationsrapport for den bruger." });
+        }
+        res.json({
+          websiteId: session.websiteId,
+          siteRevision: session.siteRevision,
+          report: session.answers.websiteImport.report,
+          analysis: session.answers.websiteImport.analysis ?? null,
+          selection: session.answers.websiteImport.selection ?? null,
+        });
+      } catch (error: any) {
         res.status(500).json({ message: error.message });
       }
     }

@@ -261,7 +261,7 @@ export type OnboardingChatMessage = {
 // uploads) are written by the client via /api/onboarding/session/record,
 // never round-tripped through the model.
 export type OnboardingAnswers = {
-  path?: "ai" | "diy";
+  path?: "ai" | "diy" | "import";
   /**
    * The language the customer picked right after the AI-vs-DIY fork. Mirrored
    * onto websites.language the moment it is recorded; absent means Danish.
@@ -285,6 +285,8 @@ export type OnboardingAnswers = {
   plan?: unknown;
   /** Domain the user wants; connected from /manage after payment. */
   desiredDomain?: string;
+  /** Resumable discovery, report and approval state for an existing website. */
+  websiteImport?: import("./websiteImport").WebsiteImportState;
 };
 
 // The onboarding walkthrough's server-side home. The old wizard kept

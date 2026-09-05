@@ -291,6 +291,18 @@ describe("route wiring (source tripwires)", () => {
     );
   });
 
+  it("authorizes website-import approval before exposing a running job", () => {
+    const start = routesSource.indexOf('app.post("/api/onboarding/import/approve"');
+    const end = routesSource.indexOf('app.post("/api/onboarding/import/resume-generation"', start);
+    const route = routesSource.slice(start, end);
+    expect(start).toBeGreaterThan(-1);
+    expect(route.indexOf("website.ownerId !== userId")).toBeGreaterThan(-1);
+    expect(route.indexOf("isOnboardingGenRunning(parsed.data.websiteId)")).toBeGreaterThan(-1);
+    expect(route.indexOf("website.ownerId !== userId")).toBeLessThan(
+      route.indexOf("isOnboardingGenRunning(parsed.data.websiteId)")
+    );
+  });
+
   it("builder saves record an admin audit entry", () => {
     expect(routesSource).toContain('action: "builder.update"');
   });

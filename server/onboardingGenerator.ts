@@ -47,6 +47,11 @@ import {
   type SiteLanguage,
 } from "@shared/siteLanguage";
 import { migrateSiteStructure } from "@shared/siteStructure";
+import type {
+  AiRecommendation,
+  WebsiteImportBookingChoice,
+  WebsiteImportDirection,
+} from "@shared/websiteImport";
 
 // ============ Input ============
 
@@ -82,6 +87,16 @@ export type OnboardingGenInput = {
    * language step existed.
    */
   language?: SiteLanguage;
+  /** Approved, source-grounded context from the existing-website importer. */
+  migration?: {
+    direction: WebsiteImportDirection;
+    selectedPageUrls: string[];
+    bookingChoice: WebsiteImportBookingChoice;
+    recommendations: AiRecommendation[];
+    sourceFacts: string[];
+    correction: string;
+    externalBookingUrl?: string;
+  };
 };
 
 // ============ Status registry ============
@@ -451,6 +466,22 @@ async function runPipeline(
     language: lang,
     existing: initialState.businessContext,
   });
+  if (input.migration) {
+    businessContext.facts = [
+      ...(businessContext.facts ?? []),
+      ...input.migration.sourceFacts.slice(0, 60).map((text, index) => ({
+        id: `import-source-${index}`,
+        text: text.slice(0, 500),
+      })),
+      ...(input.migration.correction.trim()
+        ? [{
+            id: "import-customer-correction",
+            text: input.migration.correction.trim().slice(0, 500),
+            protected: true,
+          }]
+        : []),
+    ];
+  }
 
   // Building one website is one thing the customer asked for: the brand pass,
   // the plan, the build, the enhancement and its images share one ceiling.
@@ -993,7 +1024,16 @@ function buildBrandNotes(input: OnboardingGenInput): string {
           `Hjemmesiden skal bruges til: ${goalSentence(input.wishes.goals, lang)}.`,
           input.wishes.notes ? `Kundens egne ønsker: ${input.wishes.notes}` : "",
         ];
-  return parts.filter(Boolean).join("\n").slice(0, 1500);
+  if (input.migration) {
+    parts.push(
+      `Existing-site migration direction: ${input.migration.direction}.`,
+      `Selected source pages: ${input.migration.selectedPageUrls.join(", ")}.`,
+      `Booking choice: ${input.migration.bookingChoice}.`,
+      input.migration.correction ? `Customer correction: ${input.migration.correction}` : "",
+      `Verified source facts:\n${input.migration.sourceFacts.join("\n")}`
+    );
+  }
+  return parts.filter(Boolean).join("\n").slice(0, 3500);
 }
 
 function buildPlanPrompt(input: OnboardingGenInput): string {
@@ -1013,6 +1053,26 @@ function buildPlanPrompt(input: OnboardingGenInput): string {
     input.wishes.goals.indexOf("booking") !== -1 ? `- CTAs should drive visitors to book an appointment.` : ``,
     `- Tone of voice matching this feeling: "${input.feeling}".`,
     `- The design system colors and fonts are ALREADY chosen by the customer and will be overridden; focus your creativity on page structure, sections and copy.`,
+    input.migration
+      ? [
+          ``,
+          `EXISTING WEBSITE MIGRATION`,
+          `Direction: ${input.migration.direction}.`,
+          input.migration.direction === "preserve"
+            ? `Keep the selected source pages' information architecture, voice and recognisable identity while repairing accessibility, performance and mobile-layout problems.`
+            : `Retain verified identity and content, but improve hierarchy, accessibility, mobile layout and conversion.`,
+          `Never copy raw HTML, scripts, trackers, external forms or unknown iframe embeds.`,
+          `Selected source pages:\n${input.migration.selectedPageUrls.join("\n")}`,
+          input.migration.bookingChoice === "external" && input.migration.externalBookingUrl
+            ? `The customer approved keeping this external booking link: ${input.migration.externalBookingUrl}. Use it only as a normal link; do not embed it or claim its data was imported.`
+            : input.migration.bookingChoice === "birdflow"
+            ? `Use Birdflow's native booking capability for future bookings. No external booking records or credentials were imported.`
+            : `Do not add booking yet; the customer chose to decide later.`,
+          input.migration.recommendations.length
+            ? `Advisory recommendations:\n${input.migration.recommendations.map((item) => `- ${item.title}: ${item.rationale}`).join("\n")}`
+            : ``,
+        ].filter(Boolean).join("\n")
+      : ``,
   ]
     .filter(Boolean)
     .join("\n")
