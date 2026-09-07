@@ -57,6 +57,9 @@ export default function OnboardingPreviewPage() {
     window.parent?.postMessage(
       {
         type: "bf-preview-pages",
+        websiteId: data.websiteId,
+        revision: data.revision,
+        fingerprint: data.fingerprint,
         pages: data.pages.map((page) => ({ id: page.id, name: page.name, path: page.path })),
       },
       window.location.origin

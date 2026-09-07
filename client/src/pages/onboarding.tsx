@@ -90,6 +90,9 @@ type DecisionData = {
   pages: DecisionPage[];
   brandGuide: BrandGuide;
   report: BuildReport | null;
+  generationStatus?: GenStatus | null;
+  builderRevision?: number;
+  previewFingerprint?: string | null;
 };
 
 /** Stages that belong to the interview and the build, not the workspace. */
@@ -641,6 +644,7 @@ export default function OnboardingPage() {
   /** Apply a resume/decision payload to the view. */
   const applyStage = (data: DecisionData | null) => {
     if (!data) return;
+    if (data.generationStatus) setGenStatus(data.generationStatus);
     if (data.stage === "generating") {
       setView("generating");
     } else if (PRE_DECISION_STAGES.includes(data.stage) || data.stage === "generation_failed") {
@@ -698,6 +702,31 @@ export default function OnboardingPage() {
       cancelled = true;
     };
   }, [authLoading, user, token]);
+
+  /* The agent stream is only a convenience signal. If its final event is
+     lost after build_site claimed the run, the persisted decision state moves
+     this browser into generation on the next reconciliation tick. */
+  useEffect(() => {
+    if (booting || view !== "chat" || answers.path !== "ai" || !websiteId || !token) return;
+    let cancelled = false;
+    let checking = false;
+    const tick = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const data = await loadDecision();
+        if (!cancelled) applyStage(data);
+      } finally {
+        checking = false;
+      }
+    };
+    tick();
+    const interval = window.setInterval(tick, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [booting, view, answers.path, websiteId, token]);
 
   /* ---- Coming back from Stripe ----
      "Paid" is only ever set by a verified webhook, so a successful return
@@ -1101,8 +1130,19 @@ export default function OnboardingPage() {
       }
       return;
     }
-    setView("chat");
-    await sendMessage(t.say.restart);
+    if (!websiteId) return;
+    try {
+      const response = await fetch(`/api/websites/${websiteId}/onboarding/generate/retry`, {
+        method: "POST",
+        headers: authHeaders,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || t.createFailed);
+      setGenStatus(body.status ?? null);
+      setView("generating");
+    } catch (error: any) {
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+    }
   };
 
   /* ---- Post-build feedback: adjustments via the builder agent ---- */
@@ -1595,6 +1635,20 @@ export default function OnboardingPage() {
                   </div>
                 </div>
               )}
+              {(genStatus?.fallback || genStatus?.spendLimited) && (
+                <div
+                  className="mt-4 flex gap-3 items-start rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+                  data-testid="generation-non-publishable"
+                >
+                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <p>{genStatus.spendLimited ? t.spendLimitNotice : t.fallbackNotice}</p>
+                    <Button size="sm" variant="outline" className="mt-2" onClick={restartBuild}>
+                      {t.retryButton}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -1640,6 +1694,8 @@ export default function OnboardingPage() {
                 <DecisionWorkspace
                   stage={decision.stage}
                   snapshot={decision.snapshot}
+                  previewFingerprint={decision.previewFingerprint ?? ""}
+                  builderRevision={decision.builderRevision ?? 0}
                   copy={decision.copy}
                   approvalStale={decision.approvalStale}
                   websiteId={decision.website.id}

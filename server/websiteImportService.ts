@@ -343,9 +343,14 @@ export async function approveWebsiteImport(
   websiteId: string,
   rawSelection: WebsiteImportSelection
 ): Promise<{ state: WebsiteImportState; input: OnboardingGenInput }> {
+  return db.transaction(async (tx) => {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"website-import-approval:" + userId}))`);
   const selection = websiteImportSelectionSchema.parse(rawSelection);
   const session = await storage.getOnboardingSession(userId);
   const current = session?.answers?.websiteImport;
+  if (current?.phase === "approved" && current.generationInput) {
+    return { state: current, input: current.generationInput as OnboardingGenInput };
+  }
   if (!current?.report || !current.analysis || current.phase !== "review") {
     throw new Error("No website import is ready for approval");
   }
@@ -433,6 +438,7 @@ export async function approveWebsiteImport(
     } satisfies Partial<OnboardingAnswers>,
   });
   return { state: approved, input };
+  });
 }
 
 export async function reserveWebsiteImportGeneration(
@@ -447,9 +453,9 @@ export async function reserveWebsiteImportGeneration(
     if (!session || session.websiteId !== websiteId || current?.phase !== "approved" || !current.generationInput) {
       throw new Error("No approved website import can be resumed");
     }
-    const leaseActive = !!current.generationLeaseExpiresAt &&
-      Date.parse(current.generationLeaseExpiresAt) > Date.now();
-    if (!force && leaseActive) {
+    const heartbeatAt = Number((session.genStatus as Record<string, unknown> | null)?.updatedAt ?? 0);
+    const generationActive = session.generationState === "generating" && Date.now() - heartbeatAt < 30_000;
+    if (!force && generationActive) {
       return { input: current.generationInput as OnboardingGenInput, reserved: false };
     }
     const attempts = current.generationAttemptCount ?? 1;

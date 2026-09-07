@@ -386,6 +386,14 @@ describe("the preview is a preview, not an editor", () => {
     expect(previewPage).toContain("bf-preview-pages");
   });
 
+  it("binds the iframe to the exact persisted builder snapshot", () => {
+    expect(routes).toContain("previewFingerprint");
+    expect(routes).toContain('createHash("sha256")');
+    expect(previewPage).toContain("fingerprint: data.fingerprint");
+    expect(workspace).toContain("payload.fingerprint === expectedFingerprint");
+    expect(workspace).toContain("preview-parity-error");
+  });
+
   it("is unmistakably marked as a preview", () => {
     expect(workspace.toLowerCase()).toContain("forhåndsvisning");
   });
@@ -414,6 +422,12 @@ describe("the preview is a preview, not an editor", () => {
 });
 
 describe("the decision screen offers two equally legitimate paths", () => {
+  it("server-blocks fallback and spend-limited drafts from approval", () => {
+    expect(routes).toContain("NON_PUBLISHABLE_DRAFT");
+    expect(routes).toContain("generationStatus?.fallback === true");
+    expect(routes).toContain("generationStatus?.spendLimited === true");
+    expect(onboardingPage).toContain("generation-non-publishable");
+  });
   it("names both actions exactly as agreed", () => {
     expect(workspace).toContain("Godkend og betal");
     expect(workspace).toContain("Jeg vil have den tilpasset");

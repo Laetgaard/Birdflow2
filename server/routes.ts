@@ -832,7 +832,7 @@ export async function registerRoutes(
         return res.json({ success: true, status: getOnboardingGenStatus(parsed.data.websiteId) });
       }
       const approved = await approveWebsiteImport(userId, parsed.data.websiteId, parsed.data.selection);
-      const status = startOnboardingGeneration(parsed.data.websiteId, approved.input);
+      const status = await startOnboardingGeneration(parsed.data.websiteId, approved.input);
       res.json({ success: true, import: approved.state, status });
     } catch (error: any) {
       console.error("[WebsiteImport] approval failed:", error);
@@ -856,8 +856,14 @@ export async function registerRoutes(
       if (isOnboardingGenRunning(websiteId)) {
         return res.json({ success: true, status: getOnboardingGenStatus(websiteId) });
       }
-      const reservation = await reserveWebsiteImportGeneration(userId, websiteId, true);
-      const status = startOnboardingGeneration(websiteId, reservation.input);
+      const reservation = await reserveWebsiteImportGeneration(userId, websiteId, false);
+      const importSession = await storage.getOnboardingSessionByWebsiteId(websiteId);
+      const previousStatus = importSession?.genStatus as Record<string, any> | null;
+      const previousAttempt = Number(previousStatus?.attempt ?? 1);
+      const status = await startOnboardingGeneration(websiteId, reservation.input, {
+        mode: importSession?.generationState === "failed" ? "retry" : "recover",
+        attempt: previousAttempt + 1,
+      });
       res.json({ success: true, status });
     } catch (error: any) {
       const status = /retry limit/i.test(error?.message || "") ? 429 : 400;
@@ -6186,6 +6192,44 @@ export async function registerRoutes(
     ownImageUrls: z.array(z.string().max(512)).max(6).default([]),
   });
 
+  const scratchGenerationInput = async (websiteId: string, session: any) => {
+    if (session?.answers?.path !== "ai") return null;
+    const a = session.answers;
+    const parsed = onboardingGenBodySchema.safeParse({
+      business: {
+        name: a.businessName,
+        industry: a.industry ?? "",
+        description: a.description ?? "",
+      },
+      wishes: { goals: a.goals ?? [], notes: a.notes ?? "" },
+      feeling: a.feeling,
+      palette: a.palette,
+      fontPair: a.fontPair,
+      logoUrl: a.logoUrl,
+      logoMediaId: a.logoMediaId,
+      inspirationUrls: a.inspirationUrls ?? [],
+      ownImageUrls: a.ownImageUrls ?? [],
+    });
+    if (!parsed.success) return null;
+    const [assets, website] = await Promise.all([
+      storage.getMediaAssets(websiteId),
+      storage.getWebsite(websiteId),
+    ]);
+    const ownedPaths = new Set(assets.map((asset) => asset.storagePath));
+    const ownedIds = new Set(assets.map((asset) => asset.id));
+    const body = parsed.data;
+    const logoUrl = body.logoUrl && ownedPaths.has(body.logoUrl) ? body.logoUrl : undefined;
+    return {
+      ...body,
+      language: normalizeSiteLanguage(website?.language),
+      logoUrl,
+      logoMediaId: logoUrl && body.logoMediaId && ownedIds.has(body.logoMediaId) ? body.logoMediaId : undefined,
+      inspirationUrls: body.inspirationUrls.filter((url) => ownedPaths.has(url)).slice(0, 5),
+      ownImageUrls: body.ownImageUrls.filter((url) => ownedPaths.has(url)).slice(0, 6),
+      plan: a.plan,
+    };
+  };
+
   app.post("/api/websites/:id/onboarding/generate", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
       const { getOnboardingGenStatus, isOnboardingGenRunning, startOnboardingGeneration } = await import("./onboardingGenerator");
@@ -6245,7 +6289,7 @@ export async function registerRoutes(
       // the same language the customer chose.
       const genWebsite = await storage.getWebsite(req.params.id);
 
-      const status = startOnboardingGeneration(req.params.id, {
+      const status = await startOnboardingGeneration(req.params.id, {
         language: normalizeSiteLanguage(genWebsite?.language),
         business: body.business,
         wishes: body.wishes,
@@ -6279,6 +6323,41 @@ export async function registerRoutes(
       const session = await storage.getOnboardingSessionByWebsiteId(req.params.id);
       const persisted = session?.genStatus as Record<string, any> | null | undefined;
       if (
+        session?.answers?.path === "ai" &&
+        session.generationState === "generating" &&
+        !persisted?.done
+      ) {
+        if (Number(persisted?.attempt ?? 1) >= 3) {
+          const exhausted = {
+            ...persisted,
+            done: true,
+            phase: "error",
+            updatedAt: Date.now(),
+            error: "AI-opbygningen har nået grænsen for automatiske genforsøg.",
+          };
+          await storage.finishOnboardingGeneration(req.params.id, exhausted, false);
+          return res.json({
+            success: true,
+            active: false,
+            status: exhausted,
+          });
+        }
+        const input = await scratchGenerationInput(req.params.id, session);
+        if (input) {
+          try {
+            const resumed = await startOnboardingGeneration(req.params.id, input, {
+              mode: "recover",
+              attempt: Number(persisted?.attempt ?? 1) + 1,
+            });
+            if (isOnboardingGenRunning(req.params.id)) {
+              return res.json({ success: true, active: true, status: resumed, resumed: true });
+            }
+          } catch {
+            // A fresh heartbeat means another process still owns the run.
+          }
+        }
+      }
+      if (
         session?.answers?.websiteImport?.phase === "approved" &&
         !persisted?.done
       ) {
@@ -6292,10 +6371,24 @@ export async function registerRoutes(
             !persisted
           );
           if (reservation.reserved) {
-            const resumed = startOnboardingGeneration(req.params.id, reservation.input);
+            const resumed = await startOnboardingGeneration(req.params.id, reservation.input, {
+              mode: "recover",
+              attempt: Number(persisted?.attempt ?? 1) + 1,
+            });
             return res.json({ success: true, active: true, status: resumed, resumed: true });
           }
         } catch (error: any) {
+          if (/retry limit/i.test(error?.message || "")) {
+            const exhausted = {
+              ...persisted,
+              done: true,
+              phase: "error",
+              updatedAt: Date.now(),
+              error: "AI-opbygningen har nået grænsen for automatiske genforsøg.",
+            };
+            await storage.finishOnboardingGeneration(req.params.id, exhausted, false);
+            return res.json({ success: true, active: false, status: exhausted });
+          }
           console.warn("[WebsiteImport] automatic generation resume skipped:", error?.message || error);
         }
       }
@@ -6311,6 +6404,30 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Onboarding generate status error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/websites/:id/onboarding/generate/retry", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      const { startOnboardingGeneration } = await import("./onboardingGenerator");
+      const session = await storage.getOnboardingSessionByWebsiteId(req.params.id);
+      if (!session || session.answers?.path !== "ai") {
+        return res.status(400).json({ message: "Dette projekt bruger ikke den almindelige AI-opbygning." });
+      }
+      const previous = session.genStatus as Record<string, any> | null;
+      const attempt = Number(previous?.attempt ?? 1) + 1;
+      if (attempt > 3) {
+        return res.status(429).json({ message: "AI-opbygningen har nået grænsen for genforsøg. Dit projekt er gemt sikkert." });
+      }
+      const input = await scratchGenerationInput(req.params.id, session);
+      if (!input) {
+        return res.status(400).json({ message: "Der mangler oplysninger til at genstarte AI-opbygningen." });
+      }
+      const status = await startOnboardingGeneration(req.params.id, input, { mode: "retry", attempt });
+      res.json({ success: true, status });
+    } catch (error: any) {
+      console.error("Onboarding generation retry error:", error);
+      res.status(409).json({ message: error.message || "AI-opbygningen kunne ikke genstartes." });
     }
   });
 

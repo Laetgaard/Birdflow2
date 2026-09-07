@@ -17,6 +17,8 @@ const getBuilderStateMock = vi.fn(async () => ({ state: lastSavedState ?? blankS
 const getMediaAssetsMock = vi.fn(async () => []);
 
 const persistGenStatusMock = vi.fn(async () => {});
+const claimGenerationMock = vi.fn(async () => true);
+const finishGenerationMock = vi.fn(async () => true);
 
 vi.mock("./storage", () => ({
   storage: {
@@ -25,6 +27,9 @@ vi.mock("./storage", () => ({
     getMediaAssets: (...args: unknown[]) => getMediaAssetsMock(...args),
     // M15: every phase change mirrors into onboarding_sessions
     persistOnboardingGenStatus: (...args: unknown[]) => persistGenStatusMock(...args),
+    claimOnboardingGeneration: (...args: unknown[]) => claimGenerationMock(...args),
+    finishOnboardingGeneration: (...args: unknown[]) => finishGenerationMock(...args),
+    getOnboardingSessionByWebsiteId: vi.fn(async () => undefined),
   },
   db: {},
 }));
@@ -205,7 +210,7 @@ beforeEach(() => {
 describe("startOnboardingGeneration — happy path", () => {
   it("runs all phases, saves brand guide + final state, produces a Danish report", async () => {
     const id = "site-happy";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(false);
@@ -236,6 +241,7 @@ describe("startOnboardingGeneration — happy path", () => {
     expect(status.report).toBeDefined();
     expect(status.report!.oprettet.join(" ")).toContain("Brand guide oprettet");
     expect(status.report!.oprettet.join(" ")).toContain('Side "Hjem"');
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), true));
   });
 
   it("user picks always win over the AI guide", async () => {
@@ -249,7 +255,7 @@ describe("startOnboardingGeneration — happy path", () => {
       summary: "s",
     });
     const id = "site-picks-win";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
     expect(status.fallback).toBe(false);
     const finalState = updateBuilderStateMock.mock.calls[1][1] as BuilderStateData;
@@ -261,7 +267,7 @@ describe("startOnboardingGeneration — happy path", () => {
   it("keeps the base build when the enhancement pass fails", async () => {
     processAIBuildRequestMock.mockRejectedValue(new Error("model unavailable"));
     const id = "site-enhance-fail";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(false);
@@ -273,8 +279,8 @@ describe("startOnboardingGeneration — happy path", () => {
 
   it("returns the running status when start is called twice", async () => {
     const id = "site-twice";
-    const first = startOnboardingGeneration(id, makeInput());
-    const second = startOnboardingGeneration(id, makeInput());
+    const first = await startOnboardingGeneration(id, makeInput());
+    const second = await startOnboardingGeneration(id, makeInput());
     expect(second).toBe(first);
     await waitForDone(id);
   });
@@ -284,7 +290,7 @@ describe("startOnboardingGeneration — fallback", () => {
   it("builds the deterministic starter site when the AI build fails", async () => {
     buildFromPlanMock.mockResolvedValue({ success: false, error: "boom" });
     const id = "site-fallback";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(true);
@@ -296,13 +302,14 @@ describe("startOnboardingGeneration — fallback", () => {
     expect(finalState.pages.length).toBeGreaterThanOrEqual(3);
     finalState.pages.forEach((p) => expect(p.components.length).toBeGreaterThan(0));
     expect(finalState.brandGuide?.colors.primary).toBe(palette.colors.primary);
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), false));
   });
 
   it("falls back when even the brand-guide AI fails (fully deterministic run)", async () => {
     finalizeBrandGuideMock.mockRejectedValue(new Error("no model"));
     analyzeAndPlanWebsiteMock.mockRejectedValue(new Error("no model"));
     const id = "site-all-ai-down";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(true);
@@ -316,7 +323,7 @@ describe("startOnboardingGeneration — fallback", () => {
     buildFromPlanMock.mockResolvedValue({ success: false });
     updateBuilderStateMock.mockRejectedValue(new Error("db down"));
     const id = "site-db-down";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.error).toBeTruthy();
@@ -327,7 +334,7 @@ describe("startOnboardingGeneration — fallback", () => {
 describe("the customer's language", () => {
   it("is written into the copy the pipeline asks the AI for", async () => {
     const id = "site-english";
-    startOnboardingGeneration(id, makeInput({ language: "en" }));
+    await startOnboardingGeneration(id, makeInput({ language: "en" }));
     await waitForDone(id);
 
     const planPrompt = String(analyzeAndPlanWebsiteMock.mock.calls[0]?.[0] ?? "");
@@ -344,7 +351,7 @@ describe("the customer's language", () => {
 
   it("still asks for Danish when no choice was ever made", async () => {
     const id = "site-default-danish";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     await waitForDone(id);
 
     const planPrompt = String(analyzeAndPlanWebsiteMock.mock.calls[0]?.[0] ?? "");
@@ -355,7 +362,7 @@ describe("the customer's language", () => {
   it("survives a degraded build: the deterministic starter site is English too", async () => {
     buildFromPlanMock.mockResolvedValue({ success: false, error: "boom" });
     const id = "site-english-fallback";
-    startOnboardingGeneration(id, makeInput({ language: "en" }));
+    await startOnboardingGeneration(id, makeInput({ language: "en" }));
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(true);

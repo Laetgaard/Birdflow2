@@ -344,6 +344,16 @@ export interface IStorage {
     }
   ): Promise<OnboardingSession>;
   persistOnboardingGenStatus(websiteId: string, status: Record<string, unknown>): Promise<void>;
+  claimOnboardingGeneration(
+    websiteId: string,
+    status: Record<string, unknown>,
+    mode: "initial" | "retry" | "recover"
+  ): Promise<boolean>;
+  finishOnboardingGeneration(
+    websiteId: string,
+    status: Record<string, unknown>,
+    publishable: boolean
+  ): Promise<boolean>;
 
   // Admin methods
   getAdminOverviewStats(): Promise<AdminOverviewStats>;
@@ -2148,6 +2158,75 @@ export class DatabaseStorage implements IStorage {
       .update(onboardingSessions)
       .set({ genStatus: status, updatedAt: new Date() } as any)
       .where(eq(onboardingSessions.websiteId, websiteId));
+  }
+
+  /**
+   * Claim the right to launch one onboarding generation before any background
+   * work starts. The generation state and initial status move together in one
+   * database write, so a lost SSE response or reload can always discover the
+   * run. Recovery is only allowed after the persisted heartbeat is stale.
+   */
+  async claimOnboardingGeneration(
+    websiteId: string,
+    status: Record<string, unknown>,
+    mode: "initial" | "retry" | "recover"
+  ): Promise<boolean> {
+    const staleBefore = Date.now() - 30_000;
+    const allowed =
+      mode === "initial"
+        ? sql`${onboardingSessions.generationState} = 'not_started'`
+        : mode === "retry"
+          ? sql`${onboardingSessions.generationState} = 'failed'`
+          : sql`${onboardingSessions.generationState} = 'generating'
+              AND COALESCE((${onboardingSessions.genStatus} ->> 'updatedAt')::bigint, 0) < ${staleBefore}`;
+    const rows = await db
+      .update(onboardingSessions)
+      .set({
+        generationState: "generating",
+        genStatus: status,
+        updatedAt: new Date(),
+      } as any)
+      .where(and(eq(onboardingSessions.websiteId, websiteId), allowed))
+      .returning({ id: onboardingSessions.id });
+    return rows.length === 1;
+  }
+
+  /** Atomically persist the terminal status and the decision-state outcome. */
+  async finishOnboardingGeneration(
+    websiteId: string,
+    status: Record<string, unknown>,
+    publishable: boolean
+  ): Promise<boolean> {
+    const attempt = Number(status.attempt ?? 0);
+    const terminalValues = publishable
+      ? {
+          generationState: "complete",
+          genStatus: status,
+          siteRevision: sql`${onboardingSessions.siteRevision} + 1`,
+          approvedRevision: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+            THEN ${onboardingSessions.approvedRevision} ELSE NULL END`,
+          approvedAt: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+            THEN ${onboardingSessions.approvedAt} ELSE NULL END`,
+          decisionState: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+            THEN ${onboardingSessions.decisionState}
+            WHEN ${onboardingSessions.decisionState} = 'approved' THEN 'awaiting_decision'
+            ELSE ${onboardingSessions.decisionState} END`,
+          updatedAt: new Date(),
+        }
+      : {
+          generationState: "failed",
+          genStatus: status,
+          updatedAt: new Date(),
+        };
+    const rows = await db
+      .update(onboardingSessions)
+      .set(terminalValues as any)
+      .where(and(
+        eq(onboardingSessions.websiteId, websiteId),
+        sql`COALESCE((${onboardingSessions.genStatus} ->> 'attempt')::int, 0) = ${attempt}`
+      ))
+      .returning({ id: onboardingSessions.id });
+    return rows.length === 1;
   }
 
   /**

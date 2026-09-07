@@ -63,11 +63,15 @@ function useIsDesktop(): boolean {
 
 function PreviewPane({
   websiteId,
+  expectedRevision,
+  expectedFingerprint,
   pages,
   activePageId,
   onActivePageChange,
 }: {
   websiteId: string;
+  expectedRevision: number;
+  expectedFingerprint: string;
   pages: DecisionPage[];
   activePageId: string | null;
   onActivePageChange: (pageId: string) => void;
@@ -76,6 +80,7 @@ function PreviewPane({
   const [reloadKey, setReloadKey] = useState(0);
   const [scale, setScale] = useState(1);
   const [ready, setReady] = useState(false);
+  const [parityError, setParityError] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -104,13 +109,25 @@ function PreviewPane({
       const payload = event.data;
       if (!payload) return;
       if (payload.type === "bf-preview-ready") setReady(true);
+      if (payload.type === "bf-preview-pages") {
+        const expectedIds = pages.map((page) => page.id);
+        const renderedIds = Array.isArray(payload.pages) ? payload.pages.map((page: any) => page?.id) : [];
+        const matches =
+          payload.websiteId === websiteId &&
+          payload.revision === expectedRevision &&
+          payload.fingerprint === expectedFingerprint &&
+          expectedIds.length > 0 &&
+          expectedIds.length === renderedIds.length &&
+          expectedIds.every((id, index) => id === renderedIds[index]);
+        setParityError(matches ? null : "Forhåndsvisningen er blevet forældet. Opdater siden for at hente den seneste version.");
+      }
       if (payload.type === "bf-preview-page" && typeof payload.pageId === "string") {
         onActivePageChange(payload.pageId);
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [onActivePageChange]);
+  }, [onActivePageChange, pages, websiteId, expectedRevision, expectedFingerprint]);
 
   useEffect(() => {
     if (!ready) return;
@@ -190,6 +207,11 @@ function PreviewPane({
       </div>
 
       <div ref={shellRef} className="flex-1 overflow-auto bg-neutral-100 p-3">
+        {parityError && (
+          <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="preview-parity-error">
+            {parityError}
+          </div>
+        )}
         <div
           className="mx-auto overflow-hidden bg-white shadow-lg"
           style={{
@@ -218,6 +240,7 @@ function PreviewPane({
               display: "block",
             }}
             data-testid="iframe-preview"
+            aria-hidden={parityError ? "true" : undefined}
           />
         </div>
       </div>
@@ -433,6 +456,8 @@ function DecisionArea({
 export function DecisionWorkspace({
   stage,
   snapshot,
+  previewFingerprint,
+  builderRevision,
   copy,
   approvalStale,
   websiteId,
@@ -454,6 +479,8 @@ export function DecisionWorkspace({
 }: {
   stage: OnboardingResumeStage;
   snapshot: OnboardingDecisionSnapshot;
+  previewFingerprint: string;
+  builderRevision: number;
   copy: DecisionCopy;
   approvalStale?: boolean;
   websiteId: string;
@@ -493,6 +520,8 @@ export function DecisionWorkspace({
       <div className="h-[70vh] lg:h-full">
         <PreviewPane
           websiteId={websiteId}
+          expectedRevision={builderRevision}
+          expectedFingerprint={previewFingerprint}
           pages={pages}
           activePageId={activePageId}
           onActivePageChange={setActivePageId}

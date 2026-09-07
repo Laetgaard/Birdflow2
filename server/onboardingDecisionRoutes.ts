@@ -10,6 +10,7 @@
  * website by guessing an id.
  */
 import type { Express, Request, Response, NextFunction } from "express";
+import { createHash } from "node:crypto";
 import type { BuilderStateData } from "@shared/schema";
 import { createDefaultBrandGuide, type BrandGuide } from "@shared/customComponents";
 import { ONBOARDING_COPY, onboardingCopy } from "@shared/onboardingDecision";
@@ -58,6 +59,18 @@ async function languageOfWebsite(websiteId: string | null | undefined) {
 function guideOf(state: BuilderStateData | undefined, fallbackName: string): BrandGuide {
   const guide = state?.brandGuide ?? createDefaultBrandGuide();
   return guide.businessName ? guide : { ...guide, businessName: fallbackName };
+}
+
+function previewFingerprint(state: BuilderStateData): string {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      pages: state.pages ?? [],
+      siteChrome: state.siteChrome ?? null,
+      globalStyles: state.globalStyles ?? {},
+      customComponents: state.customComponents ?? [],
+      brandGuide: state.brandGuide ?? null,
+    }))
+    .digest("hex");
 }
 
 export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingDecisionDeps): void {
@@ -111,7 +124,8 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       }
 
       const state = builder?.state as BuilderStateData | undefined;
-      const pages = (state?.pages ?? []).map((page) => ({
+      const structured = state ? migrateSiteStructure(state) : undefined;
+      const pages = (structured?.pages ?? []).map((page) => ({
         id: page.id,
         name: page.name,
         path: page.path,
@@ -125,7 +139,10 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         website: { id: website.id, name: website.name, slug: website.slug },
         pages,
         brandGuide: guideOf(state, website.name),
+        builderRevision: builder?.revision ?? 0,
+        previewFingerprint: structured ? previewFingerprint(structured) : null,
         report: (resume.session?.genStatus as Record<string, unknown> | null)?.report ?? null,
+        generationStatus: resume.session?.genStatus ?? null,
         migrationReport: resume.session?.answers?.websiteImport?.report ?? null,
       });
     } catch (error: any) {
@@ -156,6 +173,7 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       // same structure the builder works with: shared header and footer and
       // the resolved navigation, not just the raw page list.
       const structured = migrateSiteStructure(state);
+      const fingerprint = previewFingerprint(structured);
 
       // Inline svg-asset references server-side so every read-only surface
       // renders stored drawings without carrying its own asset map (same
@@ -179,7 +197,8 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       res.json({
         websiteId: owned.websiteId,
         websiteName: website?.name ?? "",
-        revision: owned.snapshot.siteRevision,
+        revision: builder?.revision ?? 0,
+        fingerprint,
         pages: structured.pages ?? [],
         siteChrome: structured.siteChrome ?? null,
         navItems: resolveNavItems(structured),
@@ -277,6 +296,13 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       }
       if (snapshot.generationState !== "complete") {
         return res.status(409).json({ message: "Hjemmesiden er ikke færdig endnu." });
+      }
+      const generationStatus = owned.session.genStatus as Record<string, unknown> | null;
+      if (generationStatus?.fallback === true || generationStatus?.spendLimited === true) {
+        return res.status(409).json({
+          message: "AI-udkastet er ikke klar til godkendelse endnu.",
+          code: "NON_PUBLISHABLE_DRAFT",
+        });
       }
 
       const identity = await billingIdentity(user.id, user.email);

@@ -660,7 +660,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
         // chose right after the fork.
         language: ctx.lang,
       };
-      startOnboardingGeneration(ctx.websiteId!, input);
+      await startOnboardingGeneration(ctx.websiteId!, input);
       ctx.buildStarted = true;
       // The conversation ended in a build; its budget is done with it.
       releaseOnboardingMeter(ctx.userId);

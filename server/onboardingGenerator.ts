@@ -36,11 +36,6 @@ import { enrichBrandGuide } from "./brandGuideEnrichment";
 import { createSpendMeter, type SpendMeter } from "./aiSpend";
 import { isSpendLimitError } from "./aiCall";
 import {
-  markGenerationComplete,
-  markGenerationFailed,
-  markGenerationStarted,
-} from "./onboardingDecision";
-import {
   copyLanguageInstruction,
   normalizeSiteLanguage,
   pickLang,
@@ -133,6 +128,8 @@ export type OnboardingGenStatus = {
    * reason rather than being left thinking the AI simply did less.
    */
   spendLimited?: boolean;
+  /** One-based run count, persisted so retries remain bounded after reloads. */
+  attempt: number;
 };
 
 const jobs = new Map<string, OnboardingGenStatus>();
@@ -186,10 +183,11 @@ function persistStatus(status: OnboardingGenStatus): void {
  * Kick off generation in the background. Returns the initial status
  * synchronously; progress is read via getOnboardingGenStatus().
  */
-export function startOnboardingGeneration(
+export async function startOnboardingGeneration(
   websiteId: string,
-  input: OnboardingGenInput
-): OnboardingGenStatus {
+  input: OnboardingGenInput,
+  options: { mode?: "initial" | "retry" | "recover"; attempt?: number } = {}
+): Promise<OnboardingGenStatus> {
   const existing = jobs.get(websiteId);
   if (existing && !existing.done && runningJobs.has(websiteId)) {
     return existing;
@@ -204,24 +202,40 @@ export function startOnboardingGeneration(
     updatedAt: Date.now(),
     done: false,
     fallback: false,
+    attempt: options.attempt ?? ((existing?.attempt ?? 0) + 1),
   };
+
+  const claimed = await storage.claimOnboardingGeneration(
+    websiteId,
+    status as unknown as Record<string, unknown>,
+    options.mode ?? "initial"
+  );
+  if (!claimed) {
+    const persisted = await storage.getOnboardingSessionByWebsiteId(websiteId);
+    const persistedStatus = persisted?.genStatus as OnboardingGenStatus | null | undefined;
+    if (persistedStatus) return persistedStatus;
+    throw new Error("Onboarding generation could not be claimed.");
+  }
+
   jobs.set(websiteId, status);
   runningJobs.add(websiteId);
-  persistStatus(status);
-
-  // The decision record is the resume authority for the whole flow, so it
-  // learns about the generation the same moment the in-memory job does.
-  markGenerationStarted(websiteId).catch((err) =>
-    console.error(`[OnboardingGen] Failed to mark generation started for ${websiteId}:`, err)
-  );
+  const heartbeat = setInterval(() => {
+    if (!runningJobs.has(websiteId)) return;
+    status.updatedAt = Date.now();
+    persistStatus(status);
+  }, 10_000);
 
   runPipeline(websiteId, input, status)
-    .then(() =>
-      markGenerationComplete(websiteId).catch((err) =>
-        console.error(`[OnboardingGen] Failed to mark generation complete for ${websiteId}:`, err)
-      )
-    )
-    .catch((error) => {
+    .then(async (publishable) => {
+      clearInterval(heartbeat);
+      const finished = await storage.finishOnboardingGeneration(
+        websiteId,
+        status as unknown as Record<string, unknown>,
+        publishable
+      );
+      if (!finished) throw new Error("A newer onboarding generation owns this website.");
+    })
+    .catch(async (error) => {
       // runPipeline handles its own fallbacks; this only triggers when even
       // the fallback save failed (e.g. database unavailable).
       console.error(`[OnboardingGen] Unrecoverable failure for ${websiteId}:`, error);
@@ -230,12 +244,14 @@ export function startOnboardingGeneration(
       status.error =
         "Noget gik galt under opbygningen. Din konto og dit projekt er sikre — prøv igen, eller fortsæt og byg videre med AI-assistenten i editoren.";
       status.updatedAt = Date.now();
-      persistStatus(status);
-      markGenerationFailed(websiteId).catch((err) =>
-        console.error(`[OnboardingGen] Failed to mark generation failed for ${websiteId}:`, err)
-      );
+      await storage.finishOnboardingGeneration(
+        websiteId,
+        status as unknown as Record<string, unknown>,
+        false
+      ).catch((err) => console.error(`[OnboardingGen] Failed to persist terminal failure for ${websiteId}:`, err));
     })
     .finally(() => {
+      clearInterval(heartbeat);
       runningJobs.delete(websiteId);
     });
 
@@ -447,7 +463,7 @@ async function runPipeline(
   websiteId: string,
   input: OnboardingGenInput,
   status: OnboardingGenStatus
-): Promise<void> {
+): Promise<boolean> {
   const builderData = await storage.getBuilderState(websiteId);
   if (!builderData) throw new Error("Builder state not found");
   const initialState = builderData.state as BuilderStateData;
@@ -595,7 +611,7 @@ async function runPipeline(
   if (!builtState) {
     // AI plan/build failed → deterministic starter site, still branded.
     await applyFallback(websiteId, input, guide, businessContext, guideNotes, status, spendLimited);
-    return;
+    return false;
   }
 
   // Carry the brand guide + user choices into the freshly built state.
@@ -674,7 +690,7 @@ async function runPipeline(
   if (spendLimited) status.spendLimited = true;
   setPhase(status, "done");
   status.done = true;
-  persistStatus(status);
+  return !spendLimited;
 }
 
 // ============ Fallback: deterministic Danish starter site ============
@@ -720,7 +736,6 @@ async function applyFallback(
   if (spendLimited) status.spendLimited = true;
   setPhase(status, "done");
   status.done = true;
-  persistStatus(status);
 }
 
 /**

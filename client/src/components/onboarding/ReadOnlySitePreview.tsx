@@ -235,7 +235,9 @@ export function usePreviewData(websiteId: string | null, token: string | null) {
     chrome?: SiteChrome;
     navItems: NavItem[];
     websiteName: string;
+    websiteId: string;
     revision: number;
+    fingerprint: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -260,7 +262,9 @@ export function usePreviewData(websiteId: string | null, token: string | null) {
           chrome: body.siteChrome ?? undefined,
           navItems: body.navItems ?? [],
           websiteName: body.websiteName ?? "",
+          websiteId: body.websiteId ?? websiteId,
           revision: body.revision ?? 0,
+          fingerprint: body.fingerprint ?? "",
         });
         setError(null);
       })
