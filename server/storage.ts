@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import { performSvgExtraction } from "./svgExtraction";
 import { svgAssetSchemaReady } from "./svgAssetSchema";
+import { isReservedQaFixtureEmail } from "@shared/qaFixturePolicy";
 
 // Encryption helpers for sensitive data
 // ENCRYPTION_KEY must be a 64-character hex string (32 bytes)
@@ -2516,6 +2517,7 @@ export class DatabaseStorage implements IStorage {
         fullName: profile.fullName,
         phoneNumber: profile.phoneNumber,
         isAdmin: profile.isAdmin ?? false,
+        isQa: isReservedQaFixtureEmail(profile.email),
         onboardingCompleted: profile.onboardingCompleted,
         createdAt: profile.createdAt,
         websiteCount: userWebsites.length,
@@ -2597,6 +2599,7 @@ export class DatabaseStorage implements IStorage {
         ownerId: website.ownerId,
         ownerEmail: owner?.email ?? 'Unknown',
         ownerName: owner?.fullName ?? 'Unknown',
+        isQa: isReservedQaFixtureEmail(owner?.email),
         orderCount: websiteOrders.length,
         bookingCount: websiteBookings.length,
       };

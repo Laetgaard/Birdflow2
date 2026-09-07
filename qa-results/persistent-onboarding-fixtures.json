@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-07T19:39:00.558Z",
+  "fixtures": [
+    {
+      "scenario": "scratch",
+      "userId": "686beadc-af78-4c83-8104-27c6ef8dda11",
+      "websiteId": "358bf52d-1001-41c7-949c-7e6f2ae960cb",
+      "onboardingPath": "ai",
+      "startedAt": "2026-09-07T19:36:16.854Z",
+      "completedAt": "2026-09-07T19:36:16.854Z",
+      "durationMs": 0,
+      "status": "done",
+      "fallback": false,
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=686beadc-af78-4c83-8104-27c6ef8dda11",
+        "adminWebsite": "/admin?tab=websites&websiteId=358bf52d-1001-41c7-949c-7e6f2ae960cb",
+        "builder": "/builder/358bf52d-1001-41c7-949c-7e6f2ae960cb?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/358bf52d-1001-41c7-949c-7e6f2ae960cb"
+      }
+    },
+    {
+      "scenario": "import",
+      "userId": "0f20afc3-6675-42dc-9aa8-7752d7db23f7",
+      "websiteId": "b9df705c-61c2-4c54-84b5-ff7145cd3032",
+      "onboardingPath": "import",
+      "startedAt": "2026-09-07T19:36:18.162Z",
+      "completedAt": "2026-09-07T19:39:00.557Z",
+      "durationMs": 162395,
+      "status": "done",
+      "fallback": false,
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=0f20afc3-6675-42dc-9aa8-7752d7db23f7",
+        "adminWebsite": "/admin?tab=websites&websiteId=b9df705c-61c2-4c54-84b5-ff7145cd3032",
+        "builder": "/builder/b9df705c-61c2-4c54-84b5-ff7145cd3032?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/b9df705c-61c2-4c54-84b5-ff7145cd3032"
+      }
+    }
+  ]
+}

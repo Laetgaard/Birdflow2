@@ -100,7 +100,13 @@ export async function fetchPublicUrlPinned(
     const request = transport.request(url, {
       method: "GET",
       headers: options.headers,
-      lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family),
+      lookup: (_hostname, lookupOptions, callback) => {
+        if (typeof lookupOptions === "object" && lookupOptions.all) {
+          callback(null, [selected] as any);
+          return;
+        }
+        callback(null, selected.address, selected.family);
+      },
     }, (response) => {
       const chunks: Buffer[] = [];
       let size = 0;

@@ -1711,6 +1711,8 @@ export type AdminUserWithStats = {
   fullName: string;
   phoneNumber: string;
   isAdmin: boolean;
+  /** Explicit server-side QA fixture classification; never inferred by the UI. */
+  isQa: boolean;
   onboardingCompleted: boolean;
   createdAt: Date;
   websiteCount: number;
@@ -1731,6 +1733,8 @@ export type AdminWebsiteWithOwner = {
   ownerId: string;
   ownerEmail: string;
   ownerName: string;
+  /** True only when the website belongs to one of the reserved QA users. */
+  isQa: boolean;
   orderCount: number;
   bookingCount: number;
 };
