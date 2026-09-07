@@ -85,10 +85,9 @@ import {
   resolveNavItems,
   syncNavigationWithPages,
 } from "@shared/siteStructure";
-import PropertiesPanel from "@/components/builder/PropertiesPanel";
+import BuilderInspector from "@/components/builder/BuilderInspector";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
-import InspectorSidebar from "@/components/builder/InspectorSidebar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
 import ContextMenu from "@/components/builder/ContextMenu";
 import CoachMarks from "@/components/builder/CoachMarks";
@@ -166,6 +165,10 @@ export default function BuilderPage() {
   const [isBuildRunning, setIsBuildRunning] = useState(false);
   // Node selection inside custom components (primitive node trees)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const selectComponentOnly = useCallback((componentId: string | null) => {
+    setSelectedComponentId(componentId);
+    setSelectedNodeId(null);
+  }, []);
   // Clicking a list item (pricing plan, FAQ entry, timeline step) on the
   // canvas focuses its card in the properties panel.
   const [focusItemIndex, setFocusItemIndex] = useState<number | null>(null);
@@ -222,8 +225,6 @@ export default function BuilderPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const previewContainerRef = useRef<HTMLElement>(null);
-  const sidebarScrollRef = useRef<HTMLDivElement>(null);
-  const [propertiesPaddingTop, setPropertiesPaddingTop] = useState(0);
   // Set only when the server says this is an admin editing session
   // (website.adminContext present). Sent as metadata for audit grouping -
   // it never affects authorization.
@@ -437,7 +438,7 @@ export default function BuilderPage() {
         newState,
         slot === 'header' ? 'Fjern delt header fra siden' : 'Fjern delt footer fra siden'
       );
-      setSelectedComponentId(null);
+      selectComponentOnly(null);
       toast({
         title: slot === 'header' ? "Header fjernet fra siden" : "Footer fjernet fra siden",
         description: "De øvrige sider bruger den stadig. Slå den til igen under sideindstillinger.",
@@ -455,7 +456,7 @@ export default function BuilderPage() {
     };
 
     updateStateWithHistory(newState, 'Delete component');
-    setSelectedComponentId(null);
+    selectComponentOnly(null);
   }, [builderState, updateStateWithHistory, chromeSlotOf, toast]);
 
   const moveComponent = useCallback((componentId: string, direction: 'up' | 'down') => {
@@ -510,7 +511,7 @@ export default function BuilderPage() {
     };
 
     updateStateWithHistory(newState, `Duplicate component`);
-    setSelectedComponentId(duplicatedComponent.id);
+    selectComponentOnly(duplicatedComponent.id);
   }, [builderState, updateStateWithHistory]);
 
   // Keyboard shortcuts for undo/redo and Canva-like editing
@@ -566,7 +567,7 @@ export default function BuilderPage() {
 
       // Escape to deselect
       if (e.key === 'Escape') {
-        setSelectedComponentId(null);
+        selectComponentOnly(null);
       }
     };
 
@@ -873,7 +874,7 @@ export default function BuilderPage() {
     };
 
     updateStateWithHistory(newState, `Add ${def.name}`);
-    setSelectedComponentId(newComponent.id);
+    selectComponentOnly(newComponent.id);
     setSidebarTab("properties");
   };
 
@@ -894,7 +895,7 @@ export default function BuilderPage() {
     };
 
     updateStateWithHistory(newState, `Add ${def.name}`);
-    setSelectedComponentId(newComponent.id);
+    selectComponentOnly(newComponent.id);
     setSidebarTab("properties");
   };
 
@@ -1085,7 +1086,7 @@ export default function BuilderPage() {
     // template's own brand as they land, so the customer's first colour
     // change afterwards updates the whole template instead of one section.
     updateStateWithHistory(migrateStateToTokens(newState), `Apply template: ${template.name}`);
-    setSelectedComponentId(null);
+    selectComponentOnly(null);
 
     toast({
       title: "Skabelon anvendt",
@@ -1107,11 +1108,6 @@ export default function BuilderPage() {
     const slot = chromeSlotOf(selectedComponentId);
     return slot ? builderState.siteChrome?.[slot] ?? null : null;
   })();
-
-  // Clear node selection whenever the selected component changes
-  useEffect(() => {
-    setSelectedNodeId(null);
-  }, [selectedComponentId]);
 
   // ============ Custom component library ("Mine komponenter") ============
 
@@ -1249,7 +1245,7 @@ export default function BuilderPage() {
       ),
     };
     updateStateWithHistory(newState, `Indsæt komponent: ${entry.name}`);
-    setSelectedComponentId(instance.id);
+    selectComponentOnly(instance.id);
     setSidebarTab("properties");
   }, [builderState, updateStateWithHistory]);
 
@@ -1452,39 +1448,10 @@ export default function BuilderPage() {
       });
   };
 
-  useEffect(() => {
-    if (!selectedComponentId || !previewContainerRef.current) {
-      setPropertiesPaddingTop(0);
-      return;
-    }
-
-    const selectedElement = previewContainerRef.current.querySelector(`[data-element-id="${selectedComponentId}"]`);
-    if (!selectedElement) {
-      setPropertiesPaddingTop(0);
-      return;
-    }
-
-    const previewRect = previewContainerRef.current.getBoundingClientRect();
-    const elementRect = selectedElement.getBoundingClientRect();
-    
-    const relativeTop = elementRect.top - previewRect.top;
-    const tabsHeaderHeight = 56;
-    const paddingTop = Math.max(0, relativeTop - tabsHeaderHeight);
-    
-    setPropertiesPaddingTop(paddingTop);
-
-    if (sidebarScrollRef.current) {
-      sidebarScrollRef.current.scrollTo({
-        top: 0,
-        behavior: 'smooth'
-      });
-    }
-  }, [selectedComponentId]);
-
   const switchPage = (pageId: string) => {
     if (!builderState) return;
     setBuilderState({ ...builderState, activePage: pageId });
-    setSelectedComponentId(null);
+    selectComponentOnly(null);
   };
 
   const generateUniqueSlug = (name: string, existingPaths: string[], excludePath?: string): string => {
@@ -1535,7 +1502,7 @@ export default function BuilderPage() {
     updateStateWithHistory(newState, `Create page: ${newPageName.trim()}`);
     setNewPageName("");
     setPageDialogOpen(false);
-    setSelectedComponentId(null);
+    selectComponentOnly(null);
   };
 
   const updatePageName = () => {
@@ -1589,7 +1556,7 @@ export default function BuilderPage() {
     if (selectedComponentId) {
       const activePageData = remainingPages.find(p => p.id === newActivePage);
       if (!activePageData?.components.find(c => c.id === selectedComponentId)) {
-        setSelectedComponentId(null);
+        selectComponentOnly(null);
       }
     }
   };
@@ -1902,7 +1869,7 @@ export default function BuilderPage() {
           isBuilderMode={true}
           selectedId={selectedComponentId}
           onSelectChange={(id) => {
-            setSelectedComponentId(id);
+            selectComponentOnly(id);
             if (id) setSidebarTab("properties");
           }}
           hoveredId={hoveredComponentId}
@@ -1937,7 +1904,7 @@ export default function BuilderPage() {
             onClick={(e) => {
               const target = e.target as HTMLElement;
               if (target.closest('[data-component-id]')) return;
-              setSelectedComponentId(null);
+              selectComponentOnly(null);
             }}
             data-preview-area
           >
@@ -1978,7 +1945,7 @@ export default function BuilderPage() {
                         component={comp}
                         isSelected={selectedComponentId === comp.id}
                         onClick={() => {
-                          setSelectedComponentId(comp.id);
+                          selectComponentOnly(comp.id);
                           setSidebarTab("properties");
                         }}
                         websiteId={id}
@@ -1986,11 +1953,11 @@ export default function BuilderPage() {
                         navItems={canvasNavItems}
                         allComponents={canvasComponents}
                         onComponentClick={(componentId) => {
-                          setSelectedComponentId(componentId);
+                          selectComponentOnly(componentId);
                           setSidebarTab("properties");
                         }}
                         onItemFocus={(index) => {
-                          setSelectedComponentId(comp.id);
+                          selectComponentOnly(comp.id);
                           setFocusItemIndex(index);
                           setSidebarTab("properties");
                         }}
@@ -2005,7 +1972,7 @@ export default function BuilderPage() {
                         svgAssets={svgAssetMap}
                         selectedNodeId={selectedComponentId === comp.id ? selectedNodeId : null}
                         onNodeSelect={(nodeId) => {
-                          setSelectedComponentId(comp.id);
+                          selectComponentOnly(comp.id);
                           setSelectedNodeId(nodeId);
                           if (nodeId) setSidebarTab("properties");
                         }}
@@ -2023,16 +1990,16 @@ export default function BuilderPage() {
               isFieldEditing={editingField !== null}
               selectedComponentId={selectedComponentId}
               onComponentSelect={(componentId) => {
-                setSelectedComponentId(componentId);
+                selectComponentOnly(componentId);
                 setSidebarTab("properties");
               }}
               onFieldEdit={(componentId, field) => {
-                setSelectedComponentId(componentId);
+                selectComponentOnly(componentId);
                 setEditingField(field);
               }}
               onButtonEdit={(componentId, { text, element }) => {
                 // When user clicks "Rediger knap" badge, update buttonText prop
-                setSelectedComponentId(componentId);
+                selectComponentOnly(componentId);
                 setSidebarTab("properties");
               }}
               onTextPropChange={(componentId, propKey, newText) => {
@@ -2063,9 +2030,9 @@ export default function BuilderPage() {
         {sidebarOpen && (
           <aside className="
             md:w-80 md:border-l md:relative md:h-full md:shadow-none md:rounded-none md:translate-y-0
-            fixed bottom-0 left-0 right-0 h-[88vh] z-50
+            fixed inset-0 h-[100dvh] z-50
             bg-card flex flex-col shrink-0 overflow-hidden
-            rounded-t-2xl border-t shadow-[0_-8px_32px_rgba(0,0,0,0.14)]
+            rounded-none border shadow-[0_-8px_32px_rgba(0,0,0,0.14)]
             transition-transform duration-300 ease-out translate-y-0
           ">
             {/* Mobile drag handle */}
@@ -2320,60 +2287,41 @@ export default function BuilderPage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="properties" className="flex-1 overflow-hidden flex flex-col" ref={sidebarScrollRef}>
-              <ScrollArea className="flex-1">
-                <div 
-                  className="p-4 pt-2 transition-all duration-300 ease-out"
-                  style={{ paddingTop: selectedComponent ? `${propertiesPaddingTop + 8}px` : '8px' }}
-                >
-                  {selectedComponent ? (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full gap-2 mb-3"
-                        onClick={() => {
-                          setSaveComponentName(
-                            selectedComponent.type === 'custom'
-                              ? 'Min komponent'
-                              : componentRegistry[selectedComponent.type]?.name ?? 'Min komponent'
-                          );
-                          setSaveComponentCategory(inferLibraryCategory(selectedComponent as BuilderComponentData));
-                          setSaveDuplicateOf(null);
-                          setSaveComponentOpen(true);
-                        }}
-                        data-testid="save-as-component"
-                      >
-                        <BookmarkPlus className="w-4 h-4" />
-                        Gem som komponent
-                      </Button>
-                      <PropertiesPanel
-                        component={selectedComponent}
-                        onUpdate={(updates) => updateComponent(selectedComponent.id, updates)}
-                        onDelete={() => deleteComponent(selectedComponent.id)}
-                        onMove={(dir) => moveComponent(selectedComponent.id, dir)}
-                        websiteId={id || ''}
-                        accessToken={session?.access_token || ''}
-                        globalStyles={builderState?.globalStyles}
-                        selectedNodeId={selectedNodeId}
-                        onNodeSelect={setSelectedNodeId}
-                        focusItemIndex={focusItemIndex}
-                        onFocusItemHandled={() => setFocusItemIndex(null)}
-                        svgAssets={svgAssetMap}
-                        onSvgAssetsChanged={reloadSvgAssets}
-                      />
-                    </>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-64 text-center text-muted-foreground px-6">
-                      <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mb-4">
-                        <Settings className="w-6 h-6 opacity-40" />
-                      </div>
-                      <p className="text-sm font-medium mb-1">Ingen sektion valgt</p>
-                      <p className="text-xs opacity-70">Klik på en sektion i forhåndsvisningen for at redigere den.</p>
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
+            <TabsContent value="properties" className="flex-1 min-h-0 overflow-hidden">
+              <BuilderInspector
+                    state={builderState}
+                    activePageId={builderState.activePage || ''}
+                    components={canvasComponents}
+                    selectedComponentId={selectedComponentId}
+                    selectedNodeId={selectedNodeId}
+                    hoveredComponentId={hoveredComponentId}
+                    onSelectComponent={selectComponentOnly}
+                    onSelectNode={(_, nodeId) => setSelectedNodeId(nodeId)}
+                    onSelectPage={switchPage}
+                    onHoverComponent={setHoveredComponentId}
+                    onUpdate={(updates) => selectedComponent && updateComponent(selectedComponent.id, updates)}
+                    onDelete={() => selectedComponent && deleteComponent(selectedComponent.id)}
+                    onMove={(dir) => selectedComponent && moveComponent(selectedComponent.id, dir)}
+                    onSaveComponent={() => {
+                      if (!selectedComponent) return;
+                      setSaveComponentName(
+                        selectedComponent.type === 'custom'
+                          ? 'Min komponent'
+                          : componentRegistry[selectedComponent.type]?.name ?? 'Min komponent'
+                      );
+                      setSaveComponentCategory(inferLibraryCategory(selectedComponent as BuilderComponentData));
+                      setSaveDuplicateOf(null);
+                      setSaveComponentOpen(true);
+                    }}
+                    onClose={() => setSidebarOpen(false)}
+                    websiteId={id || ''}
+                    accessToken={session?.access_token || ''}
+                    device={device}
+                    svgAssets={svgAssetMap}
+                    onSvgAssetsChanged={reloadSvgAssets}
+                    focusItemIndex={focusItemIndex}
+                    onFocusItemHandled={() => setFocusItemIndex(null)}
+              />
             </TabsContent>
 
             <TabsContent value="ai" className="flex-1 overflow-hidden flex flex-col">

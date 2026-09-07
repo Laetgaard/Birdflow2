@@ -4196,7 +4196,31 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
           />
         );
       default:
-        return null;
+        if (isPreview) return null;
+        return (
+          <button
+            type="button"
+            onClick={handleClick}
+            style={{
+              width: '100%',
+              minHeight: '112px',
+              padding: '24px',
+              border: '2px dashed #f59e0b',
+              background: '#fffbeb',
+              color: '#92400e',
+              textAlign: 'left',
+              cursor: 'pointer',
+            }}
+            data-testid={`unsupported-component-${component.id}`}
+          >
+            <strong style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>
+              Ikke-understøttet komponent
+            </strong>
+            <span style={{ fontSize: '12px' }}>
+              Type: {component.type}. Vælg objektet for at se sikker struktur og metadata.
+            </span>
+          </button>
+        );
     }
   };
 

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import type React from "react";
-import { ImageIcon } from "lucide-react";
+import { Check, ImageIcon } from "lucide-react";
 import type { BuilderComponentData, ComponentStyles } from "@shared/componentRegistry";
 import {
   resolvePrimitiveStyles,
@@ -219,6 +219,71 @@ type NodeRendererProps = {
    */
   staggerParent?: { spec: MotionSpec; index: number };
 };
+
+function SafeCapabilityPreview({
+  label,
+  isPreview,
+  onClick,
+  dataAttrs,
+  selectionStyles,
+}: {
+  label: string;
+  isPreview?: boolean;
+  onClick?: (e: React.MouseEvent) => void;
+  dataAttrs: Record<string, unknown>;
+  selectionStyles: React.CSSProperties;
+}) {
+  const [complete, setComplete] = useState(false);
+  return (
+    <div
+      {...dataAttrs}
+      onClick={onClick}
+      style={{
+        minHeight: "112px",
+        padding: "16px",
+        backgroundColor: "#eff6ff",
+        border: "2px dashed #60a5fa",
+        borderRadius: "12px",
+        color: "#1e3a8a",
+        ...selectionStyles,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+        <strong style={{ fontSize: "13px" }}>{label}</strong>
+        <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "999px", background: "#dbeafe" }}>
+          Kun editor
+        </span>
+      </div>
+      <p style={{ margin: "8px 0", fontSize: "11px", color: "#3b82f6" }}>
+        Sikker prøvevisning med eksempeldata. Intet gemmes eller sendes.
+      </p>
+      {!isPreview && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setComplete(true);
+          }}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            border: "1px solid #93c5fd",
+            borderRadius: "6px",
+            background: "#fff",
+            color: "#1d4ed8",
+            padding: "6px 10px",
+            fontSize: "11px",
+            cursor: "pointer",
+          }}
+        >
+          {complete && <Check style={{ width: 12, height: 12 }} />}
+          {complete ? "Prøvehandling gennemført" : "Prøv widget"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 function NodeRenderer({
   node,
@@ -542,41 +607,67 @@ function NodeRenderer({
       // so the user can reposition or wrap it.
       const capType = node.capability as CapabilityType | undefined;
       const label = (capType && CAPABILITY_LABELS[capType]) || String(capType || "Widget");
-      const icon = (capType && CAPABILITY_ICONS[capType]) || "⚙️";
+      if (isPreview) {
+        const icon = (capType && CAPABILITY_ICONS[capType]) || "⚙️";
+        return (
+          <div
+            {...dataAttrs}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              minHeight: "100px",
+              padding: "20px 16px",
+              backgroundColor: "#eff6ff",
+              border: "2px dashed #60a5fa",
+              borderRadius: "12px",
+              color: "#1d4ed8",
+              fontWeight: 600,
+              fontSize: "14px",
+              textAlign: "center",
+            }}
+          >
+            <span style={{ fontSize: "28px", lineHeight: 1 }}>{icon}</span>
+            <span>{label}</span>
+            <span style={{ fontSize: "11px", color: "#3b82f6", fontWeight: 400, opacity: 0.75, marginTop: "2px" }}>
+              Birdflow-widget · kun placering her
+            </span>
+          </div>
+        );
+      }
+      return (
+        <SafeCapabilityPreview
+          label={label}
+          isPreview={false}
+          onClick={handleNodeClick}
+          dataAttrs={dataAttrs}
+          selectionStyles={selectionStyles}
+        />
+      );
+    }
+
+    default:
+      if (isPreview) return null;
       return (
         <div
           {...dataAttrs}
           onClick={handleNodeClick}
           style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            minHeight: "100px",
-            padding: "20px 16px",
-            backgroundColor: "#eff6ff",
-            border: "2px dashed #60a5fa",
-            borderRadius: "12px",
-            color: "#1d4ed8",
-            fontWeight: 600,
-            fontSize: "14px",
-            textAlign: "center",
-            cursor: "default",
+            minHeight: "72px",
+            padding: "12px",
+            border: "1px dashed #f59e0b",
+            borderRadius: "8px",
+            background: "#fffbeb",
+            color: "#92400e",
+            fontSize: "12px",
             ...selectionStyles,
           }}
         >
-          <span style={{ fontSize: "28px", lineHeight: 1 }}>{icon}</span>
-          <span>{label}</span>
-          <span style={{ fontSize: "11px", color: "#3b82f6", fontWeight: 400, opacity: 0.75, marginTop: "2px" }}>
-            Birdflow-widget · kun placering her
-          </span>
+          Ukendt objekttype: {String((node as { type?: unknown }).type ?? "ukendt")}
         </div>
       );
-    }
-
-    default:
-      return null;
   }
 }
 
