@@ -31,6 +31,13 @@ import { scrubStateClaims } from "./claimRules";
 import { processAIBuildRequest, applyMutations } from "./aiBuilder";
 import { resolveAiImageMarkers } from "./aiImages";
 import { runSelfCheck } from "./selfCheck";
+import { checkPublishParity } from "./publishParity";
+import {
+  evaluateOnboardingQuality,
+  onboardingStateFingerprint,
+  repairOnboardingDefaults,
+  type OnboardingQualityIssue,
+} from "./onboardingQuality";
 import { buildReport } from "./aiReport";
 import { enrichBrandGuide } from "./brandGuideEnrichment";
 import { createSpendMeter, type SpendMeter } from "./aiSpend";
@@ -128,6 +135,14 @@ export type OnboardingGenStatus = {
    * reason rather than being left thinking the AI simply did less.
    */
   spendLimited?: boolean;
+  /** Honest terminal classification; `done` only means the run stopped. */
+  readiness?: "ready" | "repair_required" | "provider_failed" | "spend_limited" | "deterministic_fallback";
+  /** Structured blockers tied to the exact state that was saved. */
+  qualityIssues?: OnboardingQualityIssue[];
+  /** Exact persisted builder row covered by `readiness: ready`. */
+  qualityBuilderRevision?: number;
+  qualityFingerprint?: string;
+  qualitySiteRevision?: number;
   /** One-based run count, persisted so retries remain bounded after reloads. */
   attempt: number;
 };
@@ -163,7 +178,10 @@ function setPhase(status: OnboardingGenStatus, phase: OnboardingGenPhase, detail
   status.phase = phase;
   status.detail = detail;
   status.updatedAt = Date.now();
-  persistStatus(status);
+  // Terminal metadata is written once by finishOnboardingGeneration after the
+  // resulting site revision is known. A fire-and-forget terminal write would
+  // race that atomic completion and could erase revision-bound readiness.
+  if (phase !== "done" && phase !== "error") persistStatus(status);
 }
 
 /**
@@ -337,7 +355,7 @@ const GEN_STRINGS: Record<SiteLanguage, GenStrings> = {
     phaseBuild: "Bygger dine sider med indhold på dansk…",
     phaseEnhance: "Designer unikke komponenter og billeder…",
     enhanceFailed:
-      "Den ekstra designrunde kunne ikke gennemføres — dit website er bygget og klar alligevel.",
+      "Den ekstra designrunde kunne ikke gennemføres — udkastet er gemt, men kræver reparation før godkendelse.",
     phaseCheck: "Tjekker links, kontrast og mobilvisning…",
     phaseFallback: "Bygger en solid startside ud fra dine svar…",
     fallbackNote:
@@ -401,7 +419,7 @@ const GEN_STRINGS: Record<SiteLanguage, GenStrings> = {
     phaseBuild: "Building your pages with English copy…",
     phaseEnhance: "Designing unique components and images…",
     enhanceFailed:
-      "The extra design round could not be completed — your website is built and ready all the same.",
+      "The extra design round could not be completed — the draft is saved, but needs repair before approval.",
     phaseCheck: "Checking links, contrast and the mobile view…",
     phaseFallback: "Building a solid starting page from your answers…",
     fallbackNote:
@@ -633,6 +651,7 @@ async function runPipeline(
   let enhanceMutations: BuilderMutation[] = [];
   let imageNotes: string[] = [];
   let imageCreated: string[] = [];
+  let enhancementFailed = false;
   try {
     if (spendLimited) throw new Error("spend limit reached earlier in this generation");
     const aiResponse = await processAIBuildRequest(
@@ -643,8 +662,10 @@ async function runPipeline(
       spendMeter
     );
     const resolved = await resolveAiImageMarkers(websiteId, aiResponse.mutations, guide, spendMeter);
-    finalState = applyMutations(builtState, resolved.mutations);
-    enhanceMutations = resolved.mutations;
+    const applied = applyMutationsIndependently(builtState, resolved.mutations);
+    finalState = applied.state;
+    enhanceMutations = applied.applied;
+    imageNotes.push(...applied.notes);
     imageNotes = resolved.notes;
     imageCreated = resolved.created;
   } catch (error) {
@@ -652,6 +673,7 @@ async function runPipeline(
     console.error(`[OnboardingGen] Enhancement pass failed for ${websiteId} (keeping base build):`, error);
     finalState = builtState;
     enhanceMutations = [];
+    enhancementFailed = true;
     imageNotes = spendLimited ? [t.spendLimitNote] : [t.enhanceFailed];
   }
 
@@ -665,13 +687,66 @@ async function runPipeline(
   for (const n of finalScrub.notes) {
     if (!claimNotes.includes(n)) claimNotes.push(n);
   }
-  const check = runSelfCheck(finalState);
+  let check = runSelfCheck(finalState);
   finalState = check.state;
   sanitizeBuilderStateCustomContent(finalState);
   // A freshly generated site is born with the shared structure — stored
   // navigation, one header/footer, page roles — instead of waiting for the
   // first editor load to migrate the copies it was built with.
-  finalState = migrateSiteStructure(finalState);
+  finalState = repairOnboardingDefaults(migrateSiteStructure(finalState), lang);
+
+  let quality = evaluateOnboardingQuality(finalState, {
+    language: lang,
+    sourceFacts: input.migration?.sourceFacts,
+    customerAssetUrls: input.ownImageUrls,
+    enhancementFailed,
+  });
+
+  // One bounded, finding-led repair attempt. It edits the existing result
+  // instead of paying to rebuild the whole website, and each valid mutation
+  // survives even when a sibling mutation is malformed.
+  if (!quality.ready && !spendLimited && !enhancementFailed) {
+    try {
+      const repairResponse = await processAIBuildRequest(
+        buildQualityRepairPrompt(input, quality.issues),
+        finalState,
+        "creative",
+        lang,
+        spendMeter
+      );
+      const resolved = await resolveAiImageMarkers(
+        websiteId,
+        repairResponse.mutations,
+        guide,
+        spendMeter
+      );
+      const applied = applyMutationsIndependently(finalState, resolved.mutations);
+      finalState = applied.state;
+      enhanceMutations.push(...applied.applied);
+      imageNotes.push(...resolved.notes, ...applied.notes);
+      imageCreated.push(...resolved.created);
+      const repairedScrub = scrubStateClaims(finalState, businessContext);
+      finalState = repairedScrub.state;
+      repairedScrub.notes.forEach((note) => {
+        if (!claimNotes.includes(note)) claimNotes.push(note);
+      });
+      check = runSelfCheck(finalState);
+      finalState = repairOnboardingDefaults(
+        migrateSiteStructure(check.state),
+        lang
+      );
+      sanitizeBuilderStateCustomContent(finalState);
+      quality = evaluateOnboardingQuality(finalState, {
+        language: lang,
+        sourceFacts: input.migration?.sourceFacts,
+        customerAssetUrls: input.ownImageUrls,
+      });
+    } catch (error) {
+      if (isSpendLimitError(error)) spendLimited = true;
+      console.error(`[OnboardingGen] Quality repair failed for ${websiteId}:`, error);
+    }
+  }
+
   await storage.updateBuilderState(websiteId, finalState, undefined, { svgAssetOrigin: "ai" });
 
   // ---- Phase 6: brand-guide enrichment ----
@@ -679,6 +754,40 @@ async function runPipeline(
   // imagery. Purely additive: it never rebuilds pages, and a failure leaves
   // the mechanical guide exactly as it was saved in phase 1.
   await enrichSavedBrandGuide(websiteId, input, finalState, guide, spendMeter);
+
+  // Brand-guide enrichment is the last writer. Bind readiness to the row after
+  // that write, not to the earlier in-memory state, so any later adjustment
+  // changes either the revision or fingerprint and invalidates approval.
+  const verifiedBuilder = await storage.getBuilderState(websiteId);
+  const verifiedState = (verifiedBuilder?.state ?? finalState) as BuilderStateData;
+  quality = evaluateOnboardingQuality(verifiedState, {
+    language: lang,
+    sourceFacts: input.migration?.sourceFacts,
+    customerAssetUrls: input.ownImageUrls,
+    enhancementFailed,
+  });
+  if (quality.ready) {
+    const parity = await checkPublishParity(verifiedState, lang);
+    if (parity.status === "failed") {
+      quality = evaluateOnboardingQuality(verifiedState, {
+        language: lang,
+        sourceFacts: input.migration?.sourceFacts,
+        customerAssetUrls: input.ownImageUrls,
+        enhancementFailed,
+        parityProblems: parity.problems,
+      });
+    } else if (parity.status === "unavailable") {
+      quality = evaluateOnboardingQuality(verifiedState, {
+        language: lang,
+        sourceFacts: input.migration?.sourceFacts,
+        customerAssetUrls: input.ownImageUrls,
+        enhancementFailed,
+        parityProblems: parity.problems.length > 0
+          ? parity.problems.map((problem) => `Publish parity check unavailable: ${problem}`)
+          : ["Publish parity check unavailable."],
+      });
+    }
+  }
 
   const pageLines = finalState.pages.map((p) => t.pageBuilt(p.name, p.components.length));
   status.report = buildReport(
@@ -688,9 +797,59 @@ async function runPipeline(
     [t.guideCreated, ...pageLines, ...imageCreated]
   );
   if (spendLimited) status.spendLimited = true;
+  status.qualityIssues = quality.issues;
+  status.readiness = spendLimited
+    ? "spend_limited"
+    : enhancementFailed
+      ? "provider_failed"
+      : quality.ready
+        ? "ready"
+        : "repair_required";
+  if (status.readiness === "ready") {
+    status.qualityBuilderRevision = verifiedBuilder?.revision;
+    status.qualityFingerprint = onboardingStateFingerprint(verifiedState);
+  }
   setPhase(status, "done");
   status.done = true;
-  return !spendLimited;
+  return status.readiness === "ready";
+}
+
+function applyMutationsIndependently(
+  state: BuilderStateData,
+  mutations: BuilderMutation[]
+): { state: BuilderStateData; applied: BuilderMutation[]; notes: string[] } {
+  let current = state;
+  const applied: BuilderMutation[] = [];
+  const notes: string[] = [];
+  for (const mutation of mutations) {
+    try {
+      current = applyMutations(current, [mutation]);
+      applied.push(mutation);
+    } catch (error) {
+      notes.push(
+        `En designændring blev sprunget over, fordi den var ugyldig: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+  return { state: current, applied, notes };
+}
+
+function buildQualityRepairPrompt(
+  input: OnboardingGenInput,
+  issues: OnboardingQualityIssue[]
+): string {
+  return `${buildEnhancePrompt(input)}
+
+THIS IS A SINGLE BOUNDED REPAIR PASS. Do not redesign or replace the whole site.
+Fix only these machine-detected blockers, preserving all valid customer content:
+${issues.slice(0, 20).map((issue) => `- ${issue.code}: ${issue.message}`).join("\n")}
+
+Use real internal paths instead of "#". Replace generic starter copy with
+source-grounded copy about this business. Add substance to thin pages. Reuse
+approved customer imagery before stock imagery. Return the smallest valid set
+of mutations that resolves the findings.`;
 }
 
 // ============ Fallback: deterministic Danish starter site ============
@@ -734,6 +893,12 @@ async function applyFallback(
   );
   status.fallback = true;
   if (spendLimited) status.spendLimited = true;
+  status.readiness = spendLimited ? "spend_limited" : "deterministic_fallback";
+  status.qualityIssues = evaluateOnboardingQuality(state, {
+    language: normalizeSiteLanguage(input.language),
+    sourceFacts: input.migration?.sourceFacts,
+    customerAssetUrls: input.ownImageUrls,
+  }).issues;
   setPhase(status, "done");
   status.done = true;
 }

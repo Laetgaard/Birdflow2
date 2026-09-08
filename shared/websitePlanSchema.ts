@@ -77,11 +77,39 @@ export const BuildPhaseSchema = z.enum([
 
 // Section with variant options for wireframe
 export const SectionPlanSchema = z.object({
-  id: z.string(),
+  id: z.string().min(1),
   pattern: SectionPatternSchema,
-  description: z.string(),
+  description: z.string().min(1),
   variant: z.string().optional(),
   priority: z.enum(['essential', 'recommended', 'optional']).default('essential'),
+  /**
+   * The following fields are optional so plans saved before the quality
+   * contract continue to load. New architect runs are instructed (and
+   * separately validated) to provide them.
+   */
+  purpose: z.string().min(1).optional(),
+  contentIntent: z.string().min(1).optional(),
+  evidence: z.array(z.string().min(1)).optional(),
+  cta: z.object({
+    label: z.string().min(1).optional(),
+    destination: z.string().min(1).refine((value) => value.trim() !== '#', {
+      message: 'CTA destination must not be a placeholder',
+    }),
+  }).optional(),
+  assetIntent: z.object({
+    type: z.enum(['none', 'customer-image', 'photography', 'illustration', 'video', 'product-media']),
+    purpose: z.string().min(1),
+    customerAssetUrl: z.string().min(1).optional(),
+  }).optional(),
+  responsiveIntent: z.object({
+    desktop: z.string().min(1),
+    tablet: z.string().min(1),
+    mobile: z.string().min(1),
+  }).optional(),
+  capabilityIntent: z.object({
+    capability: z.string().min(1),
+    behavior: z.string().min(1),
+  }).optional(),
   // Content placeholders (populated in content phase)
   contentPlaceholder: z.object({
     headline: z.string().optional(),
@@ -93,11 +121,11 @@ export const SectionPlanSchema = z.object({
 });
 
 export const PagePlanSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  path: z.string(),
-  purpose: z.string(),
-  sections: z.array(SectionPlanSchema),
+  id: z.string().min(1),
+  name: z.string().min(1),
+  path: z.string().min(1),
+  purpose: z.string().min(1),
+  sections: z.array(SectionPlanSchema).min(1),
 });
 
 // Extended Design System Schema
@@ -210,7 +238,7 @@ export const WebsitePlanSchema = z.object({
   
   navigation: NavigationPlanSchema,
   
-  pages: z.array(PagePlanSchema),
+  pages: z.array(PagePlanSchema).min(1),
   
   uxGoals: z.array(z.string()),
   conversionGoals: z.array(z.string()),

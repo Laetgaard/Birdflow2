@@ -339,9 +339,12 @@ describe('extraction and resolution stay wired into the server (tripwires)', () 
     expect(publisher).toContain('udgivelsen blev stoppet');
   });
 
-  it('the read-only preview endpoint inlines assets so previews match publish', () => {
-    expect(readFileSync('server/onboardingDecisionRoutes.ts', 'utf8')).toContain(
-      'resolveSvgAssetsInState'
+  it('the read-only preview endpoint supplies the same asset map as the builder', () => {
+    const routeSource = readFileSync('server/onboardingDecisionRoutes.ts', 'utf8');
+    expect(routeSource).toContain('storage.getSvgAssets');
+    expect(routeSource).toContain('svgAssets');
+    expect(readFileSync('client/src/components/onboarding/ReadOnlySitePreview.tsx', 'utf8')).toContain(
+      'svgAssets={svgAssets}'
     );
   });
 });

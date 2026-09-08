@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRoute } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -66,6 +66,23 @@ export default function OnboardingPreviewPage() {
     );
   }, [data]);
 
+  const reportRenderDiagnostics = useCallback(
+    (diagnostics: import("@/components/onboarding/ReadOnlySitePreview").PreviewRenderDiagnostics) => {
+      if (!data) return;
+      window.parent?.postMessage(
+        {
+          type: "bf-preview-render-diagnostics",
+          websiteId: data.websiteId,
+          revision: data.revision,
+          fingerprint: data.fingerprint,
+          ...diagnostics,
+        },
+        window.location.origin
+      );
+    },
+    [data]
+  );
+
   if (authLoading || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white">
@@ -88,15 +105,24 @@ export default function OnboardingPreviewPage() {
     <div className="min-h-screen bg-neutral-100">
       <ReadOnlySitePreview
         pages={data?.pages ?? []}
+        websiteId={data?.websiteId ?? websiteId ?? ""}
         activePageId={activePageId ?? undefined}
         globalStyles={data?.globalStyles}
         chrome={data?.chrome}
         navItems={data?.navItems}
+        svgAssets={data?.svgAssets}
+        expectedTopLevelComponentIds={
+          activePageId ? data?.renderExpectations[activePageId]?.topLevelComponentIds : undefined
+        }
+        expectedTopLevelComponentCount={
+          activePageId ? data?.renderExpectations[activePageId]?.topLevelComponentCount : undefined
+        }
         device={device}
         onNavigate={(pageId) => {
           setActivePageId(pageId);
           window.parent?.postMessage({ type: "bf-preview-page", pageId }, window.location.origin);
         }}
+        onRenderDiagnostics={reportRenderDiagnostics}
       />
     </div>
   );

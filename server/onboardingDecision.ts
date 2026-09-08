@@ -20,6 +20,7 @@
 import { eq, sql } from "drizzle-orm";
 import {
   onboardingSessions,
+  builderState,
   ONBOARDING_DECISION_STATES,
   ONBOARDING_GENERATION_STATES,
   ONBOARDING_PAYMENT_METHOD_CHOICES,
@@ -30,12 +31,14 @@ import {
   type OnboardingPaymentState,
   type OnboardingSession,
 } from "@shared/schema";
+import { readinessMatchesOnboardingDraft } from "./onboardingQuality";
 import {
   deriveResumeStage,
   isApprovalStale,
   type OnboardingDecisionSnapshot,
   type OnboardingResumeStage,
 } from "@shared/onboardingDecision";
+import type { BuilderStateData } from "@shared/schema";
 import { db, storage } from "./storage";
 import { onboardingDecisionSchemaReady } from "./onboardingDecisionSchema";
 
@@ -151,6 +154,62 @@ export async function updateDecisionByUser(
     .where(eq(onboardingSessions.userId, userId))
     .returning();
   return rows[0];
+}
+
+export type AtomicApprovalResult =
+  | { ok: true; session: OnboardingSession; revision: number }
+  | { ok: false; reason: "paid" | "generating" | "stale" | "missing" };
+
+/**
+ * Certify and record approval under the same row locks. Builder is locked
+ * first, matching the builder-save → onboarding-revision lock order.
+ */
+export async function approveReadyDraftAtomically(args: {
+  userId: string;
+  websiteId: string;
+  paymentMethod: "card" | "invoice";
+}): Promise<AtomicApprovalResult> {
+  await decisionSchemaReady();
+  return db.transaction(async (tx) => {
+    const [builder] = await tx
+      .select()
+      .from(builderState)
+      .where(eq(builderState.websiteId, args.websiteId))
+      .for("update");
+    const [session] = await tx
+      .select()
+      .from(onboardingSessions)
+      .where(eq(onboardingSessions.userId, args.userId))
+      .for("update");
+    if (!session || session.websiteId !== args.websiteId || !builder) {
+      return { ok: false, reason: "missing" } as const;
+    }
+    if (session.paymentState === "paid") return { ok: false, reason: "paid" } as const;
+    if (session.generationState !== "complete") return { ok: false, reason: "generating" } as const;
+    if (
+      !readinessMatchesOnboardingDraft(
+        session.genStatus as Record<string, unknown> | null,
+        { revision: builder.revision, state: builder.state as BuilderStateData },
+        session.siteRevision
+      )
+    ) {
+      return { ok: false, reason: "stale" } as const;
+    }
+    const now = new Date();
+    const [updated] = await tx
+      .update(onboardingSessions)
+      .set({
+        decisionState: "approved",
+        paymentMethodChoice: args.paymentMethod,
+        approvedRevision: session.siteRevision,
+        approvedAt: now,
+        decidedAt: now,
+        updatedAt: now,
+      } as any)
+      .where(eq(onboardingSessions.id, session.id))
+      .returning();
+    return { ok: true, session: updated, revision: session.siteRevision } as const;
+  });
 }
 
 /** Merge-write the decision columns for one website. Returns the fresh row. */

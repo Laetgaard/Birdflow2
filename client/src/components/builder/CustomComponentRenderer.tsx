@@ -733,7 +733,7 @@ export default function CustomComponentRenderer({
 
   if (!tree) {
     return (
-      <section style={wrapperStyle} onClick={onClick}>
+      <section style={wrapperStyle} onClick={onClick} data-custom-render-state="empty">
         <div
           style={{
             padding: "48px 24px",

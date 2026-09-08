@@ -81,6 +81,7 @@ function PreviewPane({
   const [scale, setScale] = useState(1);
   const [ready, setReady] = useState(false);
   const [parityError, setParityError] = useState<string | null>(null);
+  const [renderDegradedError, setRenderDegradedError] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -120,6 +121,19 @@ function PreviewPane({
           expectedIds.length === renderedIds.length &&
           expectedIds.every((id, index) => id === renderedIds[index]);
         setParityError(matches ? null : "Forhåndsvisningen er blevet forældet. Opdater siden for at hente den seneste version.");
+      }
+      if (payload.type === "bf-preview-render-diagnostics") {
+        const contextMatches =
+          payload.websiteId === websiteId &&
+          payload.revision === expectedRevision &&
+          payload.fingerprint === expectedFingerprint;
+        if (!contextMatches || payload.degraded === true) {
+          setRenderDegradedError(
+            "Forhåndsvisningen er ufuldstændig. Noget af hjemmesidens indhold kunne ikke vises."
+          );
+        } else {
+          setRenderDegradedError(null);
+        }
       }
       if (payload.type === "bf-preview-page" && typeof payload.pageId === "string") {
         onActivePageChange(payload.pageId);
@@ -195,6 +209,8 @@ function PreviewPane({
             type="button"
             onClick={() => {
               setReady(false);
+              setParityError(null);
+              setRenderDegradedError(null);
               setReloadKey((key) => key + 1);
             }}
             className="rounded-lg border border-black/10 p-1.5 transition-colors hover:bg-black/5"
@@ -207,9 +223,9 @@ function PreviewPane({
       </div>
 
       <div ref={shellRef} className="flex-1 overflow-auto bg-neutral-100 p-3">
-        {parityError && (
+        {(parityError || renderDegradedError) && (
           <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="preview-parity-error">
-            {parityError}
+            {parityError || renderDegradedError}
           </div>
         )}
         <div

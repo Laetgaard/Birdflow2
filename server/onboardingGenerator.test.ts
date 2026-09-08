@@ -18,7 +18,14 @@ const getMediaAssetsMock = vi.fn(async () => []);
 
 const persistGenStatusMock = vi.fn(async () => {});
 const claimGenerationMock = vi.fn(async () => true);
-const finishGenerationMock = vi.fn(async () => true);
+const finishGenerationMock = vi.fn(async (
+  _id: string,
+  status: Record<string, unknown>,
+  publishable: boolean
+) => {
+  if (publishable) status.qualitySiteRevision = 1;
+  return true;
+});
 
 vi.mock("./storage", () => ({
   storage: {
@@ -85,6 +92,11 @@ vi.mock("./aiImages", () => ({
   resolveAiImageMarkers: (...args: unknown[]) => resolveAiImageMarkersMock(...(args as [string, unknown[]])),
 }));
 
+const checkPublishParityMock = vi.fn(async () => ({ status: "passed", problems: [] }));
+vi.mock("./publishParity", () => ({
+  checkPublishParity: (...args: unknown[]) => checkPublishParityMock(...args),
+}));
+
 import {
   startOnboardingGeneration,
   getOnboardingGenStatus,
@@ -143,16 +155,20 @@ function blankState(): BuilderStateData {
 }
 
 function builtState(): BuilderStateData {
-  const comp = (type: string) => ({
+  const comp = (type: string, title = "Moderne fysioterapi med plads til hele mennesket") => ({
     id: `c-${Math.random().toString(36).slice(2, 8)}`,
     type,
-    props: { title: "Test" },
+    props: {
+      title,
+      description:
+        "Klinik Nordlys hjælper mennesker i Aarhus med et roligt og personligt fysioterapiforløb, der tager udgangspunkt i deres hverdag og behov.",
+    },
     styles: {},
   });
   return {
     pages: [
-      { id: "home", name: "Hjem", path: "/", components: [comp("header"), comp("hero"), comp("footer")] },
-      { id: "kontakt", name: "Kontakt", path: "/kontakt", components: [comp("header"), comp("contact-form"), comp("footer")] },
+      { id: "home", name: "Hjem", path: "/", components: [comp("header"), comp("hero"), comp("features"), comp("footer")] },
+      { id: "kontakt", name: "Kontakt", path: "/kontakt", components: [comp("header"), comp("contact-form"), comp("rich-text"), comp("footer")] },
     ],
     activePage: "home",
     globalStyles: { primaryColor: "#123", secondaryColor: "#456", fontFamily: "Inter" },
@@ -177,6 +193,7 @@ beforeEach(() => {
     return undefined;
   });
   getBuilderStateMock.mockImplementation(async () => ({ state: lastSavedState ?? blankState() }));
+  checkPublishParityMock.mockResolvedValue({ status: "passed", problems: [] });
   finalizeBrandGuideMock.mockResolvedValue({
     guide: createDefaultBrandGuide({
       primaryColor: palette.colors.primary,
@@ -244,6 +261,79 @@ describe("startOnboardingGeneration — happy path", () => {
     await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), true));
   });
 
+  it("persists terminal readiness atomically even while a progress write is delayed", async () => {
+    let releaseProgress!: () => void;
+    const progressSnapshots: Array<{ phase?: string }> = [];
+    persistGenStatusMock.mockImplementation(
+      (_id: string, saved: { phase?: string }) => new Promise<void>((resolve) => {
+        progressSnapshots.push(structuredClone(saved));
+        releaseProgress = resolve;
+      })
+    );
+    const id = "site-delayed-progress";
+    await startOnboardingGeneration(id, makeInput());
+    const status = await waitForDone(id);
+
+    expect(status.qualitySiteRevision).toBe(1);
+    await vi.waitFor(() =>
+      expect(finishGenerationMock).toHaveBeenCalledWith(
+        id,
+        expect.objectContaining({
+          readiness: "ready",
+          qualitySiteRevision: 1,
+          qualityFingerprint: expect.any(String),
+        }),
+        true
+      )
+    );
+    // `done` itself is never mirrored through the stale progress path.
+    expect(progressSnapshots.some((saved) => saved.phase === "done")).toBe(false);
+    releaseProgress();
+  });
+
+  it("re-evaluates the exact persisted row before certifying readiness", async () => {
+    let reads = 0;
+    getBuilderStateMock.mockImplementation(async () => {
+      reads += 1;
+      if (reads >= 3 && lastSavedState) {
+        const concurrentlyChanged = structuredClone(lastSavedState);
+        concurrentlyChanged.pages[0].components = [{
+          id: "concurrent-thin-section",
+          type: "hero",
+          props: { title: "Kort" },
+          styles: {},
+        }] as BuilderStateData["pages"][number]["components"];
+        return { state: concurrentlyChanged, revision: 99 };
+      }
+      return { state: lastSavedState ?? blankState(), revision: reads };
+    });
+
+    const id = "site-concurrent-final-write";
+    await startOnboardingGeneration(id, makeInput());
+    const status = await waitForDone(id);
+
+    expect(status.readiness).toBe("repair_required");
+    expect(status.qualityIssues).toContainEqual(
+      expect.objectContaining({ code: "thin_page", pageId: "home" })
+    );
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), false));
+  });
+
+  it("fails closed when publish parity cannot run", async () => {
+    checkPublishParityMock.mockResolvedValue({
+      status: "unavailable",
+      problems: ["renderer dependency unavailable"],
+    });
+    const id = "site-parity-unavailable";
+    await startOnboardingGeneration(id, makeInput());
+    const status = await waitForDone(id);
+    expect(status.readiness).toBe("repair_required");
+    expect(status.qualityIssues).toContainEqual(
+      expect.objectContaining({ code: "publish_parity" })
+    );
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), false));
+  });
+
   it("user picks always win over the AI guide", async () => {
     finalizeBrandGuideMock.mockResolvedValue({
       guide: {
@@ -275,6 +365,30 @@ describe("startOnboardingGeneration — happy path", () => {
     const finalState = updateBuilderStateMock.mock.calls[1][1] as BuilderStateData;
     expect(finalState.pages.length).toBe(2);
     expect(status.report!.tjek.join(" ")).toContain("ekstra designrunde");
+  });
+
+  it("never marks a sanitizer-collapsed custom section ready", async () => {
+    const draft = builtState();
+    draft.pages[0].components = [
+      draft.pages[0].components[1],
+      {
+        id: "empty-custom",
+        type: "custom",
+        props: { customTree: { id: "root", type: "box", children: [] } },
+        styles: {},
+      },
+    ] as BuilderStateData["pages"][number]["components"];
+    buildFromPlanMock.mockResolvedValue({ success: true, builderState: draft });
+
+    const id = "site-empty-custom";
+    await startOnboardingGeneration(id, makeInput());
+    const status = await waitForDone(id);
+
+    expect(status.readiness).toBe("repair_required");
+    expect(status.qualityIssues).toContainEqual(
+      expect.objectContaining({ code: "empty_custom_component", componentId: "empty-custom" })
+    );
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), false));
   });
 
   it("returns the running status when start is called twice", async () => {

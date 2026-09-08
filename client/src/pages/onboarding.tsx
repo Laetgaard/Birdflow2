@@ -123,7 +123,21 @@ type GenStatus = {
   error?: string;
   /** The build stopped at its cost ceiling rather than failing. */
   spendLimited?: boolean;
+  readiness?: "ready" | "repair_required" | "provider_failed" | "spend_limited" | "deterministic_fallback";
+  qualityIssues?: Array<{ code: string; message: string; pageId?: string; componentId?: string }>;
+  qualityBuilderRevision?: number;
+  qualityFingerprint?: string;
+  qualitySiteRevision?: number;
 };
+
+function generationBlockNotice(status: GenStatus | null, t: OnboardingUiCopy): string | null {
+  if (!status) return null;
+  if (status.spendLimited || status.readiness === "spend_limited") return t.spendLimitNotice;
+  if (status.fallback || status.readiness === "deterministic_fallback") return t.fallbackNotice;
+  if (status.readiness === "provider_failed") return t.providerFailedNotice;
+  if (status.readiness === "repair_required") return t.repairRequiredNotice;
+  return null;
+}
 
 /** Pipeline phase ids, in order. The labels live in ONBOARDING_UI_COPY. */
 const GEN_PHASE_IDS = ["brandguide", "plan", "build", "enhance", "check"] as const;
@@ -1635,14 +1649,19 @@ export default function OnboardingPage() {
                   </div>
                 </div>
               )}
-              {(genStatus?.fallback || genStatus?.spendLimited) && (
+              {generationBlockNotice(genStatus, t) && (
                 <div
                   className="mt-4 flex gap-3 items-start rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
                   data-testid="generation-non-publishable"
                 >
                   <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                   <div>
-                    <p>{genStatus.spendLimited ? t.spendLimitNotice : t.fallbackNotice}</p>
+                    <p>{generationBlockNotice(genStatus, t)}</p>
+                    {!!genStatus?.qualityIssues?.length && (
+                      <p className="mt-1 text-xs opacity-80">
+                        {genStatus.qualityIssues.slice(0, 3).map((issue) => issue.message).join(" · ")}
+                      </p>
+                    )}
                     <Button size="sm" variant="outline" className="mt-2" onClick={restartBuild}>
                       {t.retryButton}
                     </Button>
@@ -1683,10 +1702,10 @@ export default function OnboardingPage() {
                 )}
               </div>
 
-              {(genStatus?.fallback || genStatus?.spendLimited) && (
+              {generationBlockNotice(genStatus, t) && (
                 <div className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                  <span>{genStatus?.spendLimited ? t.spendLimitNotice : t.fallbackNotice}</span>
+                  <span>{generationBlockNotice(genStatus, t)}</span>
                 </div>
               )}
 

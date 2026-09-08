@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { performSvgExtraction } from "./svgExtraction";
 import { svgAssetSchemaReady } from "./svgAssetSchema";
 import { isReservedQaFixtureEmail } from "@shared/qaFixturePolicy";
+import { onboardingStateFingerprint } from "./onboardingQuality";
 
 // Encryption helpers for sensitive data
 // ENCRYPTION_KEY must be a 64-character hex string (32 bytes)
@@ -2155,10 +2156,15 @@ export class DatabaseStorage implements IStorage {
 
   /** Fire-and-forget mirror of a generation status, keyed by website. */
   async persistOnboardingGenStatus(websiteId: string, status: Record<string, unknown>): Promise<void> {
+    const attempt = Number(status.attempt ?? 0);
     await db
       .update(onboardingSessions)
       .set({ genStatus: status, updatedAt: new Date() } as any)
-      .where(eq(onboardingSessions.websiteId, websiteId));
+      .where(and(
+        eq(onboardingSessions.websiteId, websiteId),
+        eq(onboardingSessions.generationState, "generating"),
+        sql`COALESCE((${onboardingSessions.genStatus} ->> 'attempt')::int, 0) = ${attempt}`
+      ));
   }
 
   /**
@@ -2199,35 +2205,64 @@ export class DatabaseStorage implements IStorage {
     publishable: boolean
   ): Promise<boolean> {
     const attempt = Number(status.attempt ?? 0);
-    const terminalValues = publishable
-      ? {
-          generationState: "complete",
-          genStatus: status,
-          siteRevision: sql`${onboardingSessions.siteRevision} + 1`,
-          approvedRevision: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
-            THEN ${onboardingSessions.approvedRevision} ELSE NULL END`,
-          approvedAt: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
-            THEN ${onboardingSessions.approvedAt} ELSE NULL END`,
-          decisionState: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
-            THEN ${onboardingSessions.decisionState}
-            WHEN ${onboardingSessions.decisionState} = 'approved' THEN 'awaiting_decision'
-            ELSE ${onboardingSessions.decisionState} END`,
-          updatedAt: new Date(),
+    return db.transaction(async (tx) => {
+      // Lock in the same order as explicit builder saves: builder, then
+      // onboarding session. This makes certification one serializable moment.
+      const [builder] = await tx
+        .select()
+        .from(builderState)
+        .where(eq(builderState.websiteId, websiteId))
+        .for("update");
+      const [session] = await tx
+        .select()
+        .from(onboardingSessions)
+        .where(eq(onboardingSessions.websiteId, websiteId))
+        .for("update");
+      if (
+        !session ||
+        Number((session.genStatus as Record<string, unknown> | null)?.attempt ?? 0) !== attempt
+      ) {
+        return false;
+      }
+      if (publishable) {
+        const certifiedRevision = Number(status.qualityBuilderRevision);
+        if (
+          !builder ||
+          !Number.isFinite(certifiedRevision) ||
+          builder.revision !== certifiedRevision ||
+          status.qualityFingerprint !== onboardingStateFingerprint(builder.state as BuilderStateData)
+        ) {
+          return false;
         }
-      : {
-          generationState: "failed",
-          genStatus: status,
-          updatedAt: new Date(),
-        };
-    const rows = await db
-      .update(onboardingSessions)
-      .set(terminalValues as any)
-      .where(and(
-        eq(onboardingSessions.websiteId, websiteId),
-        sql`COALESCE((${onboardingSessions.genStatus} ->> 'attempt')::int, 0) = ${attempt}`
-      ))
-      .returning({ id: onboardingSessions.id });
-    return rows.length === 1;
+        status.qualitySiteRevision = session.siteRevision + 1;
+      }
+      const terminalValues = publishable
+        ? {
+            generationState: "complete",
+            genStatus: status,
+            siteRevision: sql`${onboardingSessions.siteRevision} + 1`,
+            approvedRevision: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+              THEN ${onboardingSessions.approvedRevision} ELSE NULL END`,
+            approvedAt: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+              THEN ${onboardingSessions.approvedAt} ELSE NULL END`,
+            decisionState: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+              THEN ${onboardingSessions.decisionState}
+              WHEN ${onboardingSessions.decisionState} = 'approved' THEN 'awaiting_decision'
+              ELSE ${onboardingSessions.decisionState} END`,
+            updatedAt: new Date(),
+          }
+        : {
+            generationState: "failed",
+            genStatus: status,
+            updatedAt: new Date(),
+          };
+      const rows = await tx
+        .update(onboardingSessions)
+        .set(terminalValues as any)
+        .where(eq(onboardingSessions.id, session.id))
+        .returning({ id: onboardingSessions.id });
+      return rows.length === 1;
+    });
   }
 
   /**

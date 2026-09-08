@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BuilderComponentData } from "@shared/componentRegistry";
 import type { DesignTokens, SiteChrome } from "@shared/schema";
+import type { ResolvedTokens } from "@shared/designTokens";
+import type { SvgAssetLike } from "@shared/svgAssets";
 import { composePageComponents, type NavItem } from "@shared/siteStructure";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
@@ -35,6 +37,16 @@ export const PREVIEW_WIDTHS = {
 } as const;
 
 export type PreviewDevice = keyof typeof PREVIEW_WIDTHS;
+
+export type PreviewRenderDiagnostics = {
+  pageId: string;
+  expectedTopLevelComponentIds: string[];
+  expectedTopLevelComponentCount: number;
+  renderedTopLevelComponentIds: string[];
+  renderedTopLevelComponentCount: number;
+  missingTopLevelComponentIds: string[];
+  degraded: boolean;
+};
 
 /** Load the fonts the site was designed with, so the preview is truthful. */
 export function useGoogleFonts(fonts: Array<string | undefined>): void {
@@ -126,24 +138,37 @@ export function ReadOnlySitePreview({
   pages,
   activePageId,
   globalStyles,
+  websiteId,
+  svgAssets,
   chrome,
   navItems,
+  expectedTopLevelComponentIds,
+  expectedTopLevelComponentCount,
   device = "desktop",
   onNavigate,
+  onRenderDiagnostics,
   neutralise = true,
 }: {
   pages: PreviewPage[];
   activePageId?: string;
   globalStyles?: DesignTokens;
+  /** Exact site context used by data-backed builder components. */
+  websiteId: string;
+  /** The same stored, id-keyed illustration map supplied by the builder. */
+  svgAssets?: Record<string, SvgAssetLike>;
   /** The site-wide header and footer, drawn around every page that uses them. */
   chrome?: SiteChrome;
   /** The resolved site navigation, so the preview's menu matches the real one. */
   navItems?: NavItem[];
+  expectedTopLevelComponentIds?: string[];
+  expectedTopLevelComponentCount?: number;
   device?: PreviewDevice;
   /** Called when a link inside the site points at another generated page. */
   onNavigate?: (pageId: string) => void;
+  onRenderDiagnostics?: (diagnostics: PreviewRenderDiagnostics) => void;
   neutralise?: boolean;
 }) {
+  const previewRef = useRef<HTMLDivElement>(null);
   const activePage = useMemo(
     () => pages.find((page) => page.id === activePageId) ?? pages[0],
     [pages, activePageId]
@@ -163,6 +188,45 @@ export function ReadOnlySitePreview({
   ]);
   useNeutralisedInteractions(neutralise);
   useReadOnlyNetwork(neutralise);
+
+  // ComponentRenderer intentionally returns null for unsupported preview
+  // content. Compare the committed DOM with the server's expected top-level
+  // contract so a blank custom/unknown section cannot disappear silently.
+  useLayoutEffect(() => {
+    if (!activePage || !onRenderDiagnostics) return;
+    const expectedIds =
+      expectedTopLevelComponentIds ?? topLevelComponents(composed).map((component) => component.id);
+    const expectedCount = expectedTopLevelComponentCount ?? expectedIds.length;
+    const root = previewRef.current;
+    const renderedIds = root
+      ? Array.from(root.children)
+          .filter((node): node is HTMLElement => node instanceof HTMLElement)
+          .filter((node) => {
+            if (node.dataset.componentType !== "custom") return true;
+            const content = node.querySelector("section");
+            return !!content && content.dataset.customRenderState !== "empty";
+          })
+          .map((node) => node.dataset.componentId)
+          .filter((id): id is string => typeof id === "string")
+      : [];
+    const renderedSet = new Set(renderedIds);
+    const missingIds = expectedIds.filter((id) => !renderedSet.has(id));
+    onRenderDiagnostics({
+      pageId: activePage.id,
+      expectedTopLevelComponentIds: expectedIds,
+      expectedTopLevelComponentCount: expectedCount,
+      renderedTopLevelComponentIds: renderedIds,
+      renderedTopLevelComponentCount: renderedIds.length,
+      missingTopLevelComponentIds: missingIds,
+      degraded: missingIds.length > 0 || renderedIds.length !== expectedCount,
+    });
+  }, [
+    activePage,
+    composed,
+    expectedTopLevelComponentCount,
+    expectedTopLevelComponentIds,
+    onRenderDiagnostics,
+  ]);
 
   // Site-internal links move the preview between generated pages instead of
   // navigating the browser.
@@ -206,6 +270,7 @@ export function ReadOnlySitePreview({
       activePage={activePage.id}
     >
       <div
+        ref={previewRef}
         className="mx-auto bg-white"
         style={{ width: PREVIEW_WIDTHS[device], maxWidth: "100%" }}
         data-testid="readonly-site-preview"
@@ -215,11 +280,13 @@ export function ReadOnlySitePreview({
             key={component.id}
             component={component}
             isPreview
+            websiteId={websiteId}
             pages={pages}
             navItems={navItems}
             allComponents={composed}
             deviceMode={device}
             globalStyles={globalStyles}
+            svgAssets={svgAssets}
           />
         ))}
       </div>
@@ -234,6 +301,12 @@ export function usePreviewData(websiteId: string | null, token: string | null) {
     globalStyles: DesignTokens;
     chrome?: SiteChrome;
     navItems: NavItem[];
+    svgAssets: Record<string, SvgAssetLike>;
+    resolvedGlobalStyles: ResolvedTokens;
+    renderExpectations: Record<
+      string,
+      { topLevelComponentIds: string[]; topLevelComponentCount: number }
+    >;
     websiteName: string;
     websiteId: string;
     revision: number;
@@ -261,6 +334,9 @@ export function usePreviewData(websiteId: string | null, token: string | null) {
           globalStyles: body.globalStyles ?? {},
           chrome: body.siteChrome ?? undefined,
           navItems: body.navItems ?? [],
+          svgAssets: body.svgAssets ?? {},
+          resolvedGlobalStyles: body.resolvedGlobalStyles ?? {},
+          renderExpectations: body.renderExpectations ?? {},
           websiteName: body.websiteName ?? "",
           websiteId: body.websiteId ?? websiteId,
           revision: body.revision ?? 0,

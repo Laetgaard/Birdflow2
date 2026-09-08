@@ -10,17 +10,20 @@
  * website by guessing an id.
  */
 import type { Express, Request, Response, NextFunction } from "express";
-import { createHash } from "node:crypto";
 import type { BuilderStateData } from "@shared/schema";
 import { createDefaultBrandGuide, type BrandGuide } from "@shared/customComponents";
 import { ONBOARDING_COPY, onboardingCopy } from "@shared/onboardingDecision";
 import { normalizeSiteLanguage } from "@shared/siteLanguage";
-import { migrateSiteStructure, resolveNavItems } from "@shared/siteStructure";
-import { resolveSvgAssetsInState, type SvgAssetLike } from "@shared/svgAssets";
+import { composePageComponents, migrateSiteStructure, resolveNavItems } from "@shared/siteStructure";
+import { topLevelComponents } from "@shared/rendering/contract";
 import { resolveDesignTokens } from "@shared/designTokens";
+import {
+  onboardingStateFingerprint,
+} from "./onboardingQuality";
 import { storage } from "./storage";
 import { getAuthedUser } from "./websiteAccess";
 import {
+  approveReadyDraftAtomically,
   getSnapshotByUser,
   requireOwnedOnboardingWebsite,
   resolveResume,
@@ -62,15 +65,7 @@ function guideOf(state: BuilderStateData | undefined, fallbackName: string): Bra
 }
 
 function previewFingerprint(state: BuilderStateData): string {
-  return createHash("sha256")
-    .update(JSON.stringify({
-      pages: state.pages ?? [],
-      siteChrome: state.siteChrome ?? null,
-      globalStyles: state.globalStyles ?? {},
-      customComponents: state.customComponents ?? [],
-      brandGuide: state.brandGuide ?? null,
-    }))
-    .digest("hex");
+  return onboardingStateFingerprint(state);
 }
 
 export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingDecisionDeps): void {
@@ -175,24 +170,28 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       const structured = migrateSiteStructure(state);
       const fingerprint = previewFingerprint(structured);
 
-      // Inline svg-asset references server-side so every read-only surface
-      // renders stored drawings without carrying its own asset map (same
-      // resolution the publisher performs). Preview is a transient view, so
-      // a store hiccup degrades to the renderer's placeholder instead of
-      // blocking the whole preview — publish is where we fail closed.
-      try {
-        const assets = await storage.getSvgAssets(owned.websiteId);
-        if (assets.length > 0) {
-          const tokens = resolveDesignTokens((structured.globalStyles ?? {}) as never);
-          resolveSvgAssetsInState(
-            structured as Parameters<typeof resolveSvgAssetsInState>[0],
-            new Map<string, SvgAssetLike>(assets.map((asset) => [asset.id, asset])),
-            tokens
+      // ComponentRenderer resolves stored SVG references at render time. Give
+      // this read-only canvas the same id-keyed asset map as the builder rather
+      // than mutating a preview-only copy of the component tree.
+      const assets = await storage.getSvgAssets(owned.websiteId);
+      const svgAssets = Object.fromEntries(assets.map((asset) => [asset.id, asset]));
+      const resolvedGlobalStyles = resolveDesignTokens(
+        (structured.globalStyles ?? {}) as Parameters<typeof resolveDesignTokens>[0]
+      );
+      const renderExpectations = Object.fromEntries(
+        (structured.pages ?? []).map((page) => {
+          const components = topLevelComponents(
+            composePageComponents(page, structured.siteChrome)
           );
-        }
-      } catch (error: any) {
-        console.warn("[Onboarding] preview svg assets unavailable:", error?.message || error);
-      }
+          return [
+            page.id,
+            {
+              topLevelComponentIds: components.map((component) => component.id),
+              topLevelComponentCount: components.length,
+            },
+          ];
+        })
+      );
 
       res.json({
         websiteId: owned.websiteId,
@@ -203,6 +202,9 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         siteChrome: structured.siteChrome ?? null,
         navItems: resolveNavItems(structured),
         globalStyles: structured.globalStyles ?? {},
+        resolvedGlobalStyles,
+        svgAssets,
+        renderExpectations,
         customComponents: structured.customComponents ?? [],
         brandGuide: structured.brandGuide ?? null,
       });
@@ -291,41 +293,35 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       if (!owned.ok) return res.status(owned.status).json({ message: owned.message });
       const snapshot = owned.snapshot;
 
-      if (snapshot.paymentState === "paid") {
-        return res.status(409).json({ message: "Der er allerede betalt.", code: "ALREADY_PAID" });
-      }
-      if (snapshot.generationState !== "complete") {
-        return res.status(409).json({ message: "Hjemmesiden er ikke færdig endnu." });
-      }
-      const generationStatus = owned.session.genStatus as Record<string, unknown> | null;
-      if (generationStatus?.fallback === true || generationStatus?.spendLimited === true) {
-        return res.status(409).json({
-          message: "AI-udkastet er ikke klar til godkendelse endnu.",
-          code: "NON_PUBLISHABLE_DRAFT",
-        });
-      }
-
       const identity = await billingIdentity(user.id, user.email);
       if (!identity) {
         return res.status(400).json({ message: "Vi mangler din e-mail for at kunne fakturere." });
       }
 
-      // The approval is scoped to the revision the customer is looking at.
-      await updateDecisionByUser(user.id, {
-        decisionState: "approved",
-        paymentMethodChoice: method,
-        approvedRevision: snapshot.siteRevision,
-        approvedAt: new Date(),
-        decidedAt: new Date(),
+      const approval = await approveReadyDraftAtomically({
+        userId: user.id,
+        websiteId: owned.websiteId,
+        paymentMethod: method,
       });
+      if (!approval.ok) {
+        if (approval.reason === "paid") {
+          return res.status(409).json({ message: "Der er allerede betalt.", code: "ALREADY_PAID" });
+        }
+        return res.status(409).json({
+          message: approval.reason === "generating"
+            ? "Hjemmesiden er ikke færdig endnu."
+            : "AI-udkastet er ikke klar til godkendelse endnu.",
+          code: approval.reason === "generating" ? "GENERATION_INCOMPLETE" : "NON_PUBLISHABLE_DRAFT",
+        });
+      }
 
       const actor = {
         userId: user.id,
         email: identity.email,
         name: identity.name,
         websiteId: owned.websiteId,
-        onboardingSessionId: String(owned.session.id),
-        revision: snapshot.siteRevision,
+        onboardingSessionId: String(approval.session.id),
+        revision: approval.revision,
       };
 
       if (method === "card") {
