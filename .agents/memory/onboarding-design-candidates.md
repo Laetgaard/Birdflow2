@@ -14,3 +14,9 @@ Direction selection promotes the stored snapshot unchanged. It must re-check can
 **Why:** Regeneration or an unguarded switch can make the preview, approval and paid draft refer to different websites.
 
 **How to apply:** Treat selection like a builder write: lock builder then onboarding session, invalidate approval when allowed, never retry a stale revision blindly, and preserve the exact candidate fingerprint.
+
+Retained QA evidence is successful only when all three candidate states, six candidate screenshots, decision-state evidence, exact preview/selection fingerprints, and completed visual reviews agree. A file or database row existing is not proof that the corresponding step worked.
+
+**Why:** A detailed retained audit found high candidate scores alongside blank owned imagery, clipped mobile layouts, thin pages, unavailable visual review, and unmatched fingerprints. Treating record existence as success would have hidden these failures.
+
+**How to apply:** Preserve every attempt append-only, classify missing evidence explicitly, keep provider failures separate from screenshot capture, and calibrate quality scores only from checks that actually ran.

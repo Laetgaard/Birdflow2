@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import puppeteer from "puppeteer";
+import sharp from "sharp";
 import type { BuilderStateData } from "@shared/schema";
 import type { BuilderComponentData } from "@shared/componentRegistry";
 import { storage } from "../server/storage";
@@ -25,17 +26,21 @@ import {
 import {
   appendQaManifest,
   assertQaFixturesAllowed,
+  sanitizeQaEntry,
   type QaCheck,
   type QaCheckResult,
+  type QaAuditFinding,
+  type QaDirectionEvidence,
   type QaFixtureManifestEntry,
   type QaTerminalStatus,
 } from "../server/qaFixtureSupport";
 
 const MANIFEST_PATH = resolve(process.cwd(), "qa-results/persistent-onboarding-fixtures.json");
 const SCREENSHOT_DIR = resolve(process.cwd(), "qa-results/screenshots");
-const IMPORT_SOURCE = "https://psykologamalieveber.laet.dk/";
-const IMPORT_SOURCE_CONTRACT_VERSION = "psychologist-source-v1-2026-09-08";
+const IMPORT_SOURCE = "https://websitedemos.net/wellness-coach-02/";
+const IMPORT_SOURCE_CONTRACT_VERSION = "public-wellness-template-v1-2026-09-08";
 const RUN_TIMEOUT_MS = 12 * 60_000;
+const AUDIT_DIR = resolve(process.cwd(), "qa-results/onboarding-audits");
 
 const PALETTE = {
   id: "qa-calm-copenhagen",
@@ -63,15 +68,15 @@ const FONT_PAIR = {
 export const SCRATCH_INPUT: OnboardingGenInput = {
   language: "da",
   business: {
-    name: "Samtalerum København",
+    name: "Mellemrum Terapi",
     industry: "Psykoterapeut",
     description:
-      "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01.",
+      "Psykoterapi for voksne og par på Nørrebro i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Tilgangen er rolig og undersøgende. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01.",
   },
   wishes: {
     goals: ["booking", "kontakt"],
     notes:
-      "Lav siderne Forside, Om, Ydelser og Kontakt. Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier eller andre opdigtede påstande.",
+      "Lav siderne Forside, Om Mette, Samtaleforløb og Kontakt. Primær CTA skal være Book en afklarende samtale. Vis de to ydelser med priser og varigheder. Brug de uploadede billeder som henholdsvis hero/portræt og klinikmiljø. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier, autorisation, medlemsskaber, ventetider eller andre opdigtede påstande.",
   },
   feeling: "rolig, varm, professionel og jordnær",
   palette: PALETTE,
@@ -83,15 +88,49 @@ export const SCRATCH_INPUT: OnboardingGenInput = {
 export const SPARSE_INPUT: OnboardingGenInput = {
   ...SCRATCH_INPUT,
   business: {
-    name: "Stille Sted",
-    industry: "Selvstændig rådgiver",
+    name: "Nordform Studio",
+    industry: "Selvstændig kreativ rådgiver",
     description: "",
   },
   wishes: {
     goals: ["kontakt"],
-    notes: "Lav en enkel, troværdig hjemmeside uden at opfinde ydelser, priser, erfaring eller kundecases.",
+    notes: "Lav en særpræget men enkel hjemmeside. Foreslå en illustrationstil uden at foregive, at illustrationer eller fotos allerede findes. Opfind ikke ydelser, priser, erfaring, lokation, kundecases, awards eller kunder.",
   },
-  feeling: "rolig og enkel",
+  feeling: "kunstnerisk, præcis, nordisk og underspillet",
+};
+
+const DOSSIERS: Record<Scenario, {
+  name: string;
+  summary: string;
+  informationDensity: "rich" | "sparse" | "imported";
+  expectedFacts: string[];
+  prohibitedClaims: string[];
+  imageryGoal: string;
+}> = {
+  scratch: {
+    name: "Content-rich solo therapist with owned photography",
+    summary: "A detailed Nørrebro psychotherapy practice testing fact fidelity, emotional pacing, service clarity, owned imagery and conversion design.",
+    informationDensity: "rich",
+    expectedFacts: ["Nørrebro", "individual therapy: 60 minutes / 900 DKK", "couples therapy: 75 minutes / 1,200 DKK", "physical and online sessions"],
+    prohibitedClaims: ["testimonials", "guaranteed outcomes", "authorization", "memberships", "short wait times"],
+    imageryGoal: "Use the synthetic portrait as the main human focal point and the room image as environmental proof, with intentional desktop and mobile crops.",
+  },
+  sparse: {
+    name: "Sparse creative professional without photography",
+    summary: "A deliberately under-specified creative consultancy testing questions, restraint, visual originality and illustration recommendations without invented facts.",
+    informationDensity: "sparse",
+    expectedFacts: ["Nordform Studio", "independent creative consultant"],
+    prohibitedClaims: ["named services", "prices", "years of experience", "location", "clients", "awards", "case studies"],
+    imageryGoal: "Do not pretend assets exist; create a coherent illustration art direction and explain what should be commissioned or generated later.",
+  },
+  import: {
+    name: "Public wellness template import and brand evolution",
+    summary: "A controlled public wellness demo tests extraction fidelity, image handling, content cleanup and meaningful redesign rather than template cloning.",
+    informationDensity: "imported",
+    expectedFacts: ["source-backed identity", "source-backed services", "source-backed contact information"],
+    prohibitedClaims: ["new qualifications", "new prices", "new testimonials", "native booking success without owned services and slots"],
+    imageryGoal: "Preserve only selected source imagery, detect low-quality or decorative assets, and art-direct crops consistently across three transformed directions.",
+  },
 };
 
 type Scenario = "scratch" | "sparse" | "import";
@@ -108,6 +147,8 @@ type ScenarioContext = {
   checks: Record<string, QaCheck>;
   screenshots: QaFixtureManifestEntry["screenshots"];
   qualityFindings: QaFixtureManifestEntry["qualityFindings"];
+  directionEvidence: QaDirectionEvidence[];
+  auditFindings: QaAuditFinding[];
   importReport?: WebsiteImportReport;
   status?: OnboardingGenStatus;
   failure?: QaFixtureManifestEntry["failure"];
@@ -227,6 +268,64 @@ async function createFreshQaIdentity(context: ScenarioContext): Promise<void> {
   context.checks.freshUserCreated = check("PASS", `Created retained QA user ${context.userId}.`);
 }
 
+async function seedOwnedScratchAssets(context: ScenarioContext): Promise<void> {
+  if (context.scenario !== "scratch" || !context.websiteId) return;
+  const sources = [
+    {
+      path: resolve(process.cwd(), "attached_assets/generated_images/qa-therapist-hero.jpg"),
+      label: "Synthetic therapist environmental portrait",
+      usage: "hero and practitioner portrait",
+    },
+    {
+      path: resolve(process.cwd(), "attached_assets/generated_images/qa-therapist-room.jpg"),
+      label: "Synthetic therapy room interior",
+      usage: "clinic environment and about section",
+    },
+  ];
+  const retained: string[] = [];
+  for (const [index, source] of sources.entries()) {
+    const original = await readFile(source.path);
+    const image = sharp(original, { animated: false });
+    const metadata = await image.metadata();
+    const stored = await image.rotate().webp({ quality: 88 }).toBuffer();
+    const filename = `qa-${context.runId}-${index + 1}.webp`;
+    const upload = await api<{ uploadUrl: string; storagePath: string; filename: string }>(
+      context,
+      `/api/websites/${context.websiteId}/media/upload-url`,
+      {
+        method: "POST",
+        body: JSON.stringify({ filename, contentType: "image/webp" }),
+      },
+    );
+    const uploaded = await fetch(upload.uploadUrl, {
+      method: "PUT",
+      headers: { "content-type": "image/webp" },
+      body: stored,
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!uploaded.ok) throw new Error(`Purpose-made image upload failed (${uploaded.status}).`);
+    await api(context, `/api/websites/${context.websiteId}/media`, {
+      method: "POST",
+      body: JSON.stringify({
+        filename: upload.filename,
+        originalFilename: source.path.split("/").pop() ?? filename,
+        storagePath: upload.storagePath,
+        mimeType: "image/webp",
+        size: stored.length,
+        width: metadata.width,
+        height: metadata.height,
+        altText: `${source.label}; purpose-made retained QA asset for ${source.usage}.`,
+      }),
+    });
+    retained.push(upload.storagePath);
+  }
+  SCRATCH_INPUT.ownImageUrls = retained;
+  context.checks.purposeMadeAssetsRetained = check(
+    retained.length === 2 ? "PASS" : "FAIL",
+    `${retained.length}/2 purpose-made image assets were stored as website-owned media.`,
+  );
+}
+
 async function createFreshSiteAndSession(context: ScenarioContext): Promise<void> {
   if (!context.userId) throw new Error("Fresh QA user must exist before website setup.");
   await api(context, "/api/onboarding/session/record", {
@@ -247,6 +346,7 @@ async function createFreshSiteAndSession(context: ScenarioContext): Promise<void
     }),
   });
   context.websiteId = created.websiteId;
+  await seedOwnedScratchAssets(context);
   const recorded = await api<{ answers: Record<string, unknown> }>(
     context,
     "/api/onboarding/session/record",
@@ -265,6 +365,7 @@ async function createFreshSiteAndSession(context: ScenarioContext): Promise<void
           feeling: scenarioInput(context.scenario).feeling,
           palette: scenarioInput(context.scenario).palette,
           fontPair: scenarioInput(context.scenario).fontPair,
+          ownImageUrls: scenarioInput(context.scenario).ownImageUrls,
         }
         : {
           websiteId: created.websiteId,
@@ -499,6 +600,135 @@ function findBrokenInternalLinks(state: BuilderStateData): string[] {
   return [...new Set(broken)];
 }
 
+function findingMeta(key: string): Pick<QaAuditFinding, "severity" | "subsystem" | "customerImpact" | "likelyCause" | "recommendation"> {
+  const normalized = key.toLowerCase();
+  if (/provider|aivisual/.test(normalized)) return {
+    severity: "high",
+    subsystem: "provider",
+    customerImpact: "The system cannot prove that the generated site is visually safe or polished.",
+    likelyCause: "The vision provider was unavailable, rate-limited, or returned unusable structured output.",
+    recommendation: "Reserve review capacity separately from generation, retry with bounded backoff, and keep readiness fail-closed until visual evidence exists.",
+  };
+  if (/image|asset|imagery/.test(normalized)) return {
+    severity: "high",
+    subsystem: "imagery",
+    customerImpact: "The website can feel generic, show the wrong subject, or crop an owned image poorly.",
+    likelyCause: "Asset metadata and placement rules are too shallow to capture subject, focal point, role, orientation, and responsive crop.",
+    recommendation: "Collect subject/focal-point metadata, score hero suitability, store desktop/mobile crops separately, and review repetition and sequence across the full site.",
+  };
+  if (/direction|distinct/.test(normalized)) return {
+    severity: "high",
+    subsystem: "direction-generation",
+    customerImpact: "The customer is offered cosmetic variants instead of meaningful creative choices.",
+    likelyCause: "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+    recommendation: "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices.",
+  };
+  if (/content|fact|claim|placeholder|thin/.test(normalized)) return {
+    severity: "high",
+    subsystem: "content",
+    customerImpact: "Important customer facts may disappear or unsupported claims may damage trust.",
+    likelyCause: "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+    recommendation: "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims.",
+  };
+  if (/mobile|overflow/.test(normalized)) return {
+    severity: "high",
+    subsystem: "mobile",
+    customerImpact: "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+    likelyCause: "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+    recommendation: "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate.",
+  };
+  if (/preview|fingerprint|builder|selection/.test(normalized)) return {
+    severity: "critical",
+    subsystem: normalized.includes("selection") ? "selection" : "preview",
+    customerImpact: "The customer may approve a different website from the one retained in the builder.",
+    likelyCause: "Preview, candidate bundle and active builder state are not aligned to the same fingerprint or revision.",
+    recommendation: "Keep fingerprint and revision checks mandatory for every direction preview, selection and approval transition.",
+  };
+  if (/import|source/.test(normalized)) return {
+    severity: "high",
+    subsystem: "import",
+    customerImpact: "A redesign may lose source-backed information or carry unsupported legacy content forward.",
+    likelyCause: "Import extraction, confidence thresholds, asset transfer or source-provenance checks were incomplete.",
+    recommendation: "Retain source provenance per fact and asset, show unresolved information explicitly, and compare the generated state against the approved import selection.",
+  };
+  if (/booking|service|slot/.test(normalized)) return {
+    severity: "high",
+    subsystem: "booking",
+    customerImpact: "A booking call to action may lead to a non-functional flow.",
+    likelyCause: "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+    recommendation: "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end.",
+  };
+  return {
+    severity: "medium",
+    subsystem: "quality-gate",
+    customerImpact: "The draft lacks complete evidence for a production-quality handoff.",
+    likelyCause: "A required deterministic or visual audit check did not pass.",
+    recommendation: "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning.",
+  };
+}
+
+export function buildAuditFindings(
+  checks: Record<string, QaCheck>,
+  qualityFindings: QaFixtureManifestEntry["qualityFindings"],
+  screenshots: QaFixtureManifestEntry["screenshots"],
+): QaAuditFinding[] {
+  const findings: QaAuditFinding[] = [];
+  for (const [key, value] of Object.entries(checks)) {
+    if (value.result !== "FAIL") continue;
+    findings.push({
+      ...findingMeta(key),
+      title: `Failed audit check: ${key}`,
+      evidence: value.detail ?? "The retained check failed without additional detail.",
+    });
+  }
+  for (const finding of qualityFindings) {
+    const meta = findingMeta(`${finding.code} ${finding.message}`);
+    findings.push({
+      ...meta,
+      title: finding.code,
+      evidence: `${finding.message}${finding.pageId ? ` Page: ${finding.pageId}.` : ""}${finding.componentId ? ` Component: ${finding.componentId}.` : ""}`,
+    });
+  }
+  for (const screenshot of screenshots.filter((item) => item.status === "FAIL")) {
+    const meta = findingMeta(screenshot.kind);
+    findings.push({
+      ...meta,
+      title: `Missing or broken visual evidence: ${screenshot.kind}`,
+      evidence: screenshot.warnings?.join(" ") || "Screenshot capture failed.",
+    });
+  }
+  return findings.filter((finding, index) =>
+    findings.findIndex((candidate) =>
+      candidate.title === finding.title && candidate.evidence === finding.evidence
+    ) === index
+  );
+}
+
+export function evidenceCompleteness(
+  screenshots: QaFixtureManifestEntry["screenshots"],
+  directions: QaDirectionEvidence[],
+): QaFixtureManifestEntry["evidenceCompleteness"] {
+  const capturedCandidateScreenshots = screenshots.filter(
+    (shot) => /direction-[123]$/.test(shot.kind) && shot.status === "PASS" && !!shot.path
+  ).length;
+  const decisionScreenshots = screenshots.filter(
+    (shot) => shot.kind.endsWith("-decision") && shot.status === "PASS" && !!shot.path
+  ).length;
+  const missing: string[] = [];
+  if (directions.length !== 3) missing.push(`Expected 3 retained candidate states, found ${directions.length}.`);
+  if (capturedCandidateScreenshots !== 6) missing.push(`Expected 6 candidate screenshots, captured ${capturedCandidateScreenshots}.`);
+  if (decisionScreenshots !== 2) missing.push(`Expected 2 decision-workspace screenshots, captured ${decisionScreenshots}.`);
+  if (directions.some((direction) => !direction.visualReviewRan)) missing.push("One or more candidates lacks completed AI visual review evidence.");
+  return {
+    expectedCandidateScreenshots: 6,
+    capturedCandidateScreenshots,
+    decisionScreenshots,
+    candidateStates: directions.length,
+    complete: missing.length === 0,
+    missing,
+  };
+}
+
 async function captureEvidence(context: ScenarioContext, state: BuilderStateData): Promise<void> {
   await mkdir(SCREENSHOT_DIR, { recursive: true });
   const cache = new Map<string, VisualScreenshot>();
@@ -533,9 +763,47 @@ async function captureEvidence(context: ScenarioContext, state: BuilderStateData
         candidateState: direction.state,
       }))
     : [{ page: home, suffix: "home", candidateState: state }];
-  targets.push({ page: booking, suffix: "booking", candidateState: state });
+  if (context.scenario === "sparse") {
+    context.checks.bookingScreenshotAvailable = check("NOT_APPLICABLE", "Sparse fixture does not request booking.");
+  } else {
+    targets.push({ page: booking, suffix: "booking", candidateState: state });
+  }
   const reviewedPages = new Set<string>();
   try {
+    for (const viewport of ["desktop", "mobile"] as const) {
+      const dimensions = viewport === "desktop"
+        ? { width: 1440, height: 1000 }
+        : { width: 390, height: 844 };
+      const decisionPage = await browser.newPage();
+      try {
+        await decisionPage.setViewport({ ...dimensions, deviceScaleFactor: 1 });
+        await decisionPage.goto(apiBaseUrl(), { waitUntil: "domcontentloaded", timeout: 30_000 });
+        await decisionPage.evaluate(
+          (key, authSession) => localStorage.setItem(key, JSON.stringify(authSession)),
+          authStorageKey,
+          context.authSession
+        );
+        await decisionPage.goto(`${apiBaseUrl()}/onboarding`, { waitUntil: "networkidle2", timeout: 45_000 });
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 1_200));
+        const directionCards = await decisionPage.$$('[data-testid^="design-direction-"]');
+        if (directionCards.length !== 3) {
+          throw new Error(`Expected 3 design direction cards, found ${directionCards.length}.`);
+        }
+        const id = `${context.runId}-decision-${viewport}`;
+        const relativePath = `qa-results/screenshots/${id}.jpg`;
+        const bytes = await decisionPage.screenshot({ type: "jpeg", quality: 82, fullPage: true });
+        await writeFile(resolve(process.cwd(), relativePath), Buffer.from(bytes));
+        context.screenshots.push({ kind: `${viewport}-decision`, path: relativePath, status: "PASS" });
+      } catch (error) {
+        context.screenshots.push({
+          kind: `${viewport}-decision`,
+          status: "FAIL",
+          warnings: [message(error)],
+        });
+      } finally {
+        await decisionPage.close();
+      }
+    }
     for (const { page, suffix, directionId, candidateState } of targets) {
       if (!page) {
         for (const viewport of ["desktop", "mobile"] as const) {
@@ -664,6 +932,24 @@ async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
   const nativeBooking = nativeBookingComponents(components);
   const quality = context.status?.qualityIssues ?? [];
   const directionBundle = session?.answers?.designDirections;
+  context.directionEvidence = (directionBundle?.directions ?? []).map((direction) => ({
+    id: direction.id,
+    name: direction.manifest.name,
+    concept: direction.manifest.concept,
+    fingerprint: direction.fingerprint,
+    selected: direction.id === directionBundle?.selectedDirectionId,
+    layoutArchetype: direction.manifest.layoutArchetype,
+    heroComposition: direction.manifest.heroComposition,
+    typography: { ...direction.manifest.typography },
+    palette: { ...direction.manifest.palette },
+    imageryStyle: direction.manifest.imageryStyle,
+    decorativeGraphics: direction.manifest.decorativeGraphics,
+    assetPlacements: direction.manifest.assetPlacements.map((placement) => ({ ...placement })),
+    qualityScore: { ...direction.qualityScore },
+    visualReviewRan: direction.visualReview.ran,
+    visualIssueCount: direction.visualReview.issues.length,
+    repairPasses: direction.repairHistory.length,
+  }));
   context.qualityFindings = quality.map((issue) => ({
     code: issue.code,
     message: issue.message,
@@ -741,13 +1027,27 @@ async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
   );
   const expectedContent =
     context.scenario === "scratch"
-      ? ["individuel", "parterapi", "900", "1.200", "60", "75", "online", "kontakt@qa-psykoterapeut.invalid"]
-      : [];
+      ? ["nørrebro", "individuel", "parterapi", "900", "1.200", "60", "75", "online", "kontakt@qa-psykoterapeut.invalid"]
+      : context.scenario === "sparse"
+        ? ["nordform studio", "kreativ"]
+        : [];
   for (const expected of expectedContent) {
     setCheck(context, `content:${expected}`, text.includes(expected), `Expected generated content to include “${expected}”.`);
   }
   const placeholderMatches = text.match(/lorem ipsum|placeholder|indsæt tekst|example\.com|todo|your (?:name|business)/gi) ?? [];
   setCheck(context, "noPlaceholders", placeholderMatches.length === 0, `${placeholderMatches.length} placeholder marker(s) found.`);
+  const prohibited = context.scenario === "scratch"
+    ? [/testimonials?/i, /garanti/i, /autoriseret/i, /medlem af/i, /kort ventetid/i]
+    : context.scenario === "sparse"
+      ? [/\b\d+\s*års erfaring\b/i, /award/i, /vores kunder/i, /kundecase/i, /\bkr\.?\s*\d+/i]
+      : [];
+  const prohibitedHits = prohibited.filter((pattern) => pattern.test(text));
+  setCheck(
+    context,
+    "noInventedProhibitedClaims",
+    prohibitedHits.length === 0,
+    `${prohibitedHits.length} prohibited claim pattern(s) appeared in visible copy.`,
+  );
   const brokenLinks = findBrokenInternalLinks(state);
   setCheck(context, "internalLinksResolve", brokenLinks.length === 0, `${brokenLinks.length} broken internal link(s): ${brokenLinks.slice(0, 5).join(", ")}`);
   context.checks.nativeBookingComponent = context.scenario === "sparse"
@@ -885,6 +1185,44 @@ async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
     );
   }
   await captureEvidence(context, state);
+  if (directionBundle?.directions.length === 3) {
+    const target = directionBundle.directions.find((direction) => direction.id !== directionBundle.selectedDirectionId);
+    if (target) {
+      try {
+        const selected = await api<{ directionId: string; fingerprint: string }>(
+          context,
+          "/api/onboarding/direction/select",
+          {
+            method: "POST",
+            body: JSON.stringify({ websiteId: context.websiteId, directionId: target.id }),
+          },
+        );
+        const [afterBuilder, afterSession] = await Promise.all([
+          storage.getBuilderState(context.websiteId),
+          storage.getOnboardingSession(context.userId),
+        ]);
+        const afterFingerprint = afterBuilder
+          ? onboardingStateFingerprint(afterBuilder.state as BuilderStateData)
+          : "";
+        setCheck(
+          context,
+          "directionSelectionPromotesExactCandidate",
+          selected.directionId === target.id &&
+            selected.fingerprint === target.fingerprint &&
+            afterFingerprint === target.fingerprint &&
+            afterSession?.answers?.designDirections?.selectedDirectionId === target.id,
+          `Selected ${selected.directionId}; retained candidate ${target.id}; builder fingerprint ${afterFingerprint}.`,
+        );
+        context.directionEvidence = context.directionEvidence.map((direction) => ({
+          ...direction,
+          selected: direction.id === target.id,
+        }));
+      } catch (error) {
+        context.checks.directionSelectionPromotesExactCandidate = check("FAIL", message(error));
+      }
+    }
+  }
+  context.auditFindings = buildAuditFindings(context.checks, context.qualityFindings, context.screenshots);
 }
 
 function classify(context: ScenarioContext): QaTerminalStatus {
@@ -899,6 +1237,9 @@ function classify(context: ScenarioContext): QaTerminalStatus {
   }
   if (context.status.readiness !== "ready" || failedKeys.some((key) => /quality|readiness/i.test(key))) {
     return "FAILED_QUALITY_GATE";
+  }
+  if (!evidenceCompleteness(context.screenshots, context.directionEvidence).complete) {
+    return "FAILED_ONBOARDING";
   }
   if (failedKeys.length) return "FAILED_ONBOARDING";
   const warnings = Object.values(context.checks).some((value) => value.result === "WARNING") ||
@@ -931,6 +1272,7 @@ function manifestEntry(context: ScenarioContext): QaFixtureManifestEntry {
     sourceWebsiteUrl: context.scenario === "import" ? IMPORT_SOURCE : undefined,
     sourceContractVersion: context.scenario === "import" ? IMPORT_SOURCE_CONTRACT_VERSION : undefined,
     status: context.terminal ?? classify(context),
+    dossier: DOSSIERS[context.scenario],
     onboardingInputs: !isImportScenario(context.scenario)
       ? {
           language: scenarioInput(context.scenario).language,
@@ -961,6 +1303,9 @@ function manifestEntry(context: ScenarioContext): QaFixtureManifestEntry {
         }
       : undefined,
     deterministicChecks: context.checks,
+    directionEvidence: context.directionEvidence,
+    auditFindings: context.auditFindings,
+    evidenceCompleteness: evidenceCompleteness(context.screenshots, context.directionEvidence),
     qualityFindings: context.qualityFindings,
     screenshots: context.screenshots,
     failure: context.failure,
@@ -982,6 +1327,8 @@ async function runScenario(scenario: Scenario): Promise<QaFixtureManifestEntry> 
     checks: {},
     screenshots: [],
     qualityFindings: [],
+    directionEvidence: [],
+    auditFindings: [],
   };
   let stage = "identity";
   try {
@@ -1013,12 +1360,96 @@ async function runScenario(scenario: Scenario): Promise<QaFixtureManifestEntry> 
       }
     }
   }
+  if (context.auditFindings.length === 0) {
+    context.auditFindings = buildAuditFindings(context.checks, context.qualityFindings, context.screenshots);
+  }
   return manifestEntry(context);
+}
+
+function auditMarkdown(entries: QaFixtureManifestEntry[], batchId: string): string {
+  const lines = [
+    `# Onboarding audit — ${batchId}`,
+    "",
+    "This report is append-only evidence from three fresh synthetic/public-fixture onboarding journeys. A failed or unavailable check remains failed; no retained run was deleted or rewritten.",
+    "",
+    "## Executive summary",
+    "",
+  ];
+  for (const entry of entries) {
+    lines.push(
+      `- **${entry.dossier.name}: ${entry.status}** — ${entry.evidenceCompleteness.capturedCandidateScreenshots}/${entry.evidenceCompleteness.expectedCandidateScreenshots} candidate screenshots, ${entry.evidenceCompleteness.candidateStates}/3 retained candidates, ${entry.auditFindings.length} finding(s).`,
+    );
+  }
+  lines.push("", "## Per-use-case findings", "");
+  for (const entry of entries) {
+    lines.push(
+      `### ${entry.dossier.name}`,
+      "",
+      entry.dossier.summary,
+      "",
+      `- Run: \`${entry.runId}\``,
+      `- Retained user/site: \`${entry.userId ?? "not created"}\` / \`${entry.websiteId ?? "not created"}\``,
+      `- Outcome: **${entry.status}**`,
+      `- Evidence complete: **${entry.evidenceCompleteness.complete ? "yes" : "no"}**`,
+      `- Imagery goal: ${entry.dossier.imageryGoal}`,
+      "",
+      "#### Direction comparison",
+      "",
+    );
+    if (entry.directionEvidence.length === 0) {
+      lines.push("- No complete direction evidence was produced.");
+    } else {
+      for (const direction of entry.directionEvidence) {
+        lines.push(
+          `- **${direction.name}${direction.selected ? " (selected)" : ""}** — ${direction.layoutArchetype}/${direction.heroComposition}; ${direction.typography.headingFont} + ${direction.typography.bodyFont}; quality ${direction.qualityScore.overall ?? "n/a"}; visual review ${direction.visualReviewRan ? "ran" : "did not run"}; ${direction.assetPlacements.length} asset placement(s).`,
+        );
+      }
+    }
+    lines.push("", "#### Problems and improvements", "");
+    if (entry.auditFindings.length === 0) {
+      lines.push("- No failed checks or structured visual/content findings were recorded.");
+    } else {
+      for (const finding of entry.auditFindings) {
+        lines.push(
+          `- **${finding.severity.toUpperCase()} — ${finding.title}** (${finding.subsystem})`,
+          `  - Evidence: ${finding.evidence}`,
+          `  - Customer impact: ${finding.customerImpact}`,
+          `  - Likely cause: ${finding.likelyCause}`,
+          `  - Improve: ${finding.recommendation}`,
+        );
+      }
+    }
+    if (entry.evidenceCompleteness.missing.length) {
+      lines.push("", "#### Missing evidence", "", ...entry.evidenceCompleteness.missing.map((item) => `- ${item}`));
+    }
+    lines.push("");
+  }
+  lines.push(
+    "## Cross-system image and illustration roadmap",
+    "",
+    "1. **Ask for intent, not just files** — capture subject, consent/ownership, intended page role, emotional purpose, must-keep details, and whether the customer accepts a generated alternative.",
+    "2. **Analyze before placement** — record orientation, resolution, focal point, faces, visual quality, dominant colors, negative space, crop safety, and hero suitability for every owned/imported image.",
+    "3. **Plan a site-wide sequence** — allocate each image once across hero, practitioner story, environment, services and supporting moments; reject accidental repetition and avoid decorative images that add no meaning.",
+    "4. **Store responsive art direction** — retain separate desktop and mobile crop/focal-point settings rather than applying one `background-position` everywhere.",
+    "5. **Make illustrations genuinely custom** — choose one explicit system per direction (for example organic line work, geometric editorial shapes, or tactile collage), with palette, stroke, texture, corner language and icon rules tied to the brand.",
+    "6. **Separate generated, stock and owned media** — label provenance visibly, never imply a generated person/place is the real practitioner or clinic, and require customer approval before publishing synthetic documentary-style imagery.",
+    "7. **Expose customer controls** — let customers replace an asset, choose focal point, adjust mobile crop, hide an image, select illustration intensity, and request a different visual without regenerating the whole site.",
+    "8. **Fail helpfully** — when no suitable image exists, use typography and custom decorative illustration intentionally; show a concrete shot list instead of silently inserting generic stock.",
+    "",
+    "## Retention and honesty",
+    "",
+    "- All run IDs, synthetic identities, websites, candidate fingerprints, screenshots and failure states remain in the retained manifest and database.",
+    "- `PASSED` is only possible when generation is ready, deterministic checks pass, all three candidates exist, six candidate screenshots exist, two decision screenshots exist, and every candidate has visual-review evidence.",
+    "- Booking, provider, import and database failures are reported separately and are never converted into visual success.",
+    "",
+  );
+  return `${lines.join("\n")}\n`;
 }
 
 export async function main(): Promise<void> {
   assertQaFixturesAllowed();
   const entries: QaFixtureManifestEntry[] = [];
+  const batchId = new Date().toISOString().replace(/[:.]/g, "-");
   for (const scenario of ["scratch", "sparse", "import"] as const) {
     const entry = await runScenario(scenario);
     entries.push(entry);
@@ -1028,6 +1459,10 @@ export async function main(): Promise<void> {
       `${entry.websiteId ? ` website=${entry.websiteId}` : ""}`
     );
   }
+  await mkdir(AUDIT_DIR, { recursive: true });
+  const reportPath = resolve(AUDIT_DIR, `${batchId}-three-case-audit.md`);
+  await writeFile(reportPath, auditMarkdown(entries.map(sanitizeQaEntry), batchId), "utf8");
+  console.log(`[PersistentOnboardingQA] retained audit report=${reportPath}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

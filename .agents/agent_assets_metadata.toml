@@ -7,3 +7,18 @@ uri = "file://exports/birdflow-ai-builder-capability-review.pdf"
 type = "pdf"
 title = "BirdFlow AI Builder — Capability Review"
 description = "15-page answer to the 20-section architecture questionnaire, with file:line citations throughout: data model, AI tool coverage, premade and custom component editing, preview/publish parity, design system and cascade, typography, colour, motion, SVG, media, content safety, functional components, self-review, library organisation, models and limits — plus the ten decisions that still need your sign-off."
+logical_id = "e49336a8-962b-4e64-8f10-d8d3628e9acd"
+
+[[outputs]]
+id = "sBkGkjAsdNeQMvR6mQqnh"
+uri = "file://qa-results/onboarding-audits/2026-09-08T14-17-53-263Z-three-case-audit.md"
+type = "text"
+title = "Three-journey onboarding audit"
+description = "Retained evidence and human review for nine generated websites, including subsystem diagnoses, incomplete evidence, and the image/illustration roadmap."
+logical_id = "f4492335-2343-4abc-bea7-0cf8810b0c69"
+content_hash = "sha256:ca8db1280b8bab156db6bc3d69b1cf2f658079be0c891ea6f217379fed2baf5a"
+size = 38954
+mtime_ms = 1788877650397
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:d75e05cb-8f7f-40e3-bce0-9089f7e9d938/f4492335-2343-4abc-bea7-0cf8810b0c69/68d5eeb4-7d6e-4a1f-a01a-982311e92851"
+storage_version_token = "1788877722946905"
+content_type = "text/markdown"

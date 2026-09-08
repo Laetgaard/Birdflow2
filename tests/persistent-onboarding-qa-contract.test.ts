@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { websiteImportSelectionSchema, type WebsiteImportReport } from "@shared/websiteImport";
 import {
   buildImportSelection,
+  buildAuditFindings,
+  evidenceCompleteness,
   isDatabaseFailure,
   SCRATCH_INPUT,
   startScratchQaGeneration,
@@ -71,5 +73,54 @@ describe("persistent onboarding QA service contracts", () => {
       assetUrls: ["https://source.example/hero.jpg"],
       bookingChoice: "birdflow",
     });
+  });
+
+  it("does not call retained evidence complete without all candidates, screenshots, and visual review", () => {
+    const directions = Array.from({ length: 3 }, (_, index) => ({
+      id: `dir-${index}`,
+      name: `Direction ${index}`,
+      concept: "Distinct concept",
+      fingerprint: `fingerprint-${index}`,
+      selected: index === 0,
+      layoutArchetype: "editorial",
+      heroComposition: "offset",
+      typography: { headingFont: "Lora", bodyFont: "Inter", scale: "classic" },
+      palette: {},
+      imageryStyle: "editorial",
+      decorativeGraphics: "rules",
+      assetPlacements: [],
+      qualityScore: { overall: 80 },
+      visualReviewRan: index !== 2,
+      visualIssueCount: 0,
+      repairPasses: 0,
+    }));
+    const screenshots = Array.from({ length: 6 }, (_, index) => ({
+      kind: `${index % 2 ? "mobile" : "desktop"}-direction-${Math.floor(index / 2) + 1}` as const,
+      path: `qa-results/screenshots/${index}.jpg`,
+      status: "PASS" as const,
+    }));
+
+    const result = evidenceCompleteness(screenshots, directions);
+
+    expect(result.complete).toBe(false);
+    expect(result.missing).toEqual(expect.arrayContaining([
+      expect.stringMatching(/decision-workspace/),
+      expect.stringMatching(/visual review/),
+    ]));
+  });
+
+  it("turns failed checks into actionable subsystem findings", () => {
+    const findings = buildAuditFindings({
+      importedAssetsPreserved: { result: "FAIL", detail: "0/4 source images retained." },
+      builderLoads: { result: "PASS", detail: "Loaded." },
+    }, [], []);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      severity: "high",
+      subsystem: "imagery",
+      title: "Failed audit check: importedAssetsPreserved",
+    });
+    expect(findings[0].recommendation).toMatch(/crop|metadata|placement/i);
   });
 });

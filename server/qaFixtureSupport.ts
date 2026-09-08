@@ -31,6 +31,35 @@ export type QaCheck = {
   detail?: string;
 };
 
+export type QaAuditFinding = {
+  severity: "critical" | "high" | "medium" | "low";
+  subsystem: "interview" | "brief" | "content" | "imagery" | "direction-generation" | "rendering" | "mobile" | "preview" | "selection" | "quality-gate" | "provider" | "import" | "booking";
+  title: string;
+  evidence: string;
+  customerImpact: string;
+  likelyCause: string;
+  recommendation: string;
+};
+
+export type QaDirectionEvidence = {
+  id: string;
+  name: string;
+  concept: string;
+  fingerprint: string;
+  selected: boolean;
+  layoutArchetype: string;
+  heroComposition: string;
+  typography: { headingFont: string; bodyFont: string; scale: string };
+  palette: Record<string, string>;
+  imageryStyle: string;
+  decorativeGraphics: string;
+  assetPlacements: Array<{ assetUrl: string; pageId: string; sectionId: string; role: string; crop: string }>;
+  qualityScore: Record<string, number>;
+  visualReviewRan: boolean;
+  visualIssueCount: number;
+  repairPasses: number;
+};
+
 export type QaFixtureManifestEntry = {
   runId: string;
   scenario: "scratch" | "sparse" | "import";
@@ -44,6 +73,14 @@ export type QaFixtureManifestEntry = {
   sourceWebsiteUrl?: string;
   sourceContractVersion?: string;
   status: QaTerminalStatus;
+  dossier: {
+    name: string;
+    summary: string;
+    informationDensity: "rich" | "sparse" | "imported";
+    expectedFacts: string[];
+    prohibitedClaims: string[];
+    imageryGoal: string;
+  };
   onboardingInputs: Record<string, unknown>;
   generation?: {
     phase: string;
@@ -58,6 +95,16 @@ export type QaFixtureManifestEntry = {
     error?: string;
   };
   deterministicChecks: Record<string, QaCheck>;
+  directionEvidence: QaDirectionEvidence[];
+  auditFindings: QaAuditFinding[];
+  evidenceCompleteness: {
+    expectedCandidateScreenshots: number;
+    capturedCandidateScreenshots: number;
+    decisionScreenshots: number;
+    candidateStates: number;
+    complete: boolean;
+    missing: string[];
+  };
   qualityFindings: Array<{ code: string; message: string; pageId?: string; componentId?: string }>;
   screenshots: Array<{
     kind:
@@ -70,7 +117,9 @@ export type QaFixtureManifestEntry = {
       | "desktop-direction-2"
       | "mobile-direction-2"
       | "desktop-direction-3"
-      | "mobile-direction-3";
+      | "mobile-direction-3"
+      | "desktop-decision"
+      | "mobile-decision";
     path?: string;
     status: QaCheckResult;
     warnings?: string[];
@@ -107,6 +156,24 @@ function cleanText(value: unknown, max = 2_000): string | undefined {
 
 /** Allow-list the retained evidence; never copy provider responses or auth data. */
 export function sanitizeQaEntry(entry: QaFixtureManifestEntry): QaFixtureManifestEntry {
+  const dossier = entry.dossier ?? {
+    name: `Legacy ${entry.scenario} retained run`,
+    summary: "Retained before the detailed three-case audit contract.",
+    informationDensity: entry.scenario === "import" ? "imported" as const : entry.scenario === "sparse" ? "sparse" as const : "rich" as const,
+    expectedFacts: [],
+    prohibitedClaims: [],
+    imageryGoal: "Not recorded by the legacy runner.",
+  };
+  const directions = entry.directionEvidence ?? [];
+  const findings = entry.auditFindings ?? [];
+  const completeness = entry.evidenceCompleteness ?? {
+    expectedCandidateScreenshots: 6,
+    capturedCandidateScreenshots: 0,
+    decisionScreenshots: 0,
+    candidateStates: 0,
+    complete: false,
+    missing: ["Legacy run does not contain the detailed audit evidence contract."],
+  };
   return {
     runId: cleanText(entry.runId, 80)!,
     scenario: entry.scenario,
@@ -120,6 +187,14 @@ export function sanitizeQaEntry(entry: QaFixtureManifestEntry): QaFixtureManifes
     sourceWebsiteUrl: cleanText(entry.sourceWebsiteUrl, 2_000),
     sourceContractVersion: cleanText(entry.sourceContractVersion, 100),
     status: entry.status,
+    dossier: {
+      name: cleanText(dossier.name, 200)!,
+      summary: cleanText(dossier.summary, 2_000)!,
+      informationDensity: dossier.informationDensity,
+      expectedFacts: dossier.expectedFacts.slice(0, 40).map((item) => cleanText(item, 500)!),
+      prohibitedClaims: dossier.prohibitedClaims.slice(0, 40).map((item) => cleanText(item, 500)!),
+      imageryGoal: cleanText(dossier.imageryGoal, 1_000)!,
+    },
     onboardingInputs: sanitizeObject(entry.onboardingInputs),
     generation: entry.generation
       ? {
@@ -141,13 +216,65 @@ export function sanitizeQaEntry(entry: QaFixtureManifestEntry): QaFixtureManifes
         { result: value.result, detail: cleanText(value.detail, 1_000) },
       ])
     ),
+    directionEvidence: directions.slice(0, 3).map((direction) => ({
+      id: cleanText(direction.id, 100)!,
+      name: cleanText(direction.name, 200)!,
+      concept: cleanText(direction.concept, 1_000)!,
+      fingerprint: cleanText(direction.fingerprint, 200)!,
+      selected: direction.selected,
+      layoutArchetype: cleanText(direction.layoutArchetype, 100)!,
+      heroComposition: cleanText(direction.heroComposition, 100)!,
+      typography: {
+        headingFont: cleanText(direction.typography.headingFont, 100)!,
+        bodyFont: cleanText(direction.typography.bodyFont, 100)!,
+        scale: cleanText(direction.typography.scale, 100)!,
+      },
+      palette: Object.fromEntries(
+        Object.entries(direction.palette).slice(0, 20).map(([key, value]) => [
+          key.slice(0, 100),
+          cleanText(value, 100)!,
+        ])
+      ),
+      imageryStyle: cleanText(direction.imageryStyle, 500)!,
+      decorativeGraphics: cleanText(direction.decorativeGraphics, 500)!,
+      assetPlacements: direction.assetPlacements.slice(0, 20).map((placement) => ({
+        assetUrl: cleanText(placement.assetUrl, 500)!,
+        pageId: cleanText(placement.pageId, 100)!,
+        sectionId: cleanText(placement.sectionId, 100)!,
+        role: cleanText(placement.role, 100)!,
+        crop: cleanText(placement.crop, 200)!,
+      })),
+      qualityScore: Object.fromEntries(
+        Object.entries(direction.qualityScore).slice(0, 20).filter(([, value]) => Number.isFinite(value))
+      ),
+      visualReviewRan: direction.visualReviewRan,
+      visualIssueCount: direction.visualIssueCount,
+      repairPasses: direction.repairPasses,
+    })),
+    auditFindings: findings.slice(0, 100).map((finding) => ({
+      severity: finding.severity,
+      subsystem: finding.subsystem,
+      title: cleanText(finding.title, 300)!,
+      evidence: cleanText(finding.evidence, 2_000)!,
+      customerImpact: cleanText(finding.customerImpact, 1_000)!,
+      likelyCause: cleanText(finding.likelyCause, 1_000)!,
+      recommendation: cleanText(finding.recommendation, 2_000)!,
+    })),
+    evidenceCompleteness: {
+      expectedCandidateScreenshots: completeness.expectedCandidateScreenshots,
+      capturedCandidateScreenshots: completeness.capturedCandidateScreenshots,
+      decisionScreenshots: completeness.decisionScreenshots,
+      candidateStates: completeness.candidateStates,
+      complete: completeness.complete,
+      missing: completeness.missing.slice(0, 30).map((item) => cleanText(item, 500)!),
+    },
     qualityFindings: entry.qualityFindings.slice(0, 100).map((finding) => ({
       code: cleanText(finding.code, 100)!,
       message: cleanText(finding.message, 1_000)!,
       pageId: cleanText(finding.pageId, 100),
       componentId: cleanText(finding.componentId, 100),
     })),
-    screenshots: entry.screenshots.slice(0, 8).map((shot) => ({
+    screenshots: entry.screenshots.slice(0, 10).map((shot) => ({
       kind: shot.kind,
       path: cleanText(shot.path, 500),
       status: shot.status,
