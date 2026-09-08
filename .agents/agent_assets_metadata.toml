@@ -22,3 +22,17 @@ mtime_ms = 1788877650397
 storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:d75e05cb-8f7f-40e3-bce0-9089f7e9d938/f4492335-2343-4abc-bea7-0cf8810b0c69/68d5eeb4-7d6e-4a1f-a01a-982311e92851"
 storage_version_token = "1788877722946905"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "u09SXm5ceNgK8B6ehAyiw"
+uri = "file://docs/onboarding-architecture-audit.md"
+type = "text"
+title = "Birdflow Full Onboarding Architecture Audit"
+description = "Code-grounded audit of both onboarding paths, canonical builder format, crawler/import fidelity, operational data, AI/QA, persistence, security, publishing, and critical redesign findings."
+logical_id = "41f92500-4f76-48ac-809d-1728936ebeae"
+content_hash = "sha256:b52ea7dc0a4a0b7ac7ce3700c858ce1d1c25669494992905fa8d2472aed96d22"
+size = 51768
+mtime_ms = 1788882186310
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:d75e05cb-8f7f-40e3-bce0-9089f7e9d938/41f92500-4f76-48ac-809d-1728936ebeae/e77f89c3-e98e-4d92-b42f-c08ec3738123"
+storage_version_token = "1788882246534655"
+content_type = "text/markdown"
