@@ -1,247 +1,938 @@
-/**
- * Deliberately opt-in CLI for retained onboarding QA drafts. It is not imported
- * by the web server and does not expose an HTTP route.
- */
 import { randomBytes } from "node:crypto";
-import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { eq } from "drizzle-orm";
-import { QA_FIXTURE_USERS } from "@shared/qaFixturePolicy";
-import { profiles } from "@shared/schema";
-import { db, storage } from "../server/storage";
-import { startOnboardingGeneration, getOnboardingGenStatus, type OnboardingGenInput, type OnboardingGenStatus } from "../server/onboardingGenerator";
-import { AI_CONFIG } from "../server/aiConfig";
-import { approveWebsiteImport, startWebsiteImport } from "../server/websiteImportService";
-import { assertQaFixturesAllowed, writeQaManifest, type QaFixtureManifestEntry } from "../server/qaFixtureSupport";
+import puppeteer from "puppeteer";
+import type { BuilderStateData } from "@shared/schema";
+import type { BuilderComponentData } from "@shared/componentRegistry";
+import { storage } from "../server/storage";
+import { onboardingStateFingerprint } from "../server/onboardingQuality";
+import {
+  type OnboardingGenInput,
+  type OnboardingGenStatus,
+} from "../server/onboardingGenerator";
+import type {
+  WebsiteImportReport,
+  WebsiteImportSelection,
+  WebsiteImportState,
+} from "@shared/websiteImport";
+import {
+  analyzeScreenshots,
+  findChromiumPath,
+  type VisualScreenshot,
+} from "../server/visualReview";
+import {
+  appendQaManifest,
+  assertQaFixturesAllowed,
+  type QaCheck,
+  type QaCheckResult,
+  type QaFixtureManifestEntry,
+  type QaTerminalStatus,
+} from "../server/qaFixtureSupport";
 
-const SOURCE_URL = "https://psykologamalieveber.laet.dk/";
-const POLL_MS = 2_000;
-const TIMEOUT_MS = 20 * 60_000;
+const MANIFEST_PATH = resolve(process.cwd(), "qa-results/persistent-onboarding-fixtures.json");
+const SCREENSHOT_DIR = resolve(process.cwd(), "qa-results/screenshots");
+const IMPORT_SOURCE = "https://psykologamalieveber.laet.dk/";
+const IMPORT_SOURCE_CONTRACT_VERSION = "psychologist-source-v1-2026-09-08";
+const RUN_TIMEOUT_MS = 12 * 60_000;
 
-function randomUnreportedPassword(): string {
-  return `qa-${randomBytes(32).toString("base64url")}`;
+const PALETTE = {
+  id: "qa-calm-copenhagen",
+  name: "Rolig København",
+  description: "Varm, jordnær og professionel",
+  colors: {
+    primary: "#35524a",
+    secondary: "#b58f6b",
+    accent: "#d9b382",
+    background: "#f8f5ef",
+    surface: "#ffffff",
+    text: "#25312e",
+  },
+} as const;
+
+const FONT_PAIR = {
+  id: "qa-lora-inter",
+  name: "Lora + Inter",
+  heading: "Lora",
+  body: "Inter",
+  scale: "classic" as const,
+  description: "Tillidsvækkende og letlæselig",
+};
+
+export const SCRATCH_INPUT: OnboardingGenInput = {
+  language: "da",
+  business: {
+    name: "Samtalerum København",
+    industry: "Psykoterapeut",
+    description:
+      "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01.",
+  },
+  wishes: {
+    goals: ["booking", "kontakt"],
+    notes:
+      "Lav siderne Forside, Om, Ydelser og Kontakt. Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier eller andre opdigtede påstande.",
+  },
+  feeling: "rolig, varm, professionel og jordnær",
+  palette: PALETTE,
+  fontPair: FONT_PAIR,
+  inspirationUrls: [],
+  ownImageUrls: [],
+};
+
+type Scenario = "scratch" | "import";
+type ScenarioContext = {
+  runId: string;
+  scenario: Scenario;
+  startedAt: number;
+  createdAt: string;
+  userId?: string;
+  sessionId?: string;
+  websiteId?: string;
+  accessToken?: string;
+  authSession?: Record<string, unknown>;
+  checks: Record<string, QaCheck>;
+  screenshots: QaFixtureManifestEntry["screenshots"];
+  qualityFindings: QaFixtureManifestEntry["qualityFindings"];
+  importReport?: WebsiteImportReport;
+  status?: OnboardingGenStatus;
+  failure?: QaFixtureManifestEntry["failure"];
+  terminal?: QaTerminalStatus;
+};
+
+function supabaseUrl(): string {
+  if (process.env.SUPABASE_URL) return process.env.SUPABASE_URL;
+  if (process.env.VITE_SUPABASE_URL) return process.env.VITE_SUPABASE_URL;
+  const databaseUrl = process.env.SUPABASE_DB_URL;
+  if (databaseUrl) {
+    const parsed = new URL(databaseUrl);
+    const directRef = parsed.hostname.match(/^db\.([a-z0-9-]+)\.supabase\.(?:com|co)$/i)?.[1];
+    const pooledRef = decodeURIComponent(parsed.username).match(/^postgres\.([a-z0-9-]+)$/i)?.[1];
+    const projectRef = directRef ?? pooledRef;
+    if (projectRef) return `https://${projectRef}.supabase.co`;
+  }
+  throw new Error("SUPABASE_URL, VITE_SUPABASE_URL, or a recognizable SUPABASE_DB_URL is required.");
 }
 
-async function ensureQaUser(
-  key: keyof typeof QA_FIXTURE_USERS,
-  supabase: ReturnType<typeof createClient>
-): Promise<string> {
-  const fixture = QA_FIXTURE_USERS[key];
-  const { data: listed, error: listError } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (listError) throw new Error(`Could not list Supabase users: ${listError.message}`);
-  let authUser = listed.users.find((user) => user.email === fixture.email);
-  if (!authUser) {
-    const { data, error } = await supabase.auth.admin.createUser({
-      email: fixture.email,
-      password: randomUnreportedPassword(),
-      email_confirm: true,
-      app_metadata: { isQa: true, qaFixture: "persistent-onboarding" },
-    });
-    if (error || !data.user) throw new Error(`Could not create ${key} QA user: ${error?.message ?? "no user returned"}`);
-    authUser = data.user;
-  } else {
-    const { error } = await supabase.auth.admin.updateUserById(authUser.id, {
-      email_confirm: true,
-      app_metadata: { ...authUser.app_metadata, isQa: true, qaFixture: "persistent-onboarding" },
-    });
-    if (error) throw new Error(`Could not label ${key} QA user: ${error.message}`);
-  }
-
-  const existingProfile = await storage.getProfile(authUser.id);
-  if (!existingProfile) {
-    await storage.createProfile({
-      id: authUser.id,
-      email: fixture.email,
-      fullName: fixture.fullName,
-      phoneNumber: "QA fixture — no external contact",
-      isAdmin: false,
-    });
-  } else {
-    await storage.updateProfile(authUser.id, {
-      fullName: fixture.fullName,
-      phoneNumber: "QA fixture — no external contact",
-    });
-  }
-  // Reserved fixture accounts must remain ordinary non-admin customers.
-  await db.update(profiles).set({ isAdmin: false }).where(eq(profiles.id, authUser.id));
-  return authUser.id;
+function runId(scenario: Scenario): string {
+  return `${new Date().toISOString().replace(/[:.]/g, "-")}-${scenario}-${randomBytes(6).toString("hex")}`;
 }
 
-async function ensureQaWebsite(key: keyof typeof QA_FIXTURE_USERS, userId: string): Promise<string> {
-  const fixture = QA_FIXTURE_USERS[key];
-  let website = (await storage.getWebsitesByOwner(userId)).find((item) => item.slug === fixture.slug);
-  if (!website) {
-    website = await storage.createWebsite({
-      ownerId: userId,
-      name: fixture.siteName,
-      slug: fixture.slug,
-      setupType: "ai",
-      status: "draft",
-      language: "da",
-    });
+function reservedEmail(scenario: Scenario, id: string): string {
+  const suffix = id.match(/[a-f0-9]{12}$/)?.[0] ?? randomBytes(6).toString("hex");
+  return `qa-onboarding-${scenario}-${suffix}@fixtures.birdflow.invalid`;
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function isDatabaseFailure(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = typeof candidate?.code === "string" ? candidate.code : "";
+  const detail = message(error);
+  if (["57P01", "57P02", "57P03", "08000", "08001", "08003", "08004", "08006", "08007", "08P01"].includes(code)) {
+    return true;
   }
-  if (!await storage.getBuilderState(website.id)) await storage.createBuilderState(website.id);
-  await storage.upsertOnboardingSession(userId, {
-    websiteId: website.id,
-    transcript: [],
-    answers: { path: key === "scratch" ? "ai" : "import", language: "da" },
+  return (
+    /getaddrinfo\s+ENOTFOUND\s+\S*(?:supabase|pooler)/i.test(detail) ||
+    /connect\s+(?:ECONNREFUSED|EHOSTUNREACH|ENETUNREACH)\b.*(?::5432|supabase|pooler)/i.test(detail) ||
+    /connection terminated unexpectedly/i.test(detail) ||
+    /SUPABASE_(?:DB|DATABASE)_URL is not set/i.test(detail)
+  );
+}
+
+function check(result: QaCheckResult, detail?: string): QaCheck {
+  return detail ? { result, detail } : { result };
+}
+
+function setCheck(context: ScenarioContext, key: string, passed: boolean, detail: string): void {
+  context.checks[key] = check(passed ? "PASS" : "FAIL", detail);
+}
+
+function apiBaseUrl(): string {
+  const domain = process.env.REPLIT_DEV_DOMAIN;
+  if (!domain) throw new Error("REPLIT_DEV_DOMAIN is required to exercise the onboarding HTTP routes.");
+  return `https://${domain}`;
+}
+
+async function api<T>(
+  context: ScenarioContext,
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
+  if (!context.accessToken) throw new Error("Authenticated QA API token is missing.");
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${context.accessToken}`,
+      "content-type": "application/json",
+      ...init.headers,
+    },
   });
-  return website.id;
+  const body = await response.json().catch(() => ({})) as Record<string, any>;
+  if (!response.ok) {
+    throw new Error(`${path} returned ${response.status}: ${body.message ?? "Request failed"}`);
+  }
+  return body as T;
 }
 
-function scratchInput(): OnboardingGenInput {
+async function createFreshQaIdentity(context: ScenarioContext): Promise<void> {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required.");
+  const email = reservedEmail(context.scenario, context.runId);
+  const password = `${randomBytes(30).toString("base64url")}aA7!`;
+  const supabase = createClient(supabaseUrl(), serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const created = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: `Retained QA ${context.scenario}` },
+    app_metadata: { birdflowQaFixture: true, qaRunId: context.runId },
+  });
+  if (created.error || !created.data.user) {
+    throw created.error ?? new Error("Supabase did not return the created QA user.");
+  }
+  context.userId = created.data.user.id;
+  const signedIn = await supabase.auth.signInWithPassword({ email, password });
+  if (signedIn.error || !signedIn.data.session?.access_token) {
+    throw signedIn.error ?? new Error("Could not authenticate the fresh QA user.");
+  }
+  context.accessToken = signedIn.data.session.access_token;
+  context.authSession = signedIn.data.session as unknown as Record<string, unknown>;
+  context.checks.freshUserCreated = check("PASS", `Created retained QA user ${context.userId}.`);
+}
+
+async function createFreshSiteAndSession(context: ScenarioContext): Promise<void> {
+  if (!context.userId) throw new Error("Fresh QA user must exist before website setup.");
+  await api(context, "/api/onboarding/session/record", {
+    method: "POST",
+    body: JSON.stringify({
+      path: context.scenario === "scratch" ? "ai" : "import",
+      language: "da",
+    }),
+  });
+  const created = await api<{ websiteId: string }>(context, "/api/onboarding/create-website", {
+    method: "POST",
+    body: JSON.stringify({
+    name: context.scenario === "scratch" ? "Samtalerum København" : "Retained Import QA",
+    slug: `qa-${context.scenario}-${context.runId.slice(-12)}`,
+      mode: context.scenario === "scratch" ? "ai" : "import",
+    }),
+  });
+  context.websiteId = created.websiteId;
+  const recorded = await api<{ answers: Record<string, unknown> }>(
+    context,
+    "/api/onboarding/session/record",
+    {
+      method: "POST",
+      body: JSON.stringify(context.scenario === "scratch"
+        ? {
+          websiteId: created.websiteId,
+          path: "ai",
+          language: "da",
+          businessName: SCRATCH_INPUT.business.name,
+          industry: SCRATCH_INPUT.business.industry,
+          description: SCRATCH_INPUT.business.description,
+          goals: SCRATCH_INPUT.wishes.goals,
+          notes: SCRATCH_INPUT.wishes.notes,
+          feeling: SCRATCH_INPUT.feeling,
+          palette: SCRATCH_INPUT.palette,
+          fontPair: SCRATCH_INPUT.fontPair,
+        }
+        : {
+          websiteId: created.websiteId,
+          path: "import",
+          language: "da",
+        }),
+    }
+  );
+  const session = await storage.getOnboardingSession(context.userId);
+  context.sessionId = session?.id;
+  setCheck(
+    context,
+    "onboardingAnswersRecorded",
+    recorded.answers.path === (context.scenario === "scratch" ? "ai" : "import") &&
+      session?.websiteId === created.websiteId,
+    "Supported onboarding record API persisted the run inputs and website binding."
+  );
+  context.checks.freshWebsiteCreated = check("PASS", `Created retained website ${created.websiteId} through onboarding.`);
+  context.checks.onboardingAnswersPersisted = check(
+    "PASS",
+    "Run-scoped expected answers were persisted before generation."
+  );
+}
+
+async function waitForGeneration(context: ScenarioContext): Promise<OnboardingGenStatus> {
+  if (!context.websiteId) throw new Error("Website is missing while polling generation.");
+  const deadline = Date.now() + RUN_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const response = await api<{ status: OnboardingGenStatus | null }>(
+      context,
+      `/api/websites/${context.websiteId}/onboarding/generate/status`
+    );
+    if (response.status?.done) return response.status;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 2_000));
+  }
+  throw new Error(`Generation did not reach a terminal state within ${RUN_TIMEOUT_MS / 60_000} minutes.`);
+}
+
+export async function startScratchQaGeneration(
+  websiteId: string,
+  start: (websiteId: string, input: OnboardingGenInput) => Promise<unknown>,
+  wait: (websiteId: string) => Promise<OnboardingGenStatus>
+): Promise<OnboardingGenStatus> {
+  await start(websiteId, SCRATCH_INPUT);
+  return wait(websiteId);
+}
+
+async function runScratch(context: ScenarioContext): Promise<void> {
+  if (!context.websiteId) throw new Error("Scratch website is missing.");
+  context.status = await startScratchQaGeneration(
+    context.websiteId,
+    (websiteId, input) =>
+      api(context, `/api/websites/${websiteId}/onboarding/generate`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    () => waitForGeneration(context)
+  );
+}
+
+async function preflightImportSource(): Promise<{ ok: boolean; detail: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(IMPORT_SOURCE, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: { "user-agent": "BirdflowRetainedQA/1.0" },
+    });
+    const body = (await response.text()).slice(0, 80_000);
+    const blocked = /IIS 10\.0 Detailed Error|ModSecurity Action|Access Denied|captcha/i.test(body);
+    const hasRealPage = /<title[^>]*>[^<]{2,}<\/title>/i.test(body) && !blocked;
+    return {
+      ok: response.ok && hasRealPage,
+      detail: response.ok && hasRealPage
+        ? `Source preflight passed (${response.status}); contract ${IMPORT_SOURCE_CONTRACT_VERSION}.`
+        : `Source preflight failed (${response.status}${blocked ? ", anti-bot response" : ""}).`,
+    };
+  } catch (error) {
+    return { ok: false, detail: `Source preflight failed: ${message(error)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForImport(context: ScenarioContext): Promise<WebsiteImportState> {
+  const deadline = Date.now() + RUN_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const response = await api<{ import: WebsiteImportState | null }>(
+      context,
+      "/api/onboarding/import/status"
+    );
+    const state = response.import;
+    if (state?.phase === "review" || state?.phase === "failed") return state;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 1_500));
+  }
+  throw new Error("Website import did not finish within the retained QA timeout.");
+}
+
+async function runImport(context: ScenarioContext): Promise<void> {
+  if (!context.userId || !context.websiteId) throw new Error("Import fixture setup is incomplete.");
+  const preflight = await preflightImportSource();
+  context.checks.importSourcePreflight = check(preflight.ok ? "PASS" : "FAIL", preflight.detail);
+  if (!preflight.ok) {
+    context.terminal = "BLOCKED_EXTERNAL_SOURCE";
+    context.failure = { stage: "source-preflight", message: preflight.detail };
+    return;
+  }
+  await api(context, "/api/onboarding/import/start", {
+    method: "POST",
+    body: JSON.stringify({
+      sourceUrl: IMPORT_SOURCE,
+      direction: "improve",
+      ownershipConfirmed: true,
+    }),
+  });
+  const importState = await waitForImport(context);
+  if (importState.phase !== "review" || !importState.report) {
+    context.terminal = "FAILED_IMPORT";
+    context.failure = {
+      stage: "import-discovery",
+      message: importState.error ?? "Import discovery did not produce a reviewable report.",
+    };
+    return;
+  }
+  context.importReport = importState.report;
+  const externalBookingDetected = importState.report.integrations.some((integration) =>
+    /book|easypractice|terapeutbooking|calendly/i.test(
+      `${integration.name} ${integration.targetUrl ?? ""}`
+    )
+  );
+  context.checks.externalBookingIntentDetected = check(
+    externalBookingDetected ? "PASS" : "WARNING",
+    externalBookingDetected
+      ? "Import discovery detected an external booking integration."
+      : "The source did not expose an external booking integration to the crawler."
+  );
+  const approved = await api<{ status: OnboardingGenStatus }>(
+    context,
+    "/api/onboarding/import/approve",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        websiteId: context.websiteId,
+        selection: buildImportSelection(importState.report),
+      }),
+    }
+  );
+  context.checks.nativeBookingRequested = check("PASS", "Import approval explicitly selected Birdflow booking.");
+  context.status = approved.status?.done ? approved.status : await waitForGeneration(context);
+}
+
+export function buildImportSelection(report: WebsiteImportReport): WebsiteImportSelection {
   return {
-    business: {
-      name: "Psykolog i Roskilde — QA eksempel",
-      industry: "Psykologisk praksis",
-      description: "Et fiktivt psykologtilbud i Roskilde for voksne, der ønsker samtaler i rolige og trygge rammer.",
-    },
-    wishes: {
-      goals: ["booking", "kontakt"],
-      notes: "Fiktiv QA-case. Undgå konkrete resultatløfter, priser, autorisationer og andre påstande, som ikke fremgår her.",
-    },
-    feeling: "Rolig, varm og troværdig med overskuelig information og blide kontraster.",
-    palette: {
-      id: "qa-calm",
-      name: "Rolig grøn",
-      description: "Dæmpede grønne toner med varm læseflade.",
-      colors: { primary: "#355C4D", secondary: "#263D35", accent: "#D8A65A", background: "#F7F5F0", surface: "#FFFFFF", text: "#1F2925" },
-    },
-    fontPair: {
-      id: "qa-readable",
-      name: "Læsevenlig",
-      heading: "Playfair Display",
-      body: "Inter",
-      scale: "comfortable",
-      description: "Rolig serif-overskrift og tydelig sans serif-brødtekst.",
-    },
-    inspirationUrls: [],
-    ownImageUrls: [],
-    language: "da",
+    pageUrls: report.pages.slice(0, 10).map((page) => page.url),
+    assetUrls: report.assets
+      .filter((asset) => asset.type === "image")
+      .slice(0, 20)
+      .map((asset) => asset.url),
+    bookingChoice: "birdflow",
+    correction:
+      "Konvertér booking til Birdflows native booking. Bevar kun kildeunderbyggede oplysninger; opfind ikke ydelser, priser eller varigheder.",
   };
 }
 
-async function waitForImportReview(userId: string) {
-  const deadline = Date.now() + TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const session = await storage.getOnboardingSession(userId);
-    const state = session?.answers?.websiteImport;
-    if (state?.phase === "review") return state;
-    if (state?.phase === "failed") throw new Error(`Import discovery failed: ${state.error ?? "unknown error"}`);
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-  }
-  throw new Error("Timed out waiting for website import discovery.");
+function allComponents(state: BuilderStateData): BuilderComponentData[] {
+  const found: BuilderComponentData[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const node = value as Record<string, unknown>;
+    if (typeof node.id === "string" && typeof node.type === "string") {
+      found.push(node as unknown as BuilderComponentData);
+    }
+    Object.values(node).forEach(visit);
+  };
+  state.pages.forEach((page) => visit(page.components));
+  return [...new Map(found.map((component) => [component.id, component])).values()];
 }
 
-async function waitForGeneration(websiteId: string): Promise<OnboardingGenStatus> {
-  const deadline = Date.now() + TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const inMemory = getOnboardingGenStatus(websiteId);
-    const persisted = (await storage.getOnboardingSessionByWebsiteId(websiteId))?.genStatus as OnboardingGenStatus | null;
-    const status = inMemory ?? persisted;
-    if (status?.done) {
-      if (status.phase !== "done" || status.fallback !== false) {
-        throw new Error(`Generation did not produce a non-fallback draft: ${status.error ?? status.detail ?? status.phase}`);
+function stateText(state: BuilderStateData): string {
+  const strings: string[] = [];
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      strings.push(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    Object.values(value as Record<string, unknown>).forEach(visit);
+  };
+  for (const page of state.pages) {
+    strings.push(page.name);
+    visit(page.components.map((component) => component.props));
+  }
+  visit(state.siteChrome && {
+    header: state.siteChrome.header?.props,
+    footer: state.siteChrome.footer?.props,
+  });
+  return strings.join("\n").toLocaleLowerCase("da");
+}
+
+function nativeBookingComponents(components: BuilderComponentData[]): BuilderComponentData[] {
+  return components.filter((component) => component.type === "booking");
+}
+
+function findBrokenInternalLinks(state: BuilderStateData): string[] {
+  const paths = new Set(state.pages.map((page) => page.path || "/"));
+  const broken: string[] = [];
+  const scan = (value: unknown, key = ""): void => {
+    if (Array.isArray(value)) return value.forEach((entry) => scan(entry, key));
+    if (value && typeof value === "object") {
+      return Object.entries(value).forEach(([childKey, child]) => scan(child, childKey));
+    }
+    if (
+      typeof value === "string" &&
+      /href|link|url|path/i.test(key) &&
+      value.startsWith("/") &&
+      !value.startsWith("/objects/") &&
+      !paths.has(value.split(/[?#]/)[0])
+    ) {
+      broken.push(value);
+    }
+  };
+  scan(state);
+  return [...new Set(broken)];
+}
+
+async function captureEvidence(context: ScenarioContext, state: BuilderStateData): Promise<void> {
+  await mkdir(SCREENSHOT_DIR, { recursive: true });
+  const cache = new Map<string, VisualScreenshot>();
+  const components = allComponents(state);
+  const bookingIds = new Set(nativeBookingComponents(components).map((component) => component.id));
+  const home = state.pages.find((page) => page.path === "/") ?? state.pages[0];
+  const booking = state.pages.find((page) =>
+    JSON.stringify(page.components).split('"').some((token) => bookingIds.has(token))
+  );
+  if (!context.authSession) throw new Error("Authenticated browser session is unavailable.");
+  const chromiumPath = findChromiumPath();
+  if (!chromiumPath) throw new Error("Chromium is unavailable for retained preview screenshots.");
+  const projectRef = new URL(supabaseUrl()).hostname.split(".")[0];
+  const authStorageKey = `sb-${projectRef}-auth-token`;
+  const browser = await puppeteer.launch({
+    executablePath: chromiumPath,
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+  });
+  const reviewedPages = new Set<string>();
+  try {
+    for (const [page, suffix] of [[home, "home"], [booking, "booking"]] as const) {
+      if (!page) {
+        for (const viewport of ["desktop", "mobile"] as const) {
+          context.screenshots.push({
+            kind: `${viewport}-${suffix}`,
+            status: "FAIL",
+            warnings: ["No page containing an exact production booking component exists."],
+          });
+        }
+        context.checks.bookingScreenshotAvailable = check(
+          "FAIL",
+          "No booking screenshot was substituted or manufactured because no booking page exists."
+        );
+        continue;
       }
-      return status;
+      const refs: Array<{ id: string }> = [];
+      for (const viewport of ["desktop", "mobile"] as const) {
+        const dimensions = viewport === "desktop"
+          ? { width: 1440, height: 1000 }
+          : { width: 390, height: 844 };
+        const pageBrowser = await browser.newPage();
+        try {
+          await pageBrowser.setViewport({ ...dimensions, deviceScaleFactor: 1 });
+          await pageBrowser.goto(apiBaseUrl(), { waitUntil: "domcontentloaded", timeout: 30_000 });
+          await pageBrowser.evaluate(
+            (key, session) => localStorage.setItem(key, JSON.stringify(session)),
+            authStorageKey,
+            context.authSession
+          );
+          await pageBrowser.goto(
+            `${apiBaseUrl()}/onboarding/preview/${context.websiteId}`,
+            { waitUntil: "networkidle2", timeout: 45_000 }
+          );
+          await pageBrowser.evaluate((pageId, device) => {
+            window.postMessage({ type: "bf-preview", pageId, device }, window.location.origin);
+          }, page.id, viewport);
+          await new Promise((resolvePromise) => setTimeout(resolvePromise, 1_000));
+          const previewError = await pageBrowser.$eval(
+            '[data-testid="preview-error"]',
+            (node) => node.textContent
+          ).catch(() => null);
+          if (previewError) throw new Error(`Preview error: ${previewError}`);
+          const bytes = await pageBrowser.screenshot({ type: "jpeg", quality: 82, fullPage: true });
+          const id = `${context.runId}-${suffix}-${viewport}`;
+          const buffer = Buffer.from(bytes);
+          cache.set(id, {
+            id,
+            pageId: page.id,
+            pageName: page.name,
+            viewport,
+            ...dimensions,
+            base64Jpeg: buffer.toString("base64"),
+            capturedAt: Date.now(),
+            warnings: [],
+          });
+          refs.push({ id });
+          const relativePath = `qa-results/screenshots/${id}.jpg`;
+          await writeFile(resolve(process.cwd(), relativePath), buffer);
+          context.screenshots.push({
+            kind: `${viewport}-${suffix}`,
+            path: relativePath,
+            status: "PASS",
+          });
+          if (suffix === "booking") {
+            const widgetVisible = await pageBrowser.$('[data-testid="booking-widget"]') !== null;
+            setCheck(
+              context,
+              `bookingWidgetRendered:${viewport}`,
+              widgetVisible,
+              `The real authenticated ${viewport} preview must render BookingWidget.`
+            );
+          }
+        } catch (error) {
+          context.screenshots.push({
+            kind: `${viewport}-${suffix}`,
+            status: "FAIL",
+            warnings: [message(error)],
+          });
+        } finally {
+          await pageBrowser.close();
+        }
+      }
+      if (!reviewedPages.has(page.id) && refs.length) {
+        reviewedPages.add(page.id);
+        const reviewed = await analyzeScreenshots(refs.map((ref) => ref.id), cache, state, page.id);
+        context.checks[`aiVisualReview:${suffix}`] = check(
+          reviewed.ran ? "PASS" : "FAIL",
+          reviewed.ran
+            ? `AI visual review completed with ${reviewed.issues.length} issue(s).`
+            : reviewed.skippedReason ?? "AI visual review did not run."
+        );
+        context.qualityFindings.push(...reviewed.issues.map((issue) => ({
+          code: `VISUAL_${issue.severity}_${issue.category}`,
+          message: `${issue.description} Suggested action: ${issue.suggestedAction}`,
+          pageId: page.id,
+          componentId: issue.componentId,
+        })));
+      }
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  } finally {
+    await browser.close();
   }
-  throw new Error("Timed out waiting for onboarding generation.");
 }
 
-async function runScenario(
-  scenario: "scratch" | "import",
-  userId: string,
-  websiteId: string
-): Promise<QaFixtureManifestEntry> {
-  const prior = (await storage.getOnboardingSessionByWebsiteId(websiteId))?.genStatus as OnboardingGenStatus | null;
-  const startedAt = new Date().toISOString();
-  const started = Date.now();
-  let completed: OnboardingGenStatus;
-  if (prior?.done && prior.phase === "done" && prior.fallback === false) {
-    completed = prior;
-  } else if (scenario === "scratch") {
-    await startOnboardingGeneration(websiteId, scratchInput(), {
-      mode: prior?.done ? "retry" : "initial",
-      attempt: (prior?.attempt ?? 0) + 1,
-    });
-    completed = await waitForGeneration(websiteId);
-  } else {
-    const existing = (await storage.getOnboardingSession(userId))?.answers?.websiteImport;
-    let input: OnboardingGenInput;
-    if (existing?.phase === "approved" && existing.generationInput) {
-      input = existing.generationInput as OnboardingGenInput;
-    } else {
-      await startWebsiteImport(userId, { sourceUrl: SOURCE_URL, direction: "preserve", ownershipConfirmed: true });
-      const review = await waitForImportReview(userId);
-      const pageUrl = review.report?.pages[0]?.url;
-      if (!pageUrl) throw new Error("Approved source crawl returned no selectable page.");
-      // approveWebsiteImport constructs the migration input from crawl facts and
-      // the explicit approved source-page selection.
-      ({ input } = await approveWebsiteImport(userId, websiteId, {
-        pageUrls: [pageUrl],
-        assetUrls: [],
-        bookingChoice: "later",
-        correction: "QA fixture: preserve only facts from the approved source.",
-      }));
-    }
-    await startOnboardingGeneration(websiteId, input, {
-      mode: prior?.done ? "retry" : "initial",
-      attempt: (prior?.attempt ?? 0) + 1,
-    });
-    completed = await waitForGeneration(websiteId);
+async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
+  if (!context.userId || !context.websiteId) return;
+  const [website, builder, session, services, media] = await Promise.all([
+    storage.getWebsite(context.websiteId),
+    storage.getBuilderState(context.websiteId),
+    storage.getOnboardingSession(context.userId),
+    storage.getBookingServices(context.websiteId),
+    storage.getMediaAssets(context.websiteId),
+  ]);
+  setCheck(
+    context,
+    "ownershipConsistent",
+    website?.ownerId === context.userId &&
+      builder?.websiteId === context.websiteId &&
+      session?.websiteId === context.websiteId,
+    "User, onboarding session, website, and builder state must point to the same retained run."
+  );
+  if (!builder || !website) return;
+  const state = builder.state as BuilderStateData;
+  const components = allComponents(state);
+  const text = stateText(state);
+  const nativeBooking = nativeBookingComponents(components);
+  const quality = context.status?.qualityIssues ?? [];
+  context.qualityFindings = quality.map((issue) => ({
+    code: issue.code,
+    message: issue.message,
+    pageId: issue.pageId,
+    componentId: issue.componentId,
+  }));
+
+  setCheck(context, "generationTerminated", !!context.status?.done, "Generation must reach a terminal status.");
+  setCheck(
+    context,
+    "readinessReady",
+    context.status?.readiness === "ready",
+    `Readiness was ${context.status?.readiness ?? "missing"}; fallback=${context.status?.fallback ?? "unknown"}.`
+  );
+  const fingerprint = onboardingStateFingerprint(state);
+  setCheck(
+    context,
+    "readinessBoundToExactBuilder",
+    context.status?.qualityBuilderRevision === builder.revision &&
+      context.status?.qualityFingerprint === fingerprint &&
+      context.status?.qualitySiteRevision === session?.siteRevision,
+    `Expected builder revision ${builder.revision}, fingerprint ${fingerprint}, and site revision ${session?.siteRevision ?? "missing"}.`
+  );
+  setCheck(context, "qualityGateClear", quality.length === 0, `${quality.length} structured quality blocker(s).`);
+  setCheck(context, "expectedPageCount", state.pages.length >= 4, `Generated ${state.pages.length} page(s); expected at least 4.`);
+  const expectedContent =
+    context.scenario === "scratch"
+      ? ["individuel", "parterapi", "900", "1.200", "60", "75", "online", "kontakt@qa-psykoterapeut.invalid"]
+      : [];
+  for (const expected of expectedContent) {
+    setCheck(context, `content:${expected}`, text.includes(expected), `Expected generated content to include “${expected}”.`);
   }
+  const placeholderMatches = text.match(/lorem ipsum|placeholder|indsæt tekst|example\.com|todo|your (?:name|business)/gi) ?? [];
+  setCheck(context, "noPlaceholders", placeholderMatches.length === 0, `${placeholderMatches.length} placeholder marker(s) found.`);
+  const brokenLinks = findBrokenInternalLinks(state);
+  setCheck(context, "internalLinksResolve", brokenLinks.length === 0, `${brokenLinks.length} broken internal link(s): ${brokenLinks.slice(0, 5).join(", ")}`);
+  setCheck(context, "nativeBookingComponent", nativeBooking.length > 0, `Found ${nativeBooking.length} exact production booking component(s).`);
+  setCheck(context, "bookingServicesOwned", services.every((service) => service.websiteId === context.websiteId), `${services.length} service row(s) belong to this website.`);
+
+  const expectedServices = context.scenario === "scratch"
+    ? [
+        { name: /individuel/i, duration: 60, price: 900 },
+        { name: /par/i, duration: 75, price: 1200 },
+      ]
+    : [];
+  if (expectedServices.length) {
+    for (const expected of expectedServices) {
+      const match = services.find((service) => expected.name.test(service.name));
+      setCheck(
+        context,
+        `bookingService:${expected.duration}`,
+        !!match &&
+          match.durationMinutes === expected.duration &&
+          Number(match.price) === expected.price &&
+          match.currency === "DKK" &&
+          match.active === "true",
+        match
+          ? `${match.name}: ${match.durationMinutes} min, ${match.price} ${match.currency}, active=${match.active}.`
+          : `No matching owned booking service row exists for ${expected.duration} minutes / ${expected.price} DKK.`
+      );
+    }
+  } else {
+    context.checks.importedBookingServices = check(
+      services.length > 0 ? "PASS" : "FAIL",
+      `${services.length} owned booking service row(s) exist after native conversion.`
+    );
+  }
+  const externalBookingLeak = /easypractice|terapeutbooking|calendly|simplybook|externalbookingurl/i.test(text);
+  context.checks.externalBookingRemoved = check(
+    context.scenario === "import" ? (externalBookingLeak ? "FAIL" : "PASS") : "NOT_APPLICABLE",
+    externalBookingLeak
+      ? "Generated state still contains an external booking provider or URL."
+      : "No known external booking provider marker remains in generated state."
+  );
+  const servicesUsable = services.some((service) => service.active === "true");
+  let builderApiWorks = false;
+  let previewApiWorks = false;
+  let bookingApiWorks = false;
+  let publicServicesWork = false;
+  let publicSlotsWork = false;
+  let availableSlotCount = 0;
+  try {
+    const response = await api<{ state?: unknown }>(context, `/api/websites/${context.websiteId}/builder`);
+    builderApiWorks = !!response.state;
+  } catch {}
+  try {
+    const response = await api<{ websiteId?: string; pages?: unknown[] }>(
+      context,
+      `/api/onboarding/preview/${context.websiteId}`
+    );
+    previewApiWorks = response.websiteId === context.websiteId && (response.pages?.length ?? 0) > 0;
+  } catch {}
+  try {
+    const response = await api<unknown[]>(context, `/api/websites/${context.websiteId}/booking-services`);
+    bookingApiWorks = Array.isArray(response);
+  } catch {}
+  try {
+    const response = await fetch(`${apiBaseUrl()}/api/public/websites/${context.websiteId}/booking-services`);
+    const publicServices = await response.json() as unknown;
+    publicServicesWork = response.ok && Array.isArray(publicServices);
+    const activeService = services.find((service) => service.active === "true");
+    if (activeService) {
+      const date = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+      const slotsResponse = await fetch(
+        `${apiBaseUrl()}/api/public/websites/${context.websiteId}/services/${activeService.id}/slots?date=${date}`
+      );
+      const slots = await slotsResponse.json() as unknown;
+      publicSlotsWork = slotsResponse.ok && Array.isArray(slots);
+      availableSlotCount = Array.isArray(slots) ? slots.length : 0;
+    }
+  } catch {}
+  setCheck(context, "builderLoads", builderApiWorks, "Authenticated builder API must return the retained state.");
+  setCheck(context, "onboardingPreviewLoads", previewApiWorks, "Authenticated onboarding preview must return pages.");
+  setCheck(context, "bookingApiLoads", bookingApiWorks, "Authenticated booking services must open.");
+  setCheck(context, "publicBookingServicesLoad", publicServicesWork, "BookingWidget's public services endpoint must return a list.");
+  setCheck(
+    context,
+    "publicBookingSlotsLoad",
+    publicSlotsWork && availableSlotCount > 0,
+    `BookingWidget's public slots endpoint returned ${availableSlotCount} selectable slot(s).`
+  );
+  setCheck(
+    context,
+    "bookingInteractionUsable",
+    nativeBooking.length > 0 &&
+      servicesUsable &&
+      previewApiWorks &&
+      bookingApiWorks &&
+      publicServicesWork &&
+      publicSlotsWork &&
+      availableSlotCount > 0,
+    "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+  );
+  if (context.importReport) {
+    const sourceFacts = context.importReport.facts.filter((fact) =>
+      ["title", "email", "phone", "service", "price"].includes(fact.kind) &&
+      fact.confidence >= 0.7
+    ).slice(0, 20);
+    const preserved = sourceFacts.filter((fact) =>
+      text.includes(fact.value.toLocaleLowerCase("da").trim())
+    );
+    setCheck(
+      context,
+      "importedSourceFactsPreserved",
+      sourceFacts.length > 0 && preserved.length >= Math.min(3, sourceFacts.length),
+      `${preserved.length}/${sourceFacts.length} high-confidence identity, contact, service, and price facts are represented.`
+    );
+    const sourceImages = context.importReport.assets.filter((asset) => asset.type === "image");
+    context.checks.importedAssetsPreserved = sourceImages.length === 0
+      ? check("NOT_APPLICABLE", "The source exposed no importable images.")
+      : check(
+          media.length > 0 && text.includes("/objects/") ? "PASS" : "FAIL",
+          `${sourceImages.length} source image(s), ${media.length} retained owned media asset(s).`
+        );
+    setCheck(
+      context,
+      "importMissingInformationHandled",
+      quality.every((issue) => !/invent|claim|evidence|source/i.test(`${issue.code} ${issue.message}`)),
+      "The generation quality gate must not report unsupported source claims."
+    );
+  }
+  await captureEvidence(context, state);
+}
+
+function classify(context: ScenarioContext): QaTerminalStatus {
+  if (context.terminal) return context.terminal;
+  if (!context.status?.done || context.status.phase === "error") return "FAILED_GENERATION";
+  if (context.status.readiness === "provider_failed") return "BLOCKED_PROVIDER";
+  const failedKeys = Object.entries(context.checks)
+    .filter(([, value]) => value.result === "FAIL")
+    .map(([key]) => key);
+  if (failedKeys.some((key) => /bookingService|nativeBooking|bookingInteraction|importedBooking/i.test(key))) {
+    return "FAILED_BOOKING";
+  }
+  if (context.status.readiness !== "ready" || failedKeys.some((key) => /quality|readiness/i.test(key))) {
+    return "FAILED_QUALITY_GATE";
+  }
+  if (failedKeys.length) return "FAILED_ONBOARDING";
+  const warnings = Object.values(context.checks).some((value) => value.result === "WARNING") ||
+    context.screenshots.some((shot) => shot.status === "WARNING");
+  return warnings ? "PASSED_WITH_WARNINGS" : "PASSED";
+}
+
+function reviewUrls(context: ScenarioContext): QaFixtureManifestEntry["reviewUrls"] | undefined {
+  if (!context.userId || !context.websiteId) return undefined;
+  return {
+    adminUser: `/admin?tab=users&userId=${context.userId}`,
+    adminWebsite: `/admin?tab=websites&websiteId=${context.websiteId}`,
+    builder: `/builder/${context.websiteId}?adminEdit=1`,
+    onboardingPreview: `/onboarding/preview/${context.websiteId}`,
+  };
+}
+
+function manifestEntry(context: ScenarioContext): QaFixtureManifestEntry {
   const completedAt = new Date().toISOString();
   return {
-    scenario,
-    userId,
-    websiteId,
-    onboardingPath: scenario === "scratch" ? "ai" : "import",
-    startedAt,
+    runId: context.runId,
+    scenario: context.scenario,
+    createdAt: context.createdAt,
     completedAt,
-    durationMs: Date.now() - started,
-    status: "done",
-    fallback: false,
-    reviewUrls: {
-      adminUser: `/admin?tab=users&userId=${encodeURIComponent(userId)}`,
-      adminWebsite: `/admin?tab=websites&websiteId=${encodeURIComponent(websiteId)}`,
-      builder: `/builder/${encodeURIComponent(websiteId)}?adminEdit=1`,
-      onboardingPreview: `/onboarding/preview/${encodeURIComponent(websiteId)}`,
+    durationMs: Date.now() - context.startedAt,
+    userId: context.userId,
+    onboardingSessionId: context.sessionId,
+    websiteId: context.websiteId,
+    onboardingPath: context.scenario === "scratch" ? "ai" : "import",
+    sourceWebsiteUrl: context.scenario === "import" ? IMPORT_SOURCE : undefined,
+    sourceContractVersion: context.scenario === "import" ? IMPORT_SOURCE_CONTRACT_VERSION : undefined,
+    status: context.terminal ?? classify(context),
+    onboardingInputs: context.scenario === "scratch"
+      ? {
+          language: SCRATCH_INPUT.language,
+          business: SCRATCH_INPUT.business,
+          wishes: SCRATCH_INPUT.wishes,
+          feeling: SCRATCH_INPUT.feeling,
+          palette: SCRATCH_INPUT.palette,
+          fontPair: SCRATCH_INPUT.fontPair,
+        }
+      : {
+          sourceUrl: IMPORT_SOURCE,
+          direction: "improve",
+          ownershipConfirmed: true,
+          bookingChoice: "birdflow",
+        },
+    generation: context.status
+      ? {
+          phase: context.status.phase,
+          done: context.status.done,
+          fallback: context.status.fallback,
+          readiness: context.status.readiness,
+          attempt: context.status.attempt,
+          spendLimited: context.status.spendLimited === true,
+          qualityBuilderRevision: context.status.qualityBuilderRevision,
+          qualityFingerprint: context.status.qualityFingerprint,
+          qualitySiteRevision: context.status.qualitySiteRevision,
+          error: context.status.error,
+        }
+      : undefined,
+    deterministicChecks: context.checks,
+    qualityFindings: context.qualityFindings,
+    screenshots: context.screenshots,
+    failure: context.failure,
+    reviewUrls: reviewUrls(context),
+    humanReview: {
+      status: "NOT_REVIEWED",
+      showToPractitioner: "UNANSWERED",
+      notes: "",
     },
   };
 }
 
-export async function runPersistentOnboardingQaFixtures(): Promise<void> {
-  assertQaFixturesAllowed();
-  // The retained QA run must complete even when the optional Kimi account is
-  // unavailable. Give the configured OpenAI fallback enough output room to
-  // return the complete architect JSON instead of a truncated fallback draft.
-  AI_CONFIG.architectPlan.maxCompletionTokens = Math.max(
-    AI_CONFIG.architectPlan.maxCompletionTokens,
-    12_288
-  );
-  AI_CONFIG.architectBuild.maxCompletionTokens = Math.max(
-    AI_CONFIG.architectBuild.maxCompletionTokens,
-    20_480
-  );
-  const url = process.env.SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRoleKey) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
-  const supabase = createClient(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  const entries: QaFixtureManifestEntry[] = [];
-  for (const scenario of ["scratch", "import"] as const) {
-    const userId = await ensureQaUser(scenario, supabase);
-    const websiteId = await ensureQaWebsite(scenario, userId);
-    entries.push(await runScenario(scenario, userId, websiteId));
+async function runScenario(scenario: Scenario): Promise<QaFixtureManifestEntry> {
+  const context: ScenarioContext = {
+    runId: runId(scenario),
+    scenario,
+    startedAt: Date.now(),
+    createdAt: new Date().toISOString(),
+    checks: {},
+    screenshots: [],
+    qualityFindings: [],
+  };
+  let stage = "identity";
+  try {
+    await createFreshQaIdentity(context);
+    stage = "website-session";
+    await createFreshSiteAndSession(context);
+    stage = scenario === "scratch" ? "scratch-generation" : "import";
+    if (scenario === "scratch") await runScratch(context);
+    else await runImport(context);
+    if (!context.terminal) {
+      stage = "deterministic-checks";
+      await runDeterministicChecks(context);
+    }
+  } catch (error) {
+    context.failure = { stage, message: message(error) };
+    context.terminal = isDatabaseFailure(error)
+      ? "BLOCKED_DATABASE"
+      : stage === "import"
+        ? "FAILED_IMPORT"
+        : stage.includes("generation")
+          ? "FAILED_GENERATION"
+          : "FAILED_ONBOARDING";
+    context.checks.unhandledFailure = check("FAIL", `${stage}: ${message(error)}`);
+    if (context.websiteId) {
+      try {
+        await runDeterministicChecks(context);
+      } catch {
+        // The terminal record is still appended when evidence collection also fails.
+      }
+    }
   }
-  await writeQaManifest(join(process.cwd(), "qa-results", "persistent-onboarding-fixtures.json"), entries);
+  return manifestEntry(context);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  runPersistentOnboardingQaFixtures().catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
+export async function main(): Promise<void> {
+  assertQaFixturesAllowed();
+  const entries: QaFixtureManifestEntry[] = [];
+  for (const scenario of ["scratch", "import"] as const) {
+    const entry = await runScenario(scenario);
+    entries.push(entry);
+    await appendQaManifest(MANIFEST_PATH, [entry]);
+    console.log(
+      `[PersistentOnboardingQA] ${entry.scenario} ${entry.status} run=${entry.runId}` +
+      `${entry.websiteId ? ` website=${entry.websiteId}` : ""}`
+    );
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((error) => {
+    console.error("[PersistentOnboardingQA] Runner failure:", message(error));
     process.exitCode = 1;
   });
 }

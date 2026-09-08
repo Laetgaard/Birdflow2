@@ -18,7 +18,9 @@ export const QA_FIXTURE_USERS = {
 } as const;
 
 const qaEmails = new Set<string>(Object.values(QA_FIXTURE_USERS).map((fixture) => fixture.email));
+const RETAINED_RUN_EMAIL =
+  /^qa-onboarding-(?:scratch|import)-[a-f0-9]{12}@fixtures\.birdflow\.invalid$/;
 
 export function isReservedQaFixtureEmail(email: string | null | undefined): boolean {
-  return typeof email === "string" && qaEmails.has(email);
+  return typeof email === "string" && (qaEmails.has(email) || RETAINED_RUN_EMAIL.test(email));
 }

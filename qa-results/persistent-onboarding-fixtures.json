@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "generatedAt": "2026-09-07T19:39:00.558Z",
+  "version": 2,
+  "generatedAt": "2026-09-08T11:05:21.563Z",
   "fixtures": [
     {
       "scenario": "scratch",
@@ -34,6 +34,1299 @@
         "adminWebsite": "/admin?tab=websites&websiteId=b9df705c-61c2-4c54-84b5-ff7145cd3032",
         "builder": "/builder/b9df705c-61c2-4c54-84b5-ff7145cd3032?adminEdit=1",
         "onboardingPreview": "/onboarding/preview/b9df705c-61c2-4c54-84b5-ff7145cd3032"
+      }
+    },
+    {
+      "runId": "2026-09-08T10-36-09-507Z-scratch-6a1effc561f4",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:36:09.508Z",
+      "completedAt": "2026-09-08T10:36:10.424Z",
+      "durationMs": 916,
+      "userId": "ebb606d9-60d1-44f6-a3a6-d7385e3a3aaa",
+      "onboardingPath": "ai",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01.",
+          "goals": [
+            "booking",
+            "kontakt"
+          ]
+        },
+        "wishes": {
+          "sections": [
+            "Forside",
+            "Om",
+            "Ydelser",
+            "Kontakt"
+          ],
+          "features": [
+            "Birdflow booking",
+            "Kontaktformular"
+          ],
+          "notes": "Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": [
+          "rolig",
+          "varm",
+          "professionel",
+          "jordnær"
+        ],
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "deterministicChecks": {
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "identity: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "identity",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-36-10-427Z-import-75dd7832bf12",
+      "scenario": "import",
+      "createdAt": "2026-09-08T10:36:10.427Z",
+      "completedAt": "2026-09-08T10:36:10.655Z",
+      "durationMs": 228,
+      "userId": "7469b14d-f49f-4f25-9e30-c7680460baa2",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "balanced",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "deterministicChecks": {
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "identity: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "identity",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-37-28-794Z-scratch-ea1963bde7f2",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:37:28.795Z",
+      "completedAt": "2026-09-08T10:37:31.324Z",
+      "durationMs": 2529,
+      "userId": "24117912-5e12-4a8f-bdb6-5509c50f74a3",
+      "onboardingSessionId": "7a3f2d34-f358-455e-8c70-048783b6a8bd",
+      "websiteId": "241d4e09-0c22-4e50-bb4e-6afc88a002cf",
+      "onboardingPath": "ai",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01.",
+          "goals": [
+            "booking",
+            "kontakt"
+          ]
+        },
+        "wishes": {
+          "sections": [
+            "Forside",
+            "Om",
+            "Ydelser",
+            "Kontakt"
+          ],
+          "features": [
+            "Birdflow booking",
+            "Kontaktformular"
+          ],
+          "notes": "Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": [
+          "rolig",
+          "varm",
+          "professionel",
+          "jordnær"
+        ],
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 24117912-5e12-4a8f-bdb6-5509c50f74a3."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 241d4e09-0c22-4e50-bb4e-6afc88a002cf."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "scratch-generation: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "scratch-generation",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "reviewUrls": {
+        "adminUser": "/admin/users/24117912-5e12-4a8f-bdb6-5509c50f74a3",
+        "adminWebsite": "/admin/websites/241d4e09-0c22-4e50-bb4e-6afc88a002cf",
+        "builder": "/builder/241d4e09-0c22-4e50-bb4e-6afc88a002cf",
+        "onboardingPreview": "/onboarding/preview/241d4e09-0c22-4e50-bb4e-6afc88a002cf"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-37-31-329Z-import-a0b7833af9da",
+      "scenario": "import",
+      "createdAt": "2026-09-08T10:37:31.329Z",
+      "completedAt": "2026-09-08T10:37:33.036Z",
+      "durationMs": 1707,
+      "userId": "241ffbcf-75b1-4081-a834-b13ad7383c04",
+      "onboardingSessionId": "afb4a6ef-5900-4449-b074-4ba29470043a",
+      "websiteId": "5a84c27f-9f23-49d8-8885-720a90084f52",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "balanced",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 241ffbcf-75b1-4081-a834-b13ad7383c04."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 5a84c27f-9f23-49d8-8885-720a90084f52."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract psychologist-source-v1-2026-09-08."
+        },
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "import: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "import",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "reviewUrls": {
+        "adminUser": "/admin/users/241ffbcf-75b1-4081-a834-b13ad7383c04",
+        "adminWebsite": "/admin/websites/5a84c27f-9f23-49d8-8885-720a90084f52",
+        "builder": "/builder/5a84c27f-9f23-49d8-8885-720a90084f52",
+        "onboardingPreview": "/onboarding/preview/5a84c27f-9f23-49d8-8885-720a90084f52"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-43-35-835Z-scratch-6cf3b274651c",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:43:35.836Z",
+      "completedAt": "2026-09-08T10:43:38.293Z",
+      "durationMs": 2457,
+      "userId": "5a92c8f6-8154-4778-b015-0260f16e3bb9",
+      "onboardingSessionId": "6ec9c64b-76d1-4690-9598-4aa7b8e2c70b",
+      "websiteId": "a07a4c20-b36a-4eca-9741-464746cf4fa3",
+      "onboardingPath": "ai",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01."
+        },
+        "wishes": {
+          "goals": [
+            "booking",
+            "kontakt"
+          ],
+          "notes": "Lav siderne Forside, Om, Ydelser og Kontakt. Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": "rolig, varm, professionel og jordnær",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 5a92c8f6-8154-4778-b015-0260f16e3bb9."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website a07a4c20-b36a-4eca-9741-464746cf4fa3."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "scratch-generation: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "scratch-generation",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=5a92c8f6-8154-4778-b015-0260f16e3bb9",
+        "adminWebsite": "/admin?tab=websites&websiteId=a07a4c20-b36a-4eca-9741-464746cf4fa3",
+        "builder": "/builder/a07a4c20-b36a-4eca-9741-464746cf4fa3?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/a07a4c20-b36a-4eca-9741-464746cf4fa3"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-43-38-297Z-import-c049f5e70470",
+      "scenario": "import",
+      "createdAt": "2026-09-08T10:43:38.298Z",
+      "completedAt": "2026-09-08T10:43:39.443Z",
+      "durationMs": 1145,
+      "userId": "f94cc439-ce51-4fa3-8116-900cd2056203",
+      "onboardingSessionId": "6a30cd92-d1fa-450e-9b9a-13250a0f4fe0",
+      "websiteId": "d1417567-f1ea-46d7-8f25-f351cfe80c66",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "improve",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user f94cc439-ce51-4fa3-8116-900cd2056203."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website d1417567-f1ea-46d7-8f25-f351cfe80c66."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract psychologist-source-v1-2026-09-08."
+        },
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "import: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "import",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=f94cc439-ce51-4fa3-8116-900cd2056203",
+        "adminWebsite": "/admin?tab=websites&websiteId=d1417567-f1ea-46d7-8f25-f351cfe80c66",
+        "builder": "/builder/d1417567-f1ea-46d7-8f25-f351cfe80c66?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/d1417567-f1ea-46d7-8f25-f351cfe80c66"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-49-36-601Z-scratch-17e566876314",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:49:36.602Z",
+      "completedAt": "2026-09-08T10:51:12.617Z",
+      "durationMs": 96015,
+      "userId": "aead7c35-eea0-4f56-a194-04a749774f5e",
+      "onboardingSessionId": "74d02751-59a2-4be2-979d-f5e9f3480253",
+      "websiteId": "0770a4b6-975c-4364-a72d-9bbf06de0265",
+      "onboardingPath": "ai",
+      "status": "FAILED_BOOKING",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01."
+        },
+        "wishes": {
+          "goals": [
+            "booking",
+            "kontakt"
+          ],
+          "notes": "Lav siderne Forside, Om, Ydelser og Kontakt. Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": "rolig, varm, professionel og jordnær",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user aead7c35-eea0-4f56-a194-04a749774f5e."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 0770a4b6-975c-4364-a72d-9bbf06de0265 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 4, fingerprint 551bcdb097fd70888ddb0661bfe5c40da47d9b9e4057b65889dacefec8c03725, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "content:individuel": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “individuel”."
+        },
+        "content:parterapi": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “parterapi”."
+        },
+        "content:900": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “900”."
+        },
+        "content:1.200": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “1.200”."
+        },
+        "content:60": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “60”."
+        },
+        "content:75": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “75”."
+        },
+        "content:online": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “online”."
+        },
+        "content:kontakt@qa-psykoterapeut.invalid": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “kontakt@qa-psykoterapeut.invalid”."
+        },
+        "noPlaceholders": {
+          "result": "FAIL",
+          "detail": "3 placeholder marker(s) found."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "bookingService:60": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 60 minutes / 900 DKK."
+        },
+        "bookingService:75": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 75 minutes / 1200 DKK."
+        },
+        "externalBookingRemoved": {
+          "result": "NOT_APPLICABLE",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview/booking APIs."
+        },
+        "aiVisualReview:home": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        }
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-home",
+          "path": "qa-results/screenshots/2026-09-08T10-49-36-601Z-scratch-17e566876314-home-desktop.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (tgsvfb3): Cannot read properties of null (reading 'useState')",
+            "Section features (j7a8kji): Cannot read properties of null (reading 'useState')",
+            "Section cta (d6abr0n): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "mobile-home",
+          "path": "qa-results/screenshots/2026-09-08T10-49-36-601Z-scratch-17e566876314-home-mobile.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (tgsvfb3): Cannot read properties of null (reading 'useState')",
+            "Section features (j7a8kji): Cannot read properties of null (reading 'useState')",
+            "Section cta (d6abr0n): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "desktop-booking",
+          "path": "qa-results/screenshots/2026-09-08T10-49-36-601Z-scratch-17e566876314-booking-desktop.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (tgsvfb3): Cannot read properties of null (reading 'useState')",
+            "Section features (j7a8kji): Cannot read properties of null (reading 'useState')",
+            "Section cta (d6abr0n): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "path": "qa-results/screenshots/2026-09-08T10-49-36-601Z-scratch-17e566876314-booking-mobile.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (tgsvfb3): Cannot read properties of null (reading 'useState')",
+            "Section features (j7a8kji): Cannot read properties of null (reading 'useState')",
+            "Section cta (d6abr0n): Cannot read properties of null (reading 'useState')"
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=aead7c35-eea0-4f56-a194-04a749774f5e",
+        "adminWebsite": "/admin?tab=websites&websiteId=0770a4b6-975c-4364-a72d-9bbf06de0265",
+        "builder": "/builder/0770a4b6-975c-4364-a72d-9bbf06de0265?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/0770a4b6-975c-4364-a72d-9bbf06de0265"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-51-12-621Z-import-bc9aee66a355",
+      "scenario": "import",
+      "createdAt": "2026-09-08T10:51:12.621Z",
+      "completedAt": "2026-09-08T10:53:29.991Z",
+      "durationMs": 137370,
+      "userId": "62260f6b-5d9a-4c24-9dcf-b6fbcef52812",
+      "onboardingSessionId": "16f8bd9a-afe2-4ec5-86e0-ffc987d94f86",
+      "websiteId": "aab0d9a4-a0e8-46ec-ae67-dfed0e766f97",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "FAILED_BOOKING",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "improve",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 62260f6b-5d9a-4c24-9dcf-b6fbcef52812."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website aab0d9a4-a0e8-46ec-ae67-dfed0e766f97 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract psychologist-source-v1-2026-09-08."
+        },
+        "externalBookingIntentDetected": {
+          "result": "WARNING",
+          "detail": "The source did not expose an external booking integration to the crawler."
+        },
+        "nativeBookingRequested": {
+          "result": "PASS",
+          "detail": "Import approval explicitly selected Birdflow booking."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 4, fingerprint 7f6ee28af967a70226297ae639cb2f56ee5304a956beafa7cf84e8f9de767291, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "noPlaceholders": {
+          "result": "FAIL",
+          "detail": "3 placeholder marker(s) found."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "importedBookingServices": {
+          "result": "FAIL",
+          "detail": "0 owned booking service row(s) exist after native conversion."
+        },
+        "externalBookingRemoved": {
+          "result": "PASS",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview/booking APIs."
+        },
+        "importedSourceFactsPreserved": {
+          "result": "PASS",
+          "detail": "16/20 high-confidence identity, contact, service, and price facts are represented."
+        },
+        "importedAssetsPreserved": {
+          "result": "PASS",
+          "detail": "12 source image(s), 12 retained owned media asset(s)."
+        },
+        "importMissingInformationHandled": {
+          "result": "PASS",
+          "detail": "The generation quality gate must not report unsupported source claims."
+        },
+        "aiVisualReview:home": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        }
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-home",
+          "path": "qa-results/screenshots/2026-09-08T10-51-12-621Z-import-bc9aee66a355-home-desktop.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (zingvpq): Cannot read properties of null (reading 'useState')",
+            "Section features (icpr8vp): Cannot read properties of null (reading 'useState')",
+            "Section cta (8pbzgl3): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "mobile-home",
+          "path": "qa-results/screenshots/2026-09-08T10-51-12-621Z-import-bc9aee66a355-home-mobile.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (zingvpq): Cannot read properties of null (reading 'useState')",
+            "Section features (icpr8vp): Cannot read properties of null (reading 'useState')",
+            "Section cta (8pbzgl3): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "desktop-booking",
+          "path": "qa-results/screenshots/2026-09-08T10-51-12-621Z-import-bc9aee66a355-booking-desktop.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (zingvpq): Cannot read properties of null (reading 'useState')",
+            "Section features (icpr8vp): Cannot read properties of null (reading 'useState')",
+            "Section cta (8pbzgl3): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "path": "qa-results/screenshots/2026-09-08T10-51-12-621Z-import-bc9aee66a355-booking-mobile.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (zingvpq): Cannot read properties of null (reading 'useState')",
+            "Section features (icpr8vp): Cannot read properties of null (reading 'useState')",
+            "Section cta (8pbzgl3): Cannot read properties of null (reading 'useState')"
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=62260f6b-5d9a-4c24-9dcf-b6fbcef52812",
+        "adminWebsite": "/admin?tab=websites&websiteId=aab0d9a4-a0e8-46ec-ae67-dfed0e766f97",
+        "builder": "/builder/aab0d9a4-a0e8-46ec-ae67-dfed0e766f97?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/aab0d9a4-a0e8-46ec-ae67-dfed0e766f97"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-59-42-138Z-scratch-00777af9c053",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:59:42.139Z",
+      "completedAt": "2026-09-08T11:02:05.360Z",
+      "durationMs": 143222,
+      "userId": "86f31ff5-89c9-4a52-ba91-e3dd62fd54a6",
+      "onboardingSessionId": "58f370f6-153c-4485-827a-12879cc35d04",
+      "websiteId": "2adc0eb5-b3e4-454c-8b34-f7ccdb119f95",
+      "onboardingPath": "ai",
+      "status": "FAILED_BOOKING",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01."
+        },
+        "wishes": {
+          "goals": [
+            "booking",
+            "kontakt"
+          ],
+          "notes": "Lav siderne Forside, Om, Ydelser og Kontakt. Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": "rolig, varm, professionel og jordnær",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 86f31ff5-89c9-4a52-ba91-e3dd62fd54a6."
+        },
+        "onboardingAnswersRecorded": {
+          "result": "PASS",
+          "detail": "Supported onboarding record API persisted the run inputs and website binding."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 2adc0eb5-b3e4-454c-8b34-f7ccdb119f95 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 4, fingerprint e32bfd0d2e2cddf8d4c3f9e41e204d4fb9a8231fca5c0a6313f08b927039f214, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "content:individuel": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “individuel”."
+        },
+        "content:parterapi": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “parterapi”."
+        },
+        "content:900": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “900”."
+        },
+        "content:1.200": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “1.200”."
+        },
+        "content:60": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “60”."
+        },
+        "content:75": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “75”."
+        },
+        "content:online": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “online”."
+        },
+        "content:kontakt@qa-psykoterapeut.invalid": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “kontakt@qa-psykoterapeut.invalid”."
+        },
+        "noPlaceholders": {
+          "result": "PASS",
+          "detail": "0 placeholder marker(s) found."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "bookingService:60": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 60 minutes / 900 DKK."
+        },
+        "bookingService:75": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 75 minutes / 1200 DKK."
+        },
+        "externalBookingRemoved": {
+          "result": "NOT_APPLICABLE",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "publicBookingServicesLoad": {
+          "result": "PASS",
+          "detail": "BookingWidget's public services endpoint must return a list."
+        },
+        "publicBookingSlotsLoad": {
+          "result": "FAIL",
+          "detail": "BookingWidget's public slots endpoint returned 0 selectable slot(s)."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+        },
+        "aiVisualReview:home": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        },
+        "bookingScreenshotAvailable": {
+          "result": "FAIL",
+          "detail": "No booking screenshot was substituted or manufactured because no booking page exists."
+        }
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-home",
+          "path": "qa-results/screenshots/2026-09-08T10-59-42-138Z-scratch-00777af9c053-home-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-home",
+          "path": "qa-results/screenshots/2026-09-08T10-59-42-138Z-scratch-00777af9c053-home-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=86f31ff5-89c9-4a52-ba91-e3dd62fd54a6",
+        "adminWebsite": "/admin?tab=websites&websiteId=2adc0eb5-b3e4-454c-8b34-f7ccdb119f95",
+        "builder": "/builder/2adc0eb5-b3e4-454c-8b34-f7ccdb119f95?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/2adc0eb5-b3e4-454c-8b34-f7ccdb119f95"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T11-02-05-366Z-import-67100a027ded",
+      "scenario": "import",
+      "createdAt": "2026-09-08T11:02:05.366Z",
+      "completedAt": "2026-09-08T11:05:21.561Z",
+      "durationMs": 196195,
+      "userId": "3d253823-6f1d-450a-9fc8-294bb81caec8",
+      "onboardingSessionId": "bb508c2f-e00f-4bcb-8434-009412bb9fc1",
+      "websiteId": "5a45d997-5621-4d19-bb50-8d5cce4e0bd2",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "FAILED_BOOKING",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "improve",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 3d253823-6f1d-450a-9fc8-294bb81caec8."
+        },
+        "onboardingAnswersRecorded": {
+          "result": "PASS",
+          "detail": "Supported onboarding record API persisted the run inputs and website binding."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 5a45d997-5621-4d19-bb50-8d5cce4e0bd2 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract psychologist-source-v1-2026-09-08."
+        },
+        "externalBookingIntentDetected": {
+          "result": "WARNING",
+          "detail": "The source did not expose an external booking integration to the crawler."
+        },
+        "nativeBookingRequested": {
+          "result": "PASS",
+          "detail": "Import approval explicitly selected Birdflow booking."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 4, fingerprint c78181bc21551eba5953f6f38dd9b4563d28d33642d3356856a0ef28684a621e, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "noPlaceholders": {
+          "result": "PASS",
+          "detail": "0 placeholder marker(s) found."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "importedBookingServices": {
+          "result": "FAIL",
+          "detail": "0 owned booking service row(s) exist after native conversion."
+        },
+        "externalBookingRemoved": {
+          "result": "PASS",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "publicBookingServicesLoad": {
+          "result": "PASS",
+          "detail": "BookingWidget's public services endpoint must return a list."
+        },
+        "publicBookingSlotsLoad": {
+          "result": "FAIL",
+          "detail": "BookingWidget's public slots endpoint returned 0 selectable slot(s)."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+        },
+        "importedSourceFactsPreserved": {
+          "result": "PASS",
+          "detail": "16/20 high-confidence identity, contact, service, and price facts are represented."
+        },
+        "importedAssetsPreserved": {
+          "result": "PASS",
+          "detail": "12 source image(s), 12 retained owned media asset(s)."
+        },
+        "importMissingInformationHandled": {
+          "result": "PASS",
+          "detail": "The generation quality gate must not report unsupported source claims."
+        },
+        "aiVisualReview:home": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        },
+        "bookingScreenshotAvailable": {
+          "result": "FAIL",
+          "detail": "No booking screenshot was substituted or manufactured because no booking page exists."
+        }
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-home",
+          "path": "qa-results/screenshots/2026-09-08T11-02-05-366Z-import-67100a027ded-home-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-home",
+          "path": "qa-results/screenshots/2026-09-08T11-02-05-366Z-import-67100a027ded-home-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=3d253823-6f1d-450a-9fc8-294bb81caec8",
+        "adminWebsite": "/admin?tab=websites&websiteId=5a45d997-5621-4d19-bb50-8d5cce4e0bd2",
+        "builder": "/builder/5a45d997-5621-4d19-bb50-8d5cce4e0bd2?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/5a45d997-5621-4d19-bb50-8d5cce4e0bd2"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
       }
     }
   ]

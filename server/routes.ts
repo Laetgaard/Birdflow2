@@ -637,6 +637,12 @@ export async function registerRoutes(
       path: z.enum(["ai", "diy", "import"]).optional(),
       language: z.enum(SITE_LANGUAGES).optional(),
       websiteId: z.string().max(64).optional(),
+      businessName: z.string().min(1).max(80).optional(),
+      industry: z.string().max(80).optional(),
+      description: z.string().max(2_000).optional(),
+      goals: z.array(z.string().max(40)).max(8).optional(),
+      notes: z.string().max(2_000).optional(),
+      feeling: z.string().min(1).max(200).optional(),
       palette: z
         .object({
           id: z.string().max(64),
@@ -699,6 +705,12 @@ export async function registerRoutes(
 
       if (body.path) patch.path = body.path;
       if (body.desiredDomain) patch.desiredDomain = body.desiredDomain;
+      if (body.businessName) patch.businessName = body.businessName;
+      if (body.industry !== undefined) patch.industry = body.industry;
+      if (body.description !== undefined) patch.description = body.description;
+      if (body.goals) patch.goals = body.goals;
+      if (body.notes !== undefined) patch.notes = body.notes;
+      if (body.feeling) patch.feeling = body.feeling;
 
       // The language choice is mirrored straight onto the website row, not
       // just kept in the session answers: everything downstream that needs it

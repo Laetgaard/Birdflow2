@@ -7,6 +7,7 @@ import { performSvgExtraction } from "./svgExtraction";
 import { svgAssetSchemaReady } from "./svgAssetSchema";
 import { isReservedQaFixtureEmail } from "@shared/qaFixturePolicy";
 import { onboardingStateFingerprint } from "./onboardingQuality";
+import { resolveSupabaseDbUrl } from "./supabaseDbUrl";
 
 // Encryption helpers for sensitive data
 // ENCRYPTION_KEY must be a 64-character hex string (32 bytes)
@@ -111,7 +112,7 @@ import { SEEDED_TEMPLATE_TYPES, defaultEmailTemplates } from "./email/defaultTem
 
 // Use Supabase database as primary storage
 // Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
-const supabaseDbUrl = process.env.SUPABASE_DB_URL || process.env.SUPABASE_DATABASE_URL;
+const supabaseDbUrl = resolveSupabaseDbUrl();
 
 if (!supabaseDbUrl) {
   console.error("SUPABASE_DB_URL or SUPABASE_DATABASE_URL is not set. Database operations will fail.");
