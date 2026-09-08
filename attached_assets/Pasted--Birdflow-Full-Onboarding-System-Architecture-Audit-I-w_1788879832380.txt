@@ -1,0 +1,993 @@
+# Birdflow — Full Onboarding System Architecture Audit
+
+I want to fully redesign and finish Birdflow's onboarding system, but DO NOT implement or change anything yet.
+
+First, inspect the current Birdflow codebase and give me the technical information needed to create a professional implementation plan.
+
+The goal is to eventually support two complete onboarding paths that both end in the same Birdflow website builder.
+
+---
+
+# TARGET EXPERIENCE
+
+Birdflow should have two primary onboarding paths.
+
+## Path A — "I already have a website"
+
+The practitioner enters the URL of their existing website.
+
+Birdflow should then:
+
+1. Crawl the website.
+2. Discover relevant internal pages.
+3. Extract:
+
+   * page structure
+   * navigation
+   * headings
+   * paragraphs
+   * services
+   * pricing
+   * contact information
+   * opening hours
+   * team members
+   * testimonials where relevant
+   * images
+   * logos
+   * brand colors
+   * typography/style information where possible
+   * buttons and CTAs
+   * forms
+   * booking links/components
+   * SEO metadata where relevant
+4. Understand the site's information architecture.
+5. Determine what content should be transferred versus ignored.
+6. Ask the user only about information that:
+
+   * could not be extracted
+   * is ambiguous
+   * is missing
+   * needs confirmation
+7. Recreate the website inside Birdflow.
+8. Preserve the original site's visual identity as closely as reasonably possible.
+9. Convert the recreated site into Birdflow's native editable website structure.
+10. Replace incompatible functionality with Birdflow-native functionality where appropriate, particularly:
+
+    * booking
+    * forms
+    * contact handling
+    * payments if relevant
+11. Run quality checks.
+12. Let the user review the result.
+13. Make every normal part of the website editable in the Birdflow builder afterward.
+
+The important requirement is:
+
+**The result must not simply visually look like the original website. It needs to become a real Birdflow website using the same builder/component/data architecture as websites created natively in Birdflow.**
+
+---
+
+# Path B — "I don't have a website"
+
+If the practitioner does not already have a website, Birdflow should guide them through an intelligent onboarding interview.
+
+The onboarding should collect enough information to create a professional website rather than a generic AI template.
+
+Information will likely include:
+
+### Business
+
+* business/practice name
+* practitioner name
+* practitioner type
+* location
+* contact details
+* target audience
+* specializations
+* years of experience
+* credentials
+* languages
+* opening hours
+
+### Services
+
+For each service:
+
+* name
+* description
+* duration
+* price
+* physical/online
+* target client
+* booking availability
+
+### Positioning
+
+* what makes their practice different
+* therapeutic approach
+* values
+* desired perception
+* important messages
+* client problems they help solve
+
+### Website goals
+
+* booking
+* lead generation
+* information
+* trust building
+* selling services
+* other goals
+
+### Pages
+
+Potential pages:
+
+* home
+* about
+* services
+* individual service pages
+* pricing
+* contact
+* FAQ
+* booking
+* articles/resources if needed
+
+But Birdflow should intelligently determine which pages are actually necessary.
+
+### Content
+
+The AI should generate professional:
+
+* headings
+* body copy
+* CTAs
+* service descriptions
+* trust sections
+* FAQs
+* about content
+* SEO titles/descriptions where appropriate
+
+It should avoid generic AI copy.
+
+### Branding/design
+
+Collect preferences such as:
+
+* desired feeling
+* style
+* colors
+* existing logo
+* colors to avoid
+* imagery preference
+* typography preference
+* modern/classic/minimal/warm/etc.
+* examples/reference websites if available
+
+The user should not need to understand professional design terminology.
+
+Questions should therefore be visual and understandable wherever possible.
+
+### Images
+
+The onboarding should determine:
+
+* whether they have their own images
+* whether uploaded images should be used
+* which images belong to which content
+* whether suitable stock/generated imagery is required
+
+### Features
+
+Determine whether the site needs:
+
+* booking
+* forms
+* payment
+* products
+* team members
+* testimonials
+* newsletter
+* contact form
+* external links
+* etc.
+
+Then Birdflow should generate a complete website that is immediately editable inside the normal Birdflow builder.
+
+---
+
+# SHARED PIPELINE
+
+I do NOT want these to become two completely separate technical website systems.
+
+Ideally they should converge into something like:
+
+Existing-site import
+→ extracted structured website specification
+
+OR
+
+New-site interview
+→ generated structured website specification
+
+THEN
+
+structured website specification
+→ site planner
+→ content generation
+→ design system
+→ page generation
+→ Birdflow builder schema
+→ validation
+→ preview
+→ user review
+→ builder
+
+But inspect Birdflow before recommending the exact architecture.
+
+---
+
+# WHAT I NEED YOU TO INVESTIGATE
+
+Inspect the codebase and return a factual architecture report.
+
+Do not make assumptions where the code can answer the question.
+
+## 1. Existing onboarding architecture
+
+Find everything related to onboarding.
+
+Report:
+
+* relevant routes/pages
+* frontend components
+* backend endpoints
+* database tables
+* server functions
+* AI calls
+* state management
+* session persistence
+* onboarding state/status enums
+* resume logic
+* preview logic
+* approval logic
+* subscription/payment handoff
+* website creation logic
+
+Explain the current flow from:
+
+new user
+→ onboarding
+→ generated draft
+→ website
+→ builder
+
+Include filenames/modules/functions where useful.
+
+---
+
+# 2. Existing onboarding variants
+
+Birdflow may already contain multiple onboarding/import flows.
+
+Identify every current variant.
+
+For each one describe:
+
+* entry route
+* what data it asks for
+* how data is stored
+* AI processing
+* generation pipeline
+* resulting website structure
+* whether the result is builder-editable
+* known incomplete areas
+* duplicated logic with another onboarding flow
+
+Especially investigate any existing:
+
+* scratch onboarding
+* website import onboarding
+* existing-site onboarding
+* retained QA onboarding
+* AI interview
+* design-direction flow
+* site generation flow
+
+---
+
+# 3. Website import / crawler
+
+Find the current implementation for importing an existing website.
+
+Explain:
+
+### Crawling
+
+* what crawler/library/service is used
+* whether JavaScript-rendered sites work
+* how redirects work
+* robots.txt handling
+* sitemap support
+* number of pages currently crawled
+* same-domain filtering
+* subdomain behavior
+* crawl depth
+* duplicate URL handling
+* timeout behavior
+* retries
+
+### Extraction
+
+What is currently extracted?
+
+For example:
+
+* raw HTML
+* readable text
+* headings
+* images
+* links
+* metadata
+* colors
+* CSS
+* fonts
+* layout
+* sections
+* navigation
+* services
+* business information
+
+### Images/assets
+
+Explain:
+
+* whether external images are merely referenced or copied
+* where imported assets are stored
+* R2/Supabase/etc.
+* image validation
+* duplicate handling
+* broken image handling
+
+### AI analysis
+
+Explain:
+
+* which model/process receives crawler data
+* how much data is passed
+* how multiple pages are combined
+* whether the AI creates structured JSON
+* existing schemas/prompts
+* token/context limitations
+* fallback logic
+
+### Output
+
+Most importantly:
+
+What exactly does the import system currently create?
+
+Does it produce:
+
+* HTML?
+* React?
+* serialized blocks?
+* builder sections?
+* generated components?
+* page definitions?
+* arbitrary custom code?
+
+And is the result fully editable inside Birdflow's builder?
+
+---
+
+# 4. Birdflow builder architecture
+
+This is extremely important.
+
+Explain exactly how Birdflow represents a website internally.
+
+Document:
+
+* website
+* pages
+* sections
+* blocks
+* components
+* props
+* layout
+* styles
+* themes
+* colors
+* fonts
+* assets
+* links
+* forms
+* booking components
+* custom components
+
+Show the key TypeScript interfaces/types/database models/schema definitions.
+
+Explain:
+
+**What is the canonical structure that an onboarding-generated site must produce if it is going to behave exactly like a manually built Birdflow website?**
+
+Also explain whether there are currently multiple competing website representations.
+
+---
+
+# 5. Generated component architecture
+
+Investigate Birdflow's AI/custom component system.
+
+Report:
+
+* how AI-generated components are produced
+* how they are stored
+* how they are rendered
+* how props/content are edited
+* whether arbitrary JSX/React is generated
+* security/sandboxing
+* whether generated components survive publishing
+* whether they are responsive
+* whether they work with version history
+* whether normal builder editing works
+
+I want to understand whether onboarding should:
+
+A. only use predefined native components
+
+B. use native components + configurable compositions
+
+C. allow AI-generated custom components
+
+or
+
+D. use another architecture.
+
+Do not choose yet; explain what the existing system supports.
+
+---
+
+# 6. Booking integration
+
+Inspect the booking system.
+
+Explain how a booking component is represented in:
+
+* website data
+* builder
+* published website
+* Manage/admin
+
+Determine what an onboarding generator must create to produce a **real working booking component**, rather than a visual fake.
+
+Report similar requirements for:
+
+* contact forms
+* services
+* team members
+* payment functionality if relevant
+
+---
+
+# 7. Business/service data
+
+Determine whether website content and operational data are currently separate.
+
+Example:
+
+If onboarding learns:
+
+"60-minute psychotherapy session — 950 DKK"
+
+Does that currently become:
+
+A. only website text
+
+B. a service record in Birdflow Manage
+
+C. both
+
+If both, explain how they stay synchronized.
+
+Investigate:
+
+* services
+* practitioners/team
+* booking settings
+* opening hours
+* contact data
+* products
+* pricing
+
+I want onboarding to avoid having the same information independently stored in five different places.
+
+---
+
+# 8. AI architecture
+
+Map all AI functionality used in onboarding and generation.
+
+Include:
+
+* providers
+* models
+* prompts
+* structured output schemas
+* tool/function calling if used
+* context construction
+* retries
+* validation
+* repair passes
+* streaming
+* timeout limits
+* token limits
+* cost tracking
+* logging
+
+Identify whether Birdflow already has separate agents or stages for:
+
+* research/extraction
+* planning
+* copywriting
+* design
+* page generation
+* QA/review
+* repair
+
+---
+
+# 9. Current generation pipeline
+
+Trace exactly what happens when the system generates a website today.
+
+For example:
+
+answers
+→ AI
+→ ?
+→ ?
+→ database
+→ preview
+→ builder
+
+Do this for both:
+
+* scratch/new website onboarding
+* existing website import
+
+Identify places where the two systems already share code and places where they diverge.
+
+---
+
+# 10. Design system generation
+
+Inspect how Birdflow currently determines:
+
+* colors
+* typefaces
+* spacing
+* border radius
+* buttons
+* cards
+* image style
+* section style
+* visual hierarchy
+* page composition
+
+Determine whether a generated website has a persistent design-system/theme object.
+
+If it does, show its schema.
+
+If not, explain how styles are currently applied.
+
+---
+
+# 11. Design directions
+
+Birdflow has/worked on functionality where onboarding can generate multiple design directions/previews.
+
+Investigate this.
+
+Explain:
+
+* current implementation
+* how each direction differs
+* whether directions contain actual complete site data or just previews
+* how selecting a direction affects generation
+* how fonts/colors/images/layout are represented
+* what is persisted
+* what is currently unfinished
+
+---
+
+# 12. Content model
+
+Explain how website copy is represented.
+
+I want to know whether AI-generated copy is:
+
+* directly embedded in blocks
+* stored separately
+* connected to business data
+* regenerated later
+* editable without breaking components
+
+Also identify any current schemas for:
+
+* site brief
+* brand guide
+* page plan
+* page content
+* site content
+* business profile
+
+---
+
+# 13. Images
+
+Map image handling across:
+
+* onboarding
+* AI generation
+* crawler/import
+* builder
+* publishing
+
+Explain:
+
+* upload storage
+* generated image storage
+* imported image storage
+* external image URLs
+* asset IDs
+* responsive images
+* alt text
+* image editing/replacement
+
+Identify any reason onboarding-generated images currently disappear or fail to appear in the finished website.
+
+---
+
+# 14. Persistence and resumability
+
+The onboarding must survive:
+
+* refresh
+* closing browser
+* device switch
+* interrupted AI generation
+* failed crawl
+* failed provider call
+
+Explain the existing persistence architecture.
+
+Include:
+
+* database records
+* status machine
+* checkpoints
+* draft saving
+* recovery logic
+* idempotency protections
+
+---
+
+# 15. Error handling
+
+Find current handling for:
+
+* inaccessible website
+* crawler failure
+* Cloudflare protection
+* login-protected website
+* massive website
+* JavaScript-heavy website
+* broken URLs
+* missing images
+* AI JSON parsing failure
+* generation timeout
+* partial website generation
+* database failure
+* publishing failure
+
+Explain what currently happens to the user.
+
+---
+
+# 16. Quality assurance
+
+Find all current website-generation validation/self-review functionality.
+
+Look for:
+
+* readiness checks
+* generation findings
+* quality checks
+* AI review
+* deterministic checks
+* mobile checks
+* broken link checks
+* empty content checks
+* image checks
+* contrast
+* overflow
+* missing pages
+* placeholder content
+* booking validation
+* forms validation
+
+Explain what already exists and what actually blocks a draft from being marked complete.
+
+---
+
+# 17. Preview architecture
+
+Explain how onboarding previews currently work.
+
+Determine whether previews render:
+
+* the real builder website
+* a temporary separate representation
+* generated HTML
+* screenshots
+* special preview components
+
+I want the final onboarding preview to represent the **actual site the user will receive**, not a simplified approximation.
+
+---
+
+# 18. Builder handoff
+
+Trace what happens when onboarding is completed.
+
+What IDs/records are created?
+
+What route does the user enter?
+
+Is anything converted during the transition?
+
+What information can currently be lost between:
+
+onboarding
+→ preview
+→ approval
+→ builder?
+
+---
+
+# 19. Database schema
+
+List all database tables/entities related to:
+
+* users
+* onboarding sessions
+* website drafts
+* websites
+* pages
+* builder state
+* components
+* assets
+* brand/theme
+* services
+* booking
+* AI generation
+* crawl/import
+* generation findings
+* QA
+
+Do not dump the whole database.
+
+Show only relevant schema and relationships.
+
+---
+
+# 20. Existing technical debt / duplication
+
+Identify:
+
+* duplicated generation systems
+* obsolete onboarding code
+* old website formats
+* compatibility layers
+* legacy components
+* TODOs
+* FIXME comments
+* migration code
+* temporary fallback logic
+
+Highlight anything that would make a full onboarding redesign risky.
+
+---
+
+# 21. Publishing
+
+Explain whether websites generated during onboarding use exactly the same publishing pipeline as normal builder websites.
+
+Trace:
+
+builder state
+→ snapshot
+→ publish
+→ Vercel/live site
+
+Identify anything onboarding must guarantee before publishing.
+
+---
+
+# 22. Security considerations
+
+For website importing, investigate:
+
+* SSRF protection
+* URL validation
+* private-network blocking
+* malicious HTML
+* scripts
+* unsafe SVG
+* downloaded assets
+* arbitrary generated React/JS
+* prompt injection from crawled websites
+
+Explain what protections currently exist.
+
+Do not implement anything yet.
+
+---
+
+# 23. Performance/cost constraints
+
+Estimate from the current architecture:
+
+* typical number of AI calls during onboarding
+* crawler requests
+* largest context payloads
+* likely bottlenecks
+* generation latency sources
+* expensive operations
+* provider limits
+
+Use actual implementation details where available rather than hypothetical assumptions.
+
+---
+
+# 24. Current admin / QA tooling
+
+Birdflow has retained onboarding QA/testing functionality.
+
+Find it and explain:
+
+* retained QA users
+* retained onboarding sessions
+* manifests
+* website IDs
+* readiness outcomes
+* generation findings
+* admin review links
+* previous fixtures
+
+Determine how this system could later be used for regression-testing the redesigned onboarding.
+
+Do not delete or overwrite existing retained fixtures.
+
+---
+
+# RETURN FORMAT
+
+Return your findings using this exact structure:
+
+## 1. Executive summary
+
+Short description of how Birdflow onboarding currently works.
+
+## 2. Architecture diagram
+
+Text diagram showing current flow.
+
+## 3. New-site onboarding
+
+Current implementation.
+
+## 4. Existing-site import
+
+Current implementation.
+
+## 5. Builder architecture
+
+Canonical website representation.
+
+## 6. AI architecture
+
+Models, stages, prompts and schemas.
+
+## 7. Website data model
+
+Important database/types.
+
+## 8. Operational data
+
+Services, booking, forms, team, etc.
+
+## 9. Design/content architecture
+
+Brand, theme, content and images.
+
+## 10. Preview + builder handoff
+
+How this currently works.
+
+## 11. QA + validation
+
+Existing checks.
+
+## 12. Publishing
+
+How generated sites reach production.
+
+## 13. Security
+
+Crawler/generation risks and existing protections.
+
+## 14. Technical debt
+
+Legacy/duplicate/incomplete systems.
+
+## 15. Reusable systems
+
+Parts of Birdflow that should probably be retained.
+
+## 16. Missing capabilities
+
+What does NOT currently exist that the target experience would require.
+
+## 17. Important architectural decisions
+
+List the decisions we need to make before implementation.
+
+For each decision give:
+
+* current situation
+* available options
+* recommendation based on the existing code
+* reason
+
+## 18. Relevant files/modules
+
+List the most important files and what they control.
+
+## 19. Questions you genuinely cannot answer from the codebase
+
+Only include questions that require product/business decisions from me.
+
+---
+
+# IMPORTANT RULES
+
+Do not start implementing.
+
+Do not redesign the UI yet.
+
+Do not create speculative architecture without inspecting existing code.
+
+Do not simply tell me what a good onboarding system normally looks like.
+
+This is a **codebase investigation**.
+
+I need factual information about Birdflow's existing architecture so we can then create a proper master implementation plan.
+
+Where possible cite exact:
+
+* file paths
+* functions
+* types
+* API routes
+* database tables
+* prompts
+* status values
+
+Be especially critical of any architecture where the onboarding preview and final builder website use different representations.
+
+The core outcome we eventually need is:
+
+**Both onboarding paths generate a complete, high-quality Birdflow-native website that works immediately inside the builder and uses Birdflow's real booking/forms/services functionality rather than simulated website content.**
