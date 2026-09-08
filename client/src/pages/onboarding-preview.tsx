@@ -25,8 +25,9 @@ export default function OnboardingPreviewPage() {
   const [, params] = useRoute("/onboarding/preview/:websiteId");
   const { token, loading: authLoading } = useAuth();
   const websiteId = params?.websiteId ?? null;
+  const directionId = new URLSearchParams(window.location.search).get("directionId");
 
-  const { data, error, loading } = usePreviewData(websiteId, token);
+  const { data, error, loading } = usePreviewData(websiteId, token, directionId);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [device, setDevice] = useState<PreviewDevice>("desktop");
 

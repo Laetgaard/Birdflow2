@@ -27,6 +27,7 @@ import {
   getSnapshotByUser,
   requireOwnedOnboardingWebsite,
   resolveResume,
+  selectOnboardingDirectionAtomically,
   updateDecisionByUser,
 } from "./onboardingDecision";
 import {
@@ -139,6 +140,16 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         report: (resume.session?.genStatus as Record<string, unknown> | null)?.report ?? null,
         generationStatus: resume.session?.genStatus ?? null,
         migrationReport: resume.session?.answers?.websiteImport?.report ?? null,
+        designDirections: (resume.session?.answers?.designDirections?.directions ?? []).map((direction) => ({
+          id: direction.id,
+          name: direction.manifest.name,
+          concept: direction.manifest.concept,
+          designIntent: direction.manifest.designIntent,
+          brandDeviation: direction.manifest.brandDeviation,
+          qualityScore: direction.qualityScore,
+          selected: direction.id === resume.session?.answers?.designDirections?.selectedDirectionId,
+        })),
+        selectedDirectionId: resume.session?.answers?.designDirections?.selectedDirectionId ?? null,
       });
     } catch (error: any) {
       console.error("[Onboarding] decision payload failed:", error);
@@ -159,7 +170,17 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         storage.getWebsite(owned.websiteId),
         storage.getBuilderState(owned.websiteId),
       ]);
-      const state = builder?.state as BuilderStateData | undefined;
+       const requestedDirectionId =
+         typeof req.query.directionId === "string" ? req.query.directionId : undefined;
+       const candidate = requestedDirectionId
+         ? owned.session.answers?.designDirections?.directions.find(
+             (direction) => direction.id === requestedDirectionId,
+           )
+         : undefined;
+       if (requestedDirectionId && !candidate) {
+         return res.status(404).json({ message: "Designretningen findes ikke længere." });
+       }
+       const state = (candidate?.state ?? builder?.state) as BuilderStateData | undefined;
       if (!state) {
         return res.status(404).json({ message: "Der er ikke bygget en hjemmeside endnu." });
       }
@@ -196,8 +217,9 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       res.json({
         websiteId: owned.websiteId,
         websiteName: website?.name ?? "",
-        revision: builder?.revision ?? 0,
+         revision: builder?.revision ?? 0,
         fingerprint,
+         directionId: candidate?.id ?? null,
         pages: structured.pages ?? [],
         siteChrome: structured.siteChrome ?? null,
         navItems: resolveNavItems(structured),
@@ -211,6 +233,36 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
     } catch (error: any) {
       console.error("[Onboarding] preview data failed:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/onboarding/direction/select", requireAuth, async (req, res) => {
+    try {
+      const user = getAuthedUser(req);
+      const owned = await requireOwnedOnboardingWebsite(user.id, req.body?.websiteId);
+      if (!owned.ok) return res.status(owned.status).json({ message: owned.message });
+      const directionId = typeof req.body?.directionId === "string" ? req.body.directionId : "";
+      if (!directionId) return res.status(400).json({ message: "Vælg en designretning." });
+      const selected = await selectOnboardingDirectionAtomically({
+        userId: user.id,
+        websiteId: owned.websiteId,
+        directionId,
+      });
+      if (!selected.ok) {
+        const message =
+          selected.reason === "paid"
+            ? "Designet kan ikke skiftes efter betaling."
+            : selected.reason === "not_ready"
+              ? "Designforslagene er ikke færdige endnu."
+              : selected.reason === "unknown_direction"
+                ? "Designretningen findes ikke længere."
+                : "Onboarding-projektet kunne ikke findes.";
+        return res.status(selected.reason === "unknown_direction" ? 404 : 409).json({ message });
+      }
+      res.json(selected);
+    } catch (error: any) {
+      console.error("[Onboarding] direction selection failed:", error);
+      res.status(500).json({ message: "Designretningen kunne ikke vælges lige nu." });
     }
   });
 

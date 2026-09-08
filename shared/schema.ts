@@ -287,6 +287,12 @@ export type OnboardingAnswers = {
   desiredDomain?: string;
   /** Resumable discovery, report and approval state for an existing website. */
   websiteImport?: import("./websiteImport").WebsiteImportState;
+  /**
+   * Three real, renderable onboarding candidates. The selected candidate is
+   * also promoted into builder_state; the bundle remains the immutable
+   * comparison/evidence set until the customer starts editing.
+   */
+  designDirections?: import("./onboardingDirections").OnboardingDirectionBundle;
 };
 
 // The onboarding walkthrough's server-side home. The old wizard kept

@@ -238,6 +238,11 @@ export interface IStorage {
   
   // Builder state methods
   getBuilderState(websiteId: string): Promise<BuilderState | undefined>;
+  prepareBuilderStateForSave(
+    websiteId: string,
+    state: BuilderStateData,
+    origin?: "ai" | "customer"
+  ): Promise<void>;
   createBuilderState(
     websiteId: string,
     state?: BuilderStateData,
@@ -699,6 +704,15 @@ export class DatabaseStorage implements IStorage {
       schemaReady: () => svgAssetSchemaReady(db),
       createAsset: (input) => this.createSvgAsset({ websiteId, ...input }),
     });
+  }
+
+  /** Prepare a state for an atomic write performed by another persistence transaction. */
+  async prepareBuilderStateForSave(
+    websiteId: string,
+    state: BuilderStateData,
+    origin?: "ai" | "customer"
+  ): Promise<void> {
+    await this.extractSvgAssetsBeforeSave(websiteId, state, origin);
   }
 
   async createBuilderState(

@@ -47,7 +47,12 @@ import type { OnboardingDecisionSnapshot, OnboardingResumeStage } from "@shared/
 import { normalizeSiteLanguage, type SiteLanguage } from "@shared/siteLanguage";
 import { useLocale } from "@/lib/locale";
 import { ONBOARDING_UI_COPY, type OnboardingUiCopy } from "./onboarding.copy";
-import { DecisionWorkspace, type DecisionCopy, type DecisionPage } from "@/components/onboarding/DecisionWorkspace";
+import {
+  DecisionWorkspace,
+  type DecisionCopy,
+  type DecisionPage,
+  type DesignDirection,
+} from "@/components/onboarding/DecisionWorkspace";
 import { PaymentChoiceDialog } from "@/components/onboarding/PaymentChoiceDialog";
 import {
   WebsiteImportStep,
@@ -93,6 +98,8 @@ type DecisionData = {
   generationStatus?: GenStatus | null;
   builderRevision?: number;
   previewFingerprint?: string | null;
+  designDirections?: DesignDirection[];
+  selectedDirectionId?: string | null;
 };
 
 /** Stages that belong to the interview and the build, not the workspace. */
@@ -1243,6 +1250,27 @@ export default function OnboardingPage() {
     setPaymentDialogOpen(true);
   };
 
+  /** Commit the generated design direction before showing its candidate preview. */
+  const selectDesignDirection = async (directionId: string) => {
+    if (!token || !decision?.website || decisionBusy) return;
+    setDecisionBusy(true);
+    try {
+      const res = await fetch("/api/onboarding/direction/select", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ websiteId: decision.website.id, directionId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Designretningen kunne ikke vælges.");
+      const refreshed = await loadDecision();
+      applyStage(refreshed);
+    } catch (error: any) {
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
+
   /** "Jeg vil have den tilpasset" - no Stripe object is created here. */
   const requestCustomisation = async () => {
     if (!token || decisionBusy) return;
@@ -1720,6 +1748,8 @@ export default function OnboardingPage() {
                   websiteId={decision.website.id}
                   businessName={answers.businessName || decision.website.name}
                   pages={decision.pages}
+                  designDirections={decision.stage === "decision" ? decision.designDirections : []}
+                  selectedDirectionId={decision.stage === "decision" ? decision.selectedDirectionId : null}
                   brandGuide={decision.brandGuide}
                   meeting={meeting}
                   token={token}
@@ -1729,6 +1759,7 @@ export default function OnboardingPage() {
                   onCustomise={requestCustomisation}
                   onRetry={openPaymentChoice}
                   onBackToDecision={backToDecision}
+                  onSelectDirection={selectDesignDirection}
                   onDownloadGuide={downloadBrandGuide}
                   onBooked={async (booked) => {
                     setMeeting(booked);

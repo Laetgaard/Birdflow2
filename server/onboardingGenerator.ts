@@ -43,6 +43,27 @@ import { enrichBrandGuide } from "./brandGuideEnrichment";
 import { createSpendMeter, type SpendMeter } from "./aiSpend";
 import { isSpendLimitError } from "./aiCall";
 import {
+  applyDirectionManifestToState,
+  bindAssetPlacementsToState,
+  buildDirectionCandidate,
+  buildWebsiteBrief,
+  createCreativeDirectionManifests,
+  directionCandidatePassesGate,
+  renderedDirectionDifferenceScore,
+} from "./onboardingDirections";
+import { persistGeneratedDirectionBundleAtomically } from "./onboardingDecision";
+import {
+  analyzeScreenshots,
+  capturePageScreenshots,
+  type VisualIssue,
+  type VisualScreenshot,
+} from "./visualReview";
+import type {
+  CreativeDirectionManifest,
+  OnboardingDirectionBundle,
+  OnboardingDirectionCandidate,
+} from "@shared/onboardingDirections";
+import {
   copyLanguageInstruction,
   normalizeSiteLanguage,
   pickLang,
@@ -145,6 +166,14 @@ export type OnboardingGenStatus = {
   qualitySiteRevision?: number;
   /** One-based run count, persisted so retries remain bounded after reloads. */
   attempt: number;
+  /** Compact metadata for the three real candidate states kept in session answers. */
+  directions?: Array<{
+    id: string;
+    name: string;
+    concept: string;
+    qualityScore: number;
+  }>;
+  selectedDirectionId?: string;
 };
 
 const jobs = new Map<string, OnboardingGenStatus>();
@@ -628,8 +657,7 @@ async function runPipeline(
 
   if (!builtState) {
     // AI plan/build failed → deterministic starter site, still branded.
-    await applyFallback(websiteId, input, guide, businessContext, guideNotes, status, spendLimited);
-    return false;
+    return applyFallback(websiteId, input, guide, businessContext, guideNotes, status, spendLimited);
   }
 
   // Carry the brand guide + user choices into the freshly built state.
@@ -758,8 +786,8 @@ async function runPipeline(
   // Brand-guide enrichment is the last writer. Bind readiness to the row after
   // that write, not to the earlier in-memory state, so any later adjustment
   // changes either the revision or fingerprint and invalidates approval.
-  const verifiedBuilder = await storage.getBuilderState(websiteId);
-  const verifiedState = (verifiedBuilder?.state ?? finalState) as BuilderStateData;
+  let verifiedBuilder = await storage.getBuilderState(websiteId);
+  let verifiedState = (verifiedBuilder?.state ?? finalState) as BuilderStateData;
   quality = evaluateOnboardingQuality(verifiedState, {
     language: lang,
     sourceFacts: input.migration?.sourceFacts,
@@ -788,11 +816,73 @@ async function runPipeline(
       });
     }
   }
+  const baseQualityIssues = [...quality.issues];
 
-  const pageLines = finalState.pages.map((p) => t.pageBuilt(p.name, p.components.length));
+  const directionBundle = await createAndPersistDirectionBundle({
+    websiteId,
+    input,
+    businessContext,
+    guide,
+    plan,
+    baseState: verifiedState,
+    expectedBuilderRevision: verifiedBuilder?.revision,
+    spendMeter,
+    allowAiReview: !spendLimited && !enhancementFailed,
+  });
+  status.directions = directionBundle.directions.map((direction) => ({
+    id: direction.id,
+    name: direction.manifest.name,
+    concept: direction.manifest.concept,
+    qualityScore: direction.qualityScore.overall,
+  }));
+  status.selectedDirectionId = directionBundle.selectedDirectionId;
+  for (const direction of directionBundle.directions) {
+    const blockingVisual = direction.visualReview.issues.filter(
+      (issue) => issue.severity === "critical" || issue.severity === "high",
+    );
+    if (!directionCandidatePassesGate(direction)) {
+      baseQualityIssues.push({
+        code: "direction_quality",
+        message:
+          `${direction.manifest.name} did not pass the candidate gate ` +
+          `(score ${direction.qualityScore.overall}, uniqueness ${direction.qualityScore.directionUniqueness}, ` +
+          `${direction.qualityIssues.length} content issue(s), ${blockingVisual.length} blocking visual issue(s), ` +
+          `visual review ${direction.visualReview.ran ? "completed" : "unavailable"}).`,
+      });
+    }
+  }
+
+  // The selected candidate, not an intermediate base build, is the draft that
+  // approval certifies. Re-read after the promotion write to bind readiness to
+  // the exact persisted row and any SVG extraction performed at the choke point.
+  verifiedBuilder = await storage.getBuilderState(websiteId);
+  verifiedState = (verifiedBuilder?.state ?? directionBundle.directions[0].state) as BuilderStateData;
+  const selectedQuality = evaluateOnboardingQuality(verifiedState, {
+    language: lang,
+    sourceFacts: input.migration?.sourceFacts,
+    customerAssetUrls: input.ownImageUrls,
+    enhancementFailed,
+  });
+  quality = {
+    ready: baseQualityIssues.length === 0 && selectedQuality.ready,
+    issues: [
+      ...baseQualityIssues,
+      ...selectedQuality.issues.filter(
+        (issue) => !baseQualityIssues.some(
+          (existing) =>
+            existing.code === issue.code &&
+            existing.pageId === issue.pageId &&
+            existing.componentId === issue.componentId &&
+            existing.message === issue.message,
+        ),
+      ),
+    ],
+  };
+
+  const pageLines = verifiedState.pages.map((p) => t.pageBuilt(p.name, p.components.length));
   status.report = buildReport(
     enhanceMutations,
-    finalState,
+    verifiedState,
     [...guideNotes, ...imageNotes, ...claimNotes, ...check.notes],
     [t.guideCreated, ...pageLines, ...imageCreated]
   );
@@ -812,6 +902,167 @@ async function runPipeline(
   setPhase(status, "done");
   status.done = true;
   return status.readiness === "ready";
+}
+
+async function reviewDirection(
+  state: BuilderStateData,
+  language: SiteLanguage,
+  meter: SpendMeter,
+): Promise<{ issues: VisualIssue[]; ran: boolean; warnings: string[] }> {
+  const home = state.pages.find((page) => page.path === "/") ?? state.pages[0];
+  if (!home) return { issues: [], ran: false, warnings: ["No homepage available for visual review."] };
+  const cache = new Map<string, VisualScreenshot>();
+  const captured = await capturePageScreenshots(
+    state,
+    home.id,
+    ["desktop", "mobile"],
+    cache,
+    { fullPage: true, lang: language },
+  );
+  if (captured.refs.length === 0) {
+    return { issues: [], ran: false, warnings: captured.warnings };
+  }
+  const reviewed = await analyzeScreenshots(
+    captured.refs.map((ref) => ref.id),
+    cache,
+    state,
+    home.id,
+    meter,
+  );
+  return {
+    issues: reviewed.issues,
+    ran: reviewed.ran,
+    warnings: [
+      ...captured.warnings,
+      ...(reviewed.skippedReason ? [reviewed.skippedReason] : []),
+    ],
+  };
+}
+
+async function createAndPersistDirectionBundle(args: {
+  websiteId: string;
+  input: OnboardingGenInput;
+  businessContext: BusinessContext;
+  guide: BrandGuide;
+  plan?: WebsitePlan;
+  baseState: BuilderStateData;
+  expectedBuilderRevision?: number;
+  spendMeter?: SpendMeter;
+  allowAiReview: boolean;
+}): Promise<OnboardingDirectionBundle> {
+  const language = normalizeSiteLanguage(args.input.language);
+  const brief = buildWebsiteBrief(args.input, args.businessContext);
+  if (typeof args.expectedBuilderRevision !== "number") {
+    throw new Error("Builder revision is required before generating design directions.");
+  }
+  const manifests = createCreativeDirectionManifests(args.input, args.plan, args.guide, brief)
+    .map((manifest) => bindAssetPlacementsToState(manifest, args.baseState));
+  const initialStates = manifests.map((manifest) =>
+    applyDirectionManifestToState(args.baseState, manifest),
+  );
+  const candidates: OnboardingDirectionCandidate[] = [];
+
+  for (let manifestIndex = 0; manifestIndex < manifests.length; manifestIndex++) {
+    const manifest = manifests[manifestIndex];
+    let state = initialStates[manifestIndex];
+    let visual: Awaited<ReturnType<typeof reviewDirection>> = {
+      issues: [],
+      ran: false,
+      warnings: args.allowAiReview ? [] : ["AI visual review skipped because the generation already degraded."],
+    };
+    const repairHistory: OnboardingDirectionCandidate["repairHistory"] = [];
+    if (args.allowAiReview && args.spendMeter) {
+      visual = await reviewDirection(state, language, args.spendMeter);
+      const blocking = visual.issues.filter(
+        (issue) => issue.severity === "critical" || issue.severity === "high",
+      );
+      if (blocking.length > 0) {
+        try {
+          const repair = await processAIBuildRequest(
+            buildDirectionRepairPrompt(args.input, manifest, blocking),
+            state,
+            "creative",
+            language,
+            args.spendMeter,
+          );
+          const resolved = await resolveAiImageMarkers(
+            args.websiteId,
+            repair.mutations,
+            args.guide,
+            args.spendMeter,
+          );
+          const applied = applyMutationsIndependently(state, resolved.mutations);
+          const scrubbed = scrubStateClaims(applied.state, args.businessContext);
+          state = repairOnboardingDefaults(migrateSiteStructure(runSelfCheck(scrubbed.state).state), language);
+          sanitizeBuilderStateCustomContent(state);
+          repairHistory.push({
+            pass: 1,
+            findings: blocking.map((issue) => `${issue.category}: ${issue.description}`),
+            appliedMutations: applied.applied.length,
+          });
+          visual = await reviewDirection(state, language, args.spendMeter);
+        } catch (error) {
+          visual.warnings.push(
+            `Targeted repair unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
+    candidates.push(buildDirectionCandidate({
+      state,
+      manifest,
+      language,
+      sourceFacts: args.input.migration?.sourceFacts,
+      customerAssetUrls: args.input.ownImageUrls,
+      visualIssues: visual.issues,
+      visualRan: visual.ran,
+      visualWarnings: visual.warnings,
+      uniqueness: Math.min(
+        ...initialStates
+          .filter((_, index) => index !== manifestIndex)
+          .map((otherState) => renderedDirectionDifferenceScore(state, otherState)),
+      ),
+      repairHistory,
+    }));
+  }
+
+  const selected = candidates[0];
+  if (!selected) throw new Error("No onboarding design directions were created.");
+  for (const candidate of candidates) {
+    await storage.prepareBuilderStateForSave(args.websiteId, candidate.state, "ai");
+    candidate.fingerprint = onboardingStateFingerprint(candidate.state);
+  }
+  const bundle: OnboardingDirectionBundle = {
+    version: 1,
+    websiteBrief: brief,
+    directions: candidates,
+    selectedDirectionId: selected.id,
+    selectionRevision: args.expectedBuilderRevision + 1,
+    createdAt: new Date().toISOString(),
+  };
+  await persistGeneratedDirectionBundleAtomically({
+    websiteId: args.websiteId,
+    expectedBuilderRevision: args.expectedBuilderRevision,
+    bundle,
+  });
+  return bundle;
+}
+
+function buildDirectionRepairPrompt(
+  input: OnboardingGenInput,
+  manifest: CreativeDirectionManifest,
+  issues: VisualIssue[],
+): string {
+  return `${buildEnhancePrompt(input)}
+
+You are repairing the already-built "${manifest.name}" direction. Preserve its
+${manifest.layoutArchetype} composition, ${manifest.pageRhythm} rhythm and all
+verified customer content. Do not redesign the entire site.
+
+Fix only these blocking screenshot findings:
+${issues.slice(0, 8).map((issue) => `- ${issue.viewport}/${issue.category}: ${issue.description} (${issue.suggestedAction})`).join("\n")}
+
+Return the smallest valid set of targeted mutations.`;
 }
 
 function applyMutationsIndependently(
@@ -862,7 +1113,7 @@ async function applyFallback(
   guideNotes: string[],
   status: OnboardingGenStatus,
   spendLimited = false
-): Promise<void> {
+): Promise<boolean> {
   const t = GEN_STRINGS[normalizeSiteLanguage(input.language)];
   setPhase(status, "check", t.phaseFallback);
   let state = buildFallbackState(input, guide);
@@ -880,6 +1131,20 @@ async function applyFallback(
   // customer is about to be shown.
   await enrichSavedBrandGuide(websiteId, input, state, guide);
 
+  const latest = await storage.getBuilderState(websiteId);
+  const bundle = await createAndPersistDirectionBundle({
+    websiteId,
+    input,
+    businessContext,
+    guide,
+    baseState: (latest?.state ?? state) as BuilderStateData,
+    expectedBuilderRevision: latest?.revision,
+    allowAiReview: false,
+  });
+  const selected = bundle.directions[0];
+  const selectedBuilder = await storage.getBuilderState(websiteId);
+  const fallbackReady = !!selected && bundle.directions.every(directionCandidatePassesGate);
+
   status.report = buildReport(
     [],
     state,
@@ -893,14 +1158,22 @@ async function applyFallback(
   );
   status.fallback = true;
   if (spendLimited) status.spendLimited = true;
-  status.readiness = spendLimited ? "spend_limited" : "deterministic_fallback";
-  status.qualityIssues = evaluateOnboardingQuality(state, {
-    language: normalizeSiteLanguage(input.language),
-    sourceFacts: input.migration?.sourceFacts,
-    customerAssetUrls: input.ownImageUrls,
-  }).issues;
+  status.directions = bundle.directions.map((direction) => ({
+    id: direction.id,
+    name: direction.manifest.name,
+    concept: direction.manifest.concept,
+    qualityScore: direction.qualityScore.overall,
+  }));
+  status.selectedDirectionId = bundle.selectedDirectionId;
+  status.readiness = fallbackReady ? "ready" : spendLimited ? "spend_limited" : "deterministic_fallback";
+  status.qualityIssues = (selected?.qualityIssues ?? []) as OnboardingQualityIssue[];
+  if (fallbackReady && selectedBuilder) {
+    status.qualityBuilderRevision = selectedBuilder.revision;
+    status.qualityFingerprint = onboardingStateFingerprint(selectedBuilder.state as BuilderStateData);
+  }
   setPhase(status, "done");
   status.done = true;
+  return fallbackReady;
 }
 
 /**
@@ -1021,6 +1294,17 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
     },
     {
       id: generateComponentId(),
+      type: "text-image",
+      props: {
+        title: s.aboutTitle(name),
+        description: description || s.aboutFallback(name, industry.toLowerCase()),
+        imageSide: "right",
+        ...(ownImages[1] || ownImages[0] ? { imageUrl: ownImages[1] || ownImages[0] } : {}),
+      },
+      styles: base({ backgroundColor: c.surface }),
+    },
+    {
+      id: generateComponentId(),
       type: "features",
       props: {
         title: s.featuresTitle,
@@ -1033,6 +1317,57 @@ export function buildFallbackState(input: OnboardingGenInput, guide: BrandGuide)
         alignment: "center",
       },
       styles: base({ backgroundColor: c.surface }),
+    },
+    {
+      id: generateComponentId(),
+      type: "services",
+      props: {
+        title: normalizeSiteLanguage(input.language) === "en"
+          ? `How ${name} can help`
+          : `Sådan kan ${name} hjælpe`,
+        description: shortDescription || s.heroFallbackDescription(name),
+        services: [{
+          id: "focus",
+          title: industry || s.ownField,
+          description: description || s.aboutFallback(name, industry.toLowerCase()),
+        }],
+      },
+      styles: base({ backgroundColor: c.background }),
+    },
+    {
+      id: generateComponentId(),
+      type: "timeline",
+      props: {
+        title: normalizeSiteLanguage(input.language) === "en" ? "Your next step" : "Dit næste skridt",
+        items: [
+          {
+            id: "contact",
+            title: goals.has("booking") ? s.heroButtonBooking : s.heroButtonContact,
+            description: s.contactBody,
+          },
+          {
+            id: "conversation",
+            title: normalizeSiteLanguage(input.language) === "en" ? "Clarify your needs" : "Afklar dit behov",
+            description: input.wishes.notes || shortDescription || s.ctaBody,
+          },
+        ],
+      },
+      styles: base({ backgroundColor: c.surface }),
+    },
+    {
+      id: generateComponentId(),
+      type: "faq",
+      props: {
+        title: normalizeSiteLanguage(input.language) === "en" ? "Practical questions" : "Praktiske spørgsmål",
+        items: [{
+          id: "contact",
+          title: normalizeSiteLanguage(input.language) === "en"
+            ? `How do I contact ${name}?`
+            : `Hvordan kontakter jeg ${name}?`,
+          description: s.contactBody,
+        }],
+      },
+      styles: base({ backgroundColor: c.background }),
     },
     {
       id: generateComponentId(),

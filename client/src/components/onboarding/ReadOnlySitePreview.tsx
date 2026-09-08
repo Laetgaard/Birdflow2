@@ -295,7 +295,7 @@ export function ReadOnlySitePreview({
 }
 
 /** Small helper the preview page uses to keep its own loading state tidy. */
-export function usePreviewData(websiteId: string | null, token: string | null) {
+export function usePreviewData(websiteId: string | null, token: string | null, directionId?: string | null) {
   const [data, setData] = useState<{
     pages: PreviewPage[];
     globalStyles: DesignTokens;
@@ -319,7 +319,8 @@ export function usePreviewData(websiteId: string | null, token: string | null) {
     if (!websiteId || !token) return;
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/onboarding/preview/${websiteId}`, {
+    const query = directionId ? `?directionId=${encodeURIComponent(directionId)}` : "";
+    fetch(`/api/onboarding/preview/${websiteId}${query}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (res) => {
@@ -353,7 +354,7 @@ export function usePreviewData(websiteId: string | null, token: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [websiteId, token]);
+  }, [websiteId, token, directionId]);
 
   return { data, error, loading };
 }

@@ -80,7 +80,21 @@ export const SCRATCH_INPUT: OnboardingGenInput = {
   ownImageUrls: [],
 };
 
-type Scenario = "scratch" | "import";
+export const SPARSE_INPUT: OnboardingGenInput = {
+  ...SCRATCH_INPUT,
+  business: {
+    name: "Stille Sted",
+    industry: "Selvstændig rådgiver",
+    description: "",
+  },
+  wishes: {
+    goals: ["kontakt"],
+    notes: "Lav en enkel, troværdig hjemmeside uden at opfinde ydelser, priser, erfaring eller kundecases.",
+  },
+  feeling: "rolig og enkel",
+};
+
+type Scenario = "scratch" | "sparse" | "import";
 type ScenarioContext = {
   runId: string;
   scenario: Scenario;
@@ -116,6 +130,14 @@ function supabaseUrl(): string {
 
 function runId(scenario: Scenario): string {
   return `${new Date().toISOString().replace(/[:.]/g, "-")}-${scenario}-${randomBytes(6).toString("hex")}`;
+}
+
+function isImportScenario(scenario: Scenario): boolean {
+  return scenario === "import";
+}
+
+function scenarioInput(scenario: Scenario): OnboardingGenInput {
+  return scenario === "sparse" ? SPARSE_INPUT : SCRATCH_INPUT;
 }
 
 function reservedEmail(scenario: Scenario, id: string): string {
@@ -210,16 +232,18 @@ async function createFreshSiteAndSession(context: ScenarioContext): Promise<void
   await api(context, "/api/onboarding/session/record", {
     method: "POST",
     body: JSON.stringify({
-      path: context.scenario === "scratch" ? "ai" : "import",
+      path: isImportScenario(context.scenario) ? "import" : "ai",
       language: "da",
     }),
   });
   const created = await api<{ websiteId: string }>(context, "/api/onboarding/create-website", {
     method: "POST",
     body: JSON.stringify({
-    name: context.scenario === "scratch" ? "Samtalerum København" : "Retained Import QA",
+    name: isImportScenario(context.scenario)
+      ? "Retained Import QA"
+      : scenarioInput(context.scenario).business.name,
     slug: `qa-${context.scenario}-${context.runId.slice(-12)}`,
-      mode: context.scenario === "scratch" ? "ai" : "import",
+      mode: isImportScenario(context.scenario) ? "import" : "ai",
     }),
   });
   context.websiteId = created.websiteId;
@@ -228,19 +252,19 @@ async function createFreshSiteAndSession(context: ScenarioContext): Promise<void
     "/api/onboarding/session/record",
     {
       method: "POST",
-      body: JSON.stringify(context.scenario === "scratch"
+      body: JSON.stringify(!isImportScenario(context.scenario)
         ? {
           websiteId: created.websiteId,
           path: "ai",
           language: "da",
-          businessName: SCRATCH_INPUT.business.name,
-          industry: SCRATCH_INPUT.business.industry,
-          description: SCRATCH_INPUT.business.description,
-          goals: SCRATCH_INPUT.wishes.goals,
-          notes: SCRATCH_INPUT.wishes.notes,
-          feeling: SCRATCH_INPUT.feeling,
-          palette: SCRATCH_INPUT.palette,
-          fontPair: SCRATCH_INPUT.fontPair,
+          businessName: scenarioInput(context.scenario).business.name,
+          industry: scenarioInput(context.scenario).business.industry,
+          description: scenarioInput(context.scenario).business.description,
+          goals: scenarioInput(context.scenario).wishes.goals,
+          notes: scenarioInput(context.scenario).wishes.notes,
+          feeling: scenarioInput(context.scenario).feeling,
+          palette: scenarioInput(context.scenario).palette,
+          fontPair: scenarioInput(context.scenario).fontPair,
         }
         : {
           websiteId: created.websiteId,
@@ -254,7 +278,7 @@ async function createFreshSiteAndSession(context: ScenarioContext): Promise<void
   setCheck(
     context,
     "onboardingAnswersRecorded",
-    recorded.answers.path === (context.scenario === "scratch" ? "ai" : "import") &&
+    recorded.answers.path === (isImportScenario(context.scenario) ? "import" : "ai") &&
       session?.websiteId === created.websiteId,
     "Supported onboarding record API persisted the run inputs and website binding."
   );
@@ -292,10 +316,10 @@ async function runScratch(context: ScenarioContext): Promise<void> {
   if (!context.websiteId) throw new Error("Scratch website is missing.");
   context.status = await startScratchQaGeneration(
     context.websiteId,
-    (websiteId, input) =>
+    (websiteId) =>
       api(context, `/api/websites/${websiteId}/onboarding/generate`, {
         method: "POST",
-        body: JSON.stringify(input),
+        body: JSON.stringify(scenarioInput(context.scenario)),
       }),
     () => waitForGeneration(context)
   );
@@ -494,9 +518,25 @@ async function captureEvidence(context: ScenarioContext, state: BuilderStateData
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
+  const session = context.userId ? await storage.getOnboardingSession(context.userId) : undefined;
+  const directions = session?.answers?.designDirections?.directions ?? [];
+  const targets: Array<{
+    page: BuilderStateData["pages"][number] | undefined;
+    suffix: "home" | "booking" | "direction-1" | "direction-2" | "direction-3";
+    directionId?: string;
+    candidateState: BuilderStateData;
+  }> = directions.length === 3
+    ? directions.map((direction, index) => ({
+        page: direction.state.pages.find((page) => page.path === "/") ?? direction.state.pages[0],
+        suffix: `direction-${index + 1}` as "direction-1" | "direction-2" | "direction-3",
+        directionId: direction.id,
+        candidateState: direction.state,
+      }))
+    : [{ page: home, suffix: "home", candidateState: state }];
+  targets.push({ page: booking, suffix: "booking", candidateState: state });
   const reviewedPages = new Set<string>();
   try {
-    for (const [page, suffix] of [[home, "home"], [booking, "booking"]] as const) {
+    for (const { page, suffix, directionId, candidateState } of targets) {
       if (!page) {
         for (const viewport of ["desktop", "mobile"] as const) {
           context.screenshots.push({
@@ -526,7 +566,7 @@ async function captureEvidence(context: ScenarioContext, state: BuilderStateData
             context.authSession
           );
           await pageBrowser.goto(
-            `${apiBaseUrl()}/onboarding/preview/${context.websiteId}`,
+            `${apiBaseUrl()}/onboarding/preview/${context.websiteId}${directionId ? `?directionId=${encodeURIComponent(directionId)}` : ""}`,
             { waitUntil: "networkidle2", timeout: 45_000 }
           );
           await pageBrowser.evaluate((pageId, device) => {
@@ -580,7 +620,7 @@ async function captureEvidence(context: ScenarioContext, state: BuilderStateData
       }
       if (!reviewedPages.has(page.id) && refs.length) {
         reviewedPages.add(page.id);
-        const reviewed = await analyzeScreenshots(refs.map((ref) => ref.id), cache, state, page.id);
+        const reviewed = await analyzeScreenshots(refs.map((ref) => ref.id), cache, candidateState, page.id);
         context.checks[`aiVisualReview:${suffix}`] = check(
           reviewed.ran ? "PASS" : "FAIL",
           reviewed.ran
@@ -623,6 +663,7 @@ async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
   const text = stateText(state);
   const nativeBooking = nativeBookingComponents(components);
   const quality = context.status?.qualityIssues ?? [];
+  const directionBundle = session?.answers?.designDirections;
   context.qualityFindings = quality.map((issue) => ({
     code: issue.code,
     message: issue.message,
@@ -647,7 +688,57 @@ async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
     `Expected builder revision ${builder.revision}, fingerprint ${fingerprint}, and site revision ${session?.siteRevision ?? "missing"}.`
   );
   setCheck(context, "qualityGateClear", quality.length === 0, `${quality.length} structured quality blocker(s).`);
-  setCheck(context, "expectedPageCount", state.pages.length >= 4, `Generated ${state.pages.length} page(s); expected at least 4.`);
+  const minPages = context.scenario === "sparse" ? 3 : 4;
+  setCheck(context, "expectedPageCount", state.pages.length >= minPages, `Generated ${state.pages.length} page(s); expected at least ${minPages}.`);
+  setCheck(
+    context,
+    "threeDirectionStatesPersisted",
+    directionBundle?.directions.length === 3,
+    `Persisted ${directionBundle?.directions.length ?? 0} complete direction state(s).`,
+  );
+  const directionFingerprints = directionBundle?.directions.map((direction) => direction.fingerprint) ?? [];
+  setCheck(
+    context,
+    "directionsMateriallyDistinct",
+    directionFingerprints.length === 3 && new Set(directionFingerprints).size === 3,
+    `${new Set(directionFingerprints).size}/${directionFingerprints.length} candidate fingerprints are distinct.`,
+  );
+  setCheck(
+    context,
+    "selectedDirectionPromotedUnchanged",
+    directionBundle?.selectedDirectionId != null &&
+      directionBundle.directions.find((direction) => direction.id === directionBundle.selectedDirectionId)?.fingerprint === fingerprint,
+    "The active builder fingerprint must equal the selected retained candidate fingerprint.",
+  );
+  setCheck(
+    context,
+    "directionQualityEvidencePersisted",
+    directionBundle?.directions.length === 3 &&
+      directionBundle.directions.every((direction) =>
+        Number.isFinite(direction.qualityScore.overall) &&
+        direction.manifest.sectionComposition.length > 0 &&
+        direction.manifest.assetPlacements.every((placement) =>
+          !!placement.assetUrl && !!placement.sectionId && !!placement.role && !!placement.crop
+        )
+      ),
+    "Every direction must retain manifest, score, review and explicit asset-placement evidence.",
+  );
+  let candidatePreviews = 0;
+  for (const direction of directionBundle?.directions ?? []) {
+    try {
+      const preview = await api<{ fingerprint?: string; directionId?: string }>(
+        context,
+        `/api/onboarding/preview/${context.websiteId}?directionId=${encodeURIComponent(direction.id)}`,
+      );
+      if (preview.directionId === direction.id && preview.fingerprint === direction.fingerprint) candidatePreviews++;
+    } catch {}
+  }
+  setCheck(
+    context,
+    "allDirectionPreviewsLoad",
+    candidatePreviews === 3,
+    `${candidatePreviews}/3 direction-specific preview payloads matched their retained fingerprints.`,
+  );
   const expectedContent =
     context.scenario === "scratch"
       ? ["individuel", "parterapi", "900", "1.200", "60", "75", "online", "kontakt@qa-psykoterapeut.invalid"]
@@ -659,7 +750,9 @@ async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
   setCheck(context, "noPlaceholders", placeholderMatches.length === 0, `${placeholderMatches.length} placeholder marker(s) found.`);
   const brokenLinks = findBrokenInternalLinks(state);
   setCheck(context, "internalLinksResolve", brokenLinks.length === 0, `${brokenLinks.length} broken internal link(s): ${brokenLinks.slice(0, 5).join(", ")}`);
-  setCheck(context, "nativeBookingComponent", nativeBooking.length > 0, `Found ${nativeBooking.length} exact production booking component(s).`);
+  context.checks.nativeBookingComponent = context.scenario === "sparse"
+    ? check("NOT_APPLICABLE", "Sparse fixture does not request booking.")
+    : check(nativeBooking.length > 0 ? "PASS" : "FAIL", `Found ${nativeBooking.length} exact production booking component(s).`);
   setCheck(context, "bookingServicesOwned", services.every((service) => service.websiteId === context.websiteId), `${services.length} service row(s) belong to this website.`);
 
   const expectedServices = context.scenario === "scratch"
@@ -684,11 +777,13 @@ async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
           : `No matching owned booking service row exists for ${expected.duration} minutes / ${expected.price} DKK.`
       );
     }
-  } else {
+  } else if (context.scenario === "import") {
     context.checks.importedBookingServices = check(
       services.length > 0 ? "PASS" : "FAIL",
       `${services.length} owned booking service row(s) exist after native conversion.`
     );
+  } else {
+    context.checks.importedBookingServices = check("NOT_APPLICABLE", "Sparse fixture does not request booking.");
   }
   const externalBookingLeak = /easypractice|terapeutbooking|calendly|simplybook|externalbookingurl/i.test(text);
   context.checks.externalBookingRemoved = check(
@@ -738,24 +833,29 @@ async function runDeterministicChecks(context: ScenarioContext): Promise<void> {
   setCheck(context, "onboardingPreviewLoads", previewApiWorks, "Authenticated onboarding preview must return pages.");
   setCheck(context, "bookingApiLoads", bookingApiWorks, "Authenticated booking services must open.");
   setCheck(context, "publicBookingServicesLoad", publicServicesWork, "BookingWidget's public services endpoint must return a list.");
-  setCheck(
-    context,
-    "publicBookingSlotsLoad",
-    publicSlotsWork && availableSlotCount > 0,
-    `BookingWidget's public slots endpoint returned ${availableSlotCount} selectable slot(s).`
-  );
-  setCheck(
-    context,
-    "bookingInteractionUsable",
-    nativeBooking.length > 0 &&
-      servicesUsable &&
-      previewApiWorks &&
-      bookingApiWorks &&
-      publicServicesWork &&
-      publicSlotsWork &&
-      availableSlotCount > 0,
-    "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
-  );
+  if (context.scenario === "sparse") {
+    context.checks.publicBookingSlotsLoad = check("NOT_APPLICABLE", "Sparse fixture does not request booking.");
+    context.checks.bookingInteractionUsable = check("NOT_APPLICABLE", "Sparse fixture does not request booking.");
+  } else {
+    setCheck(
+      context,
+      "publicBookingSlotsLoad",
+      publicSlotsWork && availableSlotCount > 0,
+      `BookingWidget's public slots endpoint returned ${availableSlotCount} selectable slot(s).`
+    );
+    setCheck(
+      context,
+      "bookingInteractionUsable",
+      nativeBooking.length > 0 &&
+        servicesUsable &&
+        previewApiWorks &&
+        bookingApiWorks &&
+        publicServicesWork &&
+        publicSlotsWork &&
+        availableSlotCount > 0,
+      "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+    );
+  }
   if (context.importReport) {
     const sourceFacts = context.importReport.facts.filter((fact) =>
       ["title", "email", "phone", "service", "price"].includes(fact.kind) &&
@@ -827,18 +927,18 @@ function manifestEntry(context: ScenarioContext): QaFixtureManifestEntry {
     userId: context.userId,
     onboardingSessionId: context.sessionId,
     websiteId: context.websiteId,
-    onboardingPath: context.scenario === "scratch" ? "ai" : "import",
+    onboardingPath: isImportScenario(context.scenario) ? "import" : "ai",
     sourceWebsiteUrl: context.scenario === "import" ? IMPORT_SOURCE : undefined,
     sourceContractVersion: context.scenario === "import" ? IMPORT_SOURCE_CONTRACT_VERSION : undefined,
     status: context.terminal ?? classify(context),
-    onboardingInputs: context.scenario === "scratch"
+    onboardingInputs: !isImportScenario(context.scenario)
       ? {
-          language: SCRATCH_INPUT.language,
-          business: SCRATCH_INPUT.business,
-          wishes: SCRATCH_INPUT.wishes,
-          feeling: SCRATCH_INPUT.feeling,
-          palette: SCRATCH_INPUT.palette,
-          fontPair: SCRATCH_INPUT.fontPair,
+          language: scenarioInput(context.scenario).language,
+          business: scenarioInput(context.scenario).business,
+          wishes: scenarioInput(context.scenario).wishes,
+          feeling: scenarioInput(context.scenario).feeling,
+          palette: scenarioInput(context.scenario).palette,
+          fontPair: scenarioInput(context.scenario).fontPair,
         }
       : {
           sourceUrl: IMPORT_SOURCE,
@@ -888,8 +988,8 @@ async function runScenario(scenario: Scenario): Promise<QaFixtureManifestEntry> 
     await createFreshQaIdentity(context);
     stage = "website-session";
     await createFreshSiteAndSession(context);
-    stage = scenario === "scratch" ? "scratch-generation" : "import";
-    if (scenario === "scratch") await runScratch(context);
+    stage = isImportScenario(scenario) ? "import" : `${scenario}-generation`;
+    if (!isImportScenario(scenario)) await runScratch(context);
     else await runImport(context);
     if (!context.terminal) {
       stage = "deterministic-checks";
@@ -919,7 +1019,7 @@ async function runScenario(scenario: Scenario): Promise<QaFixtureManifestEntry> 
 export async function main(): Promise<void> {
   assertQaFixturesAllowed();
   const entries: QaFixtureManifestEntry[] = [];
-  for (const scenario of ["scratch", "import"] as const) {
+  for (const scenario of ["scratch", "sparse", "import"] as const) {
     const entry = await runScenario(scenario);
     entries.push(entry);
     await appendQaManifest(MANIFEST_PATH, [entry]);

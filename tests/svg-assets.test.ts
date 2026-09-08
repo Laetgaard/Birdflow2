@@ -316,7 +316,10 @@ describe('extraction and resolution stay wired into the server (tripwires)', () 
     const offenders = walkServerFiles()
       .filter((file) => file !== 'server/storage.ts')
       .filter((file) => /\.(insert|update)\(\s*builderState\b/.test(readFileSync(file, 'utf8')));
-    expect(offenders).toEqual(['server/routes.ts']);
+    expect(offenders).toEqual(['server/onboardingDecision.ts', 'server/routes.ts']);
+    expect(readFileSync('server/onboardingDecision.ts', 'utf8')).toContain(
+      'persistGeneratedDirectionBundleAtomically'
+    );
   });
 
   it('first-party template states carry no inline svg — keeps the allowlist honest', async () => {

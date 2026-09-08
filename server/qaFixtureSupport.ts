@@ -33,7 +33,7 @@ export type QaCheck = {
 
 export type QaFixtureManifestEntry = {
   runId: string;
-  scenario: "scratch" | "import";
+  scenario: "scratch" | "sparse" | "import";
   createdAt: string;
   completedAt: string;
   durationMs: number;
@@ -60,7 +60,17 @@ export type QaFixtureManifestEntry = {
   deterministicChecks: Record<string, QaCheck>;
   qualityFindings: Array<{ code: string; message: string; pageId?: string; componentId?: string }>;
   screenshots: Array<{
-    kind: "desktop-home" | "desktop-booking" | "mobile-home" | "mobile-booking";
+    kind:
+      | "desktop-home"
+      | "desktop-booking"
+      | "mobile-home"
+      | "mobile-booking"
+      | "desktop-direction-1"
+      | "mobile-direction-1"
+      | "desktop-direction-2"
+      | "mobile-direction-2"
+      | "desktop-direction-3"
+      | "mobile-direction-3";
     path?: string;
     status: QaCheckResult;
     warnings?: string[];

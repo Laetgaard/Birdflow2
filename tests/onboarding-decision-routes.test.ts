@@ -395,6 +395,16 @@ describe("the preview is a preview, not an editor", () => {
     expect(workspace).toContain("preview-parity-error");
   });
 
+  it("cannot promote stale directions over customised or reviewed work", () => {
+    const decisionSource = read("server/onboardingDecision.ts");
+    expect(decisionSource).toContain('session.decisionState !== "awaiting_decision"');
+    expect(decisionSource).toContain("bundle.selectionRevision !== builder.revision");
+    expect(decisionSource).toContain("currentCandidate.fingerprint");
+    expect(read("client/src/pages/onboarding.tsx")).toContain(
+      'decision.stage === "decision" ? decision.designDirections : []'
+    );
+  });
+
   it("uses the builder's complete website and SVG rendering context", () => {
     expect(routes).toContain("resolvedGlobalStyles");
     expect(routes).toContain("svgAssets");

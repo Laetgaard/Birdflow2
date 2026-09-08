@@ -107,11 +107,16 @@ vi.mock("../server/onboardingDecision", () => ({
   markGenerationComplete: vi.fn(async () => {}),
   markGenerationFailed: vi.fn(async () => {}),
   markGenerationStarted: vi.fn(async () => {}),
+  persistGeneratedDirectionBundleAtomically: vi.fn(async (args: any) => ({
+    revision: args.expectedBuilderRevision + 1,
+    state: args.bundle.directions[0].state,
+  })),
 }));
 vi.mock("../server/storage", () => ({
   storage: {
     getBuilderState: async () => ({ revision: 1, state: { pages: [], globalStyles: {} } }),
     updateBuilderState: (...a: any[]) => updateBuilderState(...a),
+    prepareBuilderStateForSave: vi.fn(async () => {}),
     persistOnboardingGenStatus: (...a: any[]) => persistOnboardingGenStatus(...a),
     claimOnboardingGeneration: (...a: any[]) => claimOnboardingGeneration(...a),
     finishOnboardingGeneration: (...a: any[]) => finishOnboardingGeneration(...a),

@@ -17,6 +17,7 @@ export type OnboardingQualityCode =
   | "empty_component"
   | "empty_custom_component"
   | "publish_parity"
+  | "direction_quality"
   | "enhancement_failed";
 
 export type OnboardingQualityIssue = {

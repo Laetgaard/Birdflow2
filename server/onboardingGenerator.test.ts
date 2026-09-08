@@ -13,8 +13,13 @@ const updateBuilderStateMock = vi.fn(async (_id: string, state: BuilderStateData
   lastSavedState = state;
   return undefined;
 });
-const getBuilderStateMock = vi.fn(async () => ({ state: lastSavedState ?? blankState() }));
+const getBuilderStateMock = vi.fn(async () => ({ revision: 3, state: lastSavedState ?? blankState() }));
 const getMediaAssetsMock = vi.fn(async () => []);
+const upsertOnboardingSessionMock = vi.fn(async () => ({}));
+const persistDirectionBundleMock = vi.fn(async (args: any) => ({
+  revision: args.expectedBuilderRevision + 1,
+  state: args.bundle.directions[0].state,
+}));
 
 const persistGenStatusMock = vi.fn(async () => {});
 const claimGenerationMock = vi.fn(async () => true);
@@ -30,13 +35,15 @@ const finishGenerationMock = vi.fn(async (
 vi.mock("./storage", () => ({
   storage: {
     getBuilderState: (...args: unknown[]) => getBuilderStateMock(...args),
+    prepareBuilderStateForSave: vi.fn(async () => {}),
     updateBuilderState: (...args: unknown[]) => updateBuilderStateMock(...args),
     getMediaAssets: (...args: unknown[]) => getMediaAssetsMock(...args),
     // M15: every phase change mirrors into onboarding_sessions
     persistOnboardingGenStatus: (...args: unknown[]) => persistGenStatusMock(...args),
     claimOnboardingGeneration: (...args: unknown[]) => claimGenerationMock(...args),
     finishOnboardingGeneration: (...args: unknown[]) => finishGenerationMock(...args),
-    getOnboardingSessionByWebsiteId: vi.fn(async () => undefined),
+    getOnboardingSessionByWebsiteId: vi.fn(async () => ({ userId: "test-user" })),
+    upsertOnboardingSession: (...args: unknown[]) => upsertOnboardingSessionMock(...args),
   },
   db: {},
 }));
@@ -51,6 +58,8 @@ vi.mock("./onboardingDecision", () => ({
   markGenerationStarted: (...args: unknown[]) => markStartedMock(...(args as [])),
   markGenerationComplete: (...args: unknown[]) => markCompleteMock(...(args as [])),
   markGenerationFailed: (...args: unknown[]) => markFailedMock(...(args as [])),
+  persistGeneratedDirectionBundleAtomically: (...args: unknown[]) =>
+    persistDirectionBundleMock(...(args as [any])),
 }));
 
 // Brand-guide enrichment is an AI pass of its own; keep it out of the
@@ -95,6 +104,11 @@ vi.mock("./aiImages", () => ({
 const checkPublishParityMock = vi.fn(async () => ({ status: "passed", problems: [] }));
 vi.mock("./publishParity", () => ({
   checkPublishParity: (...args: unknown[]) => checkPublishParityMock(...args),
+}));
+
+vi.mock("./visualReview", () => ({
+  capturePageScreenshots: vi.fn(async () => ({ refs: [{ id: "unit-shot" }], warnings: [] })),
+  analyzeScreenshots: vi.fn(async () => ({ issues: [], ran: true })),
 }));
 
 import {
@@ -192,7 +206,7 @@ beforeEach(() => {
     lastSavedState = state;
     return undefined;
   });
-  getBuilderStateMock.mockImplementation(async () => ({ state: lastSavedState ?? blankState() }));
+  getBuilderStateMock.mockImplementation(async () => ({ revision: 3, state: lastSavedState ?? blankState() }));
   checkPublishParityMock.mockResolvedValue({ status: "passed", problems: [] });
   finalizeBrandGuideMock.mockResolvedValue({
     guide: createDefaultBrandGuide({
@@ -236,7 +250,7 @@ describe("startOnboardingGeneration — happy path", () => {
     expect(status.summary).toContain("nordisk");
 
     // Three saves: brand guide first (survives later failures), then the
-    // final site, then the enriched guide written back onto it.
+    // final site and enriched guide. Direction promotion is one DB transaction.
     expect(updateBuilderStateMock).toHaveBeenCalledTimes(3);
     const [guideSaveId, guideSaveState] = updateBuilderStateMock.mock.calls[0];
     expect(guideSaveId).toBe(id);
