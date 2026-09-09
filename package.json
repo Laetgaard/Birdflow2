@@ -10,6 +10,8 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "test": "vitest run",
+    "qa:fixtures": "tsx scripts/run-persistent-onboarding-qa.ts",
+    "typecheck:qa": "tsc -p tsconfig.qa.json",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {

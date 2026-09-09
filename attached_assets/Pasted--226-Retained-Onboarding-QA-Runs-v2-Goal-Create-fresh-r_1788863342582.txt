@@ -1,0 +1,650 @@
+#226 — Retained Onboarding QA Runs v2
+Goal
+
+Create fresh, repeatable end-to-end QA runs for Birdflow’s two onboarding paths:
+
+Build website from scratch
+Import an existing website
+
+The purpose is not only to prove that onboarding technically completes. The test must verify that Birdflow produces a reviewable practitioner website draft with a correctly configured Birdflow-native booking experience.
+
+Every result, including failed and blocked runs, must be retained for later inspection and comparison.
+
+Core test question
+
+For each onboarding path:
+
+Can a completely new practitioner complete onboarding and receive a usable website draft where the expected content is present, the booking system is correctly configured, and the draft can be opened and reviewed through Birdflow?
+
+A run must not pass merely because generation completed.
+
+Test fixtures
+
+Use fixed, repeatable practitioner data so future QA runs can be compared against each other.
+
+Fixture A — Scratch onboarding
+
+Create a completely new practitioner with no existing website.
+
+Example test profile:
+
+Name: QA Psykoterapeut Scratch
+Profession: Psykoterapeut
+Location: Copenhagen
+Practice type: Solo practitioner
+Services:
+Individual therapy
+Couples therapy
+Individual therapy:
+60 minutes
+900 DKK
+Couples therapy:
+75 minutes
+1,200 DKK
+Sessions:
+Physical
+Online
+Desired website:
+Home
+About
+Therapy / Services
+Contact
+Primary CTA:
+Book appointment
+Booking should be clearly visible in the generated website
+
+All onboarding answers used by the QA runner must be persisted.
+
+Fixture B — Existing website import
+
+Use a stable test website created specifically for QA.
+
+The test website should deliberately contain known content such as:
+
+Practitioner name
+About section
+Two services
+Prices
+Contact information
+Images
+Multiple pages/sections
+Existing external booking CTA/link
+Some information that Birdflow needs but the website does not contain
+
+Example missing information:
+
+Exact appointment duration
+Booking availability
+Online vs physical appointments
+Cancellation rules
+
+This lets QA verify that Birdflow distinguishes between:
+
+Information it can import
+Information it must ask the practitioner for
+Information it must never invent
+Critical import booking requirement
+
+If the existing website contains an external booking provider, for example:
+
+EasyPractice
+Calendly
+SimplyBook
+Other external booking links/widgets
+
+Birdflow should preserve the intent to book, but replace the external booking implementation with Birdflow’s native booking system.
+
+QA should explicitly verify:
+
+sourceHasBookingIntent = true
+externalBookingCopiedIntoDraft = false
+birdflowBookingAdded = true
+
+The imported site must not accidentally keep users routed to the old booking provider unless that behavior is intentionally supported.
+
+Pass criteria
+Scratch onboarding passes only when
+
+All of the following are true:
+
+Onboarding
+New QA user created
+New onboarding session created
+Test fixture answers stored
+Onboarding reaches expected final draft state
+No old fixture/user/site reused
+Website
+Draft website created
+Correct practitioner owns website
+Website is accessible in builder
+Website is accessible in onboarding preview
+Expected core pages/sections exist
+Practitioner name is present
+Services are represented
+Contact information is represented
+No obvious unfinished placeholder state
+Booking
+Birdflow booking component exists
+Booking component belongs to the correct website/user
+Expected services exist
+Service duration is correct
+Service price is correct
+Booking CTA points to the native booking experience
+Booking interaction can be opened successfully from preview
+Booking does not reference another QA fixture/customer
+No external booking provider is accidentally used
+Technical quality
+No broken navigation
+No fatal rendering errors
+No obvious broken image references
+Desktop preview renders
+Mobile preview renders
+Builder can load the generated draft
+Import onboarding passes only when
+
+It passes all scratch criteria plus:
+
+Import
+Correct source website fetched
+Source URL retained
+Imported pages/sections recorded
+Important source content is preserved
+Practitioner identity is preserved
+Services are preserved
+Contact details are preserved
+Images/assets are imported or intentionally replaced
+Missing information handling
+
+For Birdflow-specific data not found on the website:
+
+Birdflow must either:
+
+ask the practitioner, or
+clearly mark the information as missing
+
+It must not silently invent critical business information such as:
+
+Prices
+Appointment durations
+Availability
+Physical locations
+Booking policies
+
+Store which values came from:
+
+SOURCE_WEBSITE
+USER_INPUT
+BIRDFLOW_DEFAULT
+AI_GENERATED
+MISSING
+
+This provenance would be extremely useful later when debugging onboarding.
+
+Objective QA checks
+
+Do not rely entirely on an AI quality judge.
+
+Store deterministic checks like:
+
+onboardingCompleted
+websiteCreated
+builderLoads
+previewLoads
+
+practitionerNamePresent
+expectedServicesPresent
+expectedSectionsPresent
+
+bookingComponentPresent
+bookingComponentCorrectOwner
+bookingServiceLinked
+bookingPriceCorrect
+bookingDurationCorrect
+bookingInteractionWorks
+
+externalBookingDetected
+externalBookingRemovedOrConverted
+
+desktopRenderPassed
+mobileRenderPassed
+
+brokenInternalLinks
+brokenImages
+placeholderContentDetected
+generationErrors
+
+Each check should return:
+
+PASS
+FAIL
+WARNING
+NOT_APPLICABLE
+AI quality review
+
+After the deterministic checks, run the existing AI quality analysis.
+
+AI evaluation should judge things that cannot easily be determined programmatically.
+
+Suggested categories:
+
+Content quality
+Does the website make sense for the practitioner?
+Is the copy coherent?
+Is information repeated unnecessarily?
+Is there fabricated information?
+Does the site feel complete?
+Structure
+Does the page hierarchy make sense?
+Is important information easy to find?
+Is booking prominent enough?
+Is contact information accessible?
+Design
+Does it look professionally usable?
+Is visual hierarchy clear?
+Does mobile layout make sense?
+Are images appropriate?
+Conversion
+Can a visitor understand:
+who the practitioner is?
+what they offer?
+where they operate?
+what it costs?
+how to book?
+Human review result
+
+Add one simple manual review state to each retained run:
+
+NOT_REVIEWED
+PASS
+PASS_WITH_ISSUES
+FAIL
+
+Also allow a human reviewer to answer:
+
+Would you show this draft to a real practitioner?
+YES / NO
+
+And store optional notes.
+
+This should not block the automated QA run.
+
+Screenshots
+
+Retain screenshots for every generated site.
+
+At minimum:
+
+Desktop
+Homepage
+Page/section containing booking
+Mobile
+Homepage
+Booking experience
+
+Preferably retain:
+
+desktop-home.png
+desktop-booking.png
+mobile-home.png
+mobile-booking.png
+
+This makes regression comparison much easier than opening every old fixture manually.
+
+Retained QA manifest
+
+Extend:
+
+qa-results/persistent-onboarding-fixtures.json
+
+Each run should contain something similar to:
+
+runId
+runType
+createdAt
+
+userId
+onboardingSessionId
+websiteId
+
+sourceWebsiteUrl
+
+status
+
+onboardingInputs
+
+generationStartedAt
+generationCompletedAt
+
+deterministicChecks
+
+qualityScore
+qualityFindings
+
+bookingChecks
+
+screenshots
+
+adminUserUrl
+adminWebsiteUrl
+builderUrl
+previewUrl
+
+humanReviewStatus
+humanReviewNotes
+Run statuses
+
+Use explicit terminal states.
+
+For example:
+
+PASSED
+
+PASSED_WITH_WARNINGS
+
+FAILED_ONBOARDING
+
+FAILED_IMPORT
+
+FAILED_GENERATION
+
+FAILED_BOOKING
+
+FAILED_QUALITY_GATE
+
+BLOCKED_PROVIDER
+
+BLOCKED_DATABASE
+
+BLOCKED_EXTERNAL_SOURCE
+
+Do not delete failed fixtures.
+
+Do not convert failed runs into generic success just because a website record exists.
+
+Important architecture requirement
+
+The QA runner must exercise the same core flow used by real users.
+
+Avoid building a QA-only shortcut such as:
+
+QA script
+↓
+insert DB records manually
+↓
+call generator directly
+↓
+pass
+
+Prefer:
+
+QA runner
+↓
+real onboarding orchestration
+↓
+normal onboarding APIs/services
+↓
+website generation
+↓
+booking setup
+↓
+builder state
+↓
+preview
+
+The runner can automate the experience, but it should not bypass meaningful production behavior.
+
+Direct database access is acceptable for:
+
+retrieving IDs
+recording QA evidence
+assertions
+cleanup utilities
+
+But not as a replacement for the onboarding flow being tested.
+
+Retention rules
+
+Every QA execution creates completely fresh:
+
+User
+Onboarding session
+Website
+Builder state
+Booking/service data
+
+Existing QA fixtures must never be:
+
+reused
+overwritten
+deleted
+mutated to make the new test pass
+
+All old retained runs remain inspectable.
+
+Failure behavior
+
+If any step fails:
+
+Stop the run at the appropriate stage.
+Preserve everything created so far.
+Record the exact failure.
+Store logs/error context.
+Add available review links.
+Add screenshots if a preview was reached.
+Mark the run with the correct terminal status.
+
+Never clean up a failed run automatically.
+
+Admin verification
+
+For both QA users verify:
+
+Users
+
+Admin → Users can locate the QA user.
+
+Websites
+
+Admin → Websites can locate the generated website.
+
+Onboarding
+
+The retained onboarding session points to the correct user and website.
+
+Builder
+
+The builder opens the same retained website.
+
+Preview
+
+The onboarding preview represents the same current draft.
+
+Booking
+
+Booking configuration displayed in admin/database belongs to the same retained practitioner and website.
+
+Execution flow
+Phase 1 — Prepare QA infrastructure
+
+Update the persistent QA system so it supports:
+
+unique fixture names
+run IDs
+fixed test personas
+stored onboarding inputs
+structured QA assertions
+screenshots
+booking assertions
+terminal statuses
+
+Relevant files:
+
+scripts/run-persistent-onboarding-qa.ts
+
+server/qaFixtureSupport.ts
+
+shared/qaFixturePolicy.ts
+
+qa-results/persistent-onboarding-fixtures.json
+Phase 2 — Scratch onboarding
+
+Create fresh QA user.
+
+Run normal scratch onboarding.
+
+Provide the predefined answers.
+
+Generate draft.
+
+Wait for generation completion.
+
+Run objective checks.
+
+Verify booking.
+
+Capture screenshots.
+
+Run AI quality evaluation.
+
+Retain result.
+
+Phase 3 — Import onboarding
+
+Create separate fresh QA user.
+
+Submit known QA source website.
+
+Run normal import pipeline.
+
+Capture import findings.
+
+Provide missing information when onboarding requests it.
+
+Generate draft.
+
+Run objective checks.
+
+Verify external booking conversion.
+
+Verify native Birdflow booking.
+
+Capture screenshots.
+
+Run AI quality evaluation.
+
+Retain result.
+
+Phase 4 — Cross-system verification
+
+Check:
+
+user
+↓
+onboarding session
+↓
+website
+↓
+builder state
+↓
+booking services
+↓
+preview
+
+All IDs must reference the same QA fixture.
+
+This prevents subtle cross-user/cross-site bugs.
+
+Phase 5 — Produce final QA summary
+
+At the end, print a simple summary like:
+
+BIRDFLOW ONBOARDING QA
+
+SCRATCH
+Status: PASS
+Website: PASS
+Booking: PASS
+Desktop: PASS
+Mobile: PASS
+AI Quality: 84/100
+Human review: NOT_REVIEWED
+
+IMPORT
+Status: PASS_WITH_WARNINGS
+Import: PASS
+Website: PASS
+Booking conversion: PASS
+Booking: PASS
+Desktop: PASS
+Mobile: WARNING
+AI Quality: 76/100
+Human review: NOT_REVIEWED
+
+Admin:
+[user link]
+
+Builder:
+[builder link]
+
+Preview:
+[preview link]
+Out of scope
+
+Do not fix defects discovered during the test.
+
+Do not:
+
+redesign onboarding
+change builder UX
+change admin UX
+publish the QA sites
+approve subscriptions
+run payment
+delete previous QA fixtures
+modify generated websites manually to make them pass
+
+The purpose of #226 is to expose the current product truth.
+
+Important rule for Replit
+
+Do not change product behavior simply to make QA pass.
+
+If the generated website does not contain booking, record:
+
+FAILED_BOOKING
+
+If import misses important content, record it.
+
+If mobile looks bad, record it.
+
+If the generator invents a price, record it.
+
+That is much more valuable to us than a green test.
+
+Definition of Done
+
+#226 is complete when we have two completely fresh retained onboarding runs that exercise the real Birdflow onboarding system:
+
+Scratch onboarding
+
+and
+
+Existing-site import
+
+For each one we can inspect:
+
+exact onboarding input
+generated website
+builder state
+preview
+booking configuration
+deterministic QA checks
+AI quality findings
+desktop/mobile screenshots
+failures/warnings
+admin links
+retained database records
+
+And most importantly:
+
+A run may only receive an overall PASS when Birdflow generates a usable practitioner draft containing a functioning, correctly owned Birdflow-native booking experience.

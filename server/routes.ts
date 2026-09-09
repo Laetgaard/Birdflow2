@@ -419,7 +419,7 @@ export async function registerRoutes(
     try {
       const user = (req as any).user;
       const { name, slug, templateId, websiteType, mode } = req.body;
-      const isAiMode = mode === "ai";
+      const isAiMode = mode === "ai" || mode === "import";
 
       if (!name || (!templateId && !isAiMode)) {
         return res.status(400).json({ message: "Name and template are required" });
@@ -528,7 +528,10 @@ export async function registerRoutes(
       // Link the draft into the walkthrough session so uploads and the
       // agent have a website to attach to from the next turn on.
       try {
-        await storage.upsertOnboardingSession(user.id, { websiteId: result.id, answers: { path: "ai" } });
+        await storage.upsertOnboardingSession(user.id, {
+          websiteId: result.id,
+          answers: { path: mode === "import" ? "import" : "ai" },
+        });
         // A template site is finished the moment it is cloned, so the
         // "build yourself" path goes straight to the preview-and-decision
         // screen. The AI path is marked complete by the generator instead.
@@ -631,9 +634,15 @@ export async function registerRoutes(
   const recordHex = z.string().regex(/^#[0-9a-fA-F]{3,8}$/);
   const recordBodySchema = z
     .object({
-      path: z.enum(["ai", "diy"]).optional(),
+      path: z.enum(["ai", "diy", "import"]).optional(),
       language: z.enum(SITE_LANGUAGES).optional(),
       websiteId: z.string().max(64).optional(),
+      businessName: z.string().min(1).max(80).optional(),
+      industry: z.string().max(80).optional(),
+      description: z.string().max(2_000).optional(),
+      goals: z.array(z.string().max(40)).max(8).optional(),
+      notes: z.string().max(2_000).optional(),
+      feeling: z.string().min(1).max(200).optional(),
       palette: z
         .object({
           id: z.string().max(64),
@@ -696,6 +705,12 @@ export async function registerRoutes(
 
       if (body.path) patch.path = body.path;
       if (body.desiredDomain) patch.desiredDomain = body.desiredDomain;
+      if (body.businessName) patch.businessName = body.businessName;
+      if (body.industry !== undefined) patch.industry = body.industry;
+      if (body.description !== undefined) patch.description = body.description;
+      if (body.goals) patch.goals = body.goals;
+      if (body.notes !== undefined) patch.notes = body.notes;
+      if (body.feeling) patch.feeling = body.feeling;
 
       // The language choice is mirrored straight onto the website row, not
       // just kept in the session answers: everything downstream that needs it
@@ -739,6 +754,132 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Onboarding record error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Existing-website onboarding. Discovery runs in the background and writes
+  // every phase into the existing session JSON, so reloads and device changes
+  // resume from the same report instead of creating a parallel importer state.
+  const websiteImportStartSchema = z.object({
+    sourceUrl: z.string().trim().url().max(2_000),
+    ownershipConfirmed: z.literal(true),
+    direction: z.enum(["preserve", "improve"]),
+  }).strict();
+
+  app.post("/api/onboarding/import/start", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const parsed = websiteImportStartSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Ugyldigt website" });
+      }
+      const { startWebsiteImport } = await import("./websiteImportService");
+      await storage.upsertOnboardingSession(userId, { answers: { path: "import" } });
+      const importState = await startWebsiteImport(userId, parsed.data);
+      res.status(202).json({ success: true, import: importState });
+    } catch (error: any) {
+      console.error("[WebsiteImport] start failed:", error);
+      res.status(500).json({ message: error.message || "Importen kunne ikke startes." });
+    }
+  });
+
+  app.get("/api/onboarding/import/status", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const [{ isWebsiteImportRunning }, session] = await Promise.all([
+        import("./websiteImportService"),
+        storage.getOnboardingSession(userId),
+      ]);
+      let importState = session?.answers?.websiteImport ?? null;
+      // A process restart can leave a durable discovery lease without its
+      // in-memory worker. Requeue it from persisted input; retry limits prevent
+      // this recovery path from repeating migration spend indefinitely.
+      if (importState?.phase === "discovering" && !isWebsiteImportRunning(userId) && importState.sourceUrl) {
+        const { startWebsiteImport } = await import("./websiteImportService");
+        importState = await startWebsiteImport(userId, {
+          sourceUrl: importState.sourceUrl,
+          direction: importState.direction,
+          ownershipConfirmed: true,
+        });
+      }
+      res.json({
+        success: true,
+        active: isWebsiteImportRunning(userId),
+        import: importState,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Importstatus kunne ikke hentes." });
+    }
+  });
+
+  const websiteImportApproveSchema = z.object({
+    websiteId: z.string().min(1).max(64),
+    selection: z.object({
+      pageUrls: z.array(z.string().url().max(2_000)).min(1).max(10),
+      assetUrls: z.array(z.string().url().max(2_000)).max(20),
+      bookingChoice: z.enum(["birdflow", "external", "later"]),
+      correction: z.string().max(4_000).default(""),
+    }).strict(),
+  }).strict();
+
+  app.post("/api/onboarding/import/approve", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const parsed = websiteImportApproveSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Ugyldigt valg" });
+      }
+      // Authorize before consulting the process-wide generation map: its
+      // status is tenant data and must not be exposed by a guessed website id.
+      const [website, session] = await Promise.all([
+        storage.getWebsite(parsed.data.websiteId),
+        storage.getOnboardingSession(userId),
+      ]);
+      if (!website || website.ownerId !== userId || session?.websiteId !== parsed.data.websiteId) {
+        return res.status(403).json({ message: "Ikke din hjemmeside." });
+      }
+      const [{ approveWebsiteImport }, { startOnboardingGeneration, isOnboardingGenRunning, getOnboardingGenStatus }] =
+        await Promise.all([import("./websiteImportService"), import("./onboardingGenerator")]);
+      if (isOnboardingGenRunning(parsed.data.websiteId)) {
+        return res.json({ success: true, status: getOnboardingGenStatus(parsed.data.websiteId) });
+      }
+      const approved = await approveWebsiteImport(userId, parsed.data.websiteId, parsed.data.selection);
+      const status = await startOnboardingGeneration(parsed.data.websiteId, approved.input);
+      res.json({ success: true, import: approved.state, status });
+    } catch (error: any) {
+      console.error("[WebsiteImport] approval failed:", error);
+      const status = /retry limit/i.test(error?.message || "")
+        ? 429
+        : /ownership|Unknown source|No website import/i.test(error?.message || "") ? 400 : 500;
+      res.status(status).json({ message: error.message || "Importen kunne ikke godkendes." });
+    }
+  });
+
+  app.post("/api/onboarding/import/resume-generation", requireAuth, async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const websiteId = z.string().min(1).max(64).parse(req.body?.websiteId);
+      const website = await storage.getWebsite(websiteId);
+      if (!website || website.ownerId !== userId) {
+        return res.status(403).json({ message: "Ikke din hjemmeside." });
+      }
+      const [{ reserveWebsiteImportGeneration }, { startOnboardingGeneration, isOnboardingGenRunning, getOnboardingGenStatus }] =
+        await Promise.all([import("./websiteImportService"), import("./onboardingGenerator")]);
+      if (isOnboardingGenRunning(websiteId)) {
+        return res.json({ success: true, status: getOnboardingGenStatus(websiteId) });
+      }
+      const reservation = await reserveWebsiteImportGeneration(userId, websiteId, false);
+      const importSession = await storage.getOnboardingSessionByWebsiteId(websiteId);
+      const previousStatus = importSession?.genStatus as Record<string, any> | null;
+      const previousAttempt = Number(previousStatus?.attempt ?? 1);
+      const status = await startOnboardingGeneration(websiteId, reservation.input, {
+        mode: importSession?.generationState === "failed" ? "retry" : "recover",
+        attempt: previousAttempt + 1,
+      });
+      res.json({ success: true, status });
+    } catch (error: any) {
+      const status = /retry limit/i.test(error?.message || "") ? 429 : 400;
+      res.status(status).json({ message: error.message || "Opbygningen kunne ikke genstartes." });
     }
   });
 
@@ -6063,6 +6204,44 @@ export async function registerRoutes(
     ownImageUrls: z.array(z.string().max(512)).max(6).default([]),
   });
 
+  const scratchGenerationInput = async (websiteId: string, session: any) => {
+    if (session?.answers?.path !== "ai") return null;
+    const a = session.answers;
+    const parsed = onboardingGenBodySchema.safeParse({
+      business: {
+        name: a.businessName,
+        industry: a.industry ?? "",
+        description: a.description ?? "",
+      },
+      wishes: { goals: a.goals ?? [], notes: a.notes ?? "" },
+      feeling: a.feeling,
+      palette: a.palette,
+      fontPair: a.fontPair,
+      logoUrl: a.logoUrl,
+      logoMediaId: a.logoMediaId,
+      inspirationUrls: a.inspirationUrls ?? [],
+      ownImageUrls: a.ownImageUrls ?? [],
+    });
+    if (!parsed.success) return null;
+    const [assets, website] = await Promise.all([
+      storage.getMediaAssets(websiteId),
+      storage.getWebsite(websiteId),
+    ]);
+    const ownedPaths = new Set(assets.map((asset) => asset.storagePath));
+    const ownedIds = new Set(assets.map((asset) => asset.id));
+    const body = parsed.data;
+    const logoUrl = body.logoUrl && ownedPaths.has(body.logoUrl) ? body.logoUrl : undefined;
+    return {
+      ...body,
+      language: normalizeSiteLanguage(website?.language),
+      logoUrl,
+      logoMediaId: logoUrl && body.logoMediaId && ownedIds.has(body.logoMediaId) ? body.logoMediaId : undefined,
+      inspirationUrls: body.inspirationUrls.filter((url) => ownedPaths.has(url)).slice(0, 5),
+      ownImageUrls: body.ownImageUrls.filter((url) => ownedPaths.has(url)).slice(0, 6),
+      plan: a.plan,
+    };
+  };
+
   app.post("/api/websites/:id/onboarding/generate", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
       const { getOnboardingGenStatus, isOnboardingGenRunning, startOnboardingGeneration } = await import("./onboardingGenerator");
@@ -6122,7 +6301,7 @@ export async function registerRoutes(
       // the same language the customer chose.
       const genWebsite = await storage.getWebsite(req.params.id);
 
-      const status = startOnboardingGeneration(req.params.id, {
+      const status = await startOnboardingGeneration(req.params.id, {
         language: normalizeSiteLanguage(genWebsite?.language),
         business: body.business,
         wishes: body.wishes,
@@ -6144,7 +6323,7 @@ export async function registerRoutes(
 
   app.get("/api/websites/:id/onboarding/generate/status", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
-      const { getOnboardingGenStatus, isOnboardingGenRunning } = await import("./onboardingGenerator");
+      const { getOnboardingGenStatus, isOnboardingGenRunning, startOnboardingGeneration } = await import("./onboardingGenerator");
       const status = getOnboardingGenStatus(req.params.id);
       if (status) {
         return res.json({ success: true, active: isOnboardingGenRunning(req.params.id), status });
@@ -6154,6 +6333,77 @@ export async function registerRoutes(
       // serve the persisted snapshot — a finished/failed run keeps its
       // report and fallback flag across restarts.
       const session = await storage.getOnboardingSessionByWebsiteId(req.params.id);
+      const persisted = session?.genStatus as Record<string, any> | null | undefined;
+      if (
+        session?.answers?.path === "ai" &&
+        session.generationState === "generating" &&
+        !persisted?.done
+      ) {
+        if (Number(persisted?.attempt ?? 1) >= 3) {
+          const exhausted = {
+            ...persisted,
+            done: true,
+            phase: "error",
+            updatedAt: Date.now(),
+            error: "AI-opbygningen har nået grænsen for automatiske genforsøg.",
+          };
+          await storage.finishOnboardingGeneration(req.params.id, exhausted, false);
+          return res.json({
+            success: true,
+            active: false,
+            status: exhausted,
+          });
+        }
+        const input = await scratchGenerationInput(req.params.id, session);
+        if (input) {
+          try {
+            const resumed = await startOnboardingGeneration(req.params.id, input, {
+              mode: "recover",
+              attempt: Number(persisted?.attempt ?? 1) + 1,
+            });
+            if (isOnboardingGenRunning(req.params.id)) {
+              return res.json({ success: true, active: true, status: resumed, resumed: true });
+            }
+          } catch {
+            // A fresh heartbeat means another process still owns the run.
+          }
+        }
+      }
+      if (
+        session?.answers?.websiteImport?.phase === "approved" &&
+        !persisted?.done
+      ) {
+        try {
+          const { reserveWebsiteImportGeneration } = await import("./websiteImportService");
+          // With no persisted status, approval committed but generation never
+          // durably started: recover immediately despite the initial lease.
+          const reservation = await reserveWebsiteImportGeneration(
+            session.userId,
+            req.params.id,
+            !persisted
+          );
+          if (reservation.reserved) {
+            const resumed = await startOnboardingGeneration(req.params.id, reservation.input, {
+              mode: "recover",
+              attempt: Number(persisted?.attempt ?? 1) + 1,
+            });
+            return res.json({ success: true, active: true, status: resumed, resumed: true });
+          }
+        } catch (error: any) {
+          if (/retry limit/i.test(error?.message || "")) {
+            const exhausted = {
+              ...persisted,
+              done: true,
+              phase: "error",
+              updatedAt: Date.now(),
+              error: "AI-opbygningen har nået grænsen for automatiske genforsøg.",
+            };
+            await storage.finishOnboardingGeneration(req.params.id, exhausted, false);
+            return res.json({ success: true, active: false, status: exhausted });
+          }
+          console.warn("[WebsiteImport] automatic generation resume skipped:", error?.message || error);
+        }
+      }
       if (session?.genStatus) {
         return res.json({ success: true, active: false, status: session.genStatus });
       }
@@ -6166,6 +6416,30 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Onboarding generate status error:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/websites/:id/onboarding/generate/retry", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
+    try {
+      const { startOnboardingGeneration } = await import("./onboardingGenerator");
+      const session = await storage.getOnboardingSessionByWebsiteId(req.params.id);
+      if (!session || session.answers?.path !== "ai") {
+        return res.status(400).json({ message: "Dette projekt bruger ikke den almindelige AI-opbygning." });
+      }
+      const previous = session.genStatus as Record<string, any> | null;
+      const attempt = Number(previous?.attempt ?? 1) + 1;
+      if (attempt > 3) {
+        return res.status(429).json({ message: "AI-opbygningen har nået grænsen for genforsøg. Dit projekt er gemt sikkert." });
+      }
+      const input = await scratchGenerationInput(req.params.id, session);
+      if (!input) {
+        return res.status(400).json({ message: "Der mangler oplysninger til at genstarte AI-opbygningen." });
+      }
+      const status = await startOnboardingGeneration(req.params.id, input, { mode: "retry", attempt });
+      res.json({ success: true, status });
+    } catch (error: any) {
+      console.error("Onboarding generation retry error:", error);
+      res.status(409).json({ message: error.message || "AI-opbygningen kunne ikke genstartes." });
     }
   });
 

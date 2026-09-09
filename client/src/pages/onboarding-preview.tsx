@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRoute } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -25,8 +25,9 @@ export default function OnboardingPreviewPage() {
   const [, params] = useRoute("/onboarding/preview/:websiteId");
   const { token, loading: authLoading } = useAuth();
   const websiteId = params?.websiteId ?? null;
+  const directionId = new URLSearchParams(window.location.search).get("directionId");
 
-  const { data, error, loading } = usePreviewData(websiteId, token);
+  const { data, error, loading } = usePreviewData(websiteId, token, directionId);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [device, setDevice] = useState<PreviewDevice>("desktop");
 
@@ -57,11 +58,31 @@ export default function OnboardingPreviewPage() {
     window.parent?.postMessage(
       {
         type: "bf-preview-pages",
+        websiteId: data.websiteId,
+        revision: data.revision,
+        fingerprint: data.fingerprint,
         pages: data.pages.map((page) => ({ id: page.id, name: page.name, path: page.path })),
       },
       window.location.origin
     );
   }, [data]);
+
+  const reportRenderDiagnostics = useCallback(
+    (diagnostics: import("@/components/onboarding/ReadOnlySitePreview").PreviewRenderDiagnostics) => {
+      if (!data) return;
+      window.parent?.postMessage(
+        {
+          type: "bf-preview-render-diagnostics",
+          websiteId: data.websiteId,
+          revision: data.revision,
+          fingerprint: data.fingerprint,
+          ...diagnostics,
+        },
+        window.location.origin
+      );
+    },
+    [data]
+  );
 
   if (authLoading || loading) {
     return (
@@ -85,15 +106,24 @@ export default function OnboardingPreviewPage() {
     <div className="min-h-screen bg-neutral-100">
       <ReadOnlySitePreview
         pages={data?.pages ?? []}
+        websiteId={data?.websiteId ?? websiteId ?? ""}
         activePageId={activePageId ?? undefined}
         globalStyles={data?.globalStyles}
         chrome={data?.chrome}
         navItems={data?.navItems}
+        svgAssets={data?.svgAssets}
+        expectedTopLevelComponentIds={
+          activePageId ? data?.renderExpectations[activePageId]?.topLevelComponentIds : undefined
+        }
+        expectedTopLevelComponentCount={
+          activePageId ? data?.renderExpectations[activePageId]?.topLevelComponentCount : undefined
+        }
         device={device}
         onNavigate={(pageId) => {
           setActivePageId(pageId);
           window.parent?.postMessage({ type: "bf-preview-page", pageId }, window.location.origin);
         }}
+        onRenderDiagnostics={reportRenderDiagnostics}
       />
     </div>
   );

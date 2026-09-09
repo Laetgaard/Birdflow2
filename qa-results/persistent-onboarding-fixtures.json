@@ -1,0 +1,4100 @@
+{
+  "version": 2,
+  "generatedAt": "2026-09-08T14:26:44.604Z",
+  "fixtures": [
+    {
+      "scenario": "scratch",
+      "userId": "686beadc-af78-4c83-8104-27c6ef8dda11",
+      "websiteId": "358bf52d-1001-41c7-949c-7e6f2ae960cb",
+      "onboardingPath": "ai",
+      "startedAt": "2026-09-07T19:36:16.854Z",
+      "completedAt": "2026-09-07T19:36:16.854Z",
+      "durationMs": 0,
+      "status": "done",
+      "fallback": false,
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=686beadc-af78-4c83-8104-27c6ef8dda11",
+        "adminWebsite": "/admin?tab=websites&websiteId=358bf52d-1001-41c7-949c-7e6f2ae960cb",
+        "builder": "/builder/358bf52d-1001-41c7-949c-7e6f2ae960cb?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/358bf52d-1001-41c7-949c-7e6f2ae960cb"
+      }
+    },
+    {
+      "scenario": "import",
+      "userId": "0f20afc3-6675-42dc-9aa8-7752d7db23f7",
+      "websiteId": "b9df705c-61c2-4c54-84b5-ff7145cd3032",
+      "onboardingPath": "import",
+      "startedAt": "2026-09-07T19:36:18.162Z",
+      "completedAt": "2026-09-07T19:39:00.557Z",
+      "durationMs": 162395,
+      "status": "done",
+      "fallback": false,
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=0f20afc3-6675-42dc-9aa8-7752d7db23f7",
+        "adminWebsite": "/admin?tab=websites&websiteId=b9df705c-61c2-4c54-84b5-ff7145cd3032",
+        "builder": "/builder/b9df705c-61c2-4c54-84b5-ff7145cd3032?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/b9df705c-61c2-4c54-84b5-ff7145cd3032"
+      }
+    },
+    {
+      "runId": "2026-09-08T10-36-09-507Z-scratch-6a1effc561f4",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:36:09.508Z",
+      "completedAt": "2026-09-08T10:36:10.424Z",
+      "durationMs": 916,
+      "userId": "ebb606d9-60d1-44f6-a3a6-d7385e3a3aaa",
+      "onboardingPath": "ai",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01.",
+          "goals": [
+            "booking",
+            "kontakt"
+          ]
+        },
+        "wishes": {
+          "sections": [
+            "Forside",
+            "Om",
+            "Ydelser",
+            "Kontakt"
+          ],
+          "features": [
+            "Birdflow booking",
+            "Kontaktformular"
+          ],
+          "notes": "Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": [
+          "rolig",
+          "varm",
+          "professionel",
+          "jordnær"
+        ],
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "deterministicChecks": {
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "identity: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "identity",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-36-10-427Z-import-75dd7832bf12",
+      "scenario": "import",
+      "createdAt": "2026-09-08T10:36:10.427Z",
+      "completedAt": "2026-09-08T10:36:10.655Z",
+      "durationMs": 228,
+      "userId": "7469b14d-f49f-4f25-9e30-c7680460baa2",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "balanced",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "deterministicChecks": {
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "identity: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "identity",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-37-28-794Z-scratch-ea1963bde7f2",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:37:28.795Z",
+      "completedAt": "2026-09-08T10:37:31.324Z",
+      "durationMs": 2529,
+      "userId": "24117912-5e12-4a8f-bdb6-5509c50f74a3",
+      "onboardingSessionId": "7a3f2d34-f358-455e-8c70-048783b6a8bd",
+      "websiteId": "241d4e09-0c22-4e50-bb4e-6afc88a002cf",
+      "onboardingPath": "ai",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01.",
+          "goals": [
+            "booking",
+            "kontakt"
+          ]
+        },
+        "wishes": {
+          "sections": [
+            "Forside",
+            "Om",
+            "Ydelser",
+            "Kontakt"
+          ],
+          "features": [
+            "Birdflow booking",
+            "Kontaktformular"
+          ],
+          "notes": "Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": [
+          "rolig",
+          "varm",
+          "professionel",
+          "jordnær"
+        ],
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 24117912-5e12-4a8f-bdb6-5509c50f74a3."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 241d4e09-0c22-4e50-bb4e-6afc88a002cf."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "scratch-generation: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "scratch-generation",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "reviewUrls": {
+        "adminUser": "/admin/users/24117912-5e12-4a8f-bdb6-5509c50f74a3",
+        "adminWebsite": "/admin/websites/241d4e09-0c22-4e50-bb4e-6afc88a002cf",
+        "builder": "/builder/241d4e09-0c22-4e50-bb4e-6afc88a002cf",
+        "onboardingPreview": "/onboarding/preview/241d4e09-0c22-4e50-bb4e-6afc88a002cf"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-37-31-329Z-import-a0b7833af9da",
+      "scenario": "import",
+      "createdAt": "2026-09-08T10:37:31.329Z",
+      "completedAt": "2026-09-08T10:37:33.036Z",
+      "durationMs": 1707,
+      "userId": "241ffbcf-75b1-4081-a834-b13ad7383c04",
+      "onboardingSessionId": "afb4a6ef-5900-4449-b074-4ba29470043a",
+      "websiteId": "5a84c27f-9f23-49d8-8885-720a90084f52",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "balanced",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 241ffbcf-75b1-4081-a834-b13ad7383c04."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 5a84c27f-9f23-49d8-8885-720a90084f52."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract psychologist-source-v1-2026-09-08."
+        },
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "import: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "import",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "reviewUrls": {
+        "adminUser": "/admin/users/241ffbcf-75b1-4081-a834-b13ad7383c04",
+        "adminWebsite": "/admin/websites/5a84c27f-9f23-49d8-8885-720a90084f52",
+        "builder": "/builder/5a84c27f-9f23-49d8-8885-720a90084f52",
+        "onboardingPreview": "/onboarding/preview/5a84c27f-9f23-49d8-8885-720a90084f52"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-43-35-835Z-scratch-6cf3b274651c",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:43:35.836Z",
+      "completedAt": "2026-09-08T10:43:38.293Z",
+      "durationMs": 2457,
+      "userId": "5a92c8f6-8154-4778-b015-0260f16e3bb9",
+      "onboardingSessionId": "6ec9c64b-76d1-4690-9598-4aa7b8e2c70b",
+      "websiteId": "a07a4c20-b36a-4eca-9741-464746cf4fa3",
+      "onboardingPath": "ai",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01."
+        },
+        "wishes": {
+          "goals": [
+            "booking",
+            "kontakt"
+          ],
+          "notes": "Lav siderne Forside, Om, Ydelser og Kontakt. Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": "rolig, varm, professionel og jordnær",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 5a92c8f6-8154-4778-b015-0260f16e3bb9."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website a07a4c20-b36a-4eca-9741-464746cf4fa3."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "scratch-generation: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "scratch-generation",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=5a92c8f6-8154-4778-b015-0260f16e3bb9",
+        "adminWebsite": "/admin?tab=websites&websiteId=a07a4c20-b36a-4eca-9741-464746cf4fa3",
+        "builder": "/builder/a07a4c20-b36a-4eca-9741-464746cf4fa3?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/a07a4c20-b36a-4eca-9741-464746cf4fa3"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-43-38-297Z-import-c049f5e70470",
+      "scenario": "import",
+      "createdAt": "2026-09-08T10:43:38.298Z",
+      "completedAt": "2026-09-08T10:43:39.443Z",
+      "durationMs": 1145,
+      "userId": "f94cc439-ce51-4fa3-8116-900cd2056203",
+      "onboardingSessionId": "6a30cd92-d1fa-450e-9b9a-13250a0f4fe0",
+      "websiteId": "d1417567-f1ea-46d7-8f25-f351cfe80c66",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "BLOCKED_DATABASE",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "improve",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user f94cc439-ce51-4fa3-8116-900cd2056203."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website d1417567-f1ea-46d7-8f25-f351cfe80c66."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract psychologist-source-v1-2026-09-08."
+        },
+        "unhandledFailure": {
+          "result": "FAIL",
+          "detail": "import: getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+        }
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "import",
+        "message": "getaddrinfo ENOTFOUND db.rarsmkuqivfashuwxawl.supabase.co"
+      },
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=f94cc439-ce51-4fa3-8116-900cd2056203",
+        "adminWebsite": "/admin?tab=websites&websiteId=d1417567-f1ea-46d7-8f25-f351cfe80c66",
+        "builder": "/builder/d1417567-f1ea-46d7-8f25-f351cfe80c66?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/d1417567-f1ea-46d7-8f25-f351cfe80c66"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-49-36-601Z-scratch-17e566876314",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:49:36.602Z",
+      "completedAt": "2026-09-08T10:51:12.617Z",
+      "durationMs": 96015,
+      "userId": "aead7c35-eea0-4f56-a194-04a749774f5e",
+      "onboardingSessionId": "74d02751-59a2-4be2-979d-f5e9f3480253",
+      "websiteId": "0770a4b6-975c-4364-a72d-9bbf06de0265",
+      "onboardingPath": "ai",
+      "status": "FAILED_BOOKING",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01."
+        },
+        "wishes": {
+          "goals": [
+            "booking",
+            "kontakt"
+          ],
+          "notes": "Lav siderne Forside, Om, Ydelser og Kontakt. Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": "rolig, varm, professionel og jordnær",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user aead7c35-eea0-4f56-a194-04a749774f5e."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 0770a4b6-975c-4364-a72d-9bbf06de0265 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 4, fingerprint 551bcdb097fd70888ddb0661bfe5c40da47d9b9e4057b65889dacefec8c03725, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "content:individuel": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “individuel”."
+        },
+        "content:parterapi": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “parterapi”."
+        },
+        "content:900": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “900”."
+        },
+        "content:1.200": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “1.200”."
+        },
+        "content:60": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “60”."
+        },
+        "content:75": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “75”."
+        },
+        "content:online": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “online”."
+        },
+        "content:kontakt@qa-psykoterapeut.invalid": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “kontakt@qa-psykoterapeut.invalid”."
+        },
+        "noPlaceholders": {
+          "result": "FAIL",
+          "detail": "3 placeholder marker(s) found."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "bookingService:60": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 60 minutes / 900 DKK."
+        },
+        "bookingService:75": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 75 minutes / 1200 DKK."
+        },
+        "externalBookingRemoved": {
+          "result": "NOT_APPLICABLE",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview/booking APIs."
+        },
+        "aiVisualReview:home": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        }
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-home",
+          "path": "qa-results/screenshots/2026-09-08T10-49-36-601Z-scratch-17e566876314-home-desktop.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (tgsvfb3): Cannot read properties of null (reading 'useState')",
+            "Section features (j7a8kji): Cannot read properties of null (reading 'useState')",
+            "Section cta (d6abr0n): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "mobile-home",
+          "path": "qa-results/screenshots/2026-09-08T10-49-36-601Z-scratch-17e566876314-home-mobile.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (tgsvfb3): Cannot read properties of null (reading 'useState')",
+            "Section features (j7a8kji): Cannot read properties of null (reading 'useState')",
+            "Section cta (d6abr0n): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "desktop-booking",
+          "path": "qa-results/screenshots/2026-09-08T10-49-36-601Z-scratch-17e566876314-booking-desktop.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (tgsvfb3): Cannot read properties of null (reading 'useState')",
+            "Section features (j7a8kji): Cannot read properties of null (reading 'useState')",
+            "Section cta (d6abr0n): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "path": "qa-results/screenshots/2026-09-08T10-49-36-601Z-scratch-17e566876314-booking-mobile.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (tgsvfb3): Cannot read properties of null (reading 'useState')",
+            "Section features (j7a8kji): Cannot read properties of null (reading 'useState')",
+            "Section cta (d6abr0n): Cannot read properties of null (reading 'useState')"
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=aead7c35-eea0-4f56-a194-04a749774f5e",
+        "adminWebsite": "/admin?tab=websites&websiteId=0770a4b6-975c-4364-a72d-9bbf06de0265",
+        "builder": "/builder/0770a4b6-975c-4364-a72d-9bbf06de0265?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/0770a4b6-975c-4364-a72d-9bbf06de0265"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-51-12-621Z-import-bc9aee66a355",
+      "scenario": "import",
+      "createdAt": "2026-09-08T10:51:12.621Z",
+      "completedAt": "2026-09-08T10:53:29.991Z",
+      "durationMs": 137370,
+      "userId": "62260f6b-5d9a-4c24-9dcf-b6fbcef52812",
+      "onboardingSessionId": "16f8bd9a-afe2-4ec5-86e0-ffc987d94f86",
+      "websiteId": "aab0d9a4-a0e8-46ec-ae67-dfed0e766f97",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "FAILED_BOOKING",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "improve",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 62260f6b-5d9a-4c24-9dcf-b6fbcef52812."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website aab0d9a4-a0e8-46ec-ae67-dfed0e766f97 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract psychologist-source-v1-2026-09-08."
+        },
+        "externalBookingIntentDetected": {
+          "result": "WARNING",
+          "detail": "The source did not expose an external booking integration to the crawler."
+        },
+        "nativeBookingRequested": {
+          "result": "PASS",
+          "detail": "Import approval explicitly selected Birdflow booking."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 4, fingerprint 7f6ee28af967a70226297ae639cb2f56ee5304a956beafa7cf84e8f9de767291, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "noPlaceholders": {
+          "result": "FAIL",
+          "detail": "3 placeholder marker(s) found."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "importedBookingServices": {
+          "result": "FAIL",
+          "detail": "0 owned booking service row(s) exist after native conversion."
+        },
+        "externalBookingRemoved": {
+          "result": "PASS",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview/booking APIs."
+        },
+        "importedSourceFactsPreserved": {
+          "result": "PASS",
+          "detail": "16/20 high-confidence identity, contact, service, and price facts are represented."
+        },
+        "importedAssetsPreserved": {
+          "result": "PASS",
+          "detail": "12 source image(s), 12 retained owned media asset(s)."
+        },
+        "importMissingInformationHandled": {
+          "result": "PASS",
+          "detail": "The generation quality gate must not report unsupported source claims."
+        },
+        "aiVisualReview:home": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        }
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-home",
+          "path": "qa-results/screenshots/2026-09-08T10-51-12-621Z-import-bc9aee66a355-home-desktop.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (zingvpq): Cannot read properties of null (reading 'useState')",
+            "Section features (icpr8vp): Cannot read properties of null (reading 'useState')",
+            "Section cta (8pbzgl3): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "mobile-home",
+          "path": "qa-results/screenshots/2026-09-08T10-51-12-621Z-import-bc9aee66a355-home-mobile.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (zingvpq): Cannot read properties of null (reading 'useState')",
+            "Section features (icpr8vp): Cannot read properties of null (reading 'useState')",
+            "Section cta (8pbzgl3): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "desktop-booking",
+          "path": "qa-results/screenshots/2026-09-08T10-51-12-621Z-import-bc9aee66a355-booking-desktop.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (zingvpq): Cannot read properties of null (reading 'useState')",
+            "Section features (icpr8vp): Cannot read properties of null (reading 'useState')",
+            "Section cta (8pbzgl3): Cannot read properties of null (reading 'useState')"
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "path": "qa-results/screenshots/2026-09-08T10-51-12-621Z-import-bc9aee66a355-booking-mobile.jpg",
+          "status": "WARNING",
+          "warnings": [
+            "Section hero (zingvpq): Cannot read properties of null (reading 'useState')",
+            "Section features (icpr8vp): Cannot read properties of null (reading 'useState')",
+            "Section cta (8pbzgl3): Cannot read properties of null (reading 'useState')"
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=62260f6b-5d9a-4c24-9dcf-b6fbcef52812",
+        "adminWebsite": "/admin?tab=websites&websiteId=aab0d9a4-a0e8-46ec-ae67-dfed0e766f97",
+        "builder": "/builder/aab0d9a4-a0e8-46ec-ae67-dfed0e766f97?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/aab0d9a4-a0e8-46ec-ae67-dfed0e766f97"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T10-59-42-138Z-scratch-00777af9c053",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T10:59:42.139Z",
+      "completedAt": "2026-09-08T11:02:05.360Z",
+      "durationMs": 143222,
+      "userId": "86f31ff5-89c9-4a52-ba91-e3dd62fd54a6",
+      "onboardingSessionId": "58f370f6-153c-4485-827a-12879cc35d04",
+      "websiteId": "2adc0eb5-b3e4-454c-8b34-f7ccdb119f95",
+      "onboardingPath": "ai",
+      "status": "FAILED_BOOKING",
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Samtalerum København",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01."
+        },
+        "wishes": {
+          "goals": [
+            "booking",
+            "kontakt"
+          ],
+          "notes": "Lav siderne Forside, Om, Ydelser og Kontakt. Primær CTA skal være Book en tid. Vis de to ydelser med priser og varigheder. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier eller andre opdigtede påstande."
+        },
+        "feeling": "rolig, varm, professionel og jordnær",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 86f31ff5-89c9-4a52-ba91-e3dd62fd54a6."
+        },
+        "onboardingAnswersRecorded": {
+          "result": "PASS",
+          "detail": "Supported onboarding record API persisted the run inputs and website binding."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 2adc0eb5-b3e4-454c-8b34-f7ccdb119f95 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 4, fingerprint e32bfd0d2e2cddf8d4c3f9e41e204d4fb9a8231fca5c0a6313f08b927039f214, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "content:individuel": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “individuel”."
+        },
+        "content:parterapi": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “parterapi”."
+        },
+        "content:900": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “900”."
+        },
+        "content:1.200": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “1.200”."
+        },
+        "content:60": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “60”."
+        },
+        "content:75": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “75”."
+        },
+        "content:online": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “online”."
+        },
+        "content:kontakt@qa-psykoterapeut.invalid": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “kontakt@qa-psykoterapeut.invalid”."
+        },
+        "noPlaceholders": {
+          "result": "PASS",
+          "detail": "0 placeholder marker(s) found."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "bookingService:60": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 60 minutes / 900 DKK."
+        },
+        "bookingService:75": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 75 minutes / 1200 DKK."
+        },
+        "externalBookingRemoved": {
+          "result": "NOT_APPLICABLE",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "publicBookingServicesLoad": {
+          "result": "PASS",
+          "detail": "BookingWidget's public services endpoint must return a list."
+        },
+        "publicBookingSlotsLoad": {
+          "result": "FAIL",
+          "detail": "BookingWidget's public slots endpoint returned 0 selectable slot(s)."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+        },
+        "aiVisualReview:home": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        },
+        "bookingScreenshotAvailable": {
+          "result": "FAIL",
+          "detail": "No booking screenshot was substituted or manufactured because no booking page exists."
+        }
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-home",
+          "path": "qa-results/screenshots/2026-09-08T10-59-42-138Z-scratch-00777af9c053-home-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-home",
+          "path": "qa-results/screenshots/2026-09-08T10-59-42-138Z-scratch-00777af9c053-home-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=86f31ff5-89c9-4a52-ba91-e3dd62fd54a6",
+        "adminWebsite": "/admin?tab=websites&websiteId=2adc0eb5-b3e4-454c-8b34-f7ccdb119f95",
+        "builder": "/builder/2adc0eb5-b3e4-454c-8b34-f7ccdb119f95?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/2adc0eb5-b3e4-454c-8b34-f7ccdb119f95"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T11-02-05-366Z-import-67100a027ded",
+      "scenario": "import",
+      "createdAt": "2026-09-08T11:02:05.366Z",
+      "completedAt": "2026-09-08T11:05:21.561Z",
+      "durationMs": 196195,
+      "userId": "3d253823-6f1d-450a-9fc8-294bb81caec8",
+      "onboardingSessionId": "bb508c2f-e00f-4bcb-8434-009412bb9fc1",
+      "websiteId": "5a45d997-5621-4d19-bb50-8d5cce4e0bd2",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://psykologamalieveber.laet.dk/",
+      "sourceContractVersion": "psychologist-source-v1-2026-09-08",
+      "status": "FAILED_BOOKING",
+      "onboardingInputs": {
+        "sourceUrl": "https://psykologamalieveber.laet.dk/",
+        "direction": "improve",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 3d253823-6f1d-450a-9fc8-294bb81caec8."
+        },
+        "onboardingAnswersRecorded": {
+          "result": "PASS",
+          "detail": "Supported onboarding record API persisted the run inputs and website binding."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 5a45d997-5621-4d19-bb50-8d5cce4e0bd2 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract psychologist-source-v1-2026-09-08."
+        },
+        "externalBookingIntentDetected": {
+          "result": "WARNING",
+          "detail": "The source did not expose an external booking integration to the crawler."
+        },
+        "nativeBookingRequested": {
+          "result": "PASS",
+          "detail": "Import approval explicitly selected Birdflow booking."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 4, fingerprint c78181bc21551eba5953f6f38dd9b4563d28d33642d3356856a0ef28684a621e, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "noPlaceholders": {
+          "result": "PASS",
+          "detail": "0 placeholder marker(s) found."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "importedBookingServices": {
+          "result": "FAIL",
+          "detail": "0 owned booking service row(s) exist after native conversion."
+        },
+        "externalBookingRemoved": {
+          "result": "PASS",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "publicBookingServicesLoad": {
+          "result": "PASS",
+          "detail": "BookingWidget's public services endpoint must return a list."
+        },
+        "publicBookingSlotsLoad": {
+          "result": "FAIL",
+          "detail": "BookingWidget's public slots endpoint returned 0 selectable slot(s)."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+        },
+        "importedSourceFactsPreserved": {
+          "result": "PASS",
+          "detail": "16/20 high-confidence identity, contact, service, and price facts are represented."
+        },
+        "importedAssetsPreserved": {
+          "result": "PASS",
+          "detail": "12 source image(s), 12 retained owned media asset(s)."
+        },
+        "importMissingInformationHandled": {
+          "result": "PASS",
+          "detail": "The generation quality gate must not report unsupported source claims."
+        },
+        "aiVisualReview:home": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        },
+        "bookingScreenshotAvailable": {
+          "result": "FAIL",
+          "detail": "No booking screenshot was substituted or manufactured because no booking page exists."
+        }
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-home",
+          "path": "qa-results/screenshots/2026-09-08T11-02-05-366Z-import-67100a027ded-home-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-home",
+          "path": "qa-results/screenshots/2026-09-08T11-02-05-366Z-import-67100a027ded-home-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=3d253823-6f1d-450a-9fc8-294bb81caec8",
+        "adminWebsite": "/admin?tab=websites&websiteId=5a45d997-5621-4d19-bb50-8d5cce4e0bd2",
+        "builder": "/builder/5a45d997-5621-4d19-bb50-8d5cce4e0bd2?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/5a45d997-5621-4d19-bb50-8d5cce4e0bd2"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T14:14:01.084Z",
+      "completedAt": "2026-09-08T14:16:38.809Z",
+      "durationMs": 157725,
+      "userId": "44f36e1b-a378-4be0-b043-e6efc99c617b",
+      "onboardingSessionId": "d2fbde3c-e8de-4396-ae41-704d95d2718e",
+      "websiteId": "8255d374-b9cc-4cc9-9e50-ae741cfb89a1",
+      "onboardingPath": "ai",
+      "status": "FAILED_BOOKING",
+      "dossier": {
+        "name": "Content-rich solo therapist with owned photography",
+        "summary": "A detailed Nørrebro psychotherapy practice testing fact fidelity, emotional pacing, service clarity, owned imagery and conversion design.",
+        "informationDensity": "rich",
+        "expectedFacts": [
+          "Nørrebro",
+          "individual therapy: 60 minutes / 900 DKK",
+          "couples therapy: 75 minutes / 1,200 DKK",
+          "physical and online sessions"
+        ],
+        "prohibitedClaims": [
+          "testimonials",
+          "guaranteed outcomes",
+          "authorization",
+          "memberships",
+          "short wait times"
+        ],
+        "imageryGoal": "Use the synthetic portrait as the main human focal point and the room image as environmental proof, with intentional desktop and mobile crops."
+      },
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Mellemrum Terapi",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par på Nørrebro i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Tilgangen er rolig og undersøgende. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01."
+        },
+        "wishes": {
+          "goals": [
+            "booking",
+            "kontakt"
+          ],
+          "notes": "Lav siderne Forside, Om Mette, Samtaleforløb og Kontakt. Primær CTA skal være Book en afklarende samtale. Vis de to ydelser med priser og varigheder. Brug de uploadede billeder som henholdsvis hero/portræt og klinikmiljø. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier, autorisation, medlemsskaber, ventetider eller andre opdigtede påstande."
+        },
+        "feeling": "rolig, varm, professionel og jordnær",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 44f36e1b-a378-4be0-b043-e6efc99c617b."
+        },
+        "purposeMadeAssetsRetained": {
+          "result": "PASS",
+          "detail": "2/2 purpose-made image assets were stored as website-owned media."
+        },
+        "onboardingAnswersRecorded": {
+          "result": "PASS",
+          "detail": "Supported onboarding record API persisted the run inputs and website binding."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 8255d374-b9cc-4cc9-9e50-ae741cfb89a1 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 5, fingerprint 00005bfbf7c2d653549024315840c28be1b59db45de4672ba7203bad58088494, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "threeDirectionStatesPersisted": {
+          "result": "PASS",
+          "detail": "Persisted 3 complete direction state(s)."
+        },
+        "directionsMateriallyDistinct": {
+          "result": "PASS",
+          "detail": "3/3 candidate fingerprints are distinct."
+        },
+        "selectedDirectionPromotedUnchanged": {
+          "result": "FAIL",
+          "detail": "The active builder fingerprint must equal the selected retained candidate fingerprint."
+        },
+        "directionQualityEvidencePersisted": {
+          "result": "PASS",
+          "detail": "Every direction must retain manifest, score, review and explicit asset-placement evidence."
+        },
+        "allDirectionPreviewsLoad": {
+          "result": "FAIL",
+          "detail": "0/3 direction-specific preview payloads matched their retained fingerprints."
+        },
+        "content:nørrebro": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “nørrebro”."
+        },
+        "content:individuel": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “individuel”."
+        },
+        "content:parterapi": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “parterapi”."
+        },
+        "content:900": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “900”."
+        },
+        "content:1.200": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “1.200”."
+        },
+        "content:60": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “60”."
+        },
+        "content:75": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “75”."
+        },
+        "content:online": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “online”."
+        },
+        "content:kontakt@qa-psykoterapeut.invalid": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “kontakt@qa-psykoterapeut.invalid”."
+        },
+        "noPlaceholders": {
+          "result": "PASS",
+          "detail": "0 placeholder marker(s) found."
+        },
+        "noInventedProhibitedClaims": {
+          "result": "FAIL",
+          "detail": "2 prohibited claim pattern(s) appeared in visible copy."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "bookingService:60": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 60 minutes / 900 DKK."
+        },
+        "bookingService:75": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 75 minutes / 1200 DKK."
+        },
+        "externalBookingRemoved": {
+          "result": "NOT_APPLICABLE",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "publicBookingServicesLoad": {
+          "result": "PASS",
+          "detail": "BookingWidget's public services endpoint must return a list."
+        },
+        "publicBookingSlotsLoad": {
+          "result": "FAIL",
+          "detail": "BookingWidget's public slots endpoint returned 0 selectable slot(s)."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+        },
+        "aiVisualReview:direction-1": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        },
+        "bookingScreenshotAvailable": {
+          "result": "FAIL",
+          "detail": "No booking screenshot was substituted or manufactured because no booking page exists."
+        },
+        "directionSelectionPromotesExactCandidate": {
+          "result": "FAIL",
+          "detail": "/api/onboarding/direction/select returned 409: Designforslagene er ikke færdige endnu."
+        }
+      },
+      "directionEvidence": [
+        {
+          "id": "dir-1-ecc3ec1c",
+          "name": "Redaktionelt fokus",
+          "concept": "En redaktionel og luftig fortolkning af Mellemrum Terapi med stærk typografisk storytelling.",
+          "fingerprint": "0a0b4d7b425ce6386371854a04652cb03a86a9732116d0bb57cbcd0e86c5fce1",
+          "selected": true,
+          "layoutArchetype": "editorial",
+          "heroComposition": "editorial-offset",
+          "typography": {
+            "headingFont": "Lora",
+            "bodyFont": "Inter",
+            "scale": "editorial"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#35524a",
+            "surface": "#fdfcf9",
+            "secondary": "#b58f6b",
+            "background": "#f9f7f2"
+          },
+          "imageryStyle": "quiet, editorial crops with generous negative space",
+          "decorativeGraphics": "thin rules and restrained brand-colour fields",
+          "assetPlacements": [
+            {
+              "assetUrl": "/objects/uploads/qa-2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-1.webp",
+              "pageId": "home",
+              "sectionId": "rrwquv2",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/qa-2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-2.webp",
+              "pageId": "home",
+              "sectionId": "u3diw2z",
+              "role": "about",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 100,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        },
+        {
+          "id": "dir-2-5b09c568",
+          "name": "Menneskelig varme",
+          "concept": "En varm og personlig fortolkning med fokus på tryghed, billeder og et inviterende flow.",
+          "fingerprint": "c1624f2a99f055f8478281dd25a31f716b65b46baef7acd71d4c52daa74726b5",
+          "selected": false,
+          "layoutArchetype": "organic",
+          "heroComposition": "image-dominant",
+          "typography": {
+            "headingFont": "Lora",
+            "bodyFont": "Inter",
+            "scale": "classic"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#35524a",
+            "surface": "#fdfaf8",
+            "secondary": "#ad877b",
+            "background": "#f6f0e6"
+          },
+          "imageryStyle": "human, close and tactile crops",
+          "decorativeGraphics": "soft organic fields derived from the accent colour",
+          "assetPlacements": [
+            {
+              "assetUrl": "/objects/uploads/qa-2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-1.webp",
+              "pageId": "home",
+              "sectionId": "rrwquv2",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/qa-2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-2.webp",
+              "pageId": "home",
+              "sectionId": "u3diw2z",
+              "role": "about",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 95,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        },
+        {
+          "id": "dir-3-daeec89a",
+          "name": "Klar faglighed",
+          "concept": "En præcis og struktureret fortolkning, der gør ydelser og næste skridt tydelige med det samme.",
+          "fingerprint": "6c976af95215f3308c446b2a1de0de747df3183b1885c0f2423f7cb4c8a825ba",
+          "selected": false,
+          "layoutArchetype": "structured",
+          "heroComposition": "split-grid",
+          "typography": {
+            "headingFont": "Inter",
+            "bodyFont": "Lora",
+            "scale": "bold"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#314a43",
+            "surface": "#f5f6f6",
+            "secondary": "#a69772",
+            "background": "#faf9f5"
+          },
+          "imageryStyle": "confident architectural crops and clear subject framing",
+          "decorativeGraphics": "geometric grid lines and high-contrast accent blocks",
+          "assetPlacements": [
+            {
+              "assetUrl": "/objects/uploads/qa-2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-1.webp",
+              "pageId": "home",
+              "sectionId": "rrwquv2",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/qa-2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-2.webp",
+              "pageId": "home",
+              "sectionId": "u3diw2z",
+              "role": "about",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 95,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        }
+      ],
+      "auditFindings": [
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: readinessReady",
+          "evidence": "Readiness was deterministic_fallback; fallback=true.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "critical",
+          "subsystem": "preview",
+          "title": "Failed audit check: readinessBoundToExactBuilder",
+          "evidence": "Expected builder revision 5, fingerprint 00005bfbf7c2d653549024315840c28be1b59db45de4672ba7203bad58088494, and site revision 0.",
+          "customerImpact": "The customer may approve a different website from the one retained in the builder.",
+          "likelyCause": "Preview, candidate bundle and active builder state are not aligned to the same fingerprint or revision.",
+          "recommendation": "Keep fingerprint and revision checks mandatory for every direction preview, selection and approval transition."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: qualityGateClear",
+          "evidence": "2 structured quality blocker(s).",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: expectedPageCount",
+          "evidence": "Generated 3 page(s); expected at least 4.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: selectedDirectionPromotedUnchanged",
+          "evidence": "The active builder fingerprint must equal the selected retained candidate fingerprint.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: allDirectionPreviewsLoad",
+          "evidence": "0/3 direction-specific preview payloads matched their retained fingerprints.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "Failed audit check: noInventedProhibitedClaims",
+          "evidence": "2 prohibited claim pattern(s) appeared in visible copy.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: nativeBookingComponent",
+          "evidence": "Found 0 exact production booking component(s).",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingService:60",
+          "evidence": "No matching owned booking service row exists for 60 minutes / 900 DKK.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingService:75",
+          "evidence": "No matching owned booking service row exists for 75 minutes / 1200 DKK.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: publicBookingSlotsLoad",
+          "evidence": "BookingWidget's public slots endpoint returned 0 selectable slot(s).",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingInteractionUsable",
+          "evidence": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "provider",
+          "title": "Failed audit check: aiVisualReview:direction-1",
+          "evidence": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details",
+          "customerImpact": "The system cannot prove that the generated site is visually safe or polished.",
+          "likelyCause": "The vision provider was unavailable, rate-limited, or returned unusable structured output.",
+          "recommendation": "Reserve review capacity separately from generation, retry with bounded backoff, and keep readiness fail-closed until visual evidence exists."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingScreenshotAvailable",
+          "evidence": "No booking screenshot was substituted or manufactured because no booking page exists.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: directionSelectionPromotesExactCandidate",
+          "evidence": "/api/onboarding/direction/select returned 409: Designforslagene er ikke færdige endnu.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "thin_page",
+          "evidence": "Om os has too little meaningful page content. Page: om.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "thin_page",
+          "evidence": "Kontakt has too little meaningful page content. Page: kontakt.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Missing or broken visual evidence: desktop-decision",
+          "evidence": "Expected 3 design direction cards, found 0.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "high",
+          "subsystem": "mobile",
+          "title": "Missing or broken visual evidence: mobile-decision",
+          "evidence": "Expected 3 design direction cards, found 0.",
+          "customerImpact": "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+          "likelyCause": "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+          "recommendation": "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Missing or broken visual evidence: desktop-booking",
+          "evidence": "No page containing an exact production booking component exists.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "mobile",
+          "title": "Missing or broken visual evidence: mobile-booking",
+          "evidence": "No page containing an exact production booking component exists.",
+          "customerImpact": "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+          "likelyCause": "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+          "recommendation": "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate."
+        }
+      ],
+      "evidenceCompleteness": {
+        "expectedCandidateScreenshots": 6,
+        "capturedCandidateScreenshots": 6,
+        "decisionScreenshots": 0,
+        "candidateStates": 3,
+        "complete": false,
+        "missing": [
+          "Expected 2 decision-workspace screenshots, captured 0.",
+          "One or more candidates lacks completed AI visual review evidence."
+        ]
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-decision",
+          "status": "FAIL",
+          "warnings": [
+            "Expected 3 design direction cards, found 0."
+          ]
+        },
+        {
+          "kind": "mobile-decision",
+          "status": "FAIL",
+          "warnings": [
+            "Expected 3 design direction cards, found 0."
+          ]
+        },
+        {
+          "kind": "desktop-direction-1",
+          "path": "qa-results/screenshots/2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-direction-1-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-1",
+          "path": "qa-results/screenshots/2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-direction-1-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-direction-2",
+          "path": "qa-results/screenshots/2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-direction-2-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-2",
+          "path": "qa-results/screenshots/2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-direction-2-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-direction-3",
+          "path": "qa-results/screenshots/2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-direction-3-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-3",
+          "path": "qa-results/screenshots/2026-09-08T14-14-01-084Z-scratch-ca1b2e87e862-direction-3-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=44f36e1b-a378-4be0-b043-e6efc99c617b",
+        "adminWebsite": "/admin?tab=websites&websiteId=8255d374-b9cc-4cc9-9e50-ae741cfb89a1",
+        "builder": "/builder/8255d374-b9cc-4cc9-9e50-ae741cfb89a1?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/8255d374-b9cc-4cc9-9e50-ae741cfb89a1"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T14-13-59Z-scratch-interrupted-ca1b2e87e862",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T14:13:59.000Z",
+      "completedAt": "2026-09-08T14:17:46.931Z",
+      "durationMs": 148000,
+      "userId": "44f36e1b-a378-4be0-b043-e6efc99c617b",
+      "websiteId": "8255d374-b9cc-4cc9-9e50-ae741cfb89a1",
+      "onboardingPath": "ai",
+      "status": "FAILED_ONBOARDING",
+      "dossier": {
+        "name": "Content-rich solo therapist with owned photography",
+        "summary": "Interrupted first attempt while retaining purpose-made owned imagery.",
+        "informationDensity": "rich",
+        "expectedFacts": [],
+        "prohibitedClaims": [],
+        "imageryGoal": "Retain and place two purpose-made images."
+      },
+      "onboardingInputs": {},
+      "deterministicChecks": {
+        "evidenceUploadTerminated": {
+          "result": "FAIL",
+          "detail": "The first upload path did not return within 148 seconds; the run was stopped and retained before retrying through the production media API."
+        }
+      },
+      "directionEvidence": [],
+      "auditFindings": [
+        {
+          "severity": "high",
+          "subsystem": "imagery",
+          "title": "Purpose-made asset upload hung",
+          "evidence": "The direct object-storage upload did not return within 148 seconds.",
+          "customerImpact": "The onboarding run could not start while owned assets were being retained.",
+          "likelyCause": "The runner used a direct storage-client path without a bounded timeout.",
+          "recommendation": "Use the same signed production media upload contract as the application with an explicit timeout."
+        }
+      ],
+      "evidenceCompleteness": {
+        "expectedCandidateScreenshots": 6,
+        "capturedCandidateScreenshots": 0,
+        "decisionScreenshots": 0,
+        "candidateStates": 0,
+        "complete": false,
+        "missing": [
+          "Generation did not start."
+        ]
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "website-session",
+        "message": "Interrupted after direct object-storage upload failed to return."
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "NO",
+        "notes": "Retained failed infrastructure attempt; do not show as a design result."
+      }
+    },
+    {
+      "runId": "2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f",
+      "scenario": "scratch",
+      "createdAt": "2026-09-08T14:17:53.264Z",
+      "completedAt": "2026-09-08T14:20:04.919Z",
+      "durationMs": 131656,
+      "userId": "b52e5d9c-0e3c-4074-85b2-42a71b8ced97",
+      "onboardingSessionId": "d2775cc8-a38b-4879-a1d0-4c59a813efef",
+      "websiteId": "9c1ec0fe-cc24-428a-bee0-688f70d84b04",
+      "onboardingPath": "ai",
+      "status": "FAILED_BOOKING",
+      "dossier": {
+        "name": "Content-rich solo therapist with owned photography",
+        "summary": "A detailed Nørrebro psychotherapy practice testing fact fidelity, emotional pacing, service clarity, owned imagery and conversion design.",
+        "informationDensity": "rich",
+        "expectedFacts": [
+          "Nørrebro",
+          "individual therapy: 60 minutes / 900 DKK",
+          "couples therapy: 75 minutes / 1,200 DKK",
+          "physical and online sessions"
+        ],
+        "prohibitedClaims": [
+          "testimonials",
+          "guaranteed outcomes",
+          "authorization",
+          "memberships",
+          "short wait times"
+        ],
+        "imageryGoal": "Use the synthetic portrait as the main human focal point and the room image as environmental proof, with intentional desktop and mobile crops."
+      },
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Mellemrum Terapi",
+          "industry": "Psykoterapeut",
+          "description": "Psykoterapi for voksne og par på Nørrebro i København. Individuel terapi varer 60 minutter og koster 900 DKK. Parterapi varer 75 minutter og koster 1.200 DKK. Samtaler tilbydes fysisk og online. Tilgangen er rolig og undersøgende. Kontakt: kontakt@qa-psykoterapeut.invalid og +45 70 00 00 01."
+        },
+        "wishes": {
+          "goals": [
+            "booking",
+            "kontakt"
+          ],
+          "notes": "Lav siderne Forside, Om Mette, Samtaleforløb og Kontakt. Primær CTA skal være Book en afklarende samtale. Vis de to ydelser med priser og varigheder. Brug de uploadede billeder som henholdsvis hero/portræt og klinikmiljø. Brug Birdflow booking og en kontaktformular. Brug ikke testimonials, garantier, autorisation, medlemsskaber, ventetider eller andre opdigtede påstande."
+        },
+        "feeling": "rolig, varm, professionel og jordnær",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user b52e5d9c-0e3c-4074-85b2-42a71b8ced97."
+        },
+        "purposeMadeAssetsRetained": {
+          "result": "PASS",
+          "detail": "2/2 purpose-made image assets were stored as website-owned media."
+        },
+        "onboardingAnswersRecorded": {
+          "result": "PASS",
+          "detail": "Supported onboarding record API persisted the run inputs and website binding."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website 9c1ec0fe-cc24-428a-bee0-688f70d84b04 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 5, fingerprint 8cb87604d0e28f8a992a98144803d00c4a0cfa024566e43f414c9783544ba559, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "threeDirectionStatesPersisted": {
+          "result": "PASS",
+          "detail": "Persisted 3 complete direction state(s)."
+        },
+        "directionsMateriallyDistinct": {
+          "result": "PASS",
+          "detail": "3/3 candidate fingerprints are distinct."
+        },
+        "selectedDirectionPromotedUnchanged": {
+          "result": "FAIL",
+          "detail": "The active builder fingerprint must equal the selected retained candidate fingerprint."
+        },
+        "directionQualityEvidencePersisted": {
+          "result": "PASS",
+          "detail": "Every direction must retain manifest, score, review and explicit asset-placement evidence."
+        },
+        "allDirectionPreviewsLoad": {
+          "result": "FAIL",
+          "detail": "0/3 direction-specific preview payloads matched their retained fingerprints."
+        },
+        "content:nørrebro": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “nørrebro”."
+        },
+        "content:individuel": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “individuel”."
+        },
+        "content:parterapi": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “parterapi”."
+        },
+        "content:900": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “900”."
+        },
+        "content:1.200": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “1.200”."
+        },
+        "content:60": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “60”."
+        },
+        "content:75": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “75”."
+        },
+        "content:online": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “online”."
+        },
+        "content:kontakt@qa-psykoterapeut.invalid": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “kontakt@qa-psykoterapeut.invalid”."
+        },
+        "noPlaceholders": {
+          "result": "PASS",
+          "detail": "0 placeholder marker(s) found."
+        },
+        "noInventedProhibitedClaims": {
+          "result": "FAIL",
+          "detail": "2 prohibited claim pattern(s) appeared in visible copy."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "bookingService:60": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 60 minutes / 900 DKK."
+        },
+        "bookingService:75": {
+          "result": "FAIL",
+          "detail": "No matching owned booking service row exists for 75 minutes / 1200 DKK."
+        },
+        "externalBookingRemoved": {
+          "result": "NOT_APPLICABLE",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "publicBookingServicesLoad": {
+          "result": "PASS",
+          "detail": "BookingWidget's public services endpoint must return a list."
+        },
+        "publicBookingSlotsLoad": {
+          "result": "FAIL",
+          "detail": "BookingWidget's public slots endpoint returned 0 selectable slot(s)."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+        },
+        "aiVisualReview:direction-1": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        },
+        "bookingScreenshotAvailable": {
+          "result": "FAIL",
+          "detail": "No booking screenshot was substituted or manufactured because no booking page exists."
+        },
+        "directionSelectionPromotesExactCandidate": {
+          "result": "FAIL",
+          "detail": "/api/onboarding/direction/select returned 409: Designforslagene er ikke færdige endnu."
+        }
+      },
+      "directionEvidence": [
+        {
+          "id": "dir-1-ecc3ec1c",
+          "name": "Redaktionelt fokus",
+          "concept": "En redaktionel og luftig fortolkning af Mellemrum Terapi med stærk typografisk storytelling.",
+          "fingerprint": "caebcbd3d5a7e1841ca98f994626bedb6548fc8d49e744258ee67d3efc0eaf33",
+          "selected": true,
+          "layoutArchetype": "editorial",
+          "heroComposition": "editorial-offset",
+          "typography": {
+            "headingFont": "Lora",
+            "bodyFont": "Inter",
+            "scale": "editorial"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#35524a",
+            "surface": "#fdfcf9",
+            "secondary": "#b58f6b",
+            "background": "#f9f7f2"
+          },
+          "imageryStyle": "quiet, editorial crops with generous negative space",
+          "decorativeGraphics": "thin rules and restrained brand-colour fields",
+          "assetPlacements": [
+            {
+              "assetUrl": "9c1ec0fe-cc24-428a-bee0-688f70d84b04/1788877077552-qa-2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-1.webp",
+              "pageId": "home",
+              "sectionId": "jvojmcd",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "9c1ec0fe-cc24-428a-bee0-688f70d84b04/1788877080302-qa-2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-2.webp",
+              "pageId": "home",
+              "sectionId": "wzijoo8",
+              "role": "about",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 100,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        },
+        {
+          "id": "dir-2-5b09c568",
+          "name": "Menneskelig varme",
+          "concept": "En varm og personlig fortolkning med fokus på tryghed, billeder og et inviterende flow.",
+          "fingerprint": "f29e42904aec152eb4fcd67ad549b22bd49f54e5283665e93e53db9cd32d252a",
+          "selected": false,
+          "layoutArchetype": "organic",
+          "heroComposition": "image-dominant",
+          "typography": {
+            "headingFont": "Lora",
+            "bodyFont": "Inter",
+            "scale": "classic"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#35524a",
+            "surface": "#fdfaf8",
+            "secondary": "#ad877b",
+            "background": "#f6f0e6"
+          },
+          "imageryStyle": "human, close and tactile crops",
+          "decorativeGraphics": "soft organic fields derived from the accent colour",
+          "assetPlacements": [
+            {
+              "assetUrl": "9c1ec0fe-cc24-428a-bee0-688f70d84b04/1788877077552-qa-2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-1.webp",
+              "pageId": "home",
+              "sectionId": "jvojmcd",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "9c1ec0fe-cc24-428a-bee0-688f70d84b04/1788877080302-qa-2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-2.webp",
+              "pageId": "home",
+              "sectionId": "wzijoo8",
+              "role": "about",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 95,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        },
+        {
+          "id": "dir-3-daeec89a",
+          "name": "Klar faglighed",
+          "concept": "En præcis og struktureret fortolkning, der gør ydelser og næste skridt tydelige med det samme.",
+          "fingerprint": "43775559abe6bf27fe01d29b2ff3a25c1565da3d942d4696964a40dd55cfb317",
+          "selected": false,
+          "layoutArchetype": "structured",
+          "heroComposition": "split-grid",
+          "typography": {
+            "headingFont": "Inter",
+            "bodyFont": "Lora",
+            "scale": "bold"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#314a43",
+            "surface": "#f5f6f6",
+            "secondary": "#a69772",
+            "background": "#faf9f5"
+          },
+          "imageryStyle": "confident architectural crops and clear subject framing",
+          "decorativeGraphics": "geometric grid lines and high-contrast accent blocks",
+          "assetPlacements": [
+            {
+              "assetUrl": "9c1ec0fe-cc24-428a-bee0-688f70d84b04/1788877077552-qa-2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-1.webp",
+              "pageId": "home",
+              "sectionId": "jvojmcd",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "9c1ec0fe-cc24-428a-bee0-688f70d84b04/1788877080302-qa-2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-2.webp",
+              "pageId": "home",
+              "sectionId": "wzijoo8",
+              "role": "about",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 95,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        }
+      ],
+      "auditFindings": [
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: readinessReady",
+          "evidence": "Readiness was deterministic_fallback; fallback=true.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "critical",
+          "subsystem": "preview",
+          "title": "Failed audit check: readinessBoundToExactBuilder",
+          "evidence": "Expected builder revision 5, fingerprint 8cb87604d0e28f8a992a98144803d00c4a0cfa024566e43f414c9783544ba559, and site revision 0.",
+          "customerImpact": "The customer may approve a different website from the one retained in the builder.",
+          "likelyCause": "Preview, candidate bundle and active builder state are not aligned to the same fingerprint or revision.",
+          "recommendation": "Keep fingerprint and revision checks mandatory for every direction preview, selection and approval transition."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: qualityGateClear",
+          "evidence": "2 structured quality blocker(s).",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: expectedPageCount",
+          "evidence": "Generated 3 page(s); expected at least 4.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: selectedDirectionPromotedUnchanged",
+          "evidence": "The active builder fingerprint must equal the selected retained candidate fingerprint.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: allDirectionPreviewsLoad",
+          "evidence": "0/3 direction-specific preview payloads matched their retained fingerprints.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "Failed audit check: noInventedProhibitedClaims",
+          "evidence": "2 prohibited claim pattern(s) appeared in visible copy.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: nativeBookingComponent",
+          "evidence": "Found 0 exact production booking component(s).",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingService:60",
+          "evidence": "No matching owned booking service row exists for 60 minutes / 900 DKK.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingService:75",
+          "evidence": "No matching owned booking service row exists for 75 minutes / 1200 DKK.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: publicBookingSlotsLoad",
+          "evidence": "BookingWidget's public slots endpoint returned 0 selectable slot(s).",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingInteractionUsable",
+          "evidence": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "provider",
+          "title": "Failed audit check: aiVisualReview:direction-1",
+          "evidence": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details",
+          "customerImpact": "The system cannot prove that the generated site is visually safe or polished.",
+          "likelyCause": "The vision provider was unavailable, rate-limited, or returned unusable structured output.",
+          "recommendation": "Reserve review capacity separately from generation, retry with bounded backoff, and keep readiness fail-closed until visual evidence exists."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingScreenshotAvailable",
+          "evidence": "No booking screenshot was substituted or manufactured because no booking page exists.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: directionSelectionPromotesExactCandidate",
+          "evidence": "/api/onboarding/direction/select returned 409: Designforslagene er ikke færdige endnu.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "thin_page",
+          "evidence": "Om os has too little meaningful page content. Page: om.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "thin_page",
+          "evidence": "Kontakt has too little meaningful page content. Page: kontakt.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Missing or broken visual evidence: desktop-decision",
+          "evidence": "Expected 3 design direction cards, found 0.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "high",
+          "subsystem": "mobile",
+          "title": "Missing or broken visual evidence: mobile-decision",
+          "evidence": "Expected 3 design direction cards, found 0.",
+          "customerImpact": "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+          "likelyCause": "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+          "recommendation": "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Missing or broken visual evidence: desktop-booking",
+          "evidence": "No page containing an exact production booking component exists.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "mobile",
+          "title": "Missing or broken visual evidence: mobile-booking",
+          "evidence": "No page containing an exact production booking component exists.",
+          "customerImpact": "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+          "likelyCause": "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+          "recommendation": "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate."
+        }
+      ],
+      "evidenceCompleteness": {
+        "expectedCandidateScreenshots": 6,
+        "capturedCandidateScreenshots": 6,
+        "decisionScreenshots": 0,
+        "candidateStates": 3,
+        "complete": false,
+        "missing": [
+          "Expected 2 decision-workspace screenshots, captured 0.",
+          "One or more candidates lacks completed AI visual review evidence."
+        ]
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-decision",
+          "status": "FAIL",
+          "warnings": [
+            "Expected 3 design direction cards, found 0."
+          ]
+        },
+        {
+          "kind": "mobile-decision",
+          "status": "FAIL",
+          "warnings": [
+            "Expected 3 design direction cards, found 0."
+          ]
+        },
+        {
+          "kind": "desktop-direction-1",
+          "path": "qa-results/screenshots/2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-direction-1-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-1",
+          "path": "qa-results/screenshots/2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-direction-1-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-direction-2",
+          "path": "qa-results/screenshots/2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-direction-2-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-2",
+          "path": "qa-results/screenshots/2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-direction-2-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-direction-3",
+          "path": "qa-results/screenshots/2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-direction-3-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-3",
+          "path": "qa-results/screenshots/2026-09-08T14-17-53-263Z-scratch-6570b8e9c82f-direction-3-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=b52e5d9c-0e3c-4074-85b2-42a71b8ced97",
+        "adminWebsite": "/admin?tab=websites&websiteId=9c1ec0fe-cc24-428a-bee0-688f70d84b04",
+        "builder": "/builder/9c1ec0fe-cc24-428a-bee0-688f70d84b04?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/9c1ec0fe-cc24-428a-bee0-688f70d84b04"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T14-20-04-928Z-sparse-8ad2195f722e",
+      "scenario": "sparse",
+      "createdAt": "2026-09-08T14:20:04.929Z",
+      "completedAt": "2026-09-08T14:22:08.471Z",
+      "durationMs": 123542,
+      "userId": "a28c82c9-7c96-4496-8151-472921970c36",
+      "onboardingSessionId": "63750b61-6376-43d6-9bf8-e04f08f40f66",
+      "websiteId": "a3cf2cdb-cee9-47cc-8ea1-509afeddf648",
+      "onboardingPath": "ai",
+      "status": "FAILED_QUALITY_GATE",
+      "dossier": {
+        "name": "Sparse creative professional without photography",
+        "summary": "A deliberately under-specified creative consultancy testing questions, restraint, visual originality and illustration recommendations without invented facts.",
+        "informationDensity": "sparse",
+        "expectedFacts": [
+          "Nordform Studio",
+          "independent creative consultant"
+        ],
+        "prohibitedClaims": [
+          "named services",
+          "prices",
+          "years of experience",
+          "location",
+          "clients",
+          "awards",
+          "case studies"
+        ],
+        "imageryGoal": "Do not pretend assets exist; create a coherent illustration art direction and explain what should be commissioned or generated later."
+      },
+      "onboardingInputs": {
+        "language": "da",
+        "business": {
+          "name": "Nordform Studio",
+          "industry": "Selvstændig kreativ rådgiver",
+          "description": ""
+        },
+        "wishes": {
+          "goals": [
+            "kontakt"
+          ],
+          "notes": "Lav en særpræget men enkel hjemmeside. Foreslå en illustrationstil uden at foregive, at illustrationer eller fotos allerede findes. Opfind ikke ydelser, priser, erfaring, lokation, kundecases, awards eller kunder."
+        },
+        "feeling": "kunstnerisk, præcis, nordisk og underspillet",
+        "palette": {
+          "id": "qa-calm-copenhagen",
+          "name": "Rolig København",
+          "description": "Varm, jordnær og professionel",
+          "colors": {
+            "primary": "#35524a",
+            "secondary": "#b58f6b",
+            "accent": "#d9b382",
+            "background": "#f8f5ef",
+            "surface": "#ffffff",
+            "text": "#25312e"
+          }
+        },
+        "fontPair": {
+          "id": "qa-lora-inter",
+          "name": "Lora + Inter",
+          "heading": "Lora",
+          "body": "Inter",
+          "scale": "classic",
+          "description": "Tillidsvækkende og letlæselig"
+        }
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user a28c82c9-7c96-4496-8151-472921970c36."
+        },
+        "onboardingAnswersRecorded": {
+          "result": "PASS",
+          "detail": "Supported onboarding record API persisted the run inputs and website binding."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website a3cf2cdb-cee9-47cc-8ea1-509afeddf648 through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 5, fingerprint cb939cc0e4363e3ebf2ecf296140a83786b71264bbb8eb5bb99746c397818d26, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "PASS",
+          "detail": "Generated 3 page(s); expected at least 3."
+        },
+        "threeDirectionStatesPersisted": {
+          "result": "PASS",
+          "detail": "Persisted 3 complete direction state(s)."
+        },
+        "directionsMateriallyDistinct": {
+          "result": "PASS",
+          "detail": "3/3 candidate fingerprints are distinct."
+        },
+        "selectedDirectionPromotedUnchanged": {
+          "result": "FAIL",
+          "detail": "The active builder fingerprint must equal the selected retained candidate fingerprint."
+        },
+        "directionQualityEvidencePersisted": {
+          "result": "PASS",
+          "detail": "Every direction must retain manifest, score, review and explicit asset-placement evidence."
+        },
+        "allDirectionPreviewsLoad": {
+          "result": "FAIL",
+          "detail": "0/3 direction-specific preview payloads matched their retained fingerprints."
+        },
+        "content:nordform studio": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “nordform studio”."
+        },
+        "content:kreativ": {
+          "result": "PASS",
+          "detail": "Expected generated content to include “kreativ”."
+        },
+        "noPlaceholders": {
+          "result": "PASS",
+          "detail": "0 placeholder marker(s) found."
+        },
+        "noInventedProhibitedClaims": {
+          "result": "FAIL",
+          "detail": "2 prohibited claim pattern(s) appeared in visible copy."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "NOT_APPLICABLE",
+          "detail": "Sparse fixture does not request booking."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "importedBookingServices": {
+          "result": "NOT_APPLICABLE",
+          "detail": "Sparse fixture does not request booking."
+        },
+        "externalBookingRemoved": {
+          "result": "NOT_APPLICABLE",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "publicBookingServicesLoad": {
+          "result": "PASS",
+          "detail": "BookingWidget's public services endpoint must return a list."
+        },
+        "publicBookingSlotsLoad": {
+          "result": "NOT_APPLICABLE",
+          "detail": "Sparse fixture does not request booking."
+        },
+        "bookingInteractionUsable": {
+          "result": "NOT_APPLICABLE",
+          "detail": "Sparse fixture does not request booking."
+        },
+        "aiVisualReview:direction-1": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        },
+        "bookingScreenshotAvailable": {
+          "result": "FAIL",
+          "detail": "No booking screenshot was substituted or manufactured because no booking page exists."
+        },
+        "directionSelectionPromotesExactCandidate": {
+          "result": "FAIL",
+          "detail": "/api/onboarding/direction/select returned 409: Designforslagene er ikke færdige endnu."
+        }
+      },
+      "directionEvidence": [
+        {
+          "id": "dir-1-71cc2d1c",
+          "name": "Redaktionelt fokus",
+          "concept": "En redaktionel og luftig fortolkning af Nordform Studio med stærk typografisk storytelling.",
+          "fingerprint": "f754e34226e11a9b0feb6b3bfb4072facc103b3cb5b558d20dee197277ec08c6",
+          "selected": true,
+          "layoutArchetype": "editorial",
+          "heroComposition": "editorial-offset",
+          "typography": {
+            "headingFont": "Lora",
+            "bodyFont": "Inter",
+            "scale": "editorial"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#35524a",
+            "surface": "#fdfcf9",
+            "secondary": "#b58f6b",
+            "background": "#f9f7f2"
+          },
+          "imageryStyle": "quiet, editorial crops with generous negative space",
+          "decorativeGraphics": "thin rules and restrained brand-colour fields",
+          "assetPlacements": [],
+          "qualityScore": {
+            "imagery": 85,
+            "overall": 85,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 88
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        },
+        {
+          "id": "dir-2-a5ba1be9",
+          "name": "Menneskelig varme",
+          "concept": "En varm og personlig fortolkning med fokus på tryghed, billeder og et inviterende flow.",
+          "fingerprint": "a47a219409564af5980c82d763c9c2d1ec3f473074af2fc7302ab18d6c7dd0de",
+          "selected": false,
+          "layoutArchetype": "organic",
+          "heroComposition": "image-dominant",
+          "typography": {
+            "headingFont": "Lora",
+            "bodyFont": "Inter",
+            "scale": "classic"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#35524a",
+            "surface": "#fdfaf8",
+            "secondary": "#ad877b",
+            "background": "#f6f0e6"
+          },
+          "imageryStyle": "human, close and tactile crops",
+          "decorativeGraphics": "soft organic fields derived from the accent colour",
+          "assetPlacements": [],
+          "qualityScore": {
+            "imagery": 75,
+            "overall": 84,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 88
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        },
+        {
+          "id": "dir-3-04cf6cf2",
+          "name": "Klar faglighed",
+          "concept": "En præcis og struktureret fortolkning, der gør ydelser og næste skridt tydelige med det samme.",
+          "fingerprint": "7acbbdbc8f096440d011f9bfc75ff2f66869c60d2ab868267e4d9cafa92feff8",
+          "selected": false,
+          "layoutArchetype": "structured",
+          "heroComposition": "split-grid",
+          "typography": {
+            "headingFont": "Inter",
+            "bodyFont": "Lora",
+            "scale": "bold"
+          },
+          "palette": {
+            "text": "#25312e",
+            "accent": "#d9b382",
+            "primary": "#314a43",
+            "surface": "#f5f6f6",
+            "secondary": "#a69772",
+            "background": "#faf9f5"
+          },
+          "imageryStyle": "confident architectural crops and clear subject framing",
+          "decorativeGraphics": "geometric grid lines and high-contrast accent blocks",
+          "assetPlacements": [],
+          "qualityScore": {
+            "imagery": 75,
+            "overall": 84,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 88
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        }
+      ],
+      "auditFindings": [
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: readinessReady",
+          "evidence": "Readiness was deterministic_fallback; fallback=true.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "critical",
+          "subsystem": "preview",
+          "title": "Failed audit check: readinessBoundToExactBuilder",
+          "evidence": "Expected builder revision 5, fingerprint cb939cc0e4363e3ebf2ecf296140a83786b71264bbb8eb5bb99746c397818d26, and site revision 0.",
+          "customerImpact": "The customer may approve a different website from the one retained in the builder.",
+          "likelyCause": "Preview, candidate bundle and active builder state are not aligned to the same fingerprint or revision.",
+          "recommendation": "Keep fingerprint and revision checks mandatory for every direction preview, selection and approval transition."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: qualityGateClear",
+          "evidence": "2 structured quality blocker(s).",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: selectedDirectionPromotedUnchanged",
+          "evidence": "The active builder fingerprint must equal the selected retained candidate fingerprint.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: allDirectionPreviewsLoad",
+          "evidence": "0/3 direction-specific preview payloads matched their retained fingerprints.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "Failed audit check: noInventedProhibitedClaims",
+          "evidence": "2 prohibited claim pattern(s) appeared in visible copy.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "high",
+          "subsystem": "provider",
+          "title": "Failed audit check: aiVisualReview:direction-1",
+          "evidence": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details",
+          "customerImpact": "The system cannot prove that the generated site is visually safe or polished.",
+          "likelyCause": "The vision provider was unavailable, rate-limited, or returned unusable structured output.",
+          "recommendation": "Reserve review capacity separately from generation, retry with bounded backoff, and keep readiness fail-closed until visual evidence exists."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingScreenshotAvailable",
+          "evidence": "No booking screenshot was substituted or manufactured because no booking page exists.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: directionSelectionPromotesExactCandidate",
+          "evidence": "/api/onboarding/direction/select returned 409: Designforslagene er ikke færdige endnu.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "thin_page",
+          "evidence": "Om os has too little meaningful page content. Page: om.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "thin_page",
+          "evidence": "Kontakt has too little meaningful page content. Page: kontakt.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Missing or broken visual evidence: desktop-decision",
+          "evidence": "Expected 3 design direction cards, found 0.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "high",
+          "subsystem": "mobile",
+          "title": "Missing or broken visual evidence: mobile-decision",
+          "evidence": "Expected 3 design direction cards, found 0.",
+          "customerImpact": "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+          "likelyCause": "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+          "recommendation": "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Missing or broken visual evidence: desktop-booking",
+          "evidence": "No page containing an exact production booking component exists.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "mobile",
+          "title": "Missing or broken visual evidence: mobile-booking",
+          "evidence": "No page containing an exact production booking component exists.",
+          "customerImpact": "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+          "likelyCause": "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+          "recommendation": "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate."
+        }
+      ],
+      "evidenceCompleteness": {
+        "expectedCandidateScreenshots": 6,
+        "capturedCandidateScreenshots": 6,
+        "decisionScreenshots": 0,
+        "candidateStates": 3,
+        "complete": false,
+        "missing": [
+          "Expected 2 decision-workspace screenshots, captured 0.",
+          "One or more candidates lacks completed AI visual review evidence."
+        ]
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-decision",
+          "status": "FAIL",
+          "warnings": [
+            "Expected 3 design direction cards, found 0."
+          ]
+        },
+        {
+          "kind": "mobile-decision",
+          "status": "FAIL",
+          "warnings": [
+            "Expected 3 design direction cards, found 0."
+          ]
+        },
+        {
+          "kind": "desktop-direction-1",
+          "path": "qa-results/screenshots/2026-09-08T14-20-04-928Z-sparse-8ad2195f722e-direction-1-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-1",
+          "path": "qa-results/screenshots/2026-09-08T14-20-04-928Z-sparse-8ad2195f722e-direction-1-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-direction-2",
+          "path": "qa-results/screenshots/2026-09-08T14-20-04-928Z-sparse-8ad2195f722e-direction-2-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-2",
+          "path": "qa-results/screenshots/2026-09-08T14-20-04-928Z-sparse-8ad2195f722e-direction-2-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-direction-3",
+          "path": "qa-results/screenshots/2026-09-08T14-20-04-928Z-sparse-8ad2195f722e-direction-3-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-3",
+          "path": "qa-results/screenshots/2026-09-08T14-20-04-928Z-sparse-8ad2195f722e-direction-3-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=a28c82c9-7c96-4496-8151-472921970c36",
+        "adminWebsite": "/admin?tab=websites&websiteId=a3cf2cdb-cee9-47cc-8ea1-509afeddf648",
+        "builder": "/builder/a3cf2cdb-cee9-47cc-8ea1-509afeddf648?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/a3cf2cdb-cee9-47cc-8ea1-509afeddf648"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T14-22-08-478Z-import-d0881cb15831",
+      "scenario": "import",
+      "createdAt": "2026-09-08T14:22:08.478Z",
+      "completedAt": "2026-09-08T14:24:49.021Z",
+      "durationMs": 160543,
+      "userId": "23c462b4-837e-47dd-8446-b26120c2d1fd",
+      "onboardingSessionId": "728af3a8-b611-45d9-a14c-2a7f8ef5e5f3",
+      "websiteId": "cc3ea07e-55c9-4b42-9fb4-6789143abb8c",
+      "onboardingPath": "import",
+      "sourceWebsiteUrl": "https://websitedemos.net/wellness-coach-02/",
+      "sourceContractVersion": "public-wellness-template-v1-2026-09-08",
+      "status": "FAILED_BOOKING",
+      "dossier": {
+        "name": "Public wellness template import and brand evolution",
+        "summary": "A controlled public wellness demo tests extraction fidelity, image handling, content cleanup and meaningful redesign rather than template cloning.",
+        "informationDensity": "imported",
+        "expectedFacts": [
+          "source-backed identity",
+          "source-backed services",
+          "source-backed contact information"
+        ],
+        "prohibitedClaims": [
+          "new qualifications",
+          "new prices",
+          "new testimonials",
+          "native booking success without owned services and slots"
+        ],
+        "imageryGoal": "Preserve only selected source imagery, detect low-quality or decorative assets, and art-direct crops consistently across three transformed directions."
+      },
+      "onboardingInputs": {
+        "sourceUrl": "https://websitedemos.net/wellness-coach-02/",
+        "direction": "improve",
+        "ownershipConfirmed": true,
+        "bookingChoice": "birdflow"
+      },
+      "generation": {
+        "phase": "done",
+        "done": true,
+        "fallback": true,
+        "readiness": "deterministic_fallback",
+        "attempt": 1,
+        "spendLimited": false
+      },
+      "deterministicChecks": {
+        "freshUserCreated": {
+          "result": "PASS",
+          "detail": "Created retained QA user 23c462b4-837e-47dd-8446-b26120c2d1fd."
+        },
+        "onboardingAnswersRecorded": {
+          "result": "PASS",
+          "detail": "Supported onboarding record API persisted the run inputs and website binding."
+        },
+        "freshWebsiteCreated": {
+          "result": "PASS",
+          "detail": "Created retained website cc3ea07e-55c9-4b42-9fb4-6789143abb8c through onboarding."
+        },
+        "onboardingAnswersPersisted": {
+          "result": "PASS",
+          "detail": "Run-scoped expected answers were persisted before generation."
+        },
+        "importSourcePreflight": {
+          "result": "PASS",
+          "detail": "Source preflight passed (200); contract public-wellness-template-v1-2026-09-08."
+        },
+        "externalBookingIntentDetected": {
+          "result": "WARNING",
+          "detail": "The source did not expose an external booking integration to the crawler."
+        },
+        "nativeBookingRequested": {
+          "result": "PASS",
+          "detail": "Import approval explicitly selected Birdflow booking."
+        },
+        "ownershipConsistent": {
+          "result": "PASS",
+          "detail": "User, onboarding session, website, and builder state must point to the same retained run."
+        },
+        "generationTerminated": {
+          "result": "PASS",
+          "detail": "Generation must reach a terminal status."
+        },
+        "readinessReady": {
+          "result": "FAIL",
+          "detail": "Readiness was deterministic_fallback; fallback=true."
+        },
+        "readinessBoundToExactBuilder": {
+          "result": "FAIL",
+          "detail": "Expected builder revision 5, fingerprint 2ba0b23595245c40d5c7f953254a7f4cb6436ddcb069cf7b48d9773ba4d81718, and site revision 0."
+        },
+        "qualityGateClear": {
+          "result": "FAIL",
+          "detail": "2 structured quality blocker(s)."
+        },
+        "expectedPageCount": {
+          "result": "FAIL",
+          "detail": "Generated 3 page(s); expected at least 4."
+        },
+        "threeDirectionStatesPersisted": {
+          "result": "PASS",
+          "detail": "Persisted 3 complete direction state(s)."
+        },
+        "directionsMateriallyDistinct": {
+          "result": "PASS",
+          "detail": "3/3 candidate fingerprints are distinct."
+        },
+        "selectedDirectionPromotedUnchanged": {
+          "result": "FAIL",
+          "detail": "The active builder fingerprint must equal the selected retained candidate fingerprint."
+        },
+        "directionQualityEvidencePersisted": {
+          "result": "PASS",
+          "detail": "Every direction must retain manifest, score, review and explicit asset-placement evidence."
+        },
+        "allDirectionPreviewsLoad": {
+          "result": "FAIL",
+          "detail": "0/3 direction-specific preview payloads matched their retained fingerprints."
+        },
+        "noPlaceholders": {
+          "result": "PASS",
+          "detail": "0 placeholder marker(s) found."
+        },
+        "noInventedProhibitedClaims": {
+          "result": "PASS",
+          "detail": "0 prohibited claim pattern(s) appeared in visible copy."
+        },
+        "internalLinksResolve": {
+          "result": "PASS",
+          "detail": "0 broken internal link(s): "
+        },
+        "nativeBookingComponent": {
+          "result": "FAIL",
+          "detail": "Found 0 exact production booking component(s)."
+        },
+        "bookingServicesOwned": {
+          "result": "PASS",
+          "detail": "0 service row(s) belong to this website."
+        },
+        "importedBookingServices": {
+          "result": "FAIL",
+          "detail": "0 owned booking service row(s) exist after native conversion."
+        },
+        "externalBookingRemoved": {
+          "result": "PASS",
+          "detail": "No known external booking provider marker remains in generated state."
+        },
+        "builderLoads": {
+          "result": "PASS",
+          "detail": "Authenticated builder API must return the retained state."
+        },
+        "onboardingPreviewLoads": {
+          "result": "PASS",
+          "detail": "Authenticated onboarding preview must return pages."
+        },
+        "bookingApiLoads": {
+          "result": "PASS",
+          "detail": "Authenticated booking services must open."
+        },
+        "publicBookingServicesLoad": {
+          "result": "PASS",
+          "detail": "BookingWidget's public services endpoint must return a list."
+        },
+        "publicBookingSlotsLoad": {
+          "result": "FAIL",
+          "detail": "BookingWidget's public slots endpoint returned 0 selectable slot(s)."
+        },
+        "bookingInteractionUsable": {
+          "result": "FAIL",
+          "detail": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs."
+        },
+        "importedSourceFactsPreserved": {
+          "result": "PASS",
+          "detail": "20/20 high-confidence identity, contact, service, and price facts are represented."
+        },
+        "importedAssetsPreserved": {
+          "result": "PASS",
+          "detail": "8 source image(s), 6 retained owned media asset(s)."
+        },
+        "importMissingInformationHandled": {
+          "result": "PASS",
+          "detail": "The generation quality gate must not report unsupported source claims."
+        },
+        "aiVisualReview:direction-1": {
+          "result": "FAIL",
+          "detail": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details"
+        },
+        "bookingScreenshotAvailable": {
+          "result": "FAIL",
+          "detail": "No booking screenshot was substituted or manufactured because no booking page exists."
+        },
+        "directionSelectionPromotesExactCandidate": {
+          "result": "FAIL",
+          "detail": "/api/onboarding/direction/select returned 409: Designforslagene er ikke færdige endnu."
+        }
+      },
+      "directionEvidence": [
+        {
+          "id": "dir-1-1ffc61dc",
+          "name": "Redaktionelt fokus",
+          "concept": "En redaktionel og luftig fortolkning af Home med stærk typografisk storytelling.",
+          "fingerprint": "341f0210a806ec2260ca37c7ce6e661e862ad27abbdd7bf3cb77754dcccbaf41",
+          "selected": true,
+          "layoutArchetype": "editorial",
+          "heroComposition": "editorial-offset",
+          "typography": {
+            "headingFont": "Inter",
+            "bodyFont": "Inter",
+            "scale": "editorial"
+          },
+          "palette": {
+            "text": "#211527",
+            "accent": "#FBFBFB",
+            "primary": "#ECEFF3",
+            "surface": "#fffefe",
+            "secondary": "#F9FAFB",
+            "background": "#fffdfc"
+          },
+          "imageryStyle": "quiet, editorial crops with generous negative space",
+          "decorativeGraphics": "thin rules and restrained brand-colour fields",
+          "assetPlacements": [
+            {
+              "assetUrl": "/objects/uploads/1893e366-4608-4f17-9d87-3c4663b633ef.webp",
+              "pageId": "home",
+              "sectionId": "6qfsu9j",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/d52f7645-a5c5-4a80-8380-aef9ee6dafd1.webp",
+              "pageId": "home",
+              "sectionId": "evwfds5",
+              "role": "about",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/cbb09145-8a0b-4d07-9777-fb635f0b67f4.webp",
+              "pageId": "home",
+              "sectionId": "1fx0jqr",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/e23855dc-f307-462e-8e3f-82f2ac297c85.webp",
+              "pageId": "home",
+              "sectionId": "afxrcno",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/4b07e599-b78d-4696-86ea-5fd536203a49.webp",
+              "pageId": "home",
+              "sectionId": "hero",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/784423da-3871-4373-a85a-60a93edb708f.webp",
+              "pageId": "home",
+              "sectionId": "hero",
+              "role": "service",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 100,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        },
+        {
+          "id": "dir-2-63b5dc1c",
+          "name": "Menneskelig varme",
+          "concept": "En varm og personlig fortolkning med fokus på tryghed, billeder og et inviterende flow.",
+          "fingerprint": "d9d90719094d13e7c91556088c2c6b2f4ed0c3325514cb3b3fc9d7d5a885fd3f",
+          "selected": false,
+          "layoutArchetype": "organic",
+          "heroComposition": "image-dominant",
+          "typography": {
+            "headingFont": "Inter",
+            "bodyFont": "Inter",
+            "scale": "classic"
+          },
+          "palette": {
+            "text": "#211527",
+            "accent": "#FBFBFB",
+            "primary": "#ECEFF3",
+            "surface": "#ffffff",
+            "secondary": "#f9fafb",
+            "background": "#fffdfb"
+          },
+          "imageryStyle": "human, close and tactile crops",
+          "decorativeGraphics": "soft organic fields derived from the accent colour",
+          "assetPlacements": [
+            {
+              "assetUrl": "/objects/uploads/1893e366-4608-4f17-9d87-3c4663b633ef.webp",
+              "pageId": "home",
+              "sectionId": "6qfsu9j",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/d52f7645-a5c5-4a80-8380-aef9ee6dafd1.webp",
+              "pageId": "home",
+              "sectionId": "evwfds5",
+              "role": "about",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/cbb09145-8a0b-4d07-9777-fb635f0b67f4.webp",
+              "pageId": "home",
+              "sectionId": "1fx0jqr",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/e23855dc-f307-462e-8e3f-82f2ac297c85.webp",
+              "pageId": "home",
+              "sectionId": "afxrcno",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/4b07e599-b78d-4696-86ea-5fd536203a49.webp",
+              "pageId": "home",
+              "sectionId": "hero",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/784423da-3871-4373-a85a-60a93edb708f.webp",
+              "pageId": "home",
+              "sectionId": "hero",
+              "role": "service",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 100,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        },
+        {
+          "id": "dir-3-055c62dc",
+          "name": "Klar faglighed",
+          "concept": "En præcis og struktureret fortolkning, der gør ydelser og næste skridt tydelige med det samme.",
+          "fingerprint": "d2082413ee1fc611d578c6c72eec3aecaabd221561168d51c4f6d04397a2b40a",
+          "selected": false,
+          "layoutArchetype": "structured",
+          "heroComposition": "split-grid",
+          "typography": {
+            "headingFont": "Inter",
+            "bodyFont": "Inter",
+            "scale": "bold"
+          },
+          "palette": {
+            "text": "#211527",
+            "accent": "#FBFBFB",
+            "primary": "#d2d4d8",
+            "surface": "#fefefe",
+            "secondary": "#f9fafb",
+            "background": "#fffefc"
+          },
+          "imageryStyle": "confident architectural crops and clear subject framing",
+          "decorativeGraphics": "geometric grid lines and high-contrast accent blocks",
+          "assetPlacements": [
+            {
+              "assetUrl": "/objects/uploads/1893e366-4608-4f17-9d87-3c4663b633ef.webp",
+              "pageId": "home",
+              "sectionId": "6qfsu9j",
+              "role": "hero",
+              "crop": "16:10 focal crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/d52f7645-a5c5-4a80-8380-aef9ee6dafd1.webp",
+              "pageId": "home",
+              "sectionId": "evwfds5",
+              "role": "about",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/cbb09145-8a0b-4d07-9777-fb635f0b67f4.webp",
+              "pageId": "home",
+              "sectionId": "1fx0jqr",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/e23855dc-f307-462e-8e3f-82f2ac297c85.webp",
+              "pageId": "home",
+              "sectionId": "afxrcno",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/4b07e599-b78d-4696-86ea-5fd536203a49.webp",
+              "pageId": "home",
+              "sectionId": "hero",
+              "role": "service",
+              "crop": "4:3 content crop"
+            },
+            {
+              "assetUrl": "/objects/uploads/784423da-3871-4373-a85a-60a93edb708f.webp",
+              "pageId": "home",
+              "sectionId": "hero",
+              "role": "service",
+              "crop": "4:3 content crop"
+            }
+          ],
+          "qualityScore": {
+            "imagery": 100,
+            "overall": 88,
+            "factSafety": 100,
+            "contentQuality": 52,
+            "responsiveness": 95,
+            "brandConsistency": 94,
+            "visualComposition": 97,
+            "directionUniqueness": 100
+          },
+          "visualReviewRan": false,
+          "visualIssueCount": 0,
+          "repairPasses": 0
+        }
+      ],
+      "auditFindings": [
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: readinessReady",
+          "evidence": "Readiness was deterministic_fallback; fallback=true.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "critical",
+          "subsystem": "preview",
+          "title": "Failed audit check: readinessBoundToExactBuilder",
+          "evidence": "Expected builder revision 5, fingerprint 2ba0b23595245c40d5c7f953254a7f4cb6436ddcb069cf7b48d9773ba4d81718, and site revision 0.",
+          "customerImpact": "The customer may approve a different website from the one retained in the builder.",
+          "likelyCause": "Preview, candidate bundle and active builder state are not aligned to the same fingerprint or revision.",
+          "recommendation": "Keep fingerprint and revision checks mandatory for every direction preview, selection and approval transition."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: qualityGateClear",
+          "evidence": "2 structured quality blocker(s).",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Failed audit check: expectedPageCount",
+          "evidence": "Generated 3 page(s); expected at least 4.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: selectedDirectionPromotedUnchanged",
+          "evidence": "The active builder fingerprint must equal the selected retained candidate fingerprint.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: allDirectionPreviewsLoad",
+          "evidence": "0/3 direction-specific preview payloads matched their retained fingerprints.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: nativeBookingComponent",
+          "evidence": "Found 0 exact production booking component(s).",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "import",
+          "title": "Failed audit check: importedBookingServices",
+          "evidence": "0 owned booking service row(s) exist after native conversion.",
+          "customerImpact": "A redesign may lose source-backed information or carry unsupported legacy content forward.",
+          "likelyCause": "Import extraction, confidence thresholds, asset transfer or source-provenance checks were incomplete.",
+          "recommendation": "Retain source provenance per fact and asset, show unresolved information explicitly, and compare the generated state against the approved import selection."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: publicBookingSlotsLoad",
+          "evidence": "BookingWidget's public slots endpoint returned 0 selectable slot(s).",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingInteractionUsable",
+          "evidence": "Native booking requires the exact booking component, an active owned service, and working preview plus public service/slot APIs.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "provider",
+          "title": "Failed audit check: aiVisualReview:direction-1",
+          "evidence": "Model-kald fejlede: 429 Your account [REDACTED_ORG] <[REDACTED_CREDENTIAL]> is suspended due to insufficient balance, please recharge your account or check your plan and billing details",
+          "customerImpact": "The system cannot prove that the generated site is visually safe or polished.",
+          "likelyCause": "The vision provider was unavailable, rate-limited, or returned unusable structured output.",
+          "recommendation": "Reserve review capacity separately from generation, retry with bounded backoff, and keep readiness fail-closed until visual evidence exists."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Failed audit check: bookingScreenshotAvailable",
+          "evidence": "No booking screenshot was substituted or manufactured because no booking page exists.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "direction-generation",
+          "title": "Failed audit check: directionSelectionPromotesExactCandidate",
+          "evidence": "/api/onboarding/direction/select returned 409: Designforslagene er ikke færdige endnu.",
+          "customerImpact": "The customer is offered cosmetic variants instead of meaningful creative choices.",
+          "likelyCause": "The directions differ in tokens but not enough in section composition, component types, narrative order, or imagery treatment.",
+          "recommendation": "Require state-level differences in composition, component mix, story order, typography and art direction before showing all three choices."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "thin_page",
+          "evidence": "Om os has too little meaningful page content. Page: om.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "high",
+          "subsystem": "content",
+          "title": "thin_page",
+          "evidence": "Kontakt has too little meaningful page content. Page: kontakt.",
+          "customerImpact": "Important customer facts may disappear or unsupported claims may damage trust.",
+          "likelyCause": "The brief-to-copy handoff did not preserve fact provenance or did not treat missing information as a hard constraint.",
+          "recommendation": "Generate from fact-linked content slots, explicitly represent unknowns, and report missing details instead of filling them with generic claims."
+        },
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Missing or broken visual evidence: desktop-decision",
+          "evidence": "Expected 3 design direction cards, found 0.",
+          "customerImpact": "The draft lacks complete evidence for a production-quality handoff.",
+          "likelyCause": "A required deterministic or visual audit check did not pass.",
+          "recommendation": "Keep the result retained and failed, trace the check to its owning subsystem, and repair the underlying product behavior before rerunning."
+        },
+        {
+          "severity": "high",
+          "subsystem": "mobile",
+          "title": "Missing or broken visual evidence: mobile-decision",
+          "evidence": "Expected 3 design direction cards, found 0.",
+          "customerImpact": "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+          "likelyCause": "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+          "recommendation": "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate."
+        },
+        {
+          "severity": "high",
+          "subsystem": "booking",
+          "title": "Missing or broken visual evidence: desktop-booking",
+          "evidence": "No page containing an exact production booking component exists.",
+          "customerImpact": "A booking call to action may lead to a non-functional flow.",
+          "likelyCause": "Visual booking intent was generated without the owned service and availability data required by the production widget.",
+          "recommendation": "Treat booking as unavailable unless the exact component, owned active services and selectable public slots all pass end to end."
+        },
+        {
+          "severity": "high",
+          "subsystem": "mobile",
+          "title": "Missing or broken visual evidence: mobile-booking",
+          "evidence": "No page containing an exact production booking component exists.",
+          "customerImpact": "Phone visitors may see clipped content, unreadable hierarchy, or unusable calls to action.",
+          "likelyCause": "Responsive layout and crop decisions were inherited from desktop without a mobile-specific review.",
+          "recommendation": "Store mobile composition/crop intent and enforce overflow, tap-target and text-scale checks on every candidate."
+        }
+      ],
+      "evidenceCompleteness": {
+        "expectedCandidateScreenshots": 6,
+        "capturedCandidateScreenshots": 6,
+        "decisionScreenshots": 0,
+        "candidateStates": 3,
+        "complete": false,
+        "missing": [
+          "Expected 2 decision-workspace screenshots, captured 0.",
+          "One or more candidates lacks completed AI visual review evidence."
+        ]
+      },
+      "qualityFindings": [
+        {
+          "code": "thin_page",
+          "message": "Om os has too little meaningful page content.",
+          "pageId": "om"
+        },
+        {
+          "code": "thin_page",
+          "message": "Kontakt has too little meaningful page content.",
+          "pageId": "kontakt"
+        }
+      ],
+      "screenshots": [
+        {
+          "kind": "desktop-decision",
+          "status": "FAIL",
+          "warnings": [
+            "Expected 3 design direction cards, found 0."
+          ]
+        },
+        {
+          "kind": "mobile-decision",
+          "status": "FAIL",
+          "warnings": [
+            "Expected 3 design direction cards, found 0."
+          ]
+        },
+        {
+          "kind": "desktop-direction-1",
+          "path": "qa-results/screenshots/2026-09-08T14-22-08-478Z-import-d0881cb15831-direction-1-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-1",
+          "path": "qa-results/screenshots/2026-09-08T14-22-08-478Z-import-d0881cb15831-direction-1-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-direction-2",
+          "path": "qa-results/screenshots/2026-09-08T14-22-08-478Z-import-d0881cb15831-direction-2-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-2",
+          "path": "qa-results/screenshots/2026-09-08T14-22-08-478Z-import-d0881cb15831-direction-2-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-direction-3",
+          "path": "qa-results/screenshots/2026-09-08T14-22-08-478Z-import-d0881cb15831-direction-3-desktop.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "mobile-direction-3",
+          "path": "qa-results/screenshots/2026-09-08T14-22-08-478Z-import-d0881cb15831-direction-3-mobile.jpg",
+          "status": "PASS"
+        },
+        {
+          "kind": "desktop-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        },
+        {
+          "kind": "mobile-booking",
+          "status": "FAIL",
+          "warnings": [
+            "No page containing an exact production booking component exists."
+          ]
+        }
+      ],
+      "reviewUrls": {
+        "adminUser": "/admin?tab=users&userId=23c462b4-837e-47dd-8446-b26120c2d1fd",
+        "adminWebsite": "/admin?tab=websites&websiteId=cc3ea07e-55c9-4b42-9fb4-6789143abb8c",
+        "builder": "/builder/cc3ea07e-55c9-4b42-9fb4-6789143abb8c?adminEdit=1",
+        "onboardingPreview": "/onboarding/preview/cc3ea07e-55c9-4b42-9fb4-6789143abb8c"
+      },
+      "humanReview": {
+        "status": "NOT_REVIEWED",
+        "showToPractitioner": "UNANSWERED",
+        "notes": ""
+      }
+    },
+    {
+      "runId": "2026-09-08T14-16-38Z-sparse-interrupted-89f17fdd27d2",
+      "scenario": "sparse",
+      "createdAt": "2026-09-08T14:16:38.900Z",
+      "completedAt": "2026-09-08T14:17:45.000Z",
+      "durationMs": 66100,
+      "userId": "11a97162-bfb4-49cb-b51b-58ecbfd20b7b",
+      "websiteId": "65d5f7d3-3163-46ba-88d9-f5c10bc45c5b",
+      "onboardingPath": "ai",
+      "status": "FAILED_ONBOARDING",
+      "dossier": {
+        "name": "Sparse creative professional without photography",
+        "summary": "Interrupted retained attempt after identity, website and interview recording.",
+        "informationDensity": "sparse",
+        "expectedFacts": [
+          "Nordform Studio"
+        ],
+        "prohibitedClaims": [],
+        "imageryGoal": "Describe rather than invent an illustration system."
+      },
+      "onboardingInputs": {},
+      "deterministicChecks": {
+        "runInterrupted": {
+          "result": "FAIL",
+          "detail": "The runner was stopped before generation while correcting the purpose-made media upload path."
+        }
+      },
+      "directionEvidence": [],
+      "auditFindings": [
+        {
+          "severity": "medium",
+          "subsystem": "quality-gate",
+          "title": "Run interrupted before generation",
+          "evidence": "Identity, website and interview answers were retained; no candidate generation was started.",
+          "customerImpact": "This attempt cannot provide design evidence.",
+          "likelyCause": "The parent audit runner was stopped to correct a blocking evidence-upload implementation.",
+          "recommendation": "Retain this attempt and use the subsequent fresh sparse run for design findings."
+        }
+      ],
+      "evidenceCompleteness": {
+        "expectedCandidateScreenshots": 6,
+        "capturedCandidateScreenshots": 0,
+        "decisionScreenshots": 0,
+        "candidateStates": 0,
+        "complete": false,
+        "missing": [
+          "Generation did not start."
+        ]
+      },
+      "qualityFindings": [],
+      "screenshots": [],
+      "failure": {
+        "stage": "sparse-generation",
+        "message": "Runner intentionally stopped before generation while correcting evidence upload."
+      },
+      "humanReview": {
+        "status": "REVIEWED",
+        "showToPractitioner": "NO",
+        "notes": "Retained infrastructure attempt only."
+      }
+    }
+  ]
+}

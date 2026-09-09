@@ -88,6 +88,8 @@ const analyzeAndPlanWebsite = vi.fn();
 const buildFromPlan = vi.fn();
 const updateBuilderState = vi.fn(async () => ({ revision: 2, state: {} }));
 const persistOnboardingGenStatus = vi.fn(async () => {});
+const claimOnboardingGeneration = vi.fn(async () => true);
+const finishOnboardingGeneration = vi.fn(async () => true);
 
 vi.mock("../server/designInterview", () => ({
   finalizeBrandGuide: (...a: any[]) => finalizeBrandGuide(...a),
@@ -105,12 +107,20 @@ vi.mock("../server/onboardingDecision", () => ({
   markGenerationComplete: vi.fn(async () => {}),
   markGenerationFailed: vi.fn(async () => {}),
   markGenerationStarted: vi.fn(async () => {}),
+  persistGeneratedDirectionBundleAtomically: vi.fn(async (args: any) => ({
+    revision: args.expectedBuilderRevision + 1,
+    state: args.bundle.directions[0].state,
+  })),
 }));
 vi.mock("../server/storage", () => ({
   storage: {
     getBuilderState: async () => ({ revision: 1, state: { pages: [], globalStyles: {} } }),
     updateBuilderState: (...a: any[]) => updateBuilderState(...a),
+    prepareBuilderStateForSave: vi.fn(async () => {}),
     persistOnboardingGenStatus: (...a: any[]) => persistOnboardingGenStatus(...a),
+    claimOnboardingGeneration: (...a: any[]) => claimOnboardingGeneration(...a),
+    finishOnboardingGeneration: (...a: any[]) => finishOnboardingGeneration(...a),
+    getOnboardingSessionByWebsiteId: vi.fn(async () => undefined),
   },
 }));
 
@@ -137,7 +147,7 @@ describe("onboarding generation that runs out of money", () => {
     // the same way, so none of them should even be attempted.
     finalizeBrandGuide.mockRejectedValue(new SpendLimitError("brandGuide", "Loftet er nået."));
 
-    startOnboardingGeneration("site-gen-1", genInput);
+    await startOnboardingGeneration("site-gen-1", genInput);
 
     // The pipeline runs in the background; wait for it to settle.
     for (let i = 0; i < 200; i += 1) {

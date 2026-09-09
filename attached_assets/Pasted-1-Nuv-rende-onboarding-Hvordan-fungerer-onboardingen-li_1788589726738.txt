@@ -1,0 +1,261 @@
+1. Nuværende onboarding
+Hvordan fungerer onboardingen lige nu helt konkret?
+Fx:
+Opret bruger → AI interview → brand guide → generer hjemmeside → preview → godkend/book møde → betaling/publish
+Er den hjemmeside, der bliver lavet i onboardingen, allerede et rigtigt Birdflow-projekt i databasen, eller er det først et midlertidigt draft, der senere konverteres?
+Kan brugeren allerede under onboardingen:
+redigere tekst?
+skifte billeder?
+bede AI om ændringer?
+tilføje/fjerne sektioner?
+se desktop + mobil?
+2. Hvordan Birdflow gemmer hjemmesider
+
+Det her er ekstremt vigtigt.
+
+Hvordan er en Birdflow-side gemt i dag?
+
+Er det eksempelvis:
+
+website
+ └ pages
+    └ sections
+       └ components
+          └ props/content/styles
+
+eller gemmer I mere rå HTML/React?
+
+Når AI laver en ny custom section i builderen, bliver den allerede:
+oprettet som React/component?
+gemt i databasen?
+gemt som reusable component?
+kompatibel med publish-systemet?
+Har hver sektion en standard-model ala:
+type
+content
+style
+responsiveStyle
+assets
+settings
+
+Hvis du kender schemaet, send det meget gerne.
+
+3. Import af den gamle hjemmeside
+Skal Birdflow prøve at kopiere hjemmesiden så tæt som muligt 1:1, eller skal agenten bruge eksisterende hjemmeside som udgangspunkt og gerne modernisere designet?
+
+Jeg ville personligt tilbyde:
+
+“Bevar mit nuværende design”
+og
+“Forbedr designet, men behold min identitet og indhold”
+
+Skal den importere hele hjemmesiden, også hvis den har eksempelvis:
+5 sider
+20 sider
+blog
+priser
+FAQ
+medarbejdere
+kontaktformular
+booking
+testimonials
+
+Eller vil du i første version begrænse importen til fx maks. 5–10 sider?
+
+Hvad skal ske med indhold som Birdflow ikke understøtter?
+
+Fx:
+
+webshop
+medlemslogin
+eksternt bookingsystem
+iframe
+blog
+video
+downloads
+specialformularer
+custom JavaScript
+4. Website crawler / AI
+Har I allerede noget i backend, der kan hente/læse en ekstern hjemmeside via URL?
+
+Fx Firecrawl, Browserless, Playwright, Puppeteer eller egen crawler?
+
+Hvis ikke, ville jeg sandsynligvis bygge:
+
+URL
+↓
+crawler
+↓
+sitemap/page discovery
+↓
+content + images + metadata
+↓
+AI website analyzer
+↓
+Birdflow page/component schema
+Må agenten besøge undersider automatisk ud fra navigation/sitemap, eller havde du tænkt at brugeren selv skulle indsætte links til hver side?
+
+Jeg anbefaler klart automatisk discovery.
+
+Skal den også hente:
+logo
+billeder
+favicon
+farver
+fonts
+tekster
+SEO title/description
+kontaktoplysninger
+sociale links
+åbningstider
+medarbejdere
+ydelser
+priser?
+
+Jeg ville sige ja til stort set alt.
+
+5. Billeder og assets
+Skal Birdflow kopiere billederne ind i brugerens eget Birdflow storage/R2, eller fortsat vise billederne fra den gamle hjemmesides URL?
+
+Jeg vil stærkt anbefale at kopiere dem ind i Birdflow, hvis brugeren bekræfter, at de ejer/rettighederne til siden og materialet.
+
+Har Birdflow allerede et media library per account/project?
+6. Agentens beslutninger
+
+Her synes jeg onboarding kan blive meget stærk.
+
+Efter analysen kunne agenten fx opdage:
+
+“Jeg fandt 6 sider, 17 billeder, 5 behandlinger og kontaktinformation. Jeg kunne ikke finde priser eller information om afbudspolitik.”
+
+Hvad skal agenten gøre, når noget mangler?
+
+Vil du have:
+
+A: spørge brugeren én ting ad gangen som en samtale
+
+eller
+
+B: vise en samlet kort formular med “Vi mangler disse 4 ting”
+
+Jeg ville faktisk bruge en hybrid:
+agenten samler først alt → viser kun de vigtigste mangler → brugeren kan springe over.
+
+7. Hvad skal AI have lov til at forbedre?
+Skal agenten også kunne opdage problemer som:
+dårlig mobilversion
+manglende CTA
+for meget tekst
+gammel struktur
+dårlig kontrast
+manglende SEO
+ingen booking CTA
+uklare behandlinger
+manglende trust/social proof
+
+og fx sige:
+
+“Jeg har beholdt dit indhold, men jeg anbefaler 3 forbedringer.”
+
+Det synes jeg ville være en stor Birdflow-feature fremfor bare migration.
+
+8. Booking og Birdflow features
+Hvis den gamle side fx har en “Book tid”-knap til EasyPractice, Terapeut Booking eller Calendly:
+
+Skal Birdflow automatisk spørge:
+
+“Vil du beholde dit nuværende bookingsystem eller flytte booking til Birdflow?”
+
+Det ville jeg bygge ind.
+
+Samme spørgsmål gælder:
+
+kontaktformular
+nyhedsbrev
+betaling
+mail
+kalender
+9. Approval-flow
+
+Du nævnte:
+
+Godkend
+eller
+Book 30 min. møde
+
+Når brugeren trykker Godkend, hvad skal der så ske i det nuværende Birdflow-flow?
+
+Fx:
+
+Godkend
+↓
+vælg abonnement
+↓
+betaling
+↓
+domæne
+↓
+publish
+
+eller er betaling allerede sket?
+
+Når de vælger “Book 30 min. møde”, skal deres importerede hjemmeside/draft gemmes, så Birdflow-medarbejderen åbner præcis samme projekt og kan arbejde videre?
+
+Det bør den efter min mening.
+
+Jeg ville også gemme en slags:
+
+Migration report
+
+Imported:
+✓ 6 pages
+✓ 24 images
+✓ 5 services
+
+Needs review:
+! Booking integration
+! 2 missing images
+! Pricing not found
+
+så Birdflow-personen ved præcis, hvad der mangler.
+
+10. Domæne
+Når de allerede har en hjemmeside, har de sandsynligvis også et domæne.
+
+Hvordan fungerer Birdflows domæneflow nu?
+
+Kan kunden fx have:
+
+psykolognavn.dk
+
+hos Simply/One.com/Dandomain, og Birdflow guider dem til DNS-connect?
+
+Hvis ja, ville migrationen ende med noget ala:
+
+Din nye Birdflow-side er klar.
+Din gamle hjemmeside bliver ikke ændret endnu.
+Når du godkender, hjælper vi dig med at pege dit domæne på Birdflow.
+
+Det er vigtigt, at import aldrig ændrer den eksisterende hjemmeside automatisk.
+
+Én vigtig produktbeslutning
+
+Jeg synes ikke, du skal kalde funktionen “Importer hjemmeside” i brugeroplevelsen. Det lyder teknisk.
+
+Jeg ville have onboarding-starten meget enkel:
+
+Hvordan starter du med Birdflow?
+
+Jeg har ikke en hjemmeside endnu
+Birdflow hjælper mig med at bygge min hjemmeside fra bunden.
+
+Jeg har allerede en hjemmeside
+Birdflow flytter mit indhold, design og billeder over for mig.
+
+Derefter:
+
+Indsæt adressen på din hjemmeside
+
+https://minpraksis.dk
+
+[Hent min hjemmeside]

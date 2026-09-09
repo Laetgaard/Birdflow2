@@ -125,9 +125,21 @@ describe("session persistence (source tripwires)", () => {
 
   it("the status route falls back to the persisted snapshot", () => {
     const idx = routesSource.indexOf("onboarding/generate/status");
-    const body = routesSource.slice(idx, idx + 2500);
+    const body = routesSource.slice(idx, idx + 6500);
     expect(body).toContain("getOnboardingSessionByWebsiteId");
     expect(body).toContain("session.genStatus");
+  });
+
+  it("claims generation durably and recovers the scratch path from persisted answers", () => {
+    expect(storageSource).toContain("async claimOnboardingGeneration");
+    expect(storageSource).toContain("generationState: \"generating\"");
+    const idx = routesSource.indexOf("onboarding/generate/status");
+    const body = routesSource.slice(idx, idx + 9000);
+    expect(body).toContain('session?.answers?.path === "ai"');
+    expect(body).toContain('mode: "recover"');
+    expect(routesSource).toContain('onboarding/generate/retry"');
+    expect(body).toContain("storage.finishOnboardingGeneration(req.params.id, exhausted, false)");
+    expect(body).toContain("Number(persisted?.attempt ?? 1) >= 3");
   });
 
   it("upsert merges answers instead of replacing them", () => {
@@ -197,6 +209,12 @@ describe("the client walkthrough", () => {
     expect(pageSource).toContain("PaymentChoiceDialog");
     expect(pageSource).not.toContain("button-start-payment");
     expect(pageSource).not.toContain("onboarding-checkout");
+  });
+
+  it("reconciles a lost final agent event from the authoritative decision state", () => {
+    expect(pageSource).toContain('view !== "chat"');
+    expect(pageSource).toContain("const data = await loadDecision()");
+    expect(pageSource).toContain("applyStage(data)");
   });
 
   it("wears the app theme, not the old indigo/purple gradients", () => {

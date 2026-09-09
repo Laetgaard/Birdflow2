@@ -694,6 +694,7 @@ function UsersTab({
                 <TableCell>
                   <div className="flex gap-1">
                     {user.isAdmin && <Badge variant="destructive">Admin</Badge>}
+                      {user.isQa && <Badge variant="outline">QA fixture</Badge>}
                     {user.onboardingCompleted ? (
                       <Badge variant="default">Verified</Badge>
                     ) : (
@@ -1059,6 +1060,7 @@ function WebsitesTab({
                 <TableCell>
                   <div>
                     <div className="font-medium">{website.name}</div>
+                    {website.isQa && <Badge variant="outline">QA fixture</Badge>}
                     <div className="text-sm text-muted-foreground">
                       {website.slug}
                     </div>

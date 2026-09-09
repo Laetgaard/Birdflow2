@@ -43,6 +43,16 @@ export type DecisionCopy = {
 
 export type DecisionPage = { id: string; name: string; path: string };
 
+export type DesignDirection = {
+  id: string;
+  name: string;
+  concept: string;
+  designIntent: string;
+  brandDeviation: { level: string; changes: string[]; rationale: string };
+  qualityScore: { overall: number };
+  selected: boolean;
+};
+
 type Tab = "site" | "brand" | "report" | "adjust";
 
 function useIsDesktop(): boolean {
@@ -63,19 +73,27 @@ function useIsDesktop(): boolean {
 
 function PreviewPane({
   websiteId,
+  expectedRevision,
+  expectedFingerprint,
   pages,
   activePageId,
   onActivePageChange,
+  directionId,
 }: {
   websiteId: string;
+  expectedRevision: number;
+  expectedFingerprint: string;
   pages: DecisionPage[];
   activePageId: string | null;
   onActivePageChange: (pageId: string) => void;
+  directionId?: string | null;
 }) {
   const [device, setDevice] = useState<PreviewDevice>("desktop");
   const [reloadKey, setReloadKey] = useState(0);
   const [scale, setScale] = useState(1);
   const [ready, setReady] = useState(false);
+  const [parityError, setParityError] = useState<string | null>(null);
+  const [renderDegradedError, setRenderDegradedError] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -104,13 +122,38 @@ function PreviewPane({
       const payload = event.data;
       if (!payload) return;
       if (payload.type === "bf-preview-ready") setReady(true);
+      if (payload.type === "bf-preview-pages") {
+        const expectedIds = pages.map((page) => page.id);
+        const renderedIds = Array.isArray(payload.pages) ? payload.pages.map((page: any) => page?.id) : [];
+        const matches =
+          payload.websiteId === websiteId &&
+          payload.revision === expectedRevision &&
+          payload.fingerprint === expectedFingerprint &&
+          expectedIds.length > 0 &&
+          expectedIds.length === renderedIds.length &&
+          expectedIds.every((id, index) => id === renderedIds[index]);
+        setParityError(matches ? null : "Forhåndsvisningen er blevet forældet. Opdater siden for at hente den seneste version.");
+      }
+      if (payload.type === "bf-preview-render-diagnostics") {
+        const contextMatches =
+          payload.websiteId === websiteId &&
+          payload.revision === expectedRevision &&
+          payload.fingerprint === expectedFingerprint;
+        if (!contextMatches || payload.degraded === true) {
+          setRenderDegradedError(
+            "Forhåndsvisningen er ufuldstændig. Noget af hjemmesidens indhold kunne ikke vises."
+          );
+        } else {
+          setRenderDegradedError(null);
+        }
+      }
       if (payload.type === "bf-preview-page" && typeof payload.pageId === "string") {
         onActivePageChange(payload.pageId);
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [onActivePageChange]);
+  }, [onActivePageChange, pages, websiteId, expectedRevision, expectedFingerprint]);
 
   useEffect(() => {
     if (!ready) return;
@@ -119,6 +162,12 @@ function PreviewPane({
       window.location.origin
     );
   }, [ready, activePageId, device, reloadKey]);
+
+  useEffect(() => {
+    setReady(false);
+    setParityError(null);
+    setRenderDegradedError(null);
+  }, [directionId]);
 
   const frameHeight = device === "mobile" ? 780 : 900;
 
@@ -178,6 +227,8 @@ function PreviewPane({
             type="button"
             onClick={() => {
               setReady(false);
+              setParityError(null);
+              setRenderDegradedError(null);
               setReloadKey((key) => key + 1);
             }}
             className="rounded-lg border border-black/10 p-1.5 transition-colors hover:bg-black/5"
@@ -190,6 +241,11 @@ function PreviewPane({
       </div>
 
       <div ref={shellRef} className="flex-1 overflow-auto bg-neutral-100 p-3">
+        {(parityError || renderDegradedError) && (
+          <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" data-testid="preview-parity-error">
+            {parityError || renderDegradedError}
+          </div>
+        )}
         <div
           className="mx-auto overflow-hidden bg-white shadow-lg"
           style={{
@@ -203,7 +259,7 @@ function PreviewPane({
             key={reloadKey}
             ref={frameRef}
             title="Forhåndsvisning af din hjemmeside"
-            src={`/onboarding/preview/${websiteId}`}
+            src={`/onboarding/preview/${websiteId}${directionId ? `?directionId=${encodeURIComponent(directionId)}` : ""}`}
             // No allow-forms, no allow-popups, no allow-top-navigation: nothing
             // inside the customer's site can submit, pay, open a window or move
             // the page. allow-same-origin is what lets it read the signed-in
@@ -218,6 +274,7 @@ function PreviewPane({
               display: "block",
             }}
             data-testid="iframe-preview"
+            aria-hidden={parityError ? "true" : undefined}
           />
         </div>
       </div>
@@ -226,6 +283,63 @@ function PreviewPane({
 }
 
 /* ─────────── the decision area ─────────── */
+
+function DirectionCards({
+  directions,
+  selectedDirectionId,
+  busy,
+  onSelectDirection,
+}: {
+  directions: DesignDirection[];
+  selectedDirectionId: string | null;
+  busy?: boolean;
+  onSelectDirection: (directionId: string) => void;
+}) {
+  if (!directions.length) return null;
+
+  return (
+    <section aria-labelledby="design-directions-heading" aria-busy={busy} data-testid="design-directions">
+      <div className="mb-3">
+        <h2 id="design-directions-heading" className="text-base font-extrabold">
+          Vælg designretning
+        </h2>
+        <p className="mt-0.5 text-sm text-neutral-600">Sammenlign de tre forslag, og vælg den retning du vil gå videre med.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {directions.map((direction) => {
+          const selected = selectedDirectionId ? selectedDirectionId === direction.id : direction.selected;
+          return (
+            <button
+              key={direction.id}
+              type="button"
+              disabled={busy || selected}
+              onClick={() => onSelectDirection(direction.id)}
+              aria-pressed={selected}
+              className="rounded-2xl border-2 p-4 text-left transition-colors disabled:cursor-default disabled:opacity-80"
+              style={selected ? { borderColor: PURPLE, background: "rgba(76, 29, 149, 0.05)" } : { borderColor: "rgba(0,0,0,0.1)" }}
+              data-testid={`design-direction-${direction.id}`}
+            >
+              <span className="flex items-start justify-between gap-2">
+                <span className="font-bold">{direction.name}</span>
+                {selected && (
+                  <span className="shrink-0 rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: PURPLE, color: "#fff" }}>
+                    Valgt
+                  </span>
+                )}
+              </span>
+              <span className="mt-2 block text-sm font-medium text-neutral-700">{direction.concept}</span>
+              <span className="mt-1 block text-xs leading-relaxed text-neutral-600">{direction.designIntent}</span>
+              <span className="mt-3 block text-xs text-neutral-500">
+                Kvalitet: {direction.qualityScore.overall} · Afvigelse: {direction.brandDeviation.level}
+              </span>
+              {busy && !selected && <span className="mt-2 block text-xs font-semibold" style={{ color: PURPLE }}>Vælger retning…</span>}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function ActionButton({
   children,
@@ -433,11 +547,15 @@ function DecisionArea({
 export function DecisionWorkspace({
   stage,
   snapshot,
+  previewFingerprint,
+  builderRevision,
   copy,
   approvalStale,
   websiteId,
   businessName,
   pages,
+  designDirections = [],
+  selectedDirectionId = null,
   brandGuide,
   reportSlot,
   adjustmentsSlot,
@@ -451,14 +569,19 @@ export function DecisionWorkspace({
   onBackToDecision,
   onDownloadGuide,
   onBooked,
+  onSelectDirection,
 }: {
   stage: OnboardingResumeStage;
   snapshot: OnboardingDecisionSnapshot;
+  previewFingerprint: string;
+  builderRevision: number;
   copy: DecisionCopy;
   approvalStale?: boolean;
   websiteId: string;
   businessName: string;
   pages: DecisionPage[];
+  designDirections?: DesignDirection[];
+  selectedDirectionId?: string | null;
   brandGuide: BrandGuide;
   reportSlot: ReactNode;
   adjustmentsSlot: ReactNode;
@@ -472,6 +595,7 @@ export function DecisionWorkspace({
   onBackToDecision: () => void;
   onDownloadGuide: () => void;
   onBooked: (meeting: PlatformMeeting) => void;
+  onSelectDirection?: (directionId: string) => void;
 }) {
   const isDesktop = useIsDesktop();
   const [tab, setTab] = useState<Tab>("site");
@@ -480,6 +604,10 @@ export function DecisionWorkspace({
   useEffect(() => {
     if (!activePageId && pages.length) setActivePageId(pages[0].id);
   }, [pages, activePageId]);
+
+  useEffect(() => {
+    if (designDirections.length) setActivePageId(pages[0]?.id ?? null);
+  }, [selectedDirectionId]);
 
   // The right column shows the brand guide first on desktop.
   useEffect(() => {
@@ -493,13 +621,29 @@ export function DecisionWorkspace({
       <div className="h-[70vh] lg:h-full">
         <PreviewPane
           websiteId={websiteId}
+          expectedRevision={builderRevision}
+          expectedFingerprint={previewFingerprint}
           pages={pages}
           activePageId={activePageId}
           onActivePageChange={setActivePageId}
+          directionId={selectedDirectionId}
         />
       </div>
     </div>
   );
+
+  const directionCards =
+    designDirections.length > 0 && onSelectDirection ? (
+      <DirectionCards
+        directions={designDirections}
+        selectedDirectionId={selectedDirectionId}
+        busy={busy}
+        onSelectDirection={(directionId) => {
+          setActivePageId(pages[0]?.id ?? null);
+          onSelectDirection(directionId);
+        }}
+      />
+    ) : null;
 
   const panelBody = (
     <>
@@ -553,7 +697,10 @@ export function DecisionWorkspace({
   if (isDesktop) {
     return (
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(380px,440px)]" data-testid="decision-workspace">
-        {preview}
+        <div className="flex min-w-0 flex-col gap-4">
+          {directionCards}
+          {preview}
+        </div>
 
         <div className="flex flex-col gap-3 lg:h-[calc(100vh-190px)] lg:min-h-[560px]">
           <div className="flex min-h-0 flex-1 flex-col rounded-3xl border-2 border-black/10 bg-white">
@@ -604,6 +751,7 @@ export function DecisionWorkspace({
         </div>
       ) : (
         <>
+          {directionCards}
           <div className="flex flex-wrap items-center gap-1.5">
             {tabButton("site", "Hjemmeside", true)}
             {tabButton("brand", "Brandguide", true)}

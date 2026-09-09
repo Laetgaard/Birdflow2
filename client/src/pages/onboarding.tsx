@@ -47,11 +47,22 @@ import type { OnboardingDecisionSnapshot, OnboardingResumeStage } from "@shared/
 import { normalizeSiteLanguage, type SiteLanguage } from "@shared/siteLanguage";
 import { useLocale } from "@/lib/locale";
 import { ONBOARDING_UI_COPY, type OnboardingUiCopy } from "./onboarding.copy";
-import { DecisionWorkspace, type DecisionCopy, type DecisionPage } from "@/components/onboarding/DecisionWorkspace";
+import {
+  DecisionWorkspace,
+  type DecisionCopy,
+  type DecisionPage,
+  type DesignDirection,
+} from "@/components/onboarding/DecisionWorkspace";
 import { PaymentChoiceDialog } from "@/components/onboarding/PaymentChoiceDialog";
+import {
+  WebsiteImportStep,
+  type WebsiteImportReport as WebsiteImportUiReport,
+  type WebsiteImportSelection as WebsiteImportUiSelection,
+} from "@/components/onboarding/WebsiteImportStep";
 import type { PlatformMeeting } from "@/components/onboarding/MeetingBooking";
 import { PAGE_CSS, PURPLE, LIME, BLUSH } from "@/components/bf2/theme";
 import { Bird, BirdDefs } from "@/components/bf2/primitives";
+import type { WebsiteImportState } from "@shared/websiteImport";
 
 /* ─────────────────────────────────────────────────────────────
    The onboarding walkthrough: ONE conversation with Birdflows
@@ -84,6 +95,11 @@ type DecisionData = {
   pages: DecisionPage[];
   brandGuide: BrandGuide;
   report: BuildReport | null;
+  generationStatus?: GenStatus | null;
+  builderRevision?: number;
+  previewFingerprint?: string | null;
+  designDirections?: DesignDirection[];
+  selectedDirectionId?: string | null;
 };
 
 /** Stages that belong to the interview and the build, not the workspace. */
@@ -114,7 +130,21 @@ type GenStatus = {
   error?: string;
   /** The build stopped at its cost ceiling rather than failing. */
   spendLimited?: boolean;
+  readiness?: "ready" | "repair_required" | "provider_failed" | "spend_limited" | "deterministic_fallback";
+  qualityIssues?: Array<{ code: string; message: string; pageId?: string; componentId?: string }>;
+  qualityBuilderRevision?: number;
+  qualityFingerprint?: string;
+  qualitySiteRevision?: number;
 };
+
+function generationBlockNotice(status: GenStatus | null, t: OnboardingUiCopy): string | null {
+  if (!status) return null;
+  if (status.spendLimited || status.readiness === "spend_limited") return t.spendLimitNotice;
+  if (status.fallback || status.readiness === "deterministic_fallback") return t.fallbackNotice;
+  if (status.readiness === "provider_failed") return t.providerFailedNotice;
+  if (status.readiness === "repair_required") return t.repairRequiredNotice;
+  return null;
+}
 
 /** Pipeline phase ids, in order. The labels live in ONBOARDING_UI_COPY. */
 const GEN_PHASE_IDS = ["brandguide", "plan", "build", "enhance", "check"] as const;
@@ -635,6 +665,7 @@ export default function OnboardingPage() {
   /** Apply a resume/decision payload to the view. */
   const applyStage = (data: DecisionData | null) => {
     if (!data) return;
+    if (data.generationStatus) setGenStatus(data.generationStatus);
     if (data.stage === "generating") {
       setView("generating");
     } else if (PRE_DECISION_STAGES.includes(data.stage) || data.stage === "generation_failed") {
@@ -692,6 +723,31 @@ export default function OnboardingPage() {
       cancelled = true;
     };
   }, [authLoading, user, token]);
+
+  /* The agent stream is only a convenience signal. If its final event is
+     lost after build_site claimed the run, the persisted decision state moves
+     this browser into generation on the next reconciliation tick. */
+  useEffect(() => {
+    if (booting || view !== "chat" || answers.path !== "ai" || !websiteId || !token) return;
+    let cancelled = false;
+    let checking = false;
+    const tick = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const data = await loadDecision();
+        if (!cancelled) applyStage(data);
+      } finally {
+        checking = false;
+      }
+    };
+    tick();
+    const interval = window.setInterval(tick, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [booting, view, answers.path, websiteId, token]);
 
   /* ---- Coming back from Stripe ----
      "Paid" is only ever set by a verified webhook, so a successful return
@@ -793,7 +849,7 @@ export default function OnboardingPage() {
      Choosing a path does NOT start the conversation any more: the language
      question sits between the fork and the first agent turn, so the guide's
      very first question already arrives in the right language. */
-  const [pendingPath, setPendingPath] = useState<"ai" | "diy" | null>(null);
+  const [pendingPath, setPendingPath] = useState<"ai" | "diy" | "import" | null>(null);
 
   const chooseAiPath = async () => {
     if (isLoading) return;
@@ -804,6 +860,11 @@ export default function OnboardingPage() {
   const chooseDiyPath = async () => {
     if (isLoading) return;
     if (await record({ path: "diy" })) setPendingPath("diy");
+  };
+
+  const chooseImportPath = async () => {
+    if (isLoading) return;
+    if (await record({ path: "import" })) setPendingPath("import");
   };
 
   /* ---- The language step (second choice, client-rendered) ----
@@ -820,7 +881,97 @@ export default function OnboardingPage() {
       setDiyMode(true);
       return;
     }
+    if (path === "import") return;
     await sendMessage(ONBOARDING_UI_COPY[choice].say.aiPath);
+  };
+
+  const importState = answers.websiteImport as WebsiteImportState | undefined;
+  useEffect(() => {
+    if (answers.path !== "import" || importState?.phase !== "discovering" || !token) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const response = await fetch("/api/onboarding/import/status", { headers: authHeaders });
+        const body = await response.json();
+        if (!cancelled && response.ok && body.import) {
+          setAnswers((current) => ({ ...current, websiteImport: body.import }));
+        }
+      } catch {
+        // Discovery is persisted server-side; the next tick can recover.
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 1_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [answers.path, importState?.phase, token]);
+
+  const analyseExistingWebsite = async (selection: { url: string; direction: "preserve" | "improve" }) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/onboarding/import/start", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          sourceUrl: selection.url,
+          direction: selection.direction,
+          ownershipConfirmed: true,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || t.saveFailed);
+      setAnswers((current) => ({ ...current, path: "import", websiteImport: body.import }));
+    } catch (error: any) {
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const approveExistingWebsite = async (selection: WebsiteImportUiSelection) => {
+    if (!importState?.analysis) return;
+    setIsLoading(true);
+    try {
+      let targetWebsiteId = websiteId;
+      if (!targetWebsiteId) {
+        const create = await fetch("/api/onboarding/create-website", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({
+            name: importState.analysis.businessName,
+            mode: "import",
+          }),
+        });
+        const created = await create.json().catch(() => ({}));
+        if (!create.ok) throw new Error(created.message || t.createFailed);
+        targetWebsiteId = created.websiteId;
+        setWebsiteId(targetWebsiteId);
+      }
+      const response = await fetch("/api/onboarding/import/approve", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          websiteId: targetWebsiteId,
+          selection: {
+            pageUrls: selection.pageIds,
+            assetUrls: selection.assetIds,
+            bookingChoice: selection.booking,
+            correction: selection.correction,
+          },
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || t.saveFailed);
+      setAnswers((current) => ({ ...current, websiteImport: body.import }));
+      setGenStatus(body.status ?? null);
+      setView("generating");
+    } catch (error: any) {
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const createDiyWebsite = async (templateId: string, name: string) => {
@@ -984,8 +1135,35 @@ export default function OnboardingPage() {
 
   const restartBuild = async () => {
     setGenStalled(false);
-    setView("chat");
-    await sendMessage(t.say.restart);
+    if (answers.path === "import" && websiteId) {
+      try {
+        const response = await fetch("/api/onboarding/import/resume-generation", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({ websiteId }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || t.createFailed);
+        setGenStatus(body.status ?? null);
+        setView("generating");
+      } catch (error: any) {
+        toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+      }
+      return;
+    }
+    if (!websiteId) return;
+    try {
+      const response = await fetch(`/api/websites/${websiteId}/onboarding/generate/retry`, {
+        method: "POST",
+        headers: authHeaders,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || t.createFailed);
+      setGenStatus(body.status ?? null);
+      setView("generating");
+    } catch (error: any) {
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+    }
   };
 
   /* ---- Post-build feedback: adjustments via the builder agent ---- */
@@ -1072,6 +1250,27 @@ export default function OnboardingPage() {
     setPaymentDialogOpen(true);
   };
 
+  /** Commit the generated design direction before showing its candidate preview. */
+  const selectDesignDirection = async (directionId: string) => {
+    if (!token || !decision?.website || decisionBusy) return;
+    setDecisionBusy(true);
+    try {
+      const res = await fetch("/api/onboarding/direction/select", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ websiteId: decision.website.id, directionId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Designretningen kunne ikke vælges.");
+      const refreshed = await loadDecision();
+      applyStage(refreshed);
+    } catch (error: any) {
+      toast({ title: t.errorToastTitle, description: error.message, variant: "destructive" });
+    } finally {
+      setDecisionBusy(false);
+    }
+  };
+
   /** "Jeg vil have den tilpasset" - no Stripe object is created here. */
   const requestCustomisation = async () => {
     if (!token || decisionBusy) return;
@@ -1150,8 +1349,49 @@ export default function OnboardingPage() {
   // The fork is the first screen; the language question is the second. Both
   // are client-rendered and both disappear once they have been answered - a
   // returning customer whose language is already stored is never asked again.
-  const showFork = messages.length === 0 && !diyMode && !pendingPath && answers.path !== "ai";
+  const showFork = messages.length === 0 && !diyMode && !pendingPath && !answers.path;
   const showLanguageStep = pendingPath !== null;
+  const showImport = view === "chat" && answers.path === "import" && !showLanguageStep;
+  const importUiReport: WebsiteImportUiReport | null = importState?.report
+    ? {
+        pages: importState.report.pages.map((page) => ({
+          id: page.url,
+          title: page.title || new URL(page.url).pathname || page.url,
+          path: new URL(page.url).pathname || "/",
+          selected: true,
+        })),
+        assets: importState.report.assets
+          .filter((asset) => asset.type === "image" || asset.type === "document")
+          .map((asset) => ({
+            id: asset.url,
+            name: asset.alt || new URL(asset.url).pathname.split("/").pop() || "Image",
+            kind: asset.type === "image" ? "image" as const : "file" as const,
+            url: asset.url,
+            selected: true,
+          })),
+        facts: importState.report.facts
+          .filter((item) => item.kind !== "text")
+          .slice(0, 30)
+          .map((item, index) => ({
+            id: `${item.kind}-${index}`,
+            label: item.kind.replace(/_/g, " "),
+            value: item.value,
+            source: new URL(item.sourceUrl).pathname || "/",
+          })),
+        integrations: importState.report.integrations.map((item, index) => ({
+          id: `${item.name}-${index}`,
+          name: item.name,
+          detail: item.category,
+          supported: item.category === "booking" || item.category === "social",
+        })),
+        unsupportedItems: importState.report.unsupportedItems.map((item) => item.message),
+        warnings: importState.report.warnings,
+        missingItems: importState.report.missingItems.map((item) => item.message),
+        recommendations: (importState.analysis?.recommendations ?? []).map(
+          (item) => `${item.title}: ${item.rationale}`
+        ),
+      }
+    : null;
 
   return (
     <div className="bf2-page flex min-h-screen flex-col" style={{ background: BLUSH, color: "#111" }}>
@@ -1182,7 +1422,37 @@ export default function OnboardingPage() {
         <ProgressRail current={railProgress(answers, view)} labels={t.rail} />
 
         <AnimatePresence mode="wait">
-          {view === "chat" && (
+          {showImport ? (
+            <motion.div
+              key="website-import"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+            >
+              <WebsiteImportStep
+                key={importState?.updatedAt || "import-setup"}
+                language={storedLang}
+                phase={
+                  importState?.phase === "discovering"
+                    ? "analysing"
+                    : importState?.phase === "review"
+                    ? "review"
+                    : importState?.phase === "approved"
+                    ? "approved"
+                    : "setup"
+                }
+                report={importUiReport}
+                initialUrl={importState?.sourceUrl}
+                initialDirection={importState?.direction}
+                busy={isLoading}
+                error={importState?.phase === "failed" ? importState.error || null : null}
+                onAnalyse={analyseExistingWebsite}
+                onApprove={approveExistingWebsite}
+                onBack={() => setAnswers((current) => ({ ...current, path: undefined }))}
+                onRetry={() => setAnswers((current) => ({ ...current, websiteImport: undefined }))}
+              />
+            </motion.div>
+          ) : view === "chat" && (
             <motion.div
               key="chat"
               initial={{ opacity: 0, y: 12 }}
@@ -1205,6 +1475,10 @@ export default function OnboardingPage() {
                         <Button size="sm" variant="outline" onClick={chooseDiyPath} disabled={isLoading} data-testid="button-fork-diy">
                           <LayoutTemplate className="w-4 h-4 mr-1.5" />
                           {t.forkDiy}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={chooseImportPath} disabled={isLoading} data-testid="button-fork-import">
+                          <Globe className="w-4 h-4 mr-1.5" />
+                          {storedLang === "da" ? "Jeg har allerede en hjemmeside" : "I already have a website"}
                         </Button>
                       </div>
                     )}
@@ -1403,6 +1677,25 @@ export default function OnboardingPage() {
                   </div>
                 </div>
               )}
+              {generationBlockNotice(genStatus, t) && (
+                <div
+                  className="mt-4 flex gap-3 items-start rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+                  data-testid="generation-non-publishable"
+                >
+                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div>
+                    <p>{generationBlockNotice(genStatus, t)}</p>
+                    {!!genStatus?.qualityIssues?.length && (
+                      <p className="mt-1 text-xs opacity-80">
+                        {genStatus.qualityIssues.slice(0, 3).map((issue) => issue.message).join(" · ")}
+                      </p>
+                    )}
+                    <Button size="sm" variant="outline" className="mt-2" onClick={restartBuild}>
+                      {t.retryButton}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -1437,10 +1730,10 @@ export default function OnboardingPage() {
                 )}
               </div>
 
-              {(genStatus?.fallback || genStatus?.spendLimited) && (
+              {generationBlockNotice(genStatus, t) && (
                 <div className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                  <span>{genStatus?.spendLimited ? t.spendLimitNotice : t.fallbackNotice}</span>
+                  <span>{generationBlockNotice(genStatus, t)}</span>
                 </div>
               )}
 
@@ -1448,11 +1741,15 @@ export default function OnboardingPage() {
                 <DecisionWorkspace
                   stage={decision.stage}
                   snapshot={decision.snapshot}
+                  previewFingerprint={decision.previewFingerprint ?? ""}
+                  builderRevision={decision.builderRevision ?? 0}
                   copy={decision.copy}
                   approvalStale={decision.approvalStale}
                   websiteId={decision.website.id}
                   businessName={answers.businessName || decision.website.name}
                   pages={decision.pages}
+                  designDirections={decision.stage === "decision" ? decision.designDirections : []}
+                  selectedDirectionId={decision.stage === "decision" ? decision.selectedDirectionId : null}
                   brandGuide={decision.brandGuide}
                   meeting={meeting}
                   token={token}
@@ -1462,6 +1759,7 @@ export default function OnboardingPage() {
                   onCustomise={requestCustomisation}
                   onRetry={openPaymentChoice}
                   onBackToDecision={backToDecision}
+                  onSelectDirection={selectDesignDirection}
                   onDownloadGuide={downloadBrandGuide}
                   onBooked={async (booked) => {
                     setMeeting(booked);

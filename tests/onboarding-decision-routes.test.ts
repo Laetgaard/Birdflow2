@@ -22,6 +22,7 @@ const webhookHandlers = read("server/webhookHandlers.ts");
 const schema = read("server/onboardingDecisionSchema.ts");
 const adminPage = read("client/src/pages/admin.tsx");
 const serverRoutes = read("server/routes.ts");
+const storageSource = read("server/storage.ts");
 const preview = read("client/src/components/onboarding/ReadOnlySitePreview.tsx");
 const previewPage = read("client/src/pages/onboarding-preview.tsx");
 const workspace = read("client/src/components/onboarding/DecisionWorkspace.tsx");
@@ -386,6 +387,45 @@ describe("the preview is a preview, not an editor", () => {
     expect(previewPage).toContain("bf-preview-pages");
   });
 
+  it("binds the iframe to the exact persisted builder snapshot", () => {
+    expect(routes).toContain("previewFingerprint");
+    expect(routes).toContain("onboardingStateFingerprint(state)");
+    expect(previewPage).toContain("fingerprint: data.fingerprint");
+    expect(workspace).toContain("payload.fingerprint === expectedFingerprint");
+    expect(workspace).toContain("preview-parity-error");
+  });
+
+  it("cannot promote stale directions over customised or reviewed work", () => {
+    const decisionSource = read("server/onboardingDecision.ts");
+    expect(decisionSource).toContain('session.decisionState !== "awaiting_decision"');
+    expect(decisionSource).toContain("bundle.selectionRevision !== builder.revision");
+    expect(decisionSource).toContain("currentCandidate.fingerprint");
+    expect(read("client/src/pages/onboarding.tsx")).toContain(
+      'decision.stage === "decision" ? decision.designDirections : []'
+    );
+  });
+
+  it("uses the builder's complete website and SVG rendering context", () => {
+    expect(routes).toContain("resolvedGlobalStyles");
+    expect(routes).toContain("svgAssets");
+    expect(routes).toContain("renderExpectations");
+    expect(preview).toContain("websiteId={websiteId}");
+    expect(preview).toContain("svgAssets={svgAssets}");
+    expect(previewPage).toContain("svgAssets={data?.svgAssets}");
+  });
+
+  it("reports missing top-level content as a degraded preview", () => {
+    expect(preview).toContain("missingTopLevelComponentIds");
+    expect(preview).toContain("degraded:");
+    expect(preview).toContain('content.dataset.customRenderState !== "empty"');
+    expect(read("client/src/components/builder/CustomComponentRenderer.tsx")).toContain(
+      'data-custom-render-state="empty"'
+    );
+    expect(previewPage).toContain("bf-preview-render-diagnostics");
+    expect(workspace).toContain('payload.type === "bf-preview-render-diagnostics"');
+    expect(workspace).toContain("payload.degraded === true");
+  });
+
   it("is unmistakably marked as a preview", () => {
     expect(workspace.toLowerCase()).toContain("forhåndsvisning");
   });
@@ -414,6 +454,19 @@ describe("the preview is a preview, not an editor", () => {
 });
 
 describe("the decision screen offers two equally legitimate paths", () => {
+  it("server-blocks fallback and spend-limited drafts from approval", () => {
+    expect(routes).toContain("NON_PUBLISHABLE_DRAFT");
+    expect(routes).toContain("approveReadyDraftAtomically({");
+    expect(decision).toContain("readinessMatchesOnboardingDraft(");
+    expect(decision.match(/\.for\("update"\)/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(onboardingPage).toContain("generation-non-publishable");
+  });
+  it("prevents delayed progress writes from overwriting terminal readiness", () => {
+    const start = storageSource.indexOf("async persistOnboardingGenStatus");
+    const body = storageSource.slice(start, start + 900);
+    expect(body).toContain('eq(onboardingSessions.generationState, "generating")');
+    expect(body).toContain("genStatus} ->> 'attempt'");
+  });
   it("names both actions exactly as agreed", () => {
     expect(workspace).toContain("Godkend og betal");
     expect(workspace).toContain("Jeg vil have den tilpasset");

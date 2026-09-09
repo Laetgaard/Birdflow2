@@ -1,0 +1,744 @@
+Proceed with #236 - Full Onboarding Architecture Audit.
+
+The plan is approved.
+
+Now execute the investigation completely.
+
+Important
+
+Do NOT:
+
+* create another plan
+* start implementing fixes
+* refactor code
+* redesign the onboarding UI
+* modify schemas
+* change AI prompts
+* change the crawler
+* delete or modify retained QA fixtures
+* begin the final onboarding redesign
+
+I need the actual factual architecture audit first.
+
+Read and trace the real code.
+
+⸻
+
+Priority questions
+
+While completing the full #236 audit, make sure these questions are answered especially clearly.
+
+1. What is the actual Birdflow-native website format?
+
+This is the most important question.
+
+I need to understand exactly what representation a website must have for it to:
+
+* render in the builder
+* be editable
+* use version history
+* work responsively
+* contain native components
+* work in preview
+* publish successfully
+* preserve editing after publishing
+
+Show the relevant schemas/types.
+
+Clearly state:
+
+This is the canonical format onboarding should ultimately generate.
+
+If there are multiple formats, explain them and identify which one should be considered canonical.
+
+⸻
+
+2. What does onboarding generate today?
+
+Trace exactly:
+
+No existing website
+
+User answers
+→ ?
+→ ?
+→ AI
+→ ?
+→ website
+→ preview
+→ builder
+
+Existing website
+
+URL
+→ crawler
+→ ?
+→ extracted data
+→ ?
+→ AI
+→ ?
+→ website
+→ preview
+→ builder
+
+Fill in every important stage using the real implementation.
+
+⸻
+
+3. Where do the two paths converge today?
+
+I eventually want:
+
+Existing website
+        ↓
+Website extraction
+        ↓
+Structured Site Specification
+        ↓
+        ┐
+        │
+        ▼
+Shared Birdflow generation system
+        ▲
+        │
+        ┘
+New website interview
+        ↓
+Structured Site Specification
+
+But do NOT assume this exists.
+
+Tell me what actually exists today.
+
+Explicitly identify:
+
+* shared modules
+* separate pipelines
+* duplicated logic
+* incompatible representations
+* conversions between formats
+
+⸻
+
+4. Does website import actually recreate the site?
+
+I need a very honest answer here.
+
+When a user provides:
+
+https://their-old-website.dk
+
+What does Birdflow currently preserve?
+
+Create a table like:
+
+Source property	Extracted	Understood	Recreated	Builder editable
+Text				
+Navigation				
+Pages				
+Images				
+Logo				
+Colors				
+Fonts				
+Layout				
+Spacing				
+Buttons				
+Forms				
+Booking				
+Services				
+Team				
+SEO				
+Responsive behavior				
+
+Do not mark something as supported simply because the crawler can see it.
+
+Distinguish between:
+
+1. extraction
+2. semantic understanding
+3. recreation
+4. native Birdflow editing
+
+⸻
+
+5. Inspect the current crawler deeply
+
+For websiteImportCrawler.ts and related systems, determine:
+
+Page discovery
+
+* homepage only or multiple pages?
+* sitemap?
+* internal links?
+* crawl depth?
+* max pages?
+* URL normalization?
+* duplicate detection?
+* query parameters?
+* subdomains?
+* redirects?
+
+Rendering
+
+Does it use:
+
+* HTTP HTML only
+* browser rendering
+* Playwright/Puppeteer
+* another provider
+
+Can it correctly extract content from:
+
+* React
+* Next.js
+* Webflow
+* Wix
+* Squarespace
+* WordPress
+* dynamically rendered sites?
+
+Styling
+
+Can it capture:
+
+* computed colors
+* typography
+* font families
+* spacing
+* dimensions
+* CSS variables
+* border radius
+* shadows
+* page width
+* section backgrounds
+* responsive layouts?
+
+Or does it mostly infer design from text/HTML?
+
+Be precise.
+
+⸻
+
+6. Images are critical
+
+I want to know what happens to every source image.
+
+Trace:
+
+source image URL
+→ extraction
+→ ?
+→ Birdflow storage
+→ ?
+→ builder asset
+→ published site
+
+Determine whether images are:
+
+* hotlinked
+* downloaded
+* copied into R2
+* copied into Supabase
+* stored as external URLs
+* proxied
+
+Also investigate:
+
+* logo extraction
+* hero images
+* background images
+* CSS background images
+* image metadata
+* alt text
+* duplicate images
+* inaccessible images
+* WebP/AVIF/SVG
+* source-set images
+
+This has previously been a weak point in generated Birdflow drafts, so be particularly critical.
+
+⸻
+
+7. Design generation
+
+Explain how Birdflow turns information into an actual design.
+
+I do NOT only mean colors.
+
+Trace:
+
+brand information
+→ design decision
+→ design tokens
+→ composition
+→ sections
+→ page
+
+Determine whether the current system actually controls:
+
+* typography hierarchy
+* font pairing
+* color hierarchy
+* section spacing
+* page width
+* image placement
+* cards
+* borders
+* radii
+* backgrounds
+* button treatment
+* layout rhythm
+* content density
+* visual hierarchy
+* mobile composition
+
+Or whether a lot of this is implicitly decided by individual generated components.
+
+⸻
+
+8. Design directions
+
+Audit the current three-design-direction functionality.
+
+I need to know whether a design direction contains a genuine website design specification or merely presentation metadata.
+
+Show the actual schema.
+
+Determine whether selecting Direction B, for example, influences:
+
+* fonts
+* colors
+* images
+* sections
+* layout
+* component selection
+* component styling
+* copy
+* page architecture
+
+all the way into the generated website.
+
+Trace:
+
+direction generated
+→ direction preview
+→ direction selected
+→ ?
+→ final site
+
+Identify anything that gets lost.
+
+⸻
+
+9. Content generation
+
+Audit how the system currently generates copy.
+
+Determine whether it understands distinctions such as:
+
+Business facts
+
+Must remain factual:
+
+* name
+* address
+* phone
+* email
+* credentials
+* price
+* service duration
+
+Marketing content
+
+Can be written:
+
+* hero headings
+* benefit copy
+* introductions
+* CTAs
+* explanatory sections
+
+Generated recommendations
+
+Can be proposed but may require confirmation:
+
+* positioning
+* page structure
+* FAQs
+* value proposition
+
+I don’t want AI hallucinating factual practitioner information.
+
+Determine what protections currently exist.
+
+⸻
+
+10. Services must become real Birdflow data
+
+This is critical.
+
+Suppose onboarding learns:
+
+Service:
+Individual psychotherapy
+Duration:
+60 minutes
+Price:
+950 DKK
+
+Trace what happens today.
+
+Does it create:
+
+Website
+
+A service section saying:
+
+60 min · 950 kr.
+
+AND
+
+Manage
+
+A real Birdflow service object?
+
+AND
+
+Booking
+
+A real bookable service?
+
+Or only some of these?
+
+Show actual database records and relationships.
+
+⸻
+
+11. Booking must not be fake
+
+Inspect the booking component architecture.
+
+If AI generates a section containing:
+
+Book tid
+
+what makes that become actual Birdflow booking rather than merely a button?
+
+Show:
+
+service
+→ booking configuration
+→ builder component
+→ published website
+→ booking submission
+→ Manage
+
+Identify everything onboarding must create.
+
+⸻
+
+12. Forms must not be fake either
+
+Repeat the analysis for contact forms.
+
+Determine:
+
+form UI
+→ builder component
+→ form configuration
+→ submission
+→ database
+→ Manage
+
+What must onboarding generate?
+
+⸻
+
+13. Practitioner/team data
+
+Determine how these are represented:
+
+* practitioner
+* team member
+* service provider
+* booking staff member
+* website about-page person
+
+Are these separate representations?
+
+Could onboarding accidentally create duplicated people records?
+
+Document this.
+
+⸻
+
+14. SiteSpec / intermediate representations
+
+Search carefully for all structures that could already function as:
+
+* SiteSpec
+* WebsiteSpec
+* SiteBrief
+* BuildSpec
+* BrandGuide
+* ContentPlan
+* PagePlan
+* GenerationPlan
+* WebsiteArchitecture
+* equivalent concepts
+
+Show schemas.
+
+I need to know whether Birdflow already has a suitable shared intermediate representation or whether several incomplete ones exist.
+
+⸻
+
+15. Preview parity
+
+This is another extremely important area.
+
+Answer clearly:
+
+Is the onboarding preview rendering the exact same website representation that the builder later edits?
+
+If NO:
+
+show every transformation.
+
+Example:
+
+AI candidate
+→ onboarding preview representation
+→ conversion
+→ builder state
+
+Highlight fields/styles/content/features that can disappear during conversion.
+
+⸻
+
+16. AI-generated custom components
+
+Inspect whether AI can create arbitrary React/custom components.
+
+Determine:
+
+* when they are created
+* where code is stored
+* editing capabilities
+* how content fields are identified
+* responsive behavior
+* security
+* runtime
+* publishing
+* visual QA
+* version history
+
+Especially determine whether excessive use of AI custom components would make imported/generated websites less editable than native blocks.
+
+⸻
+
+17. Generation quality gates
+
+I want the exact logic for when Birdflow says:
+
+This draft is ready.
+
+List every deterministic and AI-driven gate.
+
+For example:
+
+* minimum pages
+* empty sections
+* broken images
+* placeholder content
+* overflow
+* mobile
+* visual quality
+* booking existence
+* missing services
+* broken links
+* inaccessible assets
+* missing contact details
+
+Then clearly identify important checks that do NOT currently exist.
+
+⸻
+
+18. Self-repair
+
+Determine whether generation currently follows something like:
+
+Generate
+↓
+Validate
+↓
+Find issues
+↓
+Repair
+↓
+Validate again
+
+Show exact implementation.
+
+Determine:
+
+* maximum repair passes
+* what can be repaired
+* what cannot
+* whether visual-review findings feed repair
+* whether deterministic errors feed repair
+
+⸻
+
+19. Persistence
+
+Map the persisted onboarding state.
+
+I want to see whether these stages can independently survive a crash:
+
+answers collected
+crawl completed
+site spec completed
+design directions completed
+direction selected
+site plan completed
+generation started
+page generated
+assets copied
+quality validation completed
+repair completed
+draft ready
+approved
+
+Tell me which are persisted and which only exist temporarily/in memory.
+
+⸻
+
+20. Idempotency
+
+Very important for expensive AI generation.
+
+Determine what happens if the user:
+
+* refreshes
+* goes back
+* clicks generate twice
+* reconnects
+* retries after timeout
+* opens onboarding on another device
+
+Can duplicate:
+
+* websites
+* services
+* pages
+* components
+* AI calls
+* assets
+
+be created?
+
+Show existing protections.
+
+⸻
+
+21. Website importing security
+
+Inspect import security carefully.
+
+Especially:
+
+SSRF
+
+Can the crawler access:
+
+* localhost
+* 127.0.0.1
+* private IP ranges
+* internal services
+* cloud metadata addresses
+
+Prompt injection
+
+Could text on a crawled website contain instructions such as:
+
+Ignore previous instructions and...
+
+that subsequently become part of an AI prompt?
+
+HTML/scripts
+
+Can imported content introduce:
+
+* JavaScript
+* iframes
+* event handlers
+* malicious SVG
+* unsafe HTML?
+
+Explain existing protections.
+
+⸻
+
+22. Existing QA fixtures
+
+Do not modify them.
+
+Use them to understand how onboarding is currently validated.
+
+Especially inspect:
+
+* scripts/run-persistent-onboarding-qa.ts
+* qa-results/persistent-onboarding-fixtures.json
+* tests/persistent-onboarding-qa-contract.test.ts
+
+Explain what evidence is currently retained.
+
+Tell me whether these fixtures are sufficient to build a regression suite for a redesigned onboarding.
+
+⸻
+
+FINAL OUTPUT
+
+Return the actual architecture audit using the already-approved 19-section structure from #236.
+
+I want code-grounded findings, not another task description.
+
+Every major architectural claim should point to the relevant:
+
+* file
+* function
+* interface
+* database table
+* API
+* prompt
+* status
+* test
+
+Where something cannot be proven from code, mark it:
+
+UNVERIFIED
+
+Where something clearly does not exist, mark it:
+
+MISSING
+
+Where old compatibility code exists, mark it:
+
+LEGACY
+
+Where a deterministic fallback hides an AI/provider failure, mark it:
+
+FALLBACK
+
+Where something is fully used in production flow, mark it:
+
+ACTIVE
+
+At the very end, add:
+
+Critical findings for the upcoming redesign
+
+Give me the 10–20 most important findings I should know before we design the new onboarding architecture.
+
+Do not implement anything after finishing the report.

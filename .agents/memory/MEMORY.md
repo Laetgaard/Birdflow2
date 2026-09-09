@@ -35,3 +35,4 @@
 - [Generative DSL 2.0](generative-dsl2.md) — shared/generative/ module split; new style keys; absolute-pos guard rule 7; structured truncation keeps "exceeds"; 7 node-level AI tools; design-first prompt.
 - [Capability & behavior nodes](capability-behavior-nodes.md) — type:'capability' embeds trusted widgets (leaf, no children); behavior field on box = declarative interaction; sanitizer returns undefined not null; publisher bakes 5 BehaviorXxx components + extractBehaviorLabel before CustomNode.
 - [Creative director + brand exploration](creative-director-brand.md) — DesignIntent/BrandDeviation types; in-memory proposal store; classifyChange extended with 4th arg; brand guide never auto-mutated; system prompt: "default direction" not "LAW".
+- [Onboarding design candidates](onboarding-design-candidates.md) — three reviewed builder snapshots share one verified brief; selection is an atomic revision-bound promotion and locks once payment starts.

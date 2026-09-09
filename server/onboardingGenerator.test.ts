@@ -13,18 +13,37 @@ const updateBuilderStateMock = vi.fn(async (_id: string, state: BuilderStateData
   lastSavedState = state;
   return undefined;
 });
-const getBuilderStateMock = vi.fn(async () => ({ state: lastSavedState ?? blankState() }));
+const getBuilderStateMock = vi.fn(async () => ({ revision: 3, state: lastSavedState ?? blankState() }));
 const getMediaAssetsMock = vi.fn(async () => []);
+const upsertOnboardingSessionMock = vi.fn(async () => ({}));
+const persistDirectionBundleMock = vi.fn(async (args: any) => ({
+  revision: args.expectedBuilderRevision + 1,
+  state: args.bundle.directions[0].state,
+}));
 
 const persistGenStatusMock = vi.fn(async () => {});
+const claimGenerationMock = vi.fn(async () => true);
+const finishGenerationMock = vi.fn(async (
+  _id: string,
+  status: Record<string, unknown>,
+  publishable: boolean
+) => {
+  if (publishable) status.qualitySiteRevision = 1;
+  return true;
+});
 
 vi.mock("./storage", () => ({
   storage: {
     getBuilderState: (...args: unknown[]) => getBuilderStateMock(...args),
+    prepareBuilderStateForSave: vi.fn(async () => {}),
     updateBuilderState: (...args: unknown[]) => updateBuilderStateMock(...args),
     getMediaAssets: (...args: unknown[]) => getMediaAssetsMock(...args),
     // M15: every phase change mirrors into onboarding_sessions
     persistOnboardingGenStatus: (...args: unknown[]) => persistGenStatusMock(...args),
+    claimOnboardingGeneration: (...args: unknown[]) => claimGenerationMock(...args),
+    finishOnboardingGeneration: (...args: unknown[]) => finishGenerationMock(...args),
+    getOnboardingSessionByWebsiteId: vi.fn(async () => ({ userId: "test-user" })),
+    upsertOnboardingSession: (...args: unknown[]) => upsertOnboardingSessionMock(...args),
   },
   db: {},
 }));
@@ -39,6 +58,8 @@ vi.mock("./onboardingDecision", () => ({
   markGenerationStarted: (...args: unknown[]) => markStartedMock(...(args as [])),
   markGenerationComplete: (...args: unknown[]) => markCompleteMock(...(args as [])),
   markGenerationFailed: (...args: unknown[]) => markFailedMock(...(args as [])),
+  persistGeneratedDirectionBundleAtomically: (...args: unknown[]) =>
+    persistDirectionBundleMock(...(args as [any])),
 }));
 
 // Brand-guide enrichment is an AI pass of its own; keep it out of the
@@ -78,6 +99,16 @@ const resolveAiImageMarkersMock = vi.fn(async (_id: string, mutations: unknown[]
 }));
 vi.mock("./aiImages", () => ({
   resolveAiImageMarkers: (...args: unknown[]) => resolveAiImageMarkersMock(...(args as [string, unknown[]])),
+}));
+
+const checkPublishParityMock = vi.fn(async () => ({ status: "passed", problems: [] }));
+vi.mock("./publishParity", () => ({
+  checkPublishParity: (...args: unknown[]) => checkPublishParityMock(...args),
+}));
+
+vi.mock("./visualReview", () => ({
+  capturePageScreenshots: vi.fn(async () => ({ refs: [{ id: "unit-shot" }], warnings: [] })),
+  analyzeScreenshots: vi.fn(async () => ({ issues: [], ran: true })),
 }));
 
 import {
@@ -138,16 +169,20 @@ function blankState(): BuilderStateData {
 }
 
 function builtState(): BuilderStateData {
-  const comp = (type: string) => ({
+  const comp = (type: string, title = "Moderne fysioterapi med plads til hele mennesket") => ({
     id: `c-${Math.random().toString(36).slice(2, 8)}`,
     type,
-    props: { title: "Test" },
+    props: {
+      title,
+      description:
+        "Klinik Nordlys hjælper mennesker i Aarhus med et roligt og personligt fysioterapiforløb, der tager udgangspunkt i deres hverdag og behov.",
+    },
     styles: {},
   });
   return {
     pages: [
-      { id: "home", name: "Hjem", path: "/", components: [comp("header"), comp("hero"), comp("footer")] },
-      { id: "kontakt", name: "Kontakt", path: "/kontakt", components: [comp("header"), comp("contact-form"), comp("footer")] },
+      { id: "home", name: "Hjem", path: "/", components: [comp("header"), comp("hero"), comp("features"), comp("footer")] },
+      { id: "kontakt", name: "Kontakt", path: "/kontakt", components: [comp("header"), comp("contact-form"), comp("rich-text"), comp("footer")] },
     ],
     activePage: "home",
     globalStyles: { primaryColor: "#123", secondaryColor: "#456", fontFamily: "Inter" },
@@ -171,7 +206,8 @@ beforeEach(() => {
     lastSavedState = state;
     return undefined;
   });
-  getBuilderStateMock.mockImplementation(async () => ({ state: lastSavedState ?? blankState() }));
+  getBuilderStateMock.mockImplementation(async () => ({ revision: 3, state: lastSavedState ?? blankState() }));
+  checkPublishParityMock.mockResolvedValue({ status: "passed", problems: [] });
   finalizeBrandGuideMock.mockResolvedValue({
     guide: createDefaultBrandGuide({
       primaryColor: palette.colors.primary,
@@ -205,7 +241,7 @@ beforeEach(() => {
 describe("startOnboardingGeneration — happy path", () => {
   it("runs all phases, saves brand guide + final state, produces a Danish report", async () => {
     const id = "site-happy";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(false);
@@ -214,7 +250,7 @@ describe("startOnboardingGeneration — happy path", () => {
     expect(status.summary).toContain("nordisk");
 
     // Three saves: brand guide first (survives later failures), then the
-    // final site, then the enriched guide written back onto it.
+    // final site and enriched guide. Direction promotion is one DB transaction.
     expect(updateBuilderStateMock).toHaveBeenCalledTimes(3);
     const [guideSaveId, guideSaveState] = updateBuilderStateMock.mock.calls[0];
     expect(guideSaveId).toBe(id);
@@ -236,6 +272,80 @@ describe("startOnboardingGeneration — happy path", () => {
     expect(status.report).toBeDefined();
     expect(status.report!.oprettet.join(" ")).toContain("Brand guide oprettet");
     expect(status.report!.oprettet.join(" ")).toContain('Side "Hjem"');
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), true));
+  });
+
+  it("persists terminal readiness atomically even while a progress write is delayed", async () => {
+    let releaseProgress!: () => void;
+    const progressSnapshots: Array<{ phase?: string }> = [];
+    persistGenStatusMock.mockImplementation(
+      (_id: string, saved: { phase?: string }) => new Promise<void>((resolve) => {
+        progressSnapshots.push(structuredClone(saved));
+        releaseProgress = resolve;
+      })
+    );
+    const id = "site-delayed-progress";
+    await startOnboardingGeneration(id, makeInput());
+    const status = await waitForDone(id);
+
+    expect(status.qualitySiteRevision).toBe(1);
+    await vi.waitFor(() =>
+      expect(finishGenerationMock).toHaveBeenCalledWith(
+        id,
+        expect.objectContaining({
+          readiness: "ready",
+          qualitySiteRevision: 1,
+          qualityFingerprint: expect.any(String),
+        }),
+        true
+      )
+    );
+    // `done` itself is never mirrored through the stale progress path.
+    expect(progressSnapshots.some((saved) => saved.phase === "done")).toBe(false);
+    releaseProgress();
+  });
+
+  it("re-evaluates the exact persisted row before certifying readiness", async () => {
+    let reads = 0;
+    getBuilderStateMock.mockImplementation(async () => {
+      reads += 1;
+      if (reads >= 3 && lastSavedState) {
+        const concurrentlyChanged = structuredClone(lastSavedState);
+        concurrentlyChanged.pages[0].components = [{
+          id: "concurrent-thin-section",
+          type: "hero",
+          props: { title: "Kort" },
+          styles: {},
+        }] as BuilderStateData["pages"][number]["components"];
+        return { state: concurrentlyChanged, revision: 99 };
+      }
+      return { state: lastSavedState ?? blankState(), revision: reads };
+    });
+
+    const id = "site-concurrent-final-write";
+    await startOnboardingGeneration(id, makeInput());
+    const status = await waitForDone(id);
+
+    expect(status.readiness).toBe("repair_required");
+    expect(status.qualityIssues).toContainEqual(
+      expect.objectContaining({ code: "thin_page", pageId: "home" })
+    );
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), false));
+  });
+
+  it("fails closed when publish parity cannot run", async () => {
+    checkPublishParityMock.mockResolvedValue({
+      status: "unavailable",
+      problems: ["renderer dependency unavailable"],
+    });
+    const id = "site-parity-unavailable";
+    await startOnboardingGeneration(id, makeInput());
+    const status = await waitForDone(id);
+    expect(status.readiness).toBe("repair_required");
+    expect(status.qualityIssues).toContainEqual(
+      expect.objectContaining({ code: "publish_parity" })
+    );
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), false));
   });
 
   it("user picks always win over the AI guide", async () => {
@@ -249,7 +359,7 @@ describe("startOnboardingGeneration — happy path", () => {
       summary: "s",
     });
     const id = "site-picks-win";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
     expect(status.fallback).toBe(false);
     const finalState = updateBuilderStateMock.mock.calls[1][1] as BuilderStateData;
@@ -261,7 +371,7 @@ describe("startOnboardingGeneration — happy path", () => {
   it("keeps the base build when the enhancement pass fails", async () => {
     processAIBuildRequestMock.mockRejectedValue(new Error("model unavailable"));
     const id = "site-enhance-fail";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(false);
@@ -271,10 +381,34 @@ describe("startOnboardingGeneration — happy path", () => {
     expect(status.report!.tjek.join(" ")).toContain("ekstra designrunde");
   });
 
+  it("never marks a sanitizer-collapsed custom section ready", async () => {
+    const draft = builtState();
+    draft.pages[0].components = [
+      draft.pages[0].components[1],
+      {
+        id: "empty-custom",
+        type: "custom",
+        props: { customTree: { id: "root", type: "box", children: [] } },
+        styles: {},
+      },
+    ] as BuilderStateData["pages"][number]["components"];
+    buildFromPlanMock.mockResolvedValue({ success: true, builderState: draft });
+
+    const id = "site-empty-custom";
+    await startOnboardingGeneration(id, makeInput());
+    const status = await waitForDone(id);
+
+    expect(status.readiness).toBe("repair_required");
+    expect(status.qualityIssues).toContainEqual(
+      expect.objectContaining({ code: "empty_custom_component", componentId: "empty-custom" })
+    );
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), false));
+  });
+
   it("returns the running status when start is called twice", async () => {
     const id = "site-twice";
-    const first = startOnboardingGeneration(id, makeInput());
-    const second = startOnboardingGeneration(id, makeInput());
+    const first = await startOnboardingGeneration(id, makeInput());
+    const second = await startOnboardingGeneration(id, makeInput());
     expect(second).toBe(first);
     await waitForDone(id);
   });
@@ -284,7 +418,7 @@ describe("startOnboardingGeneration — fallback", () => {
   it("builds the deterministic starter site when the AI build fails", async () => {
     buildFromPlanMock.mockResolvedValue({ success: false, error: "boom" });
     const id = "site-fallback";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(true);
@@ -296,13 +430,14 @@ describe("startOnboardingGeneration — fallback", () => {
     expect(finalState.pages.length).toBeGreaterThanOrEqual(3);
     finalState.pages.forEach((p) => expect(p.components.length).toBeGreaterThan(0));
     expect(finalState.brandGuide?.colors.primary).toBe(palette.colors.primary);
+    await vi.waitFor(() => expect(finishGenerationMock).toHaveBeenCalledWith(id, expect.any(Object), false));
   });
 
   it("falls back when even the brand-guide AI fails (fully deterministic run)", async () => {
     finalizeBrandGuideMock.mockRejectedValue(new Error("no model"));
     analyzeAndPlanWebsiteMock.mockRejectedValue(new Error("no model"));
     const id = "site-all-ai-down";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(true);
@@ -316,7 +451,7 @@ describe("startOnboardingGeneration — fallback", () => {
     buildFromPlanMock.mockResolvedValue({ success: false });
     updateBuilderStateMock.mockRejectedValue(new Error("db down"));
     const id = "site-db-down";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
 
     expect(status.error).toBeTruthy();
@@ -327,7 +462,7 @@ describe("startOnboardingGeneration — fallback", () => {
 describe("the customer's language", () => {
   it("is written into the copy the pipeline asks the AI for", async () => {
     const id = "site-english";
-    startOnboardingGeneration(id, makeInput({ language: "en" }));
+    await startOnboardingGeneration(id, makeInput({ language: "en" }));
     await waitForDone(id);
 
     const planPrompt = String(analyzeAndPlanWebsiteMock.mock.calls[0]?.[0] ?? "");
@@ -344,7 +479,7 @@ describe("the customer's language", () => {
 
   it("still asks for Danish when no choice was ever made", async () => {
     const id = "site-default-danish";
-    startOnboardingGeneration(id, makeInput());
+    await startOnboardingGeneration(id, makeInput());
     await waitForDone(id);
 
     const planPrompt = String(analyzeAndPlanWebsiteMock.mock.calls[0]?.[0] ?? "");
@@ -355,7 +490,7 @@ describe("the customer's language", () => {
   it("survives a degraded build: the deterministic starter site is English too", async () => {
     buildFromPlanMock.mockResolvedValue({ success: false, error: "boom" });
     const id = "site-english-fallback";
-    startOnboardingGeneration(id, makeInput({ language: "en" }));
+    await startOnboardingGeneration(id, makeInput({ language: "en" }));
     const status = await waitForDone(id);
 
     expect(status.fallback).toBe(true);

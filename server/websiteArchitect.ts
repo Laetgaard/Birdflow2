@@ -1,16 +1,15 @@
-import type { WebsitePlan, DesignSystem, DesignTone } from "@shared/websitePlanSchema";
+import { z } from "zod";
+import { WebsitePlanSchema, type WebsitePlan, type DesignSystem } from "@shared/websitePlanSchema";
 import type { BuilderStateData, BuilderPage, DesignTokens } from "@shared/schema";
 import { buildBusinessContextPrompt, type BusinessContext } from "@shared/businessContext";
 import type { BuilderComponentData } from "@shared/componentRegistry";
 import { componentRegistry } from "@shared/componentRegistry";
-import { 
-  DesignPresetRegistry, 
-  getRecommendedPreset, 
-  getSpacingValues, 
+import { componentHasSubstantiveContent } from "./onboardingQuality";
+import {
+  getSpacingValues,
   getRadiusValue, 
   getShadowValue, 
   getMotionConfig,
-  getTypographyScale 
 } from "@shared/designPresets";
 
 import { meteredChat } from "./aiCall";
@@ -29,8 +28,131 @@ export interface BuildResult {
   phasesCompleted?: number;
 }
 
-function generateId(): string {
-  return 'c_' + Math.random().toString(36).substring(2, 11);
+const nonEmptyRecord = z.record(z.unknown()).refine(
+  (value) => Object.keys(value).length > 0,
+  "must contain meaningful values",
+);
+
+const COMPONENT_TYPE_ALIASES: Record<string, keyof typeof componentRegistry> = {
+  navigation: "header",
+  nav: "header",
+  reviews: "testimonials",
+  pricing: "pricing-table",
+  products: "product-grid",
+  stats: "stats-counter",
+  form: "contact-form",
+  comparison: "comparison-table",
+  split: "split-section",
+};
+
+const componentTypeSchema = z.string().min(1).transform((value, ctx) => {
+  const normalized = COMPONENT_TYPE_ALIASES[value] ?? value;
+  if (!(normalized in componentRegistry)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: `unknown component type "${value}"` });
+    return z.NEVER;
+  }
+  return normalized as keyof typeof componentRegistry;
+});
+
+const AiBuildOutputSchema = z.object({
+  pages: z.array(z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    path: z.string().min(1),
+    components: z.array(z.object({
+      id: z.string().min(1),
+      type: componentTypeSchema,
+      props: nonEmptyRecord,
+      styles: z.record(z.unknown()),
+    }).strict()).min(1),
+  }).strict()).min(1),
+}).strict().superRefine((output, ctx) => {
+  const pageIds = new Set<string>();
+  const componentIds = new Set<string>();
+  output.pages.forEach((page, pageIndex) => {
+    if (pageIds.has(page.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pages", pageIndex, "id"], message: "duplicate page id" });
+    }
+    pageIds.add(page.id);
+    page.components.forEach((component, componentIndex) => {
+      if (componentIds.has(component.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pages", pageIndex, "components", componentIndex, "id"],
+          message: "duplicate component id",
+        });
+      }
+      componentIds.add(component.id);
+    });
+  });
+});
+
+const NewArchitectPlanSchema = WebsitePlanSchema.superRefine((plan, ctx) => {
+  const pageIds = new Set<string>();
+  const sectionIds = new Set<string>();
+  plan.pages.forEach((page, pageIndex) => {
+    if (pageIds.has(page.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pages", pageIndex, "id"], message: "duplicate page id" });
+    }
+    pageIds.add(page.id);
+    page.sections.forEach((section, sectionIndex) => {
+      const path = ["pages", pageIndex, "sections", sectionIndex];
+      if (sectionIds.has(section.id)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, "id"], message: "duplicate section id" });
+      }
+      sectionIds.add(section.id);
+      for (const key of ["purpose", "contentIntent", "evidence", "assetIntent", "responsiveIntent"] as const) {
+        if (!section[key]) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, key], message: `${key} is required for new plans` });
+        }
+      }
+    });
+  });
+});
+
+const GENERIC_SAAS_COPY = [
+  "build your website in minutes",
+  "beautiful websites without code",
+  "everything you need to succeed",
+  "all the tools you need to succeed",
+  "join thousands of satisfied customers",
+  "byg din hjemmeside på få minutter",
+  "smukke sider uden kode",
+  "alt hvad du behøver for at lykkes",
+  "slut dig til tusindvis af tilfredse kunder",
+];
+
+function assertProductionContent(output: z.infer<typeof AiBuildOutputSchema>): void {
+  const visit = (value: unknown, key = ""): void => {
+    if (typeof value === "string") {
+      const text = value.trim().toLowerCase();
+      if ((/(link|url|href)$/i.test(key) || key === "destination") && text === "#") {
+        throw new Error(`Placeholder CTA destination is forbidden (${key})`);
+      }
+      if (GENERIC_SAAS_COPY.some((phrase) => text.includes(phrase))) {
+        throw new Error("Generic SaaS starter copy is forbidden");
+      }
+    } else if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, key));
+    } else if (value && typeof value === "object") {
+      Object.entries(value).forEach(([childKey, child]) => visit(child, childKey));
+    }
+  };
+  visit(output);
+}
+
+function assertCustomerAssetsUsed(
+  output: z.infer<typeof AiBuildOutputSchema>,
+  plan: WebsitePlan,
+): void {
+  const supplied = plan.pages.flatMap((page) =>
+    page.sections
+      .map((section) => section.assetIntent?.customerAssetUrl)
+      .filter((url): url is string => Boolean(url)),
+  );
+  if (supplied.length > 0 && !supplied.some((url) => JSON.stringify(output).includes(url))) {
+    throw new Error("Build ignored the customer-owned images specified by the plan");
+  }
 }
 
 const ARCHITECT_SYSTEM_PROMPT = `You are an expert website architect and UI/UX designer specializing in DESIGN SYSTEMS. Your job is to analyze website requests and create detailed, professional plans with complete design systems that would rival Webflow, Framer, or top design agencies.
@@ -96,11 +218,26 @@ You must output a designSystem object with:
 - header, footer, hero, about
 - features, benefits, services, how-it-works
 - testimonials, logo-cloud, stats, trust-badges, case-studies
-- team, timeline, cta, pricing, comparison, newsletter
-- faq, contact, gallery, products, marquee, split, tabs, rich-text
+- team, timeline, cta, pricing, comparison-table, newsletter
+- faq, contact, gallery, products, marquee, split-section, tabs, rich-text
 
 ## OUTPUT FORMAT
 Return JSON matching the WebsitePlan schema with a complete designSystem object.
+
+Every page and section must be meaningful, have a stable non-empty id, and every
+section must include:
+- purpose: the job this section performs in the visitor journey
+- contentIntent: the specific message and content it must communicate
+- evidence: the exact customer facts it may use (empty when none apply)
+- cta with a real destination when the section has an action (never "#")
+- assetIntent: type, purpose, and customerAssetUrl when the customer supplied one
+- responsiveIntent: explicit desktop, tablet, and mobile composition
+- capabilityIntent only when the section needs behavior such as booking,
+  commerce, forms, filtering, or media playback
+
+Do not return a thin outline. Do not use generic SaaS starter copy, generic
+audiences, or generic business descriptions. Preserve customer-owned image URLs
+from the request and assign them to suitable section assetIntent objects.
 
 ## IMPORTANT
 - ALWAYS output the full designSystem object with all properties
@@ -176,8 +313,20 @@ Each component needs:
 - props: content (title, subtitle, items, etc.)
 - styles: visual styles derived FROM THE DESIGN SYSTEM
 
+Every page must contain at least one meaningful component. IDs, props and styles
+are mandatory. Component type must be exactly one AVAILABLE COMPONENT TYPE
+(well-known navigation/nav, reviews, pricing, products, stats, form, comparison,
+and split synonyms are accepted, but no other invented type is accepted).
+Follow each plan section's purpose, contentIntent, evidence, CTA destination,
+assetIntent, responsiveIntent, and capabilityIntent. Use customerAssetUrl values
+as component imageUrl/images instead of stock photography wherever supplied.
+Every CTA must link to a real page path, section anchor, mailto:, tel:, or
+customer URL. The placeholder destination "#" is forbidden. Generic SaaS
+starter copy and registry default copy are forbidden.
+
 ## IMAGE GENERATION
-Use Unsplash URLs: https://images.unsplash.com/photo-{ID}?w={width}&h={height}&fit=crop
+Use customer-owned images from the plan first. Only when none fit, use Unsplash
+URLs: https://images.unsplash.com/photo-{ID}?w={width}&h={height}&fit=crop
 
 Photo IDs by category:
 - Business: 1560472354959-c2f3aef82263, 1497366216548-37526070297c
@@ -274,91 +423,10 @@ You MUST include:
       return { success: false, error: "No response from AI" };
     }
 
-    const parsed = JSON.parse(content);
-    
-    // Get recommended preset based on site type for defaults
-    const siteType = parsed.siteType || 'landing';
-    const recommendedPreset = getRecommendedPreset(siteType);
-    const defaultDesignSystem = recommendedPreset.designSystem;
-
-    // Build the complete design system with AI output or preset defaults
-    const designSystem: DesignSystem = {
-      colors: {
-        primary: parsed.designSystem?.colors?.primary || defaultDesignSystem.colors.primary,
-        secondary: parsed.designSystem?.colors?.secondary || defaultDesignSystem.colors.secondary,
-        accent: parsed.designSystem?.colors?.accent || defaultDesignSystem.colors.accent,
-        background: parsed.designSystem?.colors?.background || defaultDesignSystem.colors.background,
-        surface: parsed.designSystem?.colors?.surface || defaultDesignSystem.colors.surface,
-        text: parsed.designSystem?.colors?.text || defaultDesignSystem.colors.text,
-      },
-      typography: {
-        headingFont: parsed.designSystem?.typography?.headingFont || parsed.designSystem?.headingFont || defaultDesignSystem.typography.headingFont,
-        bodyFont: parsed.designSystem?.typography?.bodyFont || parsed.designSystem?.bodyFont || defaultDesignSystem.typography.bodyFont,
-        scale: parsed.designSystem?.typography?.scale || defaultDesignSystem.typography.scale,
-      },
-      spacing: {
-        section: parsed.designSystem?.spacing?.section || defaultDesignSystem.spacing.section,
-        component: parsed.designSystem?.spacing?.component || defaultDesignSystem.spacing.component,
-      },
-      radius: parsed.designSystem?.radius || defaultDesignSystem.radius,
-      shadow: parsed.designSystem?.shadow || defaultDesignSystem.shadow,
-      motion: {
-        style: parsed.designSystem?.motion?.style || defaultDesignSystem.motion.style,
-        speed: parsed.designSystem?.motion?.speed || defaultDesignSystem.motion.speed,
-      },
-      tone: parsed.designSystem?.tone || parsed.designTone || defaultDesignSystem.tone,
-    };
-
-    // Build the full plan with new design system structure
-    const plan: WebsitePlan = {
-      siteType: parsed.siteType || 'landing',
-      siteName: parsed.siteName || 'My Website',
-      tagline: parsed.tagline || '',
-      currentPhase: 'polish',
-      phaseProgress: [
-        { phase: 'structure', status: 'completed' },
-        { phase: 'content', status: 'completed' },
-        { phase: 'styling', status: 'completed' },
-        { phase: 'polish', status: 'completed' },
-      ],
-      analysis: {
-        sourceUrl: sourceUrl,
-        whatThisSiteIs: parsed.analysis?.whatThisSiteIs || parsed.purpose || 'A professional website',
-        targetAudience: parsed.analysis?.targetAudience || 'General audience',
-        uniqueSellingPoints: parsed.analysis?.uniqueSellingPoints || [],
-        competitorInsights: parsed.analysis?.competitorInsights,
-      },
-      designSystem,
-      designTone: designSystem.tone as DesignTone,
-      animationStyle: designSystem.motion.style === 'none' ? 'none' : 
-                       designSystem.motion.style === 'subtle' ? 'subtle' : 'dynamic',
-      navigation: {
-        style: parsed.navigation?.style || 'minimal',
-        items: parsed.navigation?.items || [],
-        hasCta: parsed.navigation?.hasCta ?? true,
-        ctaText: parsed.navigation?.ctaText,
-      },
-      pages: (parsed.pages || []).map((page: any) => ({
-        id: page.id || generateId(),
-        name: page.name || 'Page',
-        path: page.path || '/',
-        purpose: page.purpose || '',
-        sections: (page.sections || []).map((section: any) => ({
-          pattern: section.pattern || 'hero',
-          description: section.description || '',
-          variant: section.variant,
-          priority: section.priority || 'essential',
-        })),
-      })),
-      uxGoals: parsed.uxGoals || [],
-      conversionGoals: parsed.conversionGoals || [],
-      buildPhases: parsed.buildPhases || [
-        { phase: 1, name: 'Structure', description: 'Create pages and navigation', estimatedSteps: 5 },
-        { phase: 2, name: 'Layout', description: 'Add sections to each page', estimatedSteps: 15 },
-        { phase: 3, name: 'Content', description: 'Write copy and add images', estimatedSteps: 10 },
-        { phase: 4, name: 'Polish', description: 'Apply animations and final touches', estimatedSteps: 5 },
-      ],
-    };
+    const parsed = NewArchitectPlanSchema.parse(JSON.parse(content));
+    const plan: WebsitePlan = sourceUrl
+      ? { ...parsed, analysis: { ...parsed.analysis, sourceUrl } }
+      : parsed;
 
     return {
       success: true,
@@ -416,7 +484,9 @@ Create ALL pages with ALL sections. Make it look professional and cohesive.`,
       return { success: false, error: "No response from AI" };
     }
 
-    const parsed = JSON.parse(content);
+    const parsed = AiBuildOutputSchema.parse(JSON.parse(content));
+    assertProductionContent(parsed);
+    assertCustomerAssetsUsed(parsed, plan);
     const builderState = convertToBuilderState(parsed, plan);
 
     return {
@@ -435,55 +505,21 @@ Create ALL pages with ALL sections. Make it look professional and cohesive.`,
 
 function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateData {
   const pages: BuilderPage[] = [];
-  const validComponentTypes = Object.keys(componentRegistry);
   const ds = plan.designSystem;
 
   // Get design system derived values
   const sectionSpacing = getSpacingValues(ds.spacing.section);
-  const componentSpacing = getSpacingValues(ds.spacing.component);
   const radiusValue = getRadiusValue(ds.radius);
   const shadowValue = getShadowValue(ds.shadow);
   const motionConfig = getMotionConfig(ds.motion);
-  const typographyScale = getTypographyScale(ds.typography.scale);
 
-  for (const page of aiOutput.pages || []) {
-    const pageId = page.id || generateId();
+  for (const page of aiOutput.pages) {
     const components: BuilderComponentData[] = [];
 
-    for (const comp of page.components || []) {
-      const componentId = comp.id || generateId();
-      
-      // Validate and map component type
-      let compType = comp.type;
-      if (!validComponentTypes.includes(compType)) {
-        const typeMap: Record<string, string> = {
-          'navigation': 'header',
-          'nav': 'header',
-          'banner': 'hero',
-          'reviews': 'testimonials',
-          'pricing': 'pricing-table',
-          'products': 'product-grid',
-          'text': 'text-image',
-          'image-text': 'text-image',
-          'partners': 'logo-cloud',
-          'logos': 'logo-cloud',
-          'clients': 'logo-cloud',
-          'stats': 'stats-counter',
-          'form': 'contact-form',
-          'video': 'video-embed',
-          'comparison': 'comparison-table',
-          'split': 'split-section',
-          'process': 'timeline',
-          'history': 'timeline',
-          'steps': 'timeline',
-          'content': 'rich-text',
-          'article': 'rich-text',
-        };
-        compType = typeMap[compType] || 'hero';
-      }
-
+    for (const comp of page.components) {
+      const compType = comp.type;
       // Apply design system to styles
-      const styles = applyDesignSystemToStyles(comp.styles || {}, ds, sectionSpacing, radiusValue, shadowValue);
+      const styles = applyDesignSystemToStyles(comp.styles, ds, sectionSpacing, radiusValue, shadowValue);
       
       // Add animation if motion is enabled
       if (ds.motion.style !== 'none') {
@@ -491,28 +527,25 @@ function convertToBuilderState(aiOutput: any, plan: WebsitePlan): BuilderStateDa
         styles.animationDuration = motionConfig.duration;
       }
 
-      components.push({
-        id: componentId,
-        type: compType as any,
-        props: sanitizeProps(comp.props || {}, compType),
+      const builtComponent: BuilderComponentData = {
+        id: comp.id,
+        type: compType,
+        props: sanitizeProps(comp.props, compType),
         styles,
-      });
+      };
+      if (!componentHasSubstantiveContent(builtComponent)) {
+        throw new Error(
+          `Component "${comp.id}" (${compType}) has no substantive content after sanitization`
+        );
+      }
+      components.push(builtComponent);
     }
 
     pages.push({
-      id: pageId,
-      name: page.name || 'Home',
-      path: page.path || '/',
+      id: page.id,
+      name: page.name,
+      path: page.path,
       components,
-    });
-  }
-
-  if (pages.length === 0) {
-    pages.push({
-      id: 'home',
-      name: 'Home',
-      path: '/',
-      components: [],
     });
   }
 
@@ -584,6 +617,7 @@ function applyDesignSystemToStyles(
     backgroundGradient: styles.backgroundGradient,
     backgroundImage: styles.backgroundImage,
     backgroundOpacity: styles.backgroundOpacity,
+    responsive: styles.responsive,
   };
 }
 
@@ -614,8 +648,6 @@ function sanitizeProps(props: any, componentType: string): any {
     const fieldKey = field.key;
     if (props[fieldKey] !== undefined) {
       sanitized[fieldKey] = props[fieldKey];
-    } else if (registry.defaultProps && (registry.defaultProps as any)[fieldKey] !== undefined) {
-      sanitized[fieldKey] = (registry.defaultProps as any)[fieldKey];
     }
   }
 
@@ -714,21 +746,6 @@ function sanitizeProps(props: any, componentType: string): any {
     sanitized.bullets = props.bullets.map((bullet: any) => 
       typeof bullet === 'string' ? bullet : (bullet.text || '')
     );
-  }
-
-  // Add fallback hero image
-  if (componentType === 'hero' && !sanitized.imageUrl && !sanitized.backgroundImage) {
-    sanitized.imageUrl = generateUnsplashUrl('business', 1200, 800, 0);
-  }
-
-  // Add fallback for text-image
-  if (componentType === 'text-image' && !sanitized.imageUrl) {
-    sanitized.imageUrl = generateUnsplashUrl('business', 800, 600, 0);
-  }
-
-  // Add fallback for split-section
-  if (componentType === 'split-section' && !sanitized.imageUrl) {
-    sanitized.imageUrl = generateUnsplashUrl('technology', 800, 600, 0);
   }
 
   return sanitized;

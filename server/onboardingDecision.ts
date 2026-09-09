@@ -20,6 +20,7 @@
 import { eq, sql } from "drizzle-orm";
 import {
   onboardingSessions,
+  builderState,
   ONBOARDING_DECISION_STATES,
   ONBOARDING_GENERATION_STATES,
   ONBOARDING_PAYMENT_METHOD_CHOICES,
@@ -29,13 +30,18 @@ import {
   type OnboardingPaymentMethodChoice,
   type OnboardingPaymentState,
   type OnboardingSession,
+  type OnboardingAnswers,
 } from "@shared/schema";
+import { onboardingStateFingerprint, readinessMatchesOnboardingDraft } from "./onboardingQuality";
 import {
   deriveResumeStage,
   isApprovalStale,
   type OnboardingDecisionSnapshot,
   type OnboardingResumeStage,
 } from "@shared/onboardingDecision";
+import type { BuilderStateData } from "@shared/schema";
+import type { OnboardingDirectionBundle } from "@shared/onboardingDirections";
+import { directionCandidatePassesGate } from "./onboardingDirections";
 import { db, storage } from "./storage";
 import { onboardingDecisionSchemaReady } from "./onboardingDecisionSchema";
 
@@ -151,6 +157,214 @@ export async function updateDecisionByUser(
     .where(eq(onboardingSessions.userId, userId))
     .returning();
   return rows[0];
+}
+
+export type AtomicApprovalResult =
+  | { ok: true; session: OnboardingSession; revision: number }
+  | { ok: false; reason: "paid" | "generating" | "stale" | "missing" };
+
+export type DirectionSelectionResult =
+  | {
+      ok: true;
+      directionId: string;
+      revision: number;
+      fingerprint: string;
+      pages: Array<{ id: string; name: string; path: string }>;
+    }
+  | { ok: false; reason: "missing" | "not_ready" | "unknown_direction" | "paid" };
+
+/**
+ * Promote an already-built onboarding candidate without regenerating it.
+ * Builder state, selected candidate and revision-bound readiness move under
+ * the same locks, so the approval route can never certify a different design
+ * from the one the customer is looking at.
+ */
+export async function selectOnboardingDirectionAtomically(args: {
+  userId: string;
+  websiteId: string;
+  directionId: string;
+}): Promise<DirectionSelectionResult> {
+  await decisionSchemaReady();
+  return db.transaction(async (tx) => {
+    const [builder] = await tx
+      .select()
+      .from(builderState)
+      .where(eq(builderState.websiteId, args.websiteId))
+      .for("update");
+    const [session] = await tx
+      .select()
+      .from(onboardingSessions)
+      .where(eq(onboardingSessions.userId, args.userId))
+      .for("update");
+    if (!builder || !session || session.websiteId !== args.websiteId) {
+      return { ok: false, reason: "missing" } as const;
+    }
+    if (!["not_started", "cancelled", "payment_failed"].includes(session.paymentState)) {
+      return { ok: false, reason: "paid" } as const;
+    }
+    if (session.generationState !== "complete") {
+      return { ok: false, reason: "not_ready" } as const;
+    }
+    if (session.decisionState !== "awaiting_decision") {
+      return { ok: false, reason: "not_ready" } as const;
+    }
+    const bundle = session.answers?.designDirections;
+    const candidate = bundle?.directions.find((direction) => direction.id === args.directionId);
+    if (!bundle || !candidate) return { ok: false, reason: "unknown_direction" } as const;
+    const currentCandidate = bundle.directions.find(
+      (direction) => direction.id === bundle.selectedDirectionId,
+    );
+    if (
+      bundle.selectionRevision !== builder.revision ||
+      !currentCandidate ||
+      onboardingStateFingerprint(builder.state as BuilderStateData) !== currentCandidate.fingerprint
+    ) {
+      return { ok: false, reason: "not_ready" } as const;
+    }
+    if (!directionCandidatePassesGate(candidate)) {
+      return { ok: false, reason: "not_ready" } as const;
+    }
+
+    const nextRevision = builder.revision + 1;
+    const nextSiteRevision = session.siteRevision + 1;
+    const fingerprint = candidate.fingerprint;
+    const status = {
+      ...((session.genStatus as Record<string, unknown> | null) ?? {}),
+      readiness: "ready",
+      qualityBuilderRevision: nextRevision,
+      qualityFingerprint: fingerprint,
+      qualitySiteRevision: nextSiteRevision,
+      selectedDirectionId: candidate.id,
+      qualityIssues: candidate.qualityIssues,
+    };
+    const answers: OnboardingAnswers = {
+      ...session.answers,
+      designDirections: {
+        ...bundle,
+        selectedDirectionId: candidate.id,
+        selectionRevision: nextRevision,
+      },
+    };
+    await tx
+      .update(builderState)
+      .set({ state: candidate.state, revision: nextRevision, updatedAt: new Date() } as any)
+      .where(eq(builderState.websiteId, args.websiteId));
+    await tx
+      .update(onboardingSessions)
+      .set({
+        answers,
+        genStatus: status,
+        siteRevision: nextSiteRevision,
+        approvedRevision: null,
+        approvedAt: null,
+        decisionState: "awaiting_decision",
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(onboardingSessions.id, session.id));
+    return {
+      ok: true,
+      directionId: candidate.id,
+      revision: nextRevision,
+      fingerprint,
+      pages: candidate.state.pages.map((page) => ({ id: page.id, name: page.name, path: page.path })),
+    } as const;
+  });
+}
+
+export async function persistGeneratedDirectionBundleAtomically(args: {
+  websiteId: string;
+  expectedBuilderRevision: number;
+  bundle: OnboardingDirectionBundle;
+}): Promise<{ revision: number; state: BuilderStateData }> {
+  await decisionSchemaReady();
+  return db.transaction(async (tx) => {
+    const [builder] = await tx
+      .select()
+      .from(builderState)
+      .where(eq(builderState.websiteId, args.websiteId))
+      .for("update");
+    const [session] = await tx
+      .select()
+      .from(onboardingSessions)
+      .where(eq(onboardingSessions.websiteId, args.websiteId))
+      .for("update");
+    if (!builder || !session) throw new Error("Onboarding draft disappeared before direction persistence.");
+    if (builder.revision !== args.expectedBuilderRevision) {
+      throw new Error("Onboarding draft changed while design directions were being reviewed.");
+    }
+    if (session.generationState !== "generating") {
+      throw new Error("Onboarding generation no longer owns the draft.");
+    }
+    const selected = args.bundle.directions.find(
+      (direction) => direction.id === args.bundle.selectedDirectionId,
+    );
+    if (!selected) throw new Error("Selected onboarding direction is missing.");
+    const nextRevision = builder.revision + 1;
+    await tx
+      .update(builderState)
+      .set({ state: selected.state, revision: nextRevision, updatedAt: new Date() } as any)
+      .where(eq(builderState.websiteId, args.websiteId));
+    await tx
+      .update(onboardingSessions)
+      .set({
+        answers: { ...session.answers, designDirections: args.bundle },
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(onboardingSessions.id, session.id));
+    return { revision: nextRevision, state: selected.state };
+  });
+}
+
+/**
+ * Certify and record approval under the same row locks. Builder is locked
+ * first, matching the builder-save → onboarding-revision lock order.
+ */
+export async function approveReadyDraftAtomically(args: {
+  userId: string;
+  websiteId: string;
+  paymentMethod: "card" | "invoice";
+}): Promise<AtomicApprovalResult> {
+  await decisionSchemaReady();
+  return db.transaction(async (tx) => {
+    const [builder] = await tx
+      .select()
+      .from(builderState)
+      .where(eq(builderState.websiteId, args.websiteId))
+      .for("update");
+    const [session] = await tx
+      .select()
+      .from(onboardingSessions)
+      .where(eq(onboardingSessions.userId, args.userId))
+      .for("update");
+    if (!session || session.websiteId !== args.websiteId || !builder) {
+      return { ok: false, reason: "missing" } as const;
+    }
+    if (session.paymentState === "paid") return { ok: false, reason: "paid" } as const;
+    if (session.generationState !== "complete") return { ok: false, reason: "generating" } as const;
+    if (
+      !readinessMatchesOnboardingDraft(
+        session.genStatus as Record<string, unknown> | null,
+        { revision: builder.revision, state: builder.state as BuilderStateData },
+        session.siteRevision
+      )
+    ) {
+      return { ok: false, reason: "stale" } as const;
+    }
+    const now = new Date();
+    const [updated] = await tx
+      .update(onboardingSessions)
+      .set({
+        decisionState: "approved",
+        paymentMethodChoice: args.paymentMethod,
+        approvedRevision: session.siteRevision,
+        approvedAt: now,
+        decidedAt: now,
+        updatedAt: now,
+      } as any)
+      .where(eq(onboardingSessions.id, session.id))
+      .returning();
+    return { ok: true, session: updated, revision: session.siteRevision } as const;
+  });
 }
 
 /** Merge-write the decision columns for one website. Returns the fresh row. */

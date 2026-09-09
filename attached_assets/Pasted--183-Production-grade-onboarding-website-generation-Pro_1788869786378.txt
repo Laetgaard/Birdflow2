@@ -1,0 +1,725 @@
+# #183 – Production-grade onboarding website generation
+
+## Problem
+
+Onboarding producerer i øjeblikket websites, som teknisk fungerer, men visuelt og indholdsmæssigt ligger markant under det niveau, en potentiel Birdflow-kunde bør se.
+
+Problemet er ikke kun previewet.
+
+Selve generationen mangler ofte:
+
+* stærk visuel komposition
+* gennemført typography hierarchy
+* tilstrækkelig brug af farver og backgrounds
+* relevante billeder
+* variation mellem sektioner
+* konkrete og kundespecifikke tekster
+* visuel storytelling
+* professionel spacing og rytme
+* tydelige CTA'er
+* tilstrækkelig content depth
+* reel forskel mellem designretninger
+
+Resultatet kan derfor ligne en AI-wireframe fremfor et færdigt website.
+
+Denne opgave skal forbedre selve website-generation pipeline — ikke kun gøre preview-skærmen pænere.
+
+---
+
+# Core principle
+
+De tre onboardingforslag skal genereres som **rigtige Birdflow websites**, der kan bruges direkte i builderen.
+
+Previewet må ikke være en separat simplificeret repræsentation.
+
+Flowet skal være:
+
+**Customer facts + assets → content architecture → creative direction → real builder state → render → visual/content review → automatic repair → approved preview**
+
+Ikke:
+
+**AI response → preview → builder conversion**
+
+---
+
+# 1. Build a verified Website Brief first
+
+Før designgenerering skal onboarding samle alle kendte oplysninger i én struktureret `WebsiteBrief`.
+
+Den skal blandt andet indeholde:
+
+### Verified business facts
+
+* virksomhedsnavn
+* behandlernavn
+* fagområde
+* målgruppe
+* ydelser
+* lokation
+* kontaktoplysninger
+* arbejdsmetode
+* tone of voice
+* eksisterende tekster
+* brandinformation
+* verificerede credentials
+* eventuelle priser, hvis kunden selv har oplyst dem
+
+AI må aldrig udfylde manglende fakta med opdigtede oplysninger.
+
+### Content inventory
+
+Klassificér eksisterende materiale som eksempelvis:
+
+* about
+* service
+* trust
+* process
+* FAQ
+* contact
+* philosophy
+* practical information
+* CTA material
+
+### Asset inventory
+
+Alle billeder skal analyseres og registreres med:
+
+* source
+* subject
+* orientation
+* approximate quality
+* possible usage
+* portrait / environment / treatment / decorative
+* preferred crop
+* whether the asset is appropriate as hero imagery
+
+For imported websites skal billeder fra den eksisterende hjemmeside også indgå.
+
+---
+
+# 2. Create content architecture before visual design
+
+AI'en skal først beslutte, hvad hjemmesiden faktisk skal kommunikere.
+
+For hjemmesidens hovedside skal den eksempelvis kunne vælge mellem sektioner som:
+
+Hero
+
+Services
+
+Problems / needs
+
+About practitioner
+
+Treatment approach
+
+How it works
+
+Trust / reassurance
+
+Practical information
+
+FAQ
+
+Contact / booking CTA
+
+Ikke alle hjemmesider skal have samme sektioner eller rækkefølge.
+
+Arkitekturen skal baseres på kundens faktiske materiale.
+
+Typisk homepage target:
+
+**6–9 meningsfulde sektioner**
+
+Ikke 3–4 tynde sektioner med meget lidt indhold.
+
+---
+
+# 3. Generate three genuinely different creative directions
+
+De tre retninger må ikke være samme hjemmeside med forskellige farver.
+
+Hver direction skal have sit eget `CreativeDirectionManifest`.
+
+Manifestet skal blandt andet definere:
+
+### Layout archetype
+
+Eksempel:
+
+**Direction A – Calm Editorial**
+
+Stor typografi, asymmetrisk hero, meget whitespace, rolige billeder, editorial composition.
+
+**Direction B – Warm Personal**
+
+Mere menneskelig og personlig, portrætter, organiske former, varme sektioner og blødere composition.
+
+**Direction C – Modern Clinical**
+
+Struktureret grid, skarpere hierarchy, services tydeligt prioriteret, mere professionel/klinisk visuel retning.
+
+De konkrete retninger skal genereres ud fra kundens brand og ikke hardcodes til disse tre eksempler.
+
+### Manifest requirements
+
+Hver direction skal definere:
+
+* hero composition
+* section composition strategy
+* page rhythm
+* font pairing
+* font scale
+* font weights
+* palette
+* background palette
+* accent usage
+* border radius strategy
+* spacing scale
+* cards
+* buttons
+* imagery style
+* image placement
+* decorative graphics
+* section order
+* content emphasis
+* CTA strategy
+
+---
+
+# 4. Generate directly into Birdflow's real builder schema
+
+Det vigtigste arkitektoniske krav:
+
+De tre designs skal være **rigtige builder states**.
+
+Ikke separate AI preview objects, der senere forsøges konverteret.
+
+Hver direction skal kunne åbnes direkte af Birdflows normale renderer.
+
+Eksempel:
+
+`WebsiteBrief`
+
+→ `CreativeDirectionManifest`
+
+→ `BuilderSiteState`
+
+→ `Birdflow Renderer`
+
+Preview og builder skal dermed bruge præcis samme:
+
+* components
+* styles
+* sections
+* assets
+* responsive rules
+* design tokens
+
+Når kunden vælger en direction, skal systemet blot promote/clone det eksisterende state.
+
+Der må ikke ske en ny website-generation efter valget.
+
+---
+
+# 5. Introduce stronger section composition
+
+AI'en skal ikke kun vælge sektionstype.
+
+Den skal vælge reel composition.
+
+Eksempelvis må services kunne vises som:
+
+* editorial alternating layout
+* feature grid
+* stacked cards
+* image-led services
+* horizontally structured sections
+* large typography sections
+
+About må eksempelvis kunne være:
+
+* split image/text
+* portrait overlap
+* editorial narrative
+* full-width visual section
+
+Hero må eksempelvis variere mellem:
+
+* centered
+* split-screen
+* editorial
+* image-dominant
+* offset composition
+
+Component selection skal derfor være en del af creative direction.
+
+---
+
+# 6. Require meaningful visual material
+
+Et færdigt preview må ikke føles teksttungt eller tomt.
+
+Som udgangspunkt skal en homepage bruge cirka:
+
+**3–6 meaningful visual elements**
+
+afhængigt af designretning og kundens materiale.
+
+Prioritet:
+
+1. Customer-owned images
+2. Imported website images
+3. Suitable approved/generated imagery
+4. Brand-specific abstract illustration / graphical treatment
+5. Deterministic branded fallback
+
+Der må aldrig vises:
+
+* blank image areas
+* broken images
+* random placeholder images
+* irrelevant stock imagery
+* samme generiske illustration i alle directions
+
+---
+
+# 7. Images need an explicit placement plan
+
+AI'en skal ikke bare finde billeder.
+
+Den skal forklare internt:
+
+`asset → section → role → crop`
+
+Eksempel:
+
+`portrait_01 → About → practitioner portrait → portrait crop`
+
+`clinic_02 → Hero → environment / trust → 16:10 crop`
+
+Dette gør image placement deterministisk og reducerer tilfældige billeder.
+
+---
+
+# 8. Generate substantially better copy
+
+Websitecopy skal produceres fra verificeret information.
+
+Copy-generation bør køre separat fra layout-generation.
+
+Teksten skal vurderes på:
+
+* specificity
+* clarity
+* tone
+* repetition
+* grammar
+* factual correctness
+* CTA quality
+* section relevance
+
+Undgå formuleringer som:
+
+"Vi møder dig, hvor du er."
+
+"Din rejse starter her."
+
+"Sammen finder vi vejen."
+
+medmindre formuleringen faktisk passer til kundens kommunikation.
+
+Teksten skal føles skrevet til den konkrete behandler.
+
+---
+
+# 9. Define minimum content depth
+
+Quality checks skal kunne opdage tynde websites.
+
+Eksempel på minimum:
+
+### Hero
+
+Skal normalt indeholde:
+
+* meaningful headline
+* supporting copy
+* primary CTA
+* visual element
+
+### Service sections
+
+Skal have konkrete beskrivelser og ikke blot servicenavne.
+
+### About
+
+Skal indeholde reel information fra kunden.
+
+### CTA
+
+Skal kommunikere næste handling tydeligt.
+
+Systemet skal ikke fylde siden med tekst for at nå arbitrary character counts, men skal kunne registrere sider uden reel informationsværdi.
+
+---
+
+# 10. Render before accepting the generation
+
+Generationens JSON/state må ikke alene bruges til at afgøre kvalitet.
+
+Alle tre directions skal renderes med Birdflows rigtige renderer.
+
+Lav mindst:
+
+**desktop render**
+
+og
+
+**mobile render**
+
+før kunden ser resultatet.
+
+---
+
+# 11. Add automated visual review
+
+Efter rendering skal screenshots analyseres.
+
+`visualReview` skal blandt andet vurdere:
+
+* hierarchy
+* visual balance
+* whitespace
+* section rhythm
+* image usage
+* empty areas
+* typography
+* CTA visibility
+* contrast
+* layout repetition
+* image cropping
+* mobile layout
+* generic appearance
+
+Det skal returnere konkrete findings.
+
+Eksempel:
+
+`hero_has_weak_visual_hierarchy`
+
+`services_section_too_text_heavy`
+
+`page_uses_insufficient_imagery`
+
+`three_consecutive_sections_have_same_layout`
+
+`mobile_hero_image_crop_is_bad`
+
+---
+
+# 12. Add content review
+
+Separat review skal kontrollere:
+
+* invented claims
+* duplicated text
+* generic AI language
+* grammatical issues
+* overly vague service descriptions
+* contradictions
+* missing important customer information
+* unsupported credentials
+* unsupported prices/testimonials/results
+
+---
+
+# 13. Automatic repair loop
+
+Dette mangler især i den nuværende plan.
+
+Hvis visual/content review finder væsentlige problemer:
+
+**Do not show the website yet.**
+
+Send findings tilbage til generatoren.
+
+Eksempel:
+
+Initial generation
+
+→ Render
+
+→ Review
+
+→ Score 61/100
+
+→ Repair specific sections
+
+→ Render again
+
+→ Score 84/100
+
+→ Accept
+
+Repair skal være targeted.
+
+Systemet skal eksempelvis kunne regenerere kun:
+
+* hero
+* services section
+* image assignment
+* typography
+* copy
+* mobile layout
+
+uden at regenerere hele hjemmesiden hver gang.
+
+Sæt et begrænset antal repair passes, så onboarding ikke kan loop'e uendeligt.
+
+---
+
+# 14. Add hard quality gates
+
+Et preview må eksempelvis afvises hvis:
+
+* hero mangler visual
+* væsentlige sektioner mangler
+* hjemmesiden er næsten kun tekst
+* samme layout bruges gennem næsten hele siden
+* design tokens ikke anvendes
+* billeder fejler
+* mobilrender har overflow
+* teksten indeholder opdigtede fakta
+* retningen ikke er tydeligt forskellig fra de andre
+* CTA mangler
+* kontrasten er utilstrækkelig
+* layoutet har store uforklarlige tomme områder
+
+Quality gate skal gælde **før previewet vises**.
+
+---
+
+# 15. Measure direction differentiation
+
+Der skal være automatiske checks på, at de tre retninger faktisk er forskellige.
+
+Sammenlign blandt andet:
+
+* hero archetype
+* section ordering
+* typography
+* palette
+* spacing
+* card treatment
+* imagery
+* component usage
+* section layouts
+* visual density
+
+Hvis Direction A og Direction B hovedsageligt adskiller sig via farver, skal en direction regenereres.
+
+---
+
+# 16. Deterministic fallback must still look designed
+
+Hvis en ekstern AI-model eller image provider fejler, må fallback ikke være:
+
+Hero + cards + text + CTA.
+
+Fallbacken skal stadig bruge:
+
+* kundens brand colors
+* proper type scale
+* asset inventory
+* deliberate composition
+* graphical shapes
+* meaningful section alternation
+* complete content hierarchy
+
+Fallbacken skal ligne et Birdflow website, ikke et error-state website.
+
+---
+
+# 17. Build quality benchmarks
+
+Vi kan ikke forbedre "website quality", hvis kvalitet ikke defineres.
+
+Lav derfor retained QA fixtures.
+
+Mindst:
+
+### Fixture A
+
+Solo psychologist starting without an existing website.
+
+### Fixture B
+
+Therapist with an existing website and usable photos.
+
+### Fixture C
+
+Customer with limited content and few/no good images.
+
+Kør hele onboarding-generationen på disse fixtures.
+
+Gem:
+
+* generation state
+* desktop screenshot
+* mobile screenshot
+* visual review
+* content review
+* final score
+
+Så regressions kan opdages.
+
+---
+
+# 18. Add a Birdflow quality score
+
+Internt kan hvert design få eksempelvis:
+
+**Visual composition**
+
+**Content quality**
+
+**Brand consistency**
+
+**Imagery**
+
+**Responsiveness**
+
+**Fact safety**
+
+**Direction uniqueness**
+
+Dette er ikke nødvendigvis noget kunden skal se.
+
+Det er et QA-system.
+
+Et forslag skal passere minimumskrav før det bliver vist.
+
+---
+
+# 19. Critical implementation constraint
+
+Do not solve this by creating more hardcoded templates.
+
+Birdflow skal stadig kunne skabe forskellige websites.
+
+Templates/components/layout archetypes må fungere som building blocks og composition primitives.
+
+AI'en skal vælge og kombinere dem.
+
+Målet er:
+
+**controlled creativity**
+
+ikke:
+
+**random AI HTML**
+
+og ikke:
+
+**three fixed templates**
+
+---
+
+# 20. Chosen preview must equal builder result
+
+Dette skal testes eksplicit.
+
+Hvis brugeren vælger Direction B:
+
+`Direction B preview state`
+
+skal være det state, der åbnes i builderen.
+
+Ingen re-generation.
+
+Ingen simplificeret conversion.
+
+Ingen ændring i:
+
+* fonts
+* colors
+* images
+* copy
+* layout
+* spacing
+* section order
+
+medmindre kunden efterfølgende selv ændrer det.
+
+---
+
+# Acceptance criteria
+
+Opgaven er ikke færdig bare fordi de tre forslag teknisk kan renderes.
+
+Den er færdig når retained QA-runs viser, at:
+
+1. Alle tre forslag føles som komplette websites.
+2. De tre forslag er tydeligt forskellige uden kun at ændre farver.
+3. Relevante billeder bruges bevidst.
+4. Der er tilstrækkelig content depth.
+5. Teksterne er konkrete og faktuelt sikre.
+6. Homepage har reel visuel variation mellem sektioner.
+7. Mobile og desktop fungerer.
+8. Preview og builder er pixel-/state-konsistente.
+9. Svage generationer bliver repareret før kunden ser dem.
+10. Provider failure giver stadig et professionelt website.
+11. Ingen testimonials, credentials, priser eller resultater bliver opdigtet.
+12. Tests demonstrerer resultaterne med screenshots og bevarede QA-sites.
+
+---
+
+# Implementation approach
+
+Start ikke med at implementere med det samme.
+
+Først:
+
+Audit the current onboarding generation pipeline and identify:
+
+* where customer facts become prompts
+* where content structure is decided
+* where builder state is created
+* where images are selected
+* where design tokens are selected
+* where previews differ from builder rendering
+* where visualReview currently runs
+* whether generation can repair individual sections
+* which components/layout primitives already exist and can be reused
+
+Derefter lav en implementation plan baseret på den faktiske kodebase.
+
+Listen over relevante filer i #183 er kun et udgangspunkt.
+
+Find også de faktiske:
+
+* builder schemas
+* component registries
+* renderer
+* persistence logic
+* onboarding session state
+* asset storage
+* design token application
+* responsive rendering
+
+Do not duplicate systems that already exist.
+
+---
+
+# Final objective
+
+Birdflows onboarding skal ikke optimere efter:
+
+> "Can the AI generate a valid website?"
+
+Den skal optimere efter:
+
+> "Would a real solo practitioner believe this was professionally designed specifically for their business?"
+
+Hvis svaret ikke er ja, skal generationen repareres før brugeren ser den.

@@ -14,15 +14,20 @@ import type { BuilderStateData } from "@shared/schema";
 import { createDefaultBrandGuide, type BrandGuide } from "@shared/customComponents";
 import { ONBOARDING_COPY, onboardingCopy } from "@shared/onboardingDecision";
 import { normalizeSiteLanguage } from "@shared/siteLanguage";
-import { migrateSiteStructure, resolveNavItems } from "@shared/siteStructure";
-import { resolveSvgAssetsInState, type SvgAssetLike } from "@shared/svgAssets";
+import { composePageComponents, migrateSiteStructure, resolveNavItems } from "@shared/siteStructure";
+import { topLevelComponents } from "@shared/rendering/contract";
 import { resolveDesignTokens } from "@shared/designTokens";
+import {
+  onboardingStateFingerprint,
+} from "./onboardingQuality";
 import { storage } from "./storage";
 import { getAuthedUser } from "./websiteAccess";
 import {
+  approveReadyDraftAtomically,
   getSnapshotByUser,
   requireOwnedOnboardingWebsite,
   resolveResume,
+  selectOnboardingDirectionAtomically,
   updateDecisionByUser,
 } from "./onboardingDecision";
 import {
@@ -58,6 +63,10 @@ async function languageOfWebsite(websiteId: string | null | undefined) {
 function guideOf(state: BuilderStateData | undefined, fallbackName: string): BrandGuide {
   const guide = state?.brandGuide ?? createDefaultBrandGuide();
   return guide.businessName ? guide : { ...guide, businessName: fallbackName };
+}
+
+function previewFingerprint(state: BuilderStateData): string {
+  return onboardingStateFingerprint(state);
 }
 
 export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingDecisionDeps): void {
@@ -111,7 +120,8 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       }
 
       const state = builder?.state as BuilderStateData | undefined;
-      const pages = (state?.pages ?? []).map((page) => ({
+      const structured = state ? migrateSiteStructure(state) : undefined;
+      const pages = (structured?.pages ?? []).map((page) => ({
         id: page.id,
         name: page.name,
         path: page.path,
@@ -125,7 +135,21 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         website: { id: website.id, name: website.name, slug: website.slug },
         pages,
         brandGuide: guideOf(state, website.name),
+        builderRevision: builder?.revision ?? 0,
+        previewFingerprint: structured ? previewFingerprint(structured) : null,
         report: (resume.session?.genStatus as Record<string, unknown> | null)?.report ?? null,
+        generationStatus: resume.session?.genStatus ?? null,
+        migrationReport: resume.session?.answers?.websiteImport?.report ?? null,
+        designDirections: (resume.session?.answers?.designDirections?.directions ?? []).map((direction) => ({
+          id: direction.id,
+          name: direction.manifest.name,
+          concept: direction.manifest.concept,
+          designIntent: direction.manifest.designIntent,
+          brandDeviation: direction.manifest.brandDeviation,
+          qualityScore: direction.qualityScore,
+          selected: direction.id === resume.session?.answers?.designDirections?.selectedDirectionId,
+        })),
+        selectedDirectionId: resume.session?.answers?.designDirections?.selectedDirectionId ?? null,
       });
     } catch (error: any) {
       console.error("[Onboarding] decision payload failed:", error);
@@ -146,7 +170,17 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         storage.getWebsite(owned.websiteId),
         storage.getBuilderState(owned.websiteId),
       ]);
-      const state = builder?.state as BuilderStateData | undefined;
+       const requestedDirectionId =
+         typeof req.query.directionId === "string" ? req.query.directionId : undefined;
+       const candidate = requestedDirectionId
+         ? owned.session.answers?.designDirections?.directions.find(
+             (direction) => direction.id === requestedDirectionId,
+           )
+         : undefined;
+       if (requestedDirectionId && !candidate) {
+         return res.status(404).json({ message: "Designretningen findes ikke længere." });
+       }
+       const state = (candidate?.state ?? builder?.state) as BuilderStateData | undefined;
       if (!state) {
         return res.status(404).json({ message: "Der er ikke bygget en hjemmeside endnu." });
       }
@@ -155,40 +189,80 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       // same structure the builder works with: shared header and footer and
       // the resolved navigation, not just the raw page list.
       const structured = migrateSiteStructure(state);
+      const fingerprint = previewFingerprint(structured);
 
-      // Inline svg-asset references server-side so every read-only surface
-      // renders stored drawings without carrying its own asset map (same
-      // resolution the publisher performs). Preview is a transient view, so
-      // a store hiccup degrades to the renderer's placeholder instead of
-      // blocking the whole preview — publish is where we fail closed.
-      try {
-        const assets = await storage.getSvgAssets(owned.websiteId);
-        if (assets.length > 0) {
-          const tokens = resolveDesignTokens((structured.globalStyles ?? {}) as never);
-          resolveSvgAssetsInState(
-            structured as Parameters<typeof resolveSvgAssetsInState>[0],
-            new Map<string, SvgAssetLike>(assets.map((asset) => [asset.id, asset])),
-            tokens
+      // ComponentRenderer resolves stored SVG references at render time. Give
+      // this read-only canvas the same id-keyed asset map as the builder rather
+      // than mutating a preview-only copy of the component tree.
+      const assets = await storage.getSvgAssets(owned.websiteId);
+      const svgAssets = Object.fromEntries(assets.map((asset) => [asset.id, asset]));
+      const resolvedGlobalStyles = resolveDesignTokens(
+        (structured.globalStyles ?? {}) as Parameters<typeof resolveDesignTokens>[0]
+      );
+      const renderExpectations = Object.fromEntries(
+        (structured.pages ?? []).map((page) => {
+          const components = topLevelComponents(
+            composePageComponents(page, structured.siteChrome)
           );
-        }
-      } catch (error: any) {
-        console.warn("[Onboarding] preview svg assets unavailable:", error?.message || error);
-      }
+          return [
+            page.id,
+            {
+              topLevelComponentIds: components.map((component) => component.id),
+              topLevelComponentCount: components.length,
+            },
+          ];
+        })
+      );
 
       res.json({
         websiteId: owned.websiteId,
         websiteName: website?.name ?? "",
-        revision: owned.snapshot.siteRevision,
+         revision: builder?.revision ?? 0,
+        fingerprint,
+         directionId: candidate?.id ?? null,
         pages: structured.pages ?? [],
         siteChrome: structured.siteChrome ?? null,
         navItems: resolveNavItems(structured),
         globalStyles: structured.globalStyles ?? {},
+        resolvedGlobalStyles,
+        svgAssets,
+        renderExpectations,
         customComponents: structured.customComponents ?? [],
         brandGuide: structured.brandGuide ?? null,
       });
     } catch (error: any) {
       console.error("[Onboarding] preview data failed:", error);
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/onboarding/direction/select", requireAuth, async (req, res) => {
+    try {
+      const user = getAuthedUser(req);
+      const owned = await requireOwnedOnboardingWebsite(user.id, req.body?.websiteId);
+      if (!owned.ok) return res.status(owned.status).json({ message: owned.message });
+      const directionId = typeof req.body?.directionId === "string" ? req.body.directionId : "";
+      if (!directionId) return res.status(400).json({ message: "Vælg en designretning." });
+      const selected = await selectOnboardingDirectionAtomically({
+        userId: user.id,
+        websiteId: owned.websiteId,
+        directionId,
+      });
+      if (!selected.ok) {
+        const message =
+          selected.reason === "paid"
+            ? "Designet kan ikke skiftes efter betaling."
+            : selected.reason === "not_ready"
+              ? "Designforslagene er ikke færdige endnu."
+              : selected.reason === "unknown_direction"
+                ? "Designretningen findes ikke længere."
+                : "Onboarding-projektet kunne ikke findes.";
+        return res.status(selected.reason === "unknown_direction" ? 404 : 409).json({ message });
+      }
+      res.json(selected);
+    } catch (error: any) {
+      console.error("[Onboarding] direction selection failed:", error);
+      res.status(500).json({ message: "Designretningen kunne ikke vælges lige nu." });
     }
   });
 
@@ -271,34 +345,35 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       if (!owned.ok) return res.status(owned.status).json({ message: owned.message });
       const snapshot = owned.snapshot;
 
-      if (snapshot.paymentState === "paid") {
-        return res.status(409).json({ message: "Der er allerede betalt.", code: "ALREADY_PAID" });
-      }
-      if (snapshot.generationState !== "complete") {
-        return res.status(409).json({ message: "Hjemmesiden er ikke færdig endnu." });
-      }
-
       const identity = await billingIdentity(user.id, user.email);
       if (!identity) {
         return res.status(400).json({ message: "Vi mangler din e-mail for at kunne fakturere." });
       }
 
-      // The approval is scoped to the revision the customer is looking at.
-      await updateDecisionByUser(user.id, {
-        decisionState: "approved",
-        paymentMethodChoice: method,
-        approvedRevision: snapshot.siteRevision,
-        approvedAt: new Date(),
-        decidedAt: new Date(),
+      const approval = await approveReadyDraftAtomically({
+        userId: user.id,
+        websiteId: owned.websiteId,
+        paymentMethod: method,
       });
+      if (!approval.ok) {
+        if (approval.reason === "paid") {
+          return res.status(409).json({ message: "Der er allerede betalt.", code: "ALREADY_PAID" });
+        }
+        return res.status(409).json({
+          message: approval.reason === "generating"
+            ? "Hjemmesiden er ikke færdig endnu."
+            : "AI-udkastet er ikke klar til godkendelse endnu.",
+          code: approval.reason === "generating" ? "GENERATION_INCOMPLETE" : "NON_PUBLISHABLE_DRAFT",
+        });
+      }
 
       const actor = {
         userId: user.id,
         email: identity.email,
         name: identity.name,
         websiteId: owned.websiteId,
-        onboardingSessionId: String(owned.session.id),
-        revision: snapshot.siteRevision,
+        onboardingSessionId: String(approval.session.id),
+        revision: approval.revision,
       };
 
       if (method === "card") {
@@ -462,6 +537,30 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         });
       } catch (error: any) {
         console.error("[Onboarding] ready-for-review failed:", error);
+        res.status(500).json({ message: error.message });
+      }
+    }
+  );
+
+  /** Staff handoff: the booking already references this onboarding session and exact website. */
+  app.get(
+    "/api/admin/onboarding/:userId/migration-report",
+    requireAuth,
+    requireAdmin,
+    async (req, res) => {
+      try {
+        const session = await storage.getOnboardingSession(req.params.userId);
+        if (!session?.answers?.websiteImport?.report) {
+          return res.status(404).json({ message: "Ingen migrationsrapport for den bruger." });
+        }
+        res.json({
+          websiteId: session.websiteId,
+          siteRevision: session.siteRevision,
+          report: session.answers.websiteImport.report,
+          analysis: session.answers.websiteImport.analysis ?? null,
+          selection: session.answers.websiteImport.selection ?? null,
+        });
+      } catch (error: any) {
         res.status(500).json({ message: error.message });
       }
     }

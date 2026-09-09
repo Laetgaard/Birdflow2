@@ -68,6 +68,8 @@ export const AI_ROLES = [
   "brandGuide",
   /** The onboarding walkthrough's own tool-using loop. */
   "onboarding",
+  /** Source-grounded analysis of an existing public website before import. */
+  "websiteMigration",
   /** Level B of the self-review: recommendations, never mutations. */
   "selfReview",
   /** Visual review: screenshot → Kimi K3 vision → structured VisualIssue[]. */
@@ -226,6 +228,17 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
     model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 2048,
     maxRunCostUsd: 1,
+  },
+  // One bounded analysis pass over the crawler's structured, truncated
+  // manifest. This role may recommend and summarise, but it never writes the
+  // customer's site or fetches additional URLs itself.
+  websiteMigration: {
+    provider: "kimi",
+    model: KIMI_MODEL,
+    maxCompletionTokens: 4096,
+    maxRunCostUsd: 0.35,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
   },
 
   // ── Visual design review → Kimi K3 (vision support required) ─────────

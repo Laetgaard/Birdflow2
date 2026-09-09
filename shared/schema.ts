@@ -261,7 +261,7 @@ export type OnboardingChatMessage = {
 // uploads) are written by the client via /api/onboarding/session/record,
 // never round-tripped through the model.
 export type OnboardingAnswers = {
-  path?: "ai" | "diy";
+  path?: "ai" | "diy" | "import";
   /**
    * The language the customer picked right after the AI-vs-DIY fork. Mirrored
    * onto websites.language the moment it is recorded; absent means Danish.
@@ -285,6 +285,14 @@ export type OnboardingAnswers = {
   plan?: unknown;
   /** Domain the user wants; connected from /manage after payment. */
   desiredDomain?: string;
+  /** Resumable discovery, report and approval state for an existing website. */
+  websiteImport?: import("./websiteImport").WebsiteImportState;
+  /**
+   * Three real, renderable onboarding candidates. The selected candidate is
+   * also promoted into builder_state; the bundle remains the immutable
+   * comparison/evidence set until the customer starts editing.
+   */
+  designDirections?: import("./onboardingDirections").OnboardingDirectionBundle;
 };
 
 // The onboarding walkthrough's server-side home. The old wizard kept
@@ -1709,6 +1717,8 @@ export type AdminUserWithStats = {
   fullName: string;
   phoneNumber: string;
   isAdmin: boolean;
+  /** Explicit server-side QA fixture classification; never inferred by the UI. */
+  isQa: boolean;
   onboardingCompleted: boolean;
   createdAt: Date;
   websiteCount: number;
@@ -1729,6 +1739,8 @@ export type AdminWebsiteWithOwner = {
   ownerId: string;
   ownerEmail: string;
   ownerName: string;
+  /** True only when the website belongs to one of the reserved QA users. */
+  isQa: boolean;
   orderCount: number;
   bookingCount: number;
 };

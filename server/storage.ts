@@ -5,6 +5,9 @@ import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import { performSvgExtraction } from "./svgExtraction";
 import { svgAssetSchemaReady } from "./svgAssetSchema";
+import { isReservedQaFixtureEmail } from "@shared/qaFixturePolicy";
+import { onboardingStateFingerprint } from "./onboardingQuality";
+import { resolveSupabaseDbUrl } from "./supabaseDbUrl";
 
 // Encryption helpers for sensitive data
 // ENCRYPTION_KEY must be a 64-character hex string (32 bytes)
@@ -109,7 +112,7 @@ import { SEEDED_TEMPLATE_TYPES, defaultEmailTemplates } from "./email/defaultTem
 
 // Use Supabase database as primary storage
 // Try SUPABASE_DB_URL first (pooled), then fallback to SUPABASE_DATABASE_URL
-const supabaseDbUrl = process.env.SUPABASE_DB_URL || process.env.SUPABASE_DATABASE_URL;
+const supabaseDbUrl = resolveSupabaseDbUrl();
 
 if (!supabaseDbUrl) {
   console.error("SUPABASE_DB_URL or SUPABASE_DATABASE_URL is not set. Database operations will fail.");
@@ -235,6 +238,11 @@ export interface IStorage {
   
   // Builder state methods
   getBuilderState(websiteId: string): Promise<BuilderState | undefined>;
+  prepareBuilderStateForSave(
+    websiteId: string,
+    state: BuilderStateData,
+    origin?: "ai" | "customer"
+  ): Promise<void>;
   createBuilderState(
     websiteId: string,
     state?: BuilderStateData,
@@ -344,6 +352,16 @@ export interface IStorage {
     }
   ): Promise<OnboardingSession>;
   persistOnboardingGenStatus(websiteId: string, status: Record<string, unknown>): Promise<void>;
+  claimOnboardingGeneration(
+    websiteId: string,
+    status: Record<string, unknown>,
+    mode: "initial" | "retry" | "recover"
+  ): Promise<boolean>;
+  finishOnboardingGeneration(
+    websiteId: string,
+    status: Record<string, unknown>,
+    publishable: boolean
+  ): Promise<boolean>;
 
   // Admin methods
   getAdminOverviewStats(): Promise<AdminOverviewStats>;
@@ -686,6 +704,15 @@ export class DatabaseStorage implements IStorage {
       schemaReady: () => svgAssetSchemaReady(db),
       createAsset: (input) => this.createSvgAsset({ websiteId, ...input }),
     });
+  }
+
+  /** Prepare a state for an atomic write performed by another persistence transaction. */
+  async prepareBuilderStateForSave(
+    websiteId: string,
+    state: BuilderStateData,
+    origin?: "ai" | "customer"
+  ): Promise<void> {
+    await this.extractSvgAssetsBeforeSave(websiteId, state, origin);
   }
 
   async createBuilderState(
@@ -2144,10 +2171,113 @@ export class DatabaseStorage implements IStorage {
 
   /** Fire-and-forget mirror of a generation status, keyed by website. */
   async persistOnboardingGenStatus(websiteId: string, status: Record<string, unknown>): Promise<void> {
+    const attempt = Number(status.attempt ?? 0);
     await db
       .update(onboardingSessions)
       .set({ genStatus: status, updatedAt: new Date() } as any)
-      .where(eq(onboardingSessions.websiteId, websiteId));
+      .where(and(
+        eq(onboardingSessions.websiteId, websiteId),
+        eq(onboardingSessions.generationState, "generating"),
+        sql`COALESCE((${onboardingSessions.genStatus} ->> 'attempt')::int, 0) = ${attempt}`
+      ));
+  }
+
+  /**
+   * Claim the right to launch one onboarding generation before any background
+   * work starts. The generation state and initial status move together in one
+   * database write, so a lost SSE response or reload can always discover the
+   * run. Recovery is only allowed after the persisted heartbeat is stale.
+   */
+  async claimOnboardingGeneration(
+    websiteId: string,
+    status: Record<string, unknown>,
+    mode: "initial" | "retry" | "recover"
+  ): Promise<boolean> {
+    const staleBefore = Date.now() - 30_000;
+    const allowed =
+      mode === "initial"
+        ? sql`${onboardingSessions.generationState} = 'not_started'`
+        : mode === "retry"
+          ? sql`${onboardingSessions.generationState} = 'failed'`
+          : sql`${onboardingSessions.generationState} = 'generating'
+              AND COALESCE((${onboardingSessions.genStatus} ->> 'updatedAt')::bigint, 0) < ${staleBefore}`;
+    const rows = await db
+      .update(onboardingSessions)
+      .set({
+        generationState: "generating",
+        genStatus: status,
+        updatedAt: new Date(),
+      } as any)
+      .where(and(eq(onboardingSessions.websiteId, websiteId), allowed))
+      .returning({ id: onboardingSessions.id });
+    return rows.length === 1;
+  }
+
+  /** Atomically persist the terminal status and the decision-state outcome. */
+  async finishOnboardingGeneration(
+    websiteId: string,
+    status: Record<string, unknown>,
+    publishable: boolean
+  ): Promise<boolean> {
+    const attempt = Number(status.attempt ?? 0);
+    return db.transaction(async (tx) => {
+      // Lock in the same order as explicit builder saves: builder, then
+      // onboarding session. This makes certification one serializable moment.
+      const [builder] = await tx
+        .select()
+        .from(builderState)
+        .where(eq(builderState.websiteId, websiteId))
+        .for("update");
+      const [session] = await tx
+        .select()
+        .from(onboardingSessions)
+        .where(eq(onboardingSessions.websiteId, websiteId))
+        .for("update");
+      if (
+        !session ||
+        Number((session.genStatus as Record<string, unknown> | null)?.attempt ?? 0) !== attempt
+      ) {
+        return false;
+      }
+      if (publishable) {
+        const certifiedRevision = Number(status.qualityBuilderRevision);
+        if (
+          !builder ||
+          !Number.isFinite(certifiedRevision) ||
+          builder.revision !== certifiedRevision ||
+          status.qualityFingerprint !== onboardingStateFingerprint(builder.state as BuilderStateData)
+        ) {
+          return false;
+        }
+        status.qualitySiteRevision = session.siteRevision + 1;
+      }
+      const terminalValues = publishable
+        ? {
+            generationState: "complete",
+            genStatus: status,
+            siteRevision: sql`${onboardingSessions.siteRevision} + 1`,
+            approvedRevision: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+              THEN ${onboardingSessions.approvedRevision} ELSE NULL END`,
+            approvedAt: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+              THEN ${onboardingSessions.approvedAt} ELSE NULL END`,
+            decisionState: sql`CASE WHEN ${onboardingSessions.paymentState} = 'paid'
+              THEN ${onboardingSessions.decisionState}
+              WHEN ${onboardingSessions.decisionState} = 'approved' THEN 'awaiting_decision'
+              ELSE ${onboardingSessions.decisionState} END`,
+            updatedAt: new Date(),
+          }
+        : {
+            generationState: "failed",
+            genStatus: status,
+            updatedAt: new Date(),
+          };
+      const rows = await tx
+        .update(onboardingSessions)
+        .set(terminalValues as any)
+        .where(eq(onboardingSessions.id, session.id))
+        .returning({ id: onboardingSessions.id });
+      return rows.length === 1;
+    });
   }
 
   /**
@@ -2437,6 +2567,7 @@ export class DatabaseStorage implements IStorage {
         fullName: profile.fullName,
         phoneNumber: profile.phoneNumber,
         isAdmin: profile.isAdmin ?? false,
+        isQa: isReservedQaFixtureEmail(profile.email),
         onboardingCompleted: profile.onboardingCompleted,
         createdAt: profile.createdAt,
         websiteCount: userWebsites.length,
@@ -2518,6 +2649,7 @@ export class DatabaseStorage implements IStorage {
         ownerId: website.ownerId,
         ownerEmail: owner?.email ?? 'Unknown',
         ownerName: owner?.fullName ?? 'Unknown',
+        isQa: isReservedQaFixtureEmail(owner?.email),
         orderCount: websiteOrders.length,
         bookingCount: websiteBookings.length,
       };
