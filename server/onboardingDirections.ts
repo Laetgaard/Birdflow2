@@ -12,6 +12,7 @@ import type {
   WebsiteBriefAsset,
 } from "@shared/onboardingDirections";
 import type { OnboardingGenInput } from "./onboardingGenerator";
+import { practiceProfileFacts } from '../shared/practiceProfile';
 import {
   evaluateOnboardingQuality,
   onboardingStateFingerprint,
@@ -70,7 +71,7 @@ function classifyContent(value: string): WebsiteBrief["content"][number]["role"]
 }
 
 export function buildWebsiteBrief(
-  input: OnboardingGenInput,
+  input: Pick<OnboardingGenInput, 'business' | 'wishes' | 'feeling' | 'ownImageUrls' | 'migration' | 'plan' | 'language' | 'practice'> & Partial<Pick<OnboardingGenInput, 'palette' | 'fontPair'>>,
   context: BusinessContext,
 ): WebsiteBrief {
   const customerFacts = [
@@ -80,22 +81,24 @@ export function buildWebsiteBrief(
     ...sentences(input.wishes.notes),
   ].filter(Boolean);
   const importedFacts = input.migration?.sourceFacts ?? [];
-  const existingFacts = (context.facts ?? []).map((fact) => fact.text);
+  const practiceFacts = practiceProfileFacts(context.practice ?? input.practice, input.language);
+  const existingFacts = (context.facts ?? []).filter(fact => !fact.id?.startsWith('practice-person-') && !fact.id?.startsWith('practice-service-')).map(fact => fact.text);
   const facts = [
+    ...practiceFacts.map(fact => ({ id: fact.id, value: fact.text, source: 'customer' as const })),
     ...customerFacts.map((value, index) => ({
-      id: `customer-${index}`,
+      id: stableId('customer', value),
       value,
       source: "customer" as const,
       protected: index === 0,
     })),
     ...importedFacts.map((value, index) => ({
-      id: `import-${index}`,
+      id: stableId('import', value),
       value,
       source: "import" as const,
     })),
     ...existingFacts
       .filter((value) => !customerFacts.includes(value) && !importedFacts.includes(value))
-      .map((value, index) => ({ id: `existing-${index}`, value, source: "existing" as const })),
+      .map((value) => ({ id: stableId('existing', value), value, source: "existing" as const })),
   ];
   const uniqueFacts = facts.filter(
     (fact, index) => facts.findIndex((candidate) => candidate.value.trim() === fact.value.trim()) === index,
@@ -109,7 +112,7 @@ export function buildWebsiteBrief(
     quality: "unknown",
     possibleUsage: index === 0 ? ["hero", "about"] : ["about", "service", "environment"],
     preferredCrop: index === 0 ? "16:10 focal crop" : "4:3 content crop",
-    heroSuitable: index === 0,
+    heroSuitable: false,
   }));
   const missingInformation = [
     !input.business.description.trim() ? "business description" : "",
@@ -119,9 +122,12 @@ export function buildWebsiteBrief(
   ].filter(Boolean);
   return {
     version: 1,
+    language: input.language === 'en' ? 'en' : 'da',
+    practice: context.practice ?? input.practice,
+    design: { feeling: input.feeling, palette: input.palette?.colors, headingFont: input.fontPair?.heading, bodyFont: input.fontPair?.body },
     businessName: input.business.name,
     industry: input.business.industry,
-    audience: input.plan?.analysis?.targetAudience,
+    audience: context.practice?.audience ?? input.practice?.audience ?? context.audience,
     toneOfVoice: input.feeling,
     goals: [...input.wishes.goals],
     facts: uniqueFacts,
@@ -481,8 +487,6 @@ export function directionCandidatePassesGate(candidate: OnboardingDirectionCandi
   );
   return (
     candidate.qualityIssues.length === 0 &&
-    candidate.qualityScore.overall >= 65 &&
-    candidate.qualityScore.directionUniqueness >= 50 &&
     candidate.visualReview.ran &&
     !blockingVisual
   );

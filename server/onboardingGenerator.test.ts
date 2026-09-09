@@ -9,17 +9,19 @@ import { createDefaultBrandGuide } from "@shared/customComponents";
 // before it writes, so a mock that always returned the blank state would
 // make it look as if the pipeline had thrown the built pages away.
 let lastSavedState: BuilderStateData | null = null;
+let lastRevision = 3;
 const updateBuilderStateMock = vi.fn(async (_id: string, state: BuilderStateData) => {
   lastSavedState = state;
-  return undefined;
+  return { revision: ++lastRevision, state };
 });
-const getBuilderStateMock = vi.fn(async () => ({ revision: 3, state: lastSavedState ?? blankState() }));
+const getBuilderStateMock = vi.fn(async () => ({ revision: lastRevision, state: lastSavedState ?? blankState() }));
 const getMediaAssetsMock = vi.fn(async () => []);
 const upsertOnboardingSessionMock = vi.fn(async () => ({}));
-const persistDirectionBundleMock = vi.fn(async (args: any) => ({
-  revision: args.expectedBuilderRevision + 1,
-  state: args.bundle.directions[0].state,
-}));
+const persistDirectionBundleMock = vi.fn(async (args: any) => {
+  lastSavedState = args.bundle.directions[0].state;
+  lastRevision = args.expectedBuilderRevision + 1;
+  return { revision: lastRevision, state: lastSavedState };
+});
 
 const persistGenStatusMock = vi.fn(async () => {});
 const claimGenerationMock = vi.fn(async () => true);
@@ -202,11 +204,13 @@ async function waitForDone(websiteId: string, timeoutMs = 3000) {
 beforeEach(() => {
   vi.clearAllMocks();
   lastSavedState = null;
-  updateBuilderStateMock.mockImplementation(async (_id: string, state: BuilderStateData) => {
+  lastRevision = 3;
+  updateBuilderStateMock.mockImplementation(async (_id: string, state: BuilderStateData, expectedRevision?: number) => {
+    if (expectedRevision !== undefined && expectedRevision !== lastRevision) return undefined;
     lastSavedState = state;
-    return undefined;
+    return { revision: ++lastRevision, state };
   });
-  getBuilderStateMock.mockImplementation(async () => ({ revision: 3, state: lastSavedState ?? blankState() }));
+  getBuilderStateMock.mockImplementation(async () => ({ revision: lastRevision, state: lastSavedState ?? blankState() }));
   checkPublishParityMock.mockResolvedValue({ status: "passed", problems: [] });
   finalizeBrandGuideMock.mockResolvedValue({
     guide: createDefaultBrandGuide({
@@ -249,14 +253,15 @@ describe("startOnboardingGeneration — happy path", () => {
     expect(status.phasesDone).toEqual(["brandguide", "plan", "build", "enhance", "check"]);
     expect(status.summary).toContain("nordisk");
 
-    // Three saves: brand guide first (survives later failures), then the
+    // Four saves: requirements, brand guide, then the
     // final site and enriched guide. Direction promotion is one DB transaction.
-    expect(updateBuilderStateMock).toHaveBeenCalledTimes(3);
-    const [guideSaveId, guideSaveState] = updateBuilderStateMock.mock.calls[0];
+    expect(updateBuilderStateMock).toHaveBeenCalledTimes(4);
+    expect(updateBuilderStateMock.mock.calls[0][1].websiteBrief).toBeDefined();
+    const [guideSaveId, guideSaveState] = updateBuilderStateMock.mock.calls[1];
     expect(guideSaveId).toBe(id);
     expect((guideSaveState as BuilderStateData).brandGuide?.colors.primary).toBe(palette.colors.primary);
 
-    const finalState = updateBuilderStateMock.mock.calls[1][1] as BuilderStateData;
+    const finalState = updateBuilderStateMock.mock.calls[2][1] as BuilderStateData;
     expect(finalState.pages.length).toBe(2);
     expect(finalState.brandGuide?.typography.headingFont).toBe("Fraunces");
     expect(finalState.globalStyles.primaryColor).toBe(palette.colors.primary);
@@ -317,9 +322,10 @@ describe("startOnboardingGeneration — happy path", () => {
           props: { title: "Kort" },
           styles: {},
         }] as BuilderStateData["pages"][number]["components"];
-        return { state: concurrentlyChanged, revision: 99 };
+        lastRevision = 99;
+        return { state: concurrentlyChanged, revision: lastRevision };
       }
-      return { state: lastSavedState ?? blankState(), revision: reads };
+      return { state: lastSavedState ?? blankState(), revision: lastRevision };
     });
 
     const id = "site-concurrent-final-write";
@@ -362,7 +368,7 @@ describe("startOnboardingGeneration — happy path", () => {
     await startOnboardingGeneration(id, makeInput());
     const status = await waitForDone(id);
     expect(status.fallback).toBe(false);
-    const finalState = updateBuilderStateMock.mock.calls[1][1] as BuilderStateData;
+    const finalState = updateBuilderStateMock.mock.calls[2][1] as BuilderStateData;
     expect(finalState.brandGuide?.colors.primary).toBe(palette.colors.primary);
     expect(finalState.brandGuide?.typography.headingFont).toBe("Fraunces");
     expect(finalState.brandGuide?.typography.scale).toBe("modern");
@@ -376,7 +382,7 @@ describe("startOnboardingGeneration — happy path", () => {
 
     expect(status.fallback).toBe(false);
     expect(status.done).toBe(true);
-    const finalState = updateBuilderStateMock.mock.calls[1][1] as BuilderStateData;
+    const finalState = updateBuilderStateMock.mock.calls[2][1] as BuilderStateData;
     expect(finalState.pages.length).toBe(2);
     expect(status.report!.tjek.join(" ")).toContain("ekstra designrunde");
   });

@@ -33,7 +33,7 @@ import {
   AIPrimitiveNodeSchema,
 } from '@shared/aiBuilderSchema';
 import { resolvePrimitiveStyles, sanitizePrimitiveTree, type PrimitiveNode } from '@shared/customComponents';
-import { generateComponentRenderer, generateGlobalsCss } from '../server/publisher/templates';
+import { generateComponentRenderer, generateGlobalsCss, generateTrustedRuntime } from '../server/publisher/templates';
 
 const SOFT = MOTION_TABLES.easings.soft;
 const SPRING = MOTION_TABLES.easings.spring;
@@ -477,7 +477,7 @@ describe('vocabulary/runtime coverage contract', () => {
 });
 
 describe('the generated project carries the motion runtime', () => {
-  const source = generateComponentRenderer('da');
+  const source = generateComponentRenderer('da') + '\n' + generateTrustedRuntime();
 
   it('bakes the tables and all four resolvers', () => {
     expect(source).toContain('"very-slow":1200'); // MOTION_TABLES as JSON

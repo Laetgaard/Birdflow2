@@ -511,6 +511,11 @@ export const AIPrimitiveNodeSchema: z.ZodType<AIPrimitiveNode> = z.lazy(() =>
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg, path: ['capabilityConfig', field] });
 
       if (val.capability === 'booking') {
+        for (const field of ['title', 'description', 'buttonText']) {
+          if (cfg[field] != null && typeof cfg[field] !== 'string') issue(field, `booking.${field} must be text`);
+        }
+        if (cfg.headingVisible != null && typeof cfg.headingVisible !== 'boolean')
+          issue('headingVisible', 'booking.headingVisible must be a boolean');
         if (cfg.variant != null && !['default', 'compact', 'inline'].includes(String(cfg.variant)))
           issue('variant', "booking.variant must be 'default', 'compact', or 'inline'");
         if (cfg.displayMode != null && !['calendar', 'list'].includes(String(cfg.displayMode)))

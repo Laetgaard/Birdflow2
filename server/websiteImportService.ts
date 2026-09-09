@@ -386,6 +386,7 @@ export async function approveWebsiteImport(
   ].filter(Boolean).join("\n\n").slice(0, 12_000);
 
   const input: OnboardingGenInput = {
+    practice: session?.answers?.practice,
     business: {
       name: selectedAnalysis.businessName,
       industry: selectedAnalysis.industry,

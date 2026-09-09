@@ -426,8 +426,18 @@ export async function createPublishJobWithSnapshot(params: {
   requestedBy: string;
   idempotencyKey?: string;
   content: BuilderStateData;
+  expectedRevision?: number;
 }): Promise<{ job: PublishJob; versionId: string }> {
   return await db.transaction(async (tx) => {
+    if (params.expectedRevision !== undefined) {
+      // Lock until snapshot insertion finishes; a concurrent autosave must
+      // happen entirely before or after the accepted revision is captured.
+      const current = await tx.execute(sql`SELECT revision FROM builder_state WHERE website_id = ${params.websiteId} FOR SHARE`);
+      const revision = (current.rows as Array<{ revision: number }>)[0]?.revision;
+      if (revision !== params.expectedRevision) {
+        throw Object.assign(new Error('The website changed before publication. Review its latest version.'), { code: 'STALE_PUBLISH_REVISION' });
+      }
+    }
     const snapshotHash = hashCanonicalSnapshot(params.content);
     const jobResult = await tx.execute(
       sql`INSERT INTO publish_jobs (website_id, requested_by, status, idempotency_key, snapshot_hash)

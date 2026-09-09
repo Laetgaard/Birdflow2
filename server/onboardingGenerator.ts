@@ -1,3 +1,6 @@
+import { practiceProfileFacts, practiceProfilePrompt, type PracticeProfile } from '../shared/practiceProfile';
+import { prepareWebsiteBrief, websiteBriefPrompt } from './websiteBrief';
+import { scopedOnboardingRepairs } from './onboardingRepairScope';
 /**
  * AI onboarding generation pipeline.
  *
@@ -46,7 +49,6 @@ import {
   applyDirectionManifestToState,
   bindAssetPlacementsToState,
   buildDirectionCandidate,
-  buildWebsiteBrief,
   createCreativeDirectionManifests,
   directionCandidatePassesGate,
   renderedDirectionDifferenceScore,
@@ -79,6 +81,7 @@ import type {
 // ============ Input ============
 
 export type OnboardingGenInput = {
+  practice?: PracticeProfile;
   business: {
     name: string;
     industry: string;
@@ -102,6 +105,9 @@ export type OnboardingGenInput = {
    * what was approved is what gets built.
    */
   plan?: WebsitePlan;
+  planBriefFingerprint?: string;
+  /** One finished website by default; explicit alternative exploration only. */
+  directionCount?: 1 | 3;
   /**
    * The language the customer picked in onboarding. Everything this pipeline
    * writes - the plan prompt, the enhancement prompt, the brand-guide
@@ -529,6 +535,13 @@ async function runPipeline(
     language: lang,
     existing: initialState.businessContext,
   });
+  if (input.practice) {
+    businessContext.practice = input.practice;
+    businessContext.audience ||= input.practice.audience;
+    businessContext.location ||= input.practice.location;
+    businessContext.services = input.practice.services?.map(service => service.name) ?? [];
+    businessContext.facts = [...(businessContext.facts || []).filter(fact => !fact.id.startsWith('practice-person-') && !fact.id.startsWith('practice-service-')), ...practiceProfileFacts(input.practice, lang)];
+  }
   if (input.migration) {
     businessContext.facts = [
       ...(businessContext.facts ?? []),
@@ -545,6 +558,16 @@ async function runPipeline(
         : []),
     ];
   }
+
+  const session = await storage.getOnboardingSessionByWebsiteId(websiteId);
+  const websiteBrief = prepareWebsiteBrief(input, businessContext, initialState.websiteBrief ?? session?.answers?.websiteBrief);
+  if (input.plan && input.planBriefFingerprint && input.planBriefFingerprint !== websiteBrief.fingerprint) {
+    throw new Error('The practice brief changed after the design plan was reviewed. Create a fresh plan before building.');
+  }
+  // Carry the early snapshot through every subsequent state replacement.
+  initialState.websiteBrief = websiteBrief;
+  const briefSaved = await storage.updateBuilderState(websiteId, { ...initialState, businessContext }, builderData.revision, { svgAssetOrigin: 'ai' });
+  if (!briefSaved) throw new Error('The website changed while its brief was prepared. Please retry from the current revision.');
 
   // Building one website is one thing the customer asked for: the brand pass,
   // the plan, the build, the enhancement and its images share one ceiling.
@@ -608,7 +631,8 @@ async function runPipeline(
   stateWithGuide.brandGuide = guide;
   stateWithGuide.businessContext = businessContext;
   stateWithGuide.globalStyles = { ...stateWithGuide.globalStyles, ...brandGuideToDesignTokens(guide) };
-  await storage.updateBuilderState(websiteId, stateWithGuide, undefined, { svgAssetOrigin: "ai" });
+  const guideSaved = await storage.updateBuilderState(websiteId, stateWithGuide, briefSaved.revision, { svgAssetOrigin: "ai" });
+  if (!guideSaved) throw new Error('The website changed during design preparation. Your latest edits were preserved.');
 
   // ---- Phase 2: plan ----
   setPhase(status, "plan", t.phasePlan);
@@ -620,7 +644,7 @@ async function runPipeline(
   } else if (!spendLimited) {
     try {
       const planResult = await analyzeAndPlanWebsite(
-        buildPlanPrompt(input),
+        [buildPlanPrompt(input), websiteBriefPrompt(websiteBrief)].join("\n\n"),
         undefined,
         undefined,
         spendMeter,
@@ -657,7 +681,7 @@ async function runPipeline(
 
   if (!builtState) {
     // AI plan/build failed → deterministic starter site, still branded.
-    return applyFallback(websiteId, input, guide, businessContext, guideNotes, status, spendLimited);
+    return applyFallback(websiteId, input, guide, businessContext, guideNotes, status, spendLimited, guideSaved.revision);
   }
 
   // Carry the brand guide + user choices into the freshly built state.
@@ -665,6 +689,7 @@ async function runPipeline(
   builtState.customComponents = stateWithGuide.customComponents ?? [];
   builtState.globalStyles = { ...builtState.globalStyles, ...brandGuideToDesignTokens(guide) };
   builtState.businessContext = businessContext;
+  builtState.websiteBrief = websiteBrief;
 
   // Strip invented claims from the architect's output BEFORE the enhance
   // pass reads it: the enhance validation treats what stands on the site
@@ -683,7 +708,7 @@ async function runPipeline(
   try {
     if (spendLimited) throw new Error("spend limit reached earlier in this generation");
     const aiResponse = await processAIBuildRequest(
-      buildEnhancePrompt(input),
+      [buildEnhancePrompt(input), websiteBriefPrompt(websiteBrief)].join('\n\n'),
       builtState,
       "creative",
       lang,
@@ -733,7 +758,9 @@ async function runPipeline(
   // One bounded, finding-led repair attempt. It edits the existing result
   // instead of paying to rebuild the whole website, and each valid mutation
   // survives even when a sibling mutation is malformed.
+  let repairAlreadyUsed = false;
   if (!quality.ready && !spendLimited && !enhancementFailed) {
+    repairAlreadyUsed = true;
     try {
       const repairResponse = await processAIBuildRequest(
         buildQualityRepairPrompt(input, quality.issues),
@@ -744,7 +771,7 @@ async function runPipeline(
       );
       const resolved = await resolveAiImageMarkers(
         websiteId,
-        repairResponse.mutations,
+        scopedOnboardingRepairs(repairResponse.mutations, quality.issues).allowed,
         guide,
         spendMeter
       );
@@ -775,7 +802,8 @@ async function runPipeline(
     }
   }
 
-  await storage.updateBuilderState(websiteId, finalState, undefined, { svgAssetOrigin: "ai" });
+  const generatedSaved = await storage.updateBuilderState(websiteId, finalState, guideSaved.revision, { svgAssetOrigin: "ai" });
+  if (!generatedSaved) throw new Error('The website changed during generation. Your latest edits were preserved.');
 
   // ---- Phase 6: brand-guide enrichment ----
   // Runs on the finished site so the guide can show the customer's own
@@ -819,6 +847,7 @@ async function runPipeline(
   const baseQualityIssues = [...quality.issues];
 
   const directionBundle = await createAndPersistDirectionBundle({
+    repairAlreadyUsed,
     websiteId,
     input,
     businessContext,
@@ -845,7 +874,7 @@ async function runPipeline(
         code: "direction_quality",
         message:
           `${direction.manifest.name} did not pass the candidate gate ` +
-          `(score ${direction.qualityScore.overall}, uniqueness ${direction.qualityScore.directionUniqueness}, ` +
+          `(` +
           `${direction.qualityIssues.length} content issue(s), ${blockingVisual.length} blocking visual issue(s), ` +
           `visual review ${direction.visualReview.ran ? "completed" : "unavailable"}).`,
       });
@@ -949,17 +978,22 @@ async function createAndPersistDirectionBundle(args: {
   expectedBuilderRevision?: number;
   spendMeter?: SpendMeter;
   allowAiReview: boolean;
+  repairAlreadyUsed?: boolean;
 }): Promise<OnboardingDirectionBundle> {
   const language = normalizeSiteLanguage(args.input.language);
-  const brief = buildWebsiteBrief(args.input, args.businessContext);
+  const brief = args.baseState.websiteBrief?.brief ?? prepareWebsiteBrief(args.input, args.businessContext).brief;
   if (typeof args.expectedBuilderRevision !== "number") {
     throw new Error("Builder revision is required before generating design directions.");
   }
-  const manifests = createCreativeDirectionManifests(args.input, args.plan, args.guide, brief)
+  const manifests = createCreativeDirectionManifests(args.input, args.plan, args.guide, brief).slice(0, args.input.directionCount === 3 ? 3 : 1)
     .map((manifest) => bindAssetPlacementsToState(manifest, args.baseState));
-  const initialStates = manifests.map((manifest) =>
-    applyDirectionManifestToState(args.baseState, manifest),
-  );
+  // The default candidate is the actual planned build, not a restyled copy.
+  const initialStates = manifests.map((manifest) => manifests.length === 1 ? structuredClone(args.baseState) : applyDirectionManifestToState(args.baseState, manifest));
+  if (manifests.length === 1) {
+    manifests[0].name = language === 'en' ? 'Your website draft' : 'Dit hjemmesideudkast';
+    manifests[0].concept = args.input.feeling;
+  }
+  let repairUsed = args.repairAlreadyUsed === true;
   const candidates: OnboardingDirectionCandidate[] = [];
 
   for (let manifestIndex = 0; manifestIndex < manifests.length; manifestIndex++) {
@@ -976,7 +1010,8 @@ async function createAndPersistDirectionBundle(args: {
       const blocking = visual.issues.filter(
         (issue) => issue.severity === "critical" || issue.severity === "high",
       );
-      if (blocking.length > 0) {
+      if (blocking.length > 0 && !repairUsed) {
+        repairUsed = true;
         try {
           const repair = await processAIBuildRequest(
             buildDirectionRepairPrompt(args.input, manifest, blocking),
@@ -987,7 +1022,7 @@ async function createAndPersistDirectionBundle(args: {
           );
           const resolved = await resolveAiImageMarkers(
             args.websiteId,
-            repair.mutations,
+            scopedOnboardingRepairs(repair.mutations, blocking).allowed,
             args.guide,
             args.spendMeter,
           );
@@ -1017,7 +1052,7 @@ async function createAndPersistDirectionBundle(args: {
       visualIssues: visual.issues,
       visualRan: visual.ran,
       visualWarnings: visual.warnings,
-      uniqueness: Math.min(
+      uniqueness: initialStates.length === 1 ? 100 : Math.min(
         ...initialStates
           .filter((_, index) => index !== manifestIndex)
           .map((otherState) => renderedDirectionDifferenceScore(state, otherState)),
@@ -1112,12 +1147,15 @@ async function applyFallback(
   businessContext: BusinessContext,
   guideNotes: string[],
   status: OnboardingGenStatus,
-  spendLimited = false
+  spendLimited = false,
+  expectedRevision?: number,
 ): Promise<boolean> {
   const t = GEN_STRINGS[normalizeSiteLanguage(input.language)];
   setPhase(status, "check", t.phaseFallback);
   let state = buildFallbackState(input, guide);
   state.businessContext = businessContext;
+  const savedBeforeFallback = await storage.getBuilderState(websiteId);
+  state.websiteBrief = savedBeforeFallback?.state ? (savedBeforeFallback.state as BuilderStateData).websiteBrief : prepareWebsiteBrief(input, businessContext);
   const claimScrub = scrubStateClaims(state, businessContext);
   state = claimScrub.state;
   const check = runSelfCheck(state);
@@ -1125,7 +1163,9 @@ async function applyFallback(
   sanitizeBuilderStateCustomContent(state);
   // Fallback sites get the same structure a generated site is born with.
   state = migrateSiteStructure(state);
-  await storage.updateBuilderState(websiteId, state, undefined, { svgAssetOrigin: "ai" });
+  if (expectedRevision === undefined) throw new Error('Fallback requires the generation revision.');
+  const saved = await storage.updateBuilderState(websiteId, state, expectedRevision, { svgAssetOrigin: "ai" });
+  if (!saved) throw new Error('The website changed during fallback. Your latest edits were preserved.');
 
   // A fallback site still gets a full brand guide - it is half of what the
   // customer is about to be shown.
@@ -1204,7 +1244,8 @@ async function enrichSavedBrandGuide(
     );
     const current = await storage.getBuilderState(websiteId);
     const latest = (current?.state as BuilderStateData | undefined) ?? state;
-    await storage.updateBuilderState(websiteId, { ...latest, brandGuide: enriched });
+    if (!current || onboardingStateFingerprint(latest) !== onboardingStateFingerprint(state)) return;
+    await storage.updateBuilderState(websiteId, { ...latest, brandGuide: enriched }, current.revision);
   } catch (error) {
     console.error(`[OnboardingGen] Brand guide enrichment failed for ${websiteId}:`, error);
   }
