@@ -1,3 +1,5 @@
+import { practiceProfilePrompt } from '../shared/practiceProfile';
+import { websiteBriefPrompt } from './websiteBrief';
 import OpenAI from "openai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { BuilderStateData, BrandGuide } from "@shared/schema";
@@ -273,9 +275,13 @@ ${pages || "- ingen sider"}
 Aktiv side: ${state.activePage}
 Egne komponenter i biblioteket: ${library}
 
+${state.websiteBrief ? websiteBriefPrompt(state.websiteBrief, 'edit') : ''}
+
 ${brand}
 
-${buildBusinessContextPrompt(state.businessContext)}`;
+${buildBusinessContextPrompt(state.businessContext)}
+
+${practiceProfilePrompt(state.businessContext?.practice)}`;
 }
 
 /* ─────────── tool plumbing ─────────── */

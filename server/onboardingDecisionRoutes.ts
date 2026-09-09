@@ -40,6 +40,9 @@ import {
 import { brandGuideFileName, generateBrandGuidePdf } from "./brandGuidePdf";
 import { resolveAppOrigin } from "./stripeConnect";
 import { emailService } from "./email/service";
+import { evaluateWebsiteReadiness, loadBookingSetupCheck } from './websiteReadiness';
+import { generatePublishedPreview } from './publisher/generatedPreview';
+import { resolveSvgAssetsInState, collectReferencedSvgAssetIds } from '@shared/svgAssets';
 
 type Middleware = (req: Request, res: Response, next: NextFunction) => unknown;
 
@@ -126,6 +129,16 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         name: page.name,
         path: page.path,
       }));
+      const candidate = resume.session?.answers?.designDirections?.directions.find(
+        direction => direction.id === resume.session?.answers?.designDirections?.selectedDirectionId,
+      );
+      const readiness = state ? evaluateWebsiteReadiness({
+        state,
+        revision: builder?.revision ?? 0,
+        language: normalizeSiteLanguage(website.language),
+        candidate,
+        bookingSetup: await loadBookingSetupCheck(website.id, state, storage),
+      }) : null;
 
       res.json({
         stage: resume.stage,
@@ -136,6 +149,7 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         pages,
         brandGuide: guideOf(state, website.name),
         builderRevision: builder?.revision ?? 0,
+        readiness,
         previewFingerprint: structured ? previewFingerprint(structured) : null,
         report: (resume.session?.genStatus as Record<string, unknown> | null)?.report ?? null,
         generationStatus: resume.session?.genStatus ?? null,
@@ -196,6 +210,18 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       // than mutating a preview-only copy of the component tree.
       const assets = await storage.getSvgAssets(owned.websiteId);
       const svgAssets = Object.fromEntries(assets.map((asset) => [asset.id, asset]));
+      let publishedHtml: string | undefined;
+      if (req.query.renderer === 'published') {
+        const publishedState = structuredClone(structured);
+        resolveSvgAssetsInState(publishedState, new Map(assets.map(asset => [asset.id, asset])), resolveDesignTokens(publishedState.globalStyles ?? {}));
+        if (collectReferencedSvgAssetIds({ pages: publishedState.pages, siteChrome: publishedState.siteChrome }).size) {
+          return res.status(409).json({ message: 'Nogle illustrationer mangler. Ret dem inden forhåndsvisning.' });
+        }
+        publishedHtml = (await generatePublishedPreview({
+          state: publishedState, websiteId: owned.websiteId, revision: builder?.revision ?? 0,
+          language: normalizeSiteLanguage(website?.language), fingerprint,
+        })).html;
+      }
       const resolvedGlobalStyles = resolveDesignTokens(
         (structured.globalStyles ?? {}) as Parameters<typeof resolveDesignTokens>[0]
       );
@@ -217,6 +243,8 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
       res.json({
         websiteId: owned.websiteId,
         websiteName: website?.name ?? "",
+        publishedHtml,
+        language: normalizeSiteLanguage(website?.language),
          revision: builder?.revision ?? 0,
         fingerprint,
          directionId: candidate?.id ?? null,

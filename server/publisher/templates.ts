@@ -1,3 +1,6 @@
+import { bookingTimeError } from '../../shared/bookingRequest';
+import { createBookingView } from '../../shared/rendering/bookingView';
+import { createBehaviorRuntime } from '../../shared/rendering/behaviorRuntime';
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
 import {
@@ -10,8 +13,6 @@ import {
 import { APPROVED_FONTS, DEFAULT_FONT_STACK, googleFontsHref, resolveApprovedFontStack } from '../../shared/fonts';
 import { resolveDesignTokens } from '../../shared/designTokens';
 import {
-  CALENDAR_MONTHS,
-  CALENDAR_WEEKDAYS,
   DEFAULT_SITE_LANGUAGE,
   PUBLISHED_SITE_STRINGS,
   SITE_LOCALE,
@@ -141,6 +142,7 @@ STRIPE_SECRET_KEY=your-stripe-secret-key
 
 export function generateBookingApiRoute(websiteId: string): string {
   return `import { NextRequest, NextResponse } from 'next/server';
+const bookingTimeError: (date: unknown, time: unknown, openSlotId?: unknown) => string | null = ${bookingTimeError.toString()};
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -240,6 +242,9 @@ export async function POST(request: NextRequest) {
     if (!customerName || !customerEmail || !service || !date) {
       return NextResponse.json({ message: 'Customer name, email, service, and date are required' }, { status: 400 });
     }
+
+    const timeError = bookingTimeError(date, time, openSlotId);
+    if (timeError) return NextResponse.json({ message: timeError, code: "INVALID_BOOKING_TIME" }, { status: 400 });
 
     if (!SUPABASE_SERVICE_KEY) {
       return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
@@ -2562,6 +2567,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import theme from '@/theme.json';
 import { useCart } from '@/components/CartProvider';
 import BookingForm from '@/components/BookingForm';
+import { createBehaviorRuntime, computeMotion as sharedComputeMotion, motionPhaseStyle as sharedMotionPhaseStyle, sectionMotionSpec as sharedSectionMotionSpec, staggerChildSpec as sharedStaggerChildSpec } from '@/components/trustedRuntime';
 
 type BuilderPage = {
   id: string;
@@ -2686,10 +2692,10 @@ function getStyledText(styledProp: StyledText | undefined, fallbackText: string 
     if (styledProp.fontSize) style.fontSize = styledProp.fontSize;
     if (styledProp.fontWeight) style.fontWeight = parseInt(styledProp.fontWeight) || styledProp.fontWeight;
     if (styledProp.color) style.color = styledProp.color;
-    if (styledProp.textAlign) style.textAlign = styledProp.textAlign;
+    if (styledProp.textAlign) style.textAlign = styledProp.textAlign as React.CSSProperties['textAlign'];
     if (styledProp.letterSpacing) style.letterSpacing = styledProp.letterSpacing;
     if (styledProp.lineHeight) style.lineHeight = styledProp.lineHeight;
-    if (styledProp.textTransform && styledProp.textTransform !== 'none') style.textTransform = styledProp.textTransform;
+    if (styledProp.textTransform && styledProp.textTransform !== 'none') style.textTransform = styledProp.textTransform as React.CSSProperties['textTransform'];
     return { text: styledProp.text, style };
   }
   return { text: fallbackText || '', style: {} };
@@ -2840,15 +2846,12 @@ function HoverCard({ children, style, accentColor }: { children: React.ReactNode
 // tests/motion.test.ts holds the stringified sources equivalent to direct
 // calls, and the parity suite renders both sides from them.
 const MOTION_TABLES: any = ${JSON.stringify(MOTION_TABLES)};
-// Explicit any type annotations on the holding constants give TypeScript
-// the parameter types it needs to satisfy noImplicitAny without running the
-// compiled function source through the TypeScript parser again. The function
-// bodies come from shared/motion.ts via .toString() and are pure data (no
-// TypeScript syntax) -- the annotations live on the const, not the body.
-const computeMotion: (tables: any, spec: any, staggerIndex?: number) => any = ${computeMotion.toString()};
-const motionPhaseStyle: (resolved: any, phase: any) => any = ${motionPhaseStyle.toString()};
-const sectionMotionSpec: (styles: any) => any = ${sectionMotionSpec.toString()};
-const staggerChildSpec: (parentSpec: any, childMotion: any) => any = ${staggerChildSpec.toString()};
+// The JavaScript module contains the exact shared runtime. Keep explicit
+// boundaries here so generated TSX remains checked under strict mode.
+const computeMotion: (tables: any, spec: any, staggerIndex?: number) => any = sharedComputeMotion;
+const motionPhaseStyle: (resolved: any, phase: any) => any = sharedMotionPhaseStyle;
+const sectionMotionSpec: (styles: any) => any = sharedSectionMotionSpec;
+const staggerChildSpec: (parentSpec: any, childMotion: any) => any = sharedStaggerChildSpec;
 
 // Drives one entrance through hidden → entering → done. 'done' clears the
 // inline styles so classes and :hover rules win again; repeat 'every-view'
@@ -3103,7 +3106,7 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
     }),
     ...(styles.letterSpacing && { letterSpacing: styles.letterSpacing }),
     ...(styles.lineHeight && { lineHeight: styles.lineHeight }),
-    ...(styles.textTransform && styles.textTransform !== 'none' && { textTransform: styles.textTransform }),
+    ...(styles.textTransform && styles.textTransform !== 'none' && { textTransform: styles.textTransform as React.CSSProperties['textTransform'] }),
     ...(styles.borderStyle && styles.borderStyle !== 'none' && {
       borderStyle: styles.borderStyle,
       borderWidth: styles.borderWidth || '1px',
@@ -3272,7 +3275,7 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
       )}
       {/* Color overlay - sits on top of the background image */}
       <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: props.alignment || 'center', position: 'relative', zIndex: 2 }}>
+      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: (props.alignment || 'center') as React.CSSProperties['textAlign'], position: 'relative', zIndex: 2 }}>
         {(() => {
           const stTitle = getStyledText(props.styledTitle, props.title);
           return stTitle.text ? <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.1, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h1> : null;
@@ -3405,7 +3408,7 @@ function CTASection({ props, styles }: { props: ComponentProps; styles: Componen
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
-      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: (props.alignment || 'center') as React.CSSProperties['textAlign'] }}>
         {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         {stDesc.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.9, marginBottom: '32px', lineHeight: 1.6, ...stDesc.style }}>{stDesc.text}</p>}
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -3444,7 +3447,7 @@ function FeaturesSection({ props, styles }: { props: ComponentProps; styles: Com
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
-      <div ref={containerRef} style={{ maxWidth: '1000px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+      <div ref={containerRef} style={{ maxWidth: '1000px', margin: '0 auto', textAlign: (props.alignment || 'center') as React.CSSProperties['textAlign'] }}>
         {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.7, marginBottom: '48px', lineHeight: 1.5, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '32px' }}>
@@ -4546,7 +4549,7 @@ function ServicesSection({ props, styles }: { props: ComponentProps; styles: Com
 
   return (
     <section style={{ ...baseStyle, fontFamily }}>
-      <div ref={containerRef} style={{ maxWidth: '1200px', margin: '0 auto', textAlign: props.alignment || 'center' }}>
+      <div ref={containerRef} style={{ maxWidth: '1200px', margin: '0 auto', textAlign: (props.alignment || 'center') as React.CSSProperties['textAlign'] }}>
         {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '40px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         {stSub.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.6, marginBottom: '64px', maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6, ...stSub.style }}>{stSub.text}</p>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
@@ -5458,203 +5461,7 @@ const CapabilityProductsCtx = React.createContext<any[]>([]);
 
 // ============ Behavior label extraction ============
 
-function extractBehaviorLabel(node: PrimitiveNode, fallback: string): string {
-  if (node.name && node.name.trim()) return String(node.name).trim().slice(0, 80);
-  const findText = (n: PrimitiveNode): string => {
-    if (n.type === 'text' && n.text) return String(n.text).slice(0, 60);
-    for (const child of (n.children || [])) {
-      const t = findText(child);
-      if (t) return t;
-    }
-    return '';
-  };
-  return findText(node) || fallback;
-}
-
-// ============ Behavior wrapper components ============
-// Birdflow-authored interaction implementations. The AI spec only sets the
-// behavior type + display hints; no user-provided JavaScript is ever used.
-// Keyboard accessibility (tab, Enter/Space, arrow keys) follows WAI-ARIA patterns.
-
-function BehaviorAccordion({ node, staggerParent, multiple, defaultOpen }: { node: PrimitiveNode; staggerParent?: any; multiple?: boolean; defaultOpen?: number }) {
-  const [openSet, setOpenSet] = useState<Set<number>>(function() { return new Set([defaultOpen != null ? defaultOpen : 0]); });
-  const cls = nodeClassName(node);
-  const children = node.children || [];
-  return (
-    <div className={cls}>
-      {children.map(function(child: PrimitiveNode, i: number) {
-        const isOpen = openSet.has(i);
-        const label = extractBehaviorLabel(child, 'Panel ' + (i + 1));
-        return (
-          <div key={child.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.08)' }}>
-            <button
-              aria-expanded={isOpen}
-              onClick={function() {
-                setOpenSet(function(prev: Set<number>) {
-                  const next = new Set(prev);
-                  if (next.has(i)) { next.delete(i); }
-                  else { if (!multiple) next.clear(); next.add(i); }
-                  return next;
-                });
-              }}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '16px', textAlign: 'left', color: 'inherit' }}
-            >
-              {label}
-              <span aria-hidden="true" style={{ transition: 'transform 0.2s ease', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>{'▾'}</span>
-            </button>
-            {isOpen && (
-              <div role="region" style={{ paddingBottom: '16px' }}>
-                <CustomNode node={child} staggerParent={staggerParent} />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function BehaviorTabs({ node, staggerParent, defaultTab }: { node: PrimitiveNode; staggerParent?: any; defaultTab?: number }) {
-  const [active, setActive] = useState(defaultTab != null ? defaultTab : 0);
-  const cls = nodeClassName(node);
-  const children = node.children || [];
-  const primary = (theme as any).primaryColor || '#4f46e5';
-  return (
-    <div className={cls}>
-      <div role="tablist" style={{ display: 'flex', gap: '4px', marginBottom: '24px', borderBottom: '2px solid rgba(0,0,0,0.06)', flexWrap: 'wrap' as const }}>
-        {children.map(function(child: PrimitiveNode, i: number) {
-          const label = extractBehaviorLabel(child, 'Tab ' + (i + 1));
-          const isActive = active === i;
-          return (
-            <button
-              key={child.id}
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={'tab-panel-' + node.id + '-' + i}
-              id={'tab-btn-' + node.id + '-' + i}
-              tabIndex={isActive ? 0 : -1}
-              onClick={function() { setActive(i); }}
-              style={{ padding: '10px 20px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '15px', background: 'transparent', borderBottom: isActive ? '2px solid ' + primary : '2px solid transparent', marginBottom: '-2px', color: isActive ? primary : 'inherit', transition: 'color 0.15s, border-color 0.15s' }}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-      {children.map(function(child: PrimitiveNode, i: number) {
-        return (
-          <div
-            key={child.id}
-            role="tabpanel"
-            id={'tab-panel-' + node.id + '-' + i}
-            aria-labelledby={'tab-btn-' + node.id + '-' + i}
-            hidden={active !== i}
-          >
-            <CustomNode node={child} staggerParent={staggerParent} />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function BehaviorCarousel({ node, staggerParent, showArrows, showDots, autoPlay, interval: intervalMs }: { node: PrimitiveNode; staggerParent?: any; showArrows?: boolean; showDots?: boolean; autoPlay?: boolean; interval?: number }) {
-  const [current, setCurrent] = useState(0);
-  const children = node.children || [];
-  const total = children.length;
-  const cls = nodeClassName(node);
-  const primary = (theme as any).primaryColor || '#4f46e5';
-  const showA = showArrows !== false;
-  const showD = showDots !== false;
-
-  useEffect(function() {
-    if (!autoPlay || total < 2) return undefined;
-    const id = setInterval(function() { setCurrent(function(c: number) { return (c + 1) % total; }); }, intervalMs != null ? intervalMs : 4000);
-    return function() { clearInterval(id); };
-  }, [autoPlay, intervalMs, total]);
-
-  return (
-    <div className={cls} style={{ position: 'relative', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', transition: 'transform 0.35s ease', transform: 'translateX(-' + (current * 100) + '%)' }}>
-        {children.map(function(child: PrimitiveNode) {
-          return (
-            <div key={child.id} style={{ flex: '0 0 100%', minWidth: '100%' }}>
-              <CustomNode node={child} staggerParent={staggerParent} />
-            </div>
-          );
-        })}
-      </div>
-      {showA && total > 1 && (
-        <React.Fragment>
-          <button aria-label="Forrige" onClick={function() { setCurrent(function(c: number) { return (c - 1 + total) % total; }); }} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', zIndex: 1 }}>{'‹'}</button>
-          <button aria-label="Næste" onClick={function() { setCurrent(function(c: number) { return (c + 1) % total; }); }} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', zIndex: 1 }}>{'›'}</button>
-        </React.Fragment>
-      )}
-      {showD && total > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginTop: '16px' }}>
-          {children.map(function(_: PrimitiveNode, i: number) {
-            return (
-              <button key={i} aria-label={'Slide ' + (i + 1)} onClick={function() { setCurrent(i); }} style={{ width: '8px', height: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer', backgroundColor: current === i ? primary : 'rgba(0,0,0,0.2)', padding: 0, transition: 'background-color 0.2s' }} />
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BehaviorExpandable({ node, staggerParent, defaultExpanded }: { node: PrimitiveNode; staggerParent?: any; defaultExpanded?: boolean }) {
-  const [expanded, setExpanded] = useState(defaultExpanded === true);
-  const cls = nodeClassName(node);
-  const children = node.children || [];
-  const trigger = children[0];
-  const content = children.slice(1);
-  const label = trigger ? extractBehaviorLabel(trigger, 'Vis mere') : 'Vis mere';
-  return (
-    <div className={cls}>
-      <button
-        aria-expanded={expanded}
-        onClick={function() { setExpanded(function(e: boolean) { return !e; }); }}
-        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '16px', padding: '0 0 12px 0', color: 'inherit' }}
-      >
-        {label}
-        <span aria-hidden="true" style={{ transition: 'transform 0.2s ease', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', display: 'inline-block' }}>{'▾'}</span>
-      </button>
-      {expanded && (
-        <div>
-          {content.map(function(child: PrimitiveNode) { return <CustomNode key={child.id} node={child} staggerParent={staggerParent} />; })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BehaviorToggle({ node, staggerParent, defaultOn }: { node: PrimitiveNode; staggerParent?: any; defaultOn?: boolean }) {
-  const [on, setOn] = useState(defaultOn === true);
-  const cls = nodeClassName(node);
-  const children = node.children || [];
-  const primary = (theme as any).primaryColor || '#4f46e5';
-  return (
-    <div className={cls}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-        <button
-          role="switch"
-          aria-checked={on}
-          onClick={function() { setOn(function(v: boolean) { return !v; }); }}
-          style={{ position: 'relative', display: 'inline-flex', width: '44px', height: '24px', borderRadius: '12px', backgroundColor: on ? primary : 'rgba(0,0,0,0.15)', border: 'none', cursor: 'pointer', transition: 'background-color 0.2s', padding: 0 }}
-        >
-          <span style={{ position: 'absolute', top: '3px', left: on ? '22px' : '3px', width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#ffffff', transition: 'left 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
-        </button>
-        <span style={{ fontWeight: 600 }}>{on ? 'Til' : 'Fra'}</span>
-      </div>
-      {on && (
-        <div>
-          {children.map(function(child: PrimitiveNode) { return <CustomNode key={child.id} node={child} staggerParent={staggerParent} />; })}
-        </div>
-      )}
-    </div>
-  );
-}
+const NativeBehavior = createBehaviorRuntime(React);
 
 // Entrance motion per node, from the same shared model as sections: a box
 // with 'stagger' hands its entrance to its children (one after another);
@@ -5687,20 +5494,8 @@ function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParen
   const capabilityProducts = React.useContext(CapabilityProductsCtx);
   switch (node.type) {
     case 'box': {
-      const behavior = node.behavior;
-      if (behavior && typeof behavior.type === 'string') {
-        switch (behavior.type) {
-          case 'accordion':
-            return <BehaviorAccordion node={node} staggerParent={staggerParent} multiple={behavior.multiple} defaultOpen={behavior.defaultOpen} />;
-          case 'tabs':
-            return <BehaviorTabs node={node} staggerParent={staggerParent} defaultTab={behavior.defaultTab} />;
-          case 'carousel':
-            return <BehaviorCarousel node={node} staggerParent={staggerParent} showArrows={behavior.showArrows} showDots={behavior.showDots} autoPlay={behavior.autoPlay} interval={behavior.interval} />;
-          case 'expandable':
-            return <BehaviorExpandable node={node} staggerParent={staggerParent} defaultExpanded={behavior.defaultExpanded} />;
-          case 'toggle':
-            return <BehaviorToggle node={node} staggerParent={staggerParent} defaultOn={behavior.defaultOn} />;
-        }
+      if (node.behavior) {
+        return <div className={cls} {...motionProps}><NativeBehavior node={node} primaryColor={(theme as any).primaryColor} language={${lit(lang)}} renderChild={(child: PrimitiveNode, index: number) => <CustomNode key={child.id} node={child} staggerParent={isStaggerBox ? { spec: ownMotion, index } : undefined} />} /></div>;
       }
       return (
         <div className={cls} {...motionProps}>
@@ -5742,9 +5537,10 @@ function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParen
       if (!cap) return null;
       const capProps: any = node.capabilityConfig || {};
       const capStyles: any = {};
+      const bookingStyles = { fontFamily: theme.fontFamily, accentColor: theme.primaryColor };
       switch (cap) {
         case 'booking':
-          return <div className={cls} {...motionProps}><BookingForm props={capProps} styles={capStyles} /></div>;
+          return <div className={cls} {...motionProps}><BookingForm props={capProps} styles={bookingStyles} /></div>;
         case 'contact_form':
           return <div className={cls} {...motionProps}><ContactFormSection props={capProps} styles={capStyles} /></div>;
         case 'newsletter':
@@ -5893,7 +5689,7 @@ export default function ComponentRenderer({
       case 'booking-form':
         // Single booking implementation: the same BookingForm used for
         // top-level booking sections also renders nested booking components.
-        return <BookingForm props={component.props} styles={component.styles} />;
+        return <BookingForm props={component.props} styles={{ ...component.styles, fontFamily: component.styles.fontFamily || theme.fontFamily, accentColor: component.styles.accentColor || component.styles.buttonColor || theme.primaryColor }} />;
       default:
         return null;
     }
@@ -6015,13 +5811,26 @@ export default function ContactForm({ styles, props }: Props) {
 `;
 }
 
+/** The shared factories are typechecked in their TypeScript sources. Emit
+ * JavaScript separately so type erasure never introduces implicit-any errors
+ * into a generated site's strict TSX. No customer code is evaluated here. */
+export function generateTrustedRuntime(): string {
+  return [
+    ['createBehaviorRuntime', createBehaviorRuntime], ['createBookingView', createBookingView],
+    ['computeMotion', computeMotion], ['motionPhaseStyle', motionPhaseStyle],
+    ['sectionMotionSpec', sectionMotionSpec], ['staggerChildSpec', staggerChildSpec],
+  ].map(([name, fn]) => `export const ${name} = ${fn.toString()};`).join('\n');
+}
+
 export function generateBookingForm(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {
   const t = PUBLISHED_SITE_STRINGS[lang];
-  const locale = SITE_LOCALE[lang];
   return `'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWebsite } from '@/components/WebsiteProvider';
+import { createBookingView } from '@/components/trustedRuntime';
+
+const BookingView = createBookingView(React);
 
 type BookingService = {
   id: string;
@@ -6030,13 +5839,6 @@ type BookingService = {
   duration_minutes: number;
   price: string;
   currency: string;
-};
-
-type AvailabilityData = {
-  availableDates: string[];
-  blockedDates: { date: string; reason?: string }[];
-  dateRange: { startDate: string; endDate: string | null } | null;
-  weeklySchedule: { dayOfWeek: number; startTime: string; endTime: string }[];
 };
 
 type TimeSlot = {
@@ -6054,20 +5856,15 @@ type TeamMember = {
   serviceIds?: string[];
 };
 
-function formatCurrency(amount: number, currency: string = 'USD'): string {
-  const symbols: Record<string, string> = { USD: '$', EUR: '€', DKK: 'kr' };
-  const symbol = symbols[currency] || currency;
-  const formatted = currency === 'DKK' ? amount.toFixed(0) : amount.toFixed(2);
-  return currency === 'DKK' ? formatted + ' ' + symbol : symbol + formatted;
-}
-
 type Props = {
   styles: {
+    fontFamily?: string; accentColor?: string; buttonColor?: string; borderRadius?: string;
     backgroundColor?: string;
     textColor?: string;
     padding?: string;
   };
   props: {
+    headingVisible?: boolean | string; variant?: string; displayMode?: string; description?: string;
     title?: string;
     subtitle?: string;
     buttonText?: string;
@@ -6080,6 +5877,7 @@ export default function BookingForm({ styles, props }: Props) {
   const { websiteId } = useWebsite();
   const [step, setStep] = useState<StepId>('service');
   const [services, setServices] = useState<BookingService[]>([]);
+  const [loadingServices, setLoadingServices] = useState(true);
   const [selectedService, setSelectedService] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
@@ -6095,15 +5893,8 @@ export default function BookingForm({ styles, props }: Props) {
   const [selectedMember, setSelectedMember] = useState('');
   
   // Calendar and availability state
-  const [calendarMonth, setCalendarMonth] = useState(new Date());
-  const [availability, setAvailability] = useState<AvailabilityData | null>(null);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const [loadingAvailability, setLoadingAvailability] = useState(false);
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const accentColor = '#6366f1';
 
   useEffect(() => {
     const fetchServices = async () => {
@@ -6114,8 +5905,8 @@ export default function BookingForm({ styles, props }: Props) {
           setServices(data);
         }
       } catch (err) {
-        console.error('Failed to fetch services:', err);
-      }
+        setErrorMessage(${lit(t.bookingErrorGeneric)});
+      } finally { setLoadingServices(false); }
     };
     fetchServices();
   }, []);
@@ -6136,126 +5927,22 @@ export default function BookingForm({ styles, props }: Props) {
     fetchTeamMembers();
   }, []);
 
-  // Fetch availability when service is selected or month changes
+  const [slotReload, setSlotReload] = useState(0);
+  const refreshSlots = async () => { setSlotReload(value => value + 1); };
   useEffect(() => {
-    if (!selectedService || !websiteId) return;
-    
-    const fetchAvailability = async () => {
-      setLoadingAvailability(true);
-      try {
-        const month = calendarMonth.getMonth() + 1;
-        const year = calendarMonth.getFullYear();
-        const res = await fetch(\`/api/availability?serviceId=\${selectedService}&month=\${month}&year=\${year}\`);
-        if (res.ok) {
-          const data = await res.json();
-          setAvailability(data);
-        }
-      } catch (err) {
-        console.error('Failed to fetch availability:', err);
-      }
-      setLoadingAvailability(false);
-    };
-    fetchAvailability();
-  }, [selectedService, calendarMonth, websiteId]);
-
-  const refreshSlots = async (keepSelectedTime = false) => {
-    if (!selectedService || !selectedDate) return;
-    setLoadingSlots(true);
-    if (!keepSelectedTime) setSelectedTime('');
-    try {
-      const memberQuery = selectedMember ? \`&teamMemberId=\${encodeURIComponent(selectedMember)}\` : '';
-      const res = await fetch(\`/api/slots?serviceId=\${selectedService}&date=\${selectedDate}\${memberQuery}\`);
-      if (res.ok) {
-        const data = await res.json();
-        setTimeSlots(Array.isArray(data) ? data : []);
-      } else {
-        setTimeSlots([]);
-      }
-    } catch (err) {
-      console.error('Failed to fetch slots:', err);
-      setTimeSlots([]);
-    }
-    setLoadingSlots(false);
-  };
-
-  // Fetch time slots when date (or person) is selected
-  useEffect(() => {
+    const controller = new AbortController();
+    setTimeSlots([]); setSelectedTime(''); setLoadingSlots(false);
     if (!selectedService || !selectedDate || !websiteId) return;
-    
-    const fetchSlots = async () => {
-      setLoadingSlots(true);
-      setSelectedTime('');
-      try {
-        const memberQuery = selectedMember ? \`&teamMemberId=\${encodeURIComponent(selectedMember)}\` : '';
-        const res = await fetch(\`/api/slots?serviceId=\${selectedService}&date=\${selectedDate}\${memberQuery}\`);
-        if (res.ok) {
-          const data = await res.json();
-          setTimeSlots(Array.isArray(data) ? data : []);
-        } else {
-          setTimeSlots([]);
-        }
-      } catch (err) {
-        console.error('Failed to fetch slots:', err);
-        setTimeSlots([]);
-      }
-      setLoadingSlots(false);
-    };
-    fetchSlots();
-  }, [selectedService, selectedDate, selectedMember, websiteId]);
-
-  // Generate calendar days for current month
-  const calendarDays = useMemo(() => {
-    const year = calendarMonth.getFullYear();
-    const month = calendarMonth.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startPadding = firstDay.getDay();
-    const days: { date: Date; dateStr: string; isCurrentMonth: boolean; isPast: boolean; isBlocked: boolean; isAvailable: boolean; blockReason?: string }[] = [];
-    
-    // Add padding days from previous month
-    for (let i = startPadding - 1; i >= 0; i--) {
-      const d = new Date(year, month, -i);
-      days.push({
-        date: d,
-        dateStr: d.toISOString().split('T')[0],
-        isCurrentMonth: false,
-        isPast: true,
-        isBlocked: false,
-        isAvailable: false,
-      });
-    }
-    
-    // Add current month days
-    for (let i = 1; i <= lastDay.getDate(); i++) {
-      const d = new Date(year, month, i);
-      const dateStr = \`\${year}-\${String(month + 1).padStart(2, '0')}-\${String(i).padStart(2, '0')}\`;
-      const isPast = d < today;
-      const blockedRecord = availability?.blockedDates.find(b => b.date === dateStr);
-      const isBlocked = !!blockedRecord;
-      const isAvailable = !isPast && !isBlocked && (availability?.availableDates.includes(dateStr) ?? false);
-      
-      days.push({
-        date: d,
-        dateStr,
-        isCurrentMonth: true,
-        isPast,
-        isBlocked,
-        isAvailable,
-        blockReason: blockedRecord?.reason,
-      });
-    }
-    
-    return days;
-  }, [calendarMonth, availability]);
-
-  const handleSelectService = (serviceId: string) => {
-    setSelectedService(serviceId);
-    setSelectedDate('');
-    setSelectedTime('');
-    setSelectedMember('');
-    setTimeSlots([]);
-    setAvailability(null);
-  };
+    setLoadingSlots(true); setErrorMessage('');
+    const query = new URLSearchParams({ serviceId: selectedService, date: selectedDate });
+    if (selectedMember) query.set('teamMemberId', selectedMember);
+    fetch('/api/slots?' + query, { signal: controller.signal })
+      .then(async response => { if (!response.ok) throw new Error('slots'); return response.json(); })
+      .then(data => { if (!controller.signal.aborted) setTimeSlots(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!controller.signal.aborted) setErrorMessage(${lit(t.bookingErrorGeneric)}); })
+      .finally(() => { if (!controller.signal.aborted) setLoadingSlots(false); });
+    return () => controller.abort();
+  }, [selectedService, selectedDate, selectedMember, websiteId, slotReload]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -6268,7 +5955,7 @@ export default function BookingForm({ styles, props }: Props) {
     setErrorMessage('');
     const service = services.find(s => s.id === selectedService);
     const chosenSlot = timeSlots.find(s => s.time === selectedTime);
-    const bookingDateTime = new Date(selectedDate + 'T' + selectedTime + ':00').toISOString();
+    const bookingDateTime = selectedDate + 'T00:00:00.000Z';
     
     try {
       const res = await fetch('/api/bookings', {
@@ -6341,286 +6028,18 @@ export default function BookingForm({ styles, props }: Props) {
     setNotes('');
     setStatus('idle');
     setErrorMessage('');
-    setAvailability(null);
     setTimeSlots([]);
   };
 
-  const navigateMonth = (direction: number) => {
-    setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + direction, 1));
-  };
-
-  const selectedServiceData = services.find(s => s.id === selectedService);
-  // Members that can perform the chosen service (empty serviceIds = performs all services)
-  const availableMembers = useMemo(() => {
-    if (!selectedService) return teamMembers;
-    return teamMembers.filter(m => !m.serviceIds || m.serviceIds.length === 0 || m.serviceIds.includes(selectedService));
-  }, [teamMembers, selectedService]);
-  const showPersonStep = teamMembers.length > 0;
-  const stepOrder: StepId[] = showPersonStep
-    ? ['service', 'person', 'datetime', 'details']
-    : ['service', 'datetime', 'details'];
-  const currentStepIndex = Math.max(0, stepOrder.indexOf(step));
-  const goToStep = (offset: number) => {
-    const next = stepOrder[currentStepIndex + offset];
-    if (next) setStep(next);
-  };
-  const selectedMemberData = teamMembers.find(m => m.id === selectedMember);
-  const canProceedStep1 = selectedService !== '';
-  const canProceedStep2 = selectedDate !== '' && selectedTime !== '';
-  const bgColor = styles.backgroundColor || '#f8fafc';
-  const textColor = styles.textColor || '#1e293b';
-  const monthNames = ${JSON.stringify(CALENDAR_MONTHS[lang])};
-  const dayNames = ${JSON.stringify(CALENDAR_WEEKDAYS[lang])};
-  const availableSlots = timeSlots.filter(s => s.available);
-
-  return (
-    <section style={{ backgroundColor: bgColor, color: textColor, padding: styles.padding || '0' }}>
-      <div style={{ maxWidth: '720px', margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', padding: '8px 16px', borderRadius: '20px', marginBottom: '16px' }}>
-            <span style={{ color: '#fff', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingBadge)}</span>
-          </div>
-          <h2 style={{ fontSize: '36px', fontWeight: 700, marginBottom: '12px' }}>{props.title || ${lit(t.bookingTitle)}}</h2>
-          {props.subtitle && <p style={{ fontSize: '18px', opacity: 0.7 }}>{props.subtitle}</p>}
-        </div>
-
-        {status !== 'success' && services.length > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '32px' }}>
-            {stepOrder.map((s, idx) => (
-              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: '14px', backgroundColor: currentStepIndex >= idx ? accentColor : '#e2e8f0', color: currentStepIndex >= idx ? '#fff' : '#94a3b8', transition: 'all 0.2s' }}>{idx + 1}</div>
-                {idx < stepOrder.length - 1 && <div style={{ width: '40px', height: '2px', backgroundColor: currentStepIndex > idx ? accentColor : '#e2e8f0', transition: 'all 0.2s' }} />}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {status === 'success' ? (
-          <div style={{ textAlign: 'center', padding: '48px 32px', background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)', borderRadius: '16px', border: '1px solid #a7f3d0' }}>
-            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-              <svg style={{ width: '32px', height: '32px', color: '#fff' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-            </div>
-            <h3 style={{ color: '#065f46', fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>${jsx(t.bookingConfirmed)}</h3>
-            <p style={{ color: '#047857', marginBottom: '24px' }}>${jsx(t.bookingConfirmedBody)} {email}</p>
-            <button onClick={resetForm} data-testid="button-book-another" style={{ backgroundColor: '#10b981', color: '#fff', padding: '12px 24px', borderRadius: '10px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>${jsx(t.bookingAnother)}</button>
-          </div>
-        ) : (
-          <div style={{ backgroundColor: '#fff', borderRadius: '20px', padding: '32px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: '1px solid rgba(0,0,0,0.06)' }}>
-            {services.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', backgroundColor: '#fefce8', borderRadius: '12px', border: '1px solid #fde047' }}>
-                <p style={{ color: '#854d0e', fontWeight: 500 }}>${jsx(t.bookingNoServices)}</p>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit}>
-                {step === 'service' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>${jsx(t.bookingChooseService)}</p>
-                    {services.map((service) => (
-                      <div key={service.id} data-testid={'option-service-' + service.id} onClick={() => handleSelectService(service.id)} style={{ padding: '20px', borderRadius: '12px', border: selectedService === service.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedService === service.id ? '#f0f4ff' : '#fff', cursor: 'pointer', transition: 'all 0.15s ease' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div>
-                            <p style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{service.name}</p>
-                            {service.description && <p style={{ fontSize: '14px', opacity: 0.6, marginBottom: '8px' }}>{service.description}</p>}
-                            <span style={{ fontSize: '13px', opacity: 0.7 }}>{service.duration_minutes} min</span>
-                          </div>
-                          <div style={{ fontSize: '20px', fontWeight: 700, color: accentColor, backgroundColor: '#f0f4ff', padding: '8px 12px', borderRadius: '8px' }}>{formatCurrency(parseFloat(String(service.price || '0')), service.currency)}</div>
-                        </div>
-                      </div>
-                    ))}
-                    <button type="button" data-testid="button-continue-service" onClick={() => canProceedStep1 && goToStep(1)} disabled={!canProceedStep1} style={{ marginTop: '16px', padding: '14px 24px', borderRadius: '12px', fontSize: '16px', fontWeight: 600, backgroundColor: canProceedStep1 ? accentColor : '#e2e8f0', color: canProceedStep1 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep1 ? 'pointer' : 'default' }}>${jsx(t.bookingContinue)}</button>
-                  </div>
-                )}
-
-                {step === 'person' && showPersonStep && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>${jsx(t.bookingChoosePerson)}</p>
-                    <button
-                      type="button"
-                      data-testid="button-select-anyone"
-                      onClick={() => setSelectedMember('')}
-                      style={{ textAlign: 'left', padding: '16px 20px', borderRadius: '12px', border: selectedMember === '' ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedMember === '' ? '#f0f4ff' : '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '15px', color: textColor }}
-                    >
-                      ${jsx(t.bookingAnyone)}
-                    </button>
-                    {availableMembers.map((member) => (
-                      <button
-                        key={member.id}
-                        type="button"
-                        data-testid={'button-select-member-' + member.id}
-                        onClick={() => setSelectedMember(member.id)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '12px', textAlign: 'left', padding: '16px 20px', borderRadius: '12px', border: selectedMember === member.id ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedMember === member.id ? '#f0f4ff' : '#fff', cursor: 'pointer', color: textColor }}
-                      >
-                        <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: member.color || accentColor, flexShrink: 0 }}></span>
-                        <span>
-                          <span style={{ display: 'block', fontWeight: 600, fontSize: '15px' }}>{member.name}</span>
-                          {member.role && <span style={{ display: 'block', fontSize: '13px', opacity: 0.6 }}>{member.role}</span>}
-                        </span>
-                      </button>
-                    ))}
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" data-testid="button-back-person" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>${jsx(t.bookingBack)}</button>
-                      <button type="button" data-testid="button-continue-person" onClick={() => goToStep(1)} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: 'pointer' }}>${jsx(t.bookingContinue)}</button>
-                    </div>
-                  </div>
-                )}
-
-                {step === 'datetime' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>${jsx(t.bookingChooseDateTime)}</p>
-                    
-                    {/* Calendar */}
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <button type="button" onClick={() => navigateMonth(-1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>&lt;</button>
-                        <span style={{ fontWeight: 600, fontSize: '16px' }}>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</span>
-                        <button type="button" onClick={() => navigateMonth(1)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>&gt;</button>
-                      </div>
-                      
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', marginBottom: '8px' }}>
-                        {dayNames.map(d => (
-                          <div key={d} style={{ textAlign: 'center', fontSize: '12px', fontWeight: 500, opacity: 0.6, padding: '4px' }}>{d}</div>
-                        ))}
-                      </div>
-                      
-                      {loadingAvailability ? (
-                        <div style={{ textAlign: 'center', padding: '40px', opacity: 0.6 }}>${jsx(t.bookingLoadingAvailability)}</div>
-                      ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
-                          {calendarDays.map((day, idx) => {
-                            const isSelected = day.dateStr === selectedDate;
-                            const canSelect = day.isCurrentMonth && day.isAvailable;
-                            return (
-                              <button
-                                key={idx}
-                                type="button"
-                                onClick={() => canSelect && setSelectedDate(day.dateStr)}
-                                disabled={!canSelect}
-                                title={day.isBlocked ? (day.blockReason || ${lit(t.bookingUnavailable)}) : undefined}
-                                style={{
-                                  padding: '10px 4px',
-                                  borderRadius: '8px',
-                                  border: isSelected ? \`2px solid \${accentColor}\` : '1px solid transparent',
-                                  backgroundColor: isSelected ? '#f0f4ff' : day.isBlocked ? '#fef2f2' : canSelect ? '#fff' : 'transparent',
-                                  color: isSelected ? accentColor : !day.isCurrentMonth ? '#d1d5db' : day.isBlocked ? '#ef4444' : day.isPast ? '#9ca3af' : canSelect ? textColor : '#9ca3af',
-                                  fontWeight: isSelected ? 600 : 400,
-                                  cursor: canSelect ? 'pointer' : 'default',
-                                  opacity: !day.isCurrentMonth ? 0.3 : 1,
-                                  fontSize: '14px',
-                                  textDecoration: day.isBlocked ? 'line-through' : 'none',
-                                }}
-                              >
-                                {day.date.getDate()}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                      
-                      {availability && (
-                        <div style={{ marginTop: '12px', display: 'flex', gap: '16px', justifyContent: 'center', fontSize: '12px' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span style={{ width: '12px', height: '12px', borderRadius: '4px', backgroundColor: '#f0f4ff', border: \`1px solid \${accentColor}\` }}></span>
-                            ${jsx(t.bookingLegendAvailable)}
-                          </span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span style={{ width: '12px', height: '12px', borderRadius: '4px', backgroundColor: '#fef2f2' }}></span>
-                            ${jsx(t.bookingLegendBlocked)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Time Slots */}
-                    {selectedDate && (
-                      <div>
-                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, opacity: 0.8 }}>
-                          ${jsx(t.bookingAvailableTimesFor)} {new Date(selectedDate + 'T00:00:00').toLocaleDateString(${lit(locale)}, { weekday: 'long', month: 'short', day: 'numeric' })}
-                        </label>
-                        {loadingSlots ? (
-                          <div style={{ textAlign: 'center', padding: '20px', opacity: 0.6 }}>${jsx(t.bookingLoadingTimes)}</div>
-                        ) : availableSlots.length === 0 ? (
-                          <div style={{ textAlign: 'center', padding: '20px', backgroundColor: '#fefce8', borderRadius: '8px', border: '1px solid #fde047' }}>
-                            <p style={{ color: '#854d0e', fontSize: '14px' }}>${jsx(t.bookingNoTimes)}</p>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-                            {availableSlots.map((slot) => (
-                              <button key={slot.time} type="button" data-testid={'button-slot-' + slot.time} onClick={() => setSelectedTime(slot.time)} style={{ padding: '12px', borderRadius: '8px', border: selectedTime === slot.time ? '2px solid ' + accentColor : '2px solid #e2e8f0', backgroundColor: selectedTime === slot.time ? '#f0f4ff' : '#fff', color: selectedTime === slot.time ? accentColor : textColor, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s ease' }}>
-                                {slot.time}
-                                {slot.openSlotId && <span style={{ display: 'block', fontSize: '11px', opacity: 0.6, fontWeight: 400 }}>${jsx(t.bookingOpenSlot)}</span>}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {errorMessage && status === 'error' && (
-                      <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{errorMessage}</div>
-                    )}
-                    
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" data-testid="button-back-datetime" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>${jsx(t.bookingBack)}</button>
-                      <button type="button" data-testid="button-continue-datetime" onClick={() => canProceedStep2 && goToStep(1)} disabled={!canProceedStep2} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: canProceedStep2 ? accentColor : '#e2e8f0', color: canProceedStep2 ? '#fff' : '#94a3b8', border: 'none', cursor: canProceedStep2 ? 'pointer' : 'default' }}>${jsx(t.bookingContinue)}</button>
-                    </div>
-                  </div>
-                )}
-
-                {step === 'details' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <p style={{ fontWeight: 600, marginBottom: '8px' }}>${jsx(t.bookingYourDetails)}</p>
-                    {selectedServiceData && (
-                      <div style={{ padding: '16px', backgroundColor: '#f8fafc', borderRadius: '10px', marginBottom: '8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
-                          <span style={{ opacity: 0.7 }}>${jsx(t.bookingService)}</span>
-                          <span style={{ fontWeight: 600 }}>{selectedServiceData.name}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '4px' }}>
-                          <span style={{ opacity: 0.7 }}>Date & Time:</span>
-                          <span style={{ fontWeight: 600 }}>{new Date(selectedDate + 'T00:00:00').toLocaleDateString(${lit(locale)}, { weekday: 'short', month: 'short', day: 'numeric' })} ${jsx(t.bookingAt)} {selectedTime}</span>
-                        </div>
-                        {selectedMemberData && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginTop: '4px' }}>
-                            <span style={{ opacity: 0.7 }}>${jsx(t.bookingWith)}</span>
-                            <span style={{ fontWeight: 600 }}>{selectedMemberData.name}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingFullName)}</label>
-                      <input type="text" data-testid="input-customer-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={${lit(t.bookingNamePlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingEmail)}</label>
-                      <input type="email" data-testid="input-customer-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={${lit(t.bookingEmailPlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingPhone)}</label>
-                      <input type="tel" data-testid="input-customer-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={${lit(t.bookingPhonePlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', fontSize: '16px', border: '1px solid #e2e8f0' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>${jsx(t.bookingNotes)}</label>
-                      <textarea data-testid="input-booking-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={${lit(t.bookingNotesPlaceholder)}} style={{ width: '100%', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '16px', resize: 'none' }} />
-                    </div>
-                    {status === 'error' && <div style={{ padding: '12px 16px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '14px', textAlign: 'center' }}>{errorMessage || ${lit(t.bookingErrorRequired)}}</div>}
-                    <p style={{ fontSize: '12px', opacity: 0.5, textAlign: 'center', margin: '4px 0 0' }}>
-                      ${jsx(t.bookingDataNoticePre)}{' '}
-                      <a href="/privacy" style={{ textDecoration: 'underline', color: 'inherit' }}>${jsx(t.legalPrivacy)}</a>.
-                    </p>
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-                      <button type="button" data-testid="button-back-details" onClick={() => goToStep(-1)} style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: 600, border: '1px solid #e2e8f0', backgroundColor: '#fff', cursor: 'pointer' }}>${jsx(t.bookingBack)}</button>
-                      <button type="submit" data-testid="button-confirm-booking" disabled={status === 'loading' || !name || !email} style={{ flex: 2, padding: '14px', borderRadius: '12px', fontWeight: 600, backgroundColor: accentColor, color: '#fff', border: 'none', cursor: status === 'loading' || !name || !email ? 'default' : 'pointer', opacity: status === 'loading' || !name || !email ? 0.6 : 1 }}>{status === 'loading' ? ${lit(t.bookingSubmitting)} : (props.buttonText || ${lit(t.bookingSubmit)})}</button>
-                    </div>
-                  </div>
-                )}
-              </form>
-            )}
-          </div>
-        )}
-      </div>
-    </section>
-  );
+  return <BookingView props={props} styles={styles} language={${lit(lang)}} services={services} members={teamMembers} slots={timeSlots}
+    loadingServices={loadingServices} loadingSlots={loadingSlots} error={errorMessage} step={step} status={status}
+    selectedService={selectedService} selectedMember={selectedMember} selectedDate={selectedDate} selectedTime={selectedTime}
+    customer={{ name, email, phone, notes }}
+    onService={(id: string) => { setSelectedService(id); setSelectedMember(''); setSelectedDate(''); setSelectedTime(''); }}
+    onMember={(id: string) => { setSelectedMember(id); setSelectedTime(''); }} onDate={(date: string) => { setSelectedDate(date); setSelectedTime(''); }} onTime={setSelectedTime}
+    onCustomer={(field: string, value: string) => { if (field === 'name') setName(value); else if (field === 'email') setEmail(value); else if (field === 'phone') setPhone(value); else setNotes(value); }}
+    onNext={() => setStep(step === 'service' ? 'datetime' : 'details')} onBack={() => setStep(step === 'details' ? 'datetime' : 'service')}
+    onReset={resetForm} onSubmit={handleSubmit} />;
 }
 `;
 }

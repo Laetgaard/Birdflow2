@@ -33,11 +33,11 @@ describe("builder inspector render states", () => {
       <CustomComponentRenderer component={customComponent} isPreview />
     );
 
-    expect(editor).toContain("Sikker prøvevisning");
-    expect(editor).toContain("Prøv widget");
-    expect(readOnly).not.toContain("Sikker prøvevisning");
-    expect(readOnly).not.toContain("Prøv widget");
-    expect(readOnly).toContain("Birdflow-widget");
+    expect(editor).toContain('Prøv booking');
+    expect(readOnly).not.toContain('Prøv booking');
+    expect(editor).toContain('data-booking="true"');
+    expect(readOnly).toContain('data-booking="true"');
+    expect(readOnly).not.toContain('kun placering her');
   });
 
   it("shows unsupported components in the editor without leaking placeholders into previews", () => {

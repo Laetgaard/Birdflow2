@@ -1,3 +1,5 @@
+import { bookingTimeError } from '../shared/bookingRequest';
+import { practiceProfileSchema } from '../shared/practiceProfile';
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { runMeterFor } from "./aiSpend";
 import { isSpendLimitError } from "./aiCall";
@@ -6,7 +8,10 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import { saveBuilderStateGuarded } from "./builderStateWriter";
 import { createSvgAssetSafe } from "./svgAssetStore";
-import { collectReferencedSvgAssetIds } from "@shared/svgAssets";
+import { collectReferencedSvgAssetIds, resolveSvgAssetsInState } from "@shared/svgAssets";
+import { generatePublishedPreview } from './publisher/generatedPreview';
+import { loadBookingSetupCheck } from './websiteReadiness';
+import { resolveDesignTokens } from '@shared/designTokens';
 import { migrateSiteStructure } from "@shared/siteStructure";
 import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, orders as ordersTable, invoices as invoicesTable, customers as customersTable, formSubmissions as formSubmissionsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { getPlatformCalendar } from "./platformCalendar";
@@ -1525,6 +1530,24 @@ export async function registerRoutes(
   // Update builder state. Owner or administrator (updateBuilder permission).
   // Successful admin saves are recorded in the append-only audit log with a
   // structural summary (page ids / counts), never the state content itself.
+  app.get('/api/websites/:id/published-preview', requireAuth, requireWebsitePermission('readBuilder'), async (req, res) => {
+    try {
+      const row = await storage.getBuilderState(req.params.id);
+      if (!row) return res.status(404).json({ message: 'Website not found' });
+      if (Number(req.query.revision) !== row.revision) return res.status(409).json({ message: 'The website changed. Save and open preview again.' });
+      const state = migrateSiteStateToCurrent(row.state).state;
+      const assets = await storage.getSvgAssets(req.params.id);
+      resolveSvgAssetsInState(state, new Map(assets.map(asset => [asset.id, asset])), resolveDesignTokens(state.globalStyles ?? {}));
+      if (collectReferencedSvgAssetIds({ pages: state.pages, siteChrome: state.siteChrome }).size) return res.status(409).json({ message: 'The website has missing illustrations. Replace them before previewing.' });
+      const website = getWebsiteAccess(req).website;
+      const preview = await generatePublishedPreview({ state, websiteId: website.id, revision: row.revision, language: normalizeSiteLanguage(website.language) });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ...preview, bookingSetup: await loadBookingSetupCheck(website.id, state, storage) });
+    } catch (error) {
+      return res.status(500).json({ message: error instanceof Error ? error.message : 'Generated preview unavailable' });
+    }
+  });
+
   app.patch("/api/websites/:id/builder", requireAuth, requireWebsitePermission("updateBuilder"), async (req, res) => {
     try {
       const access = getWebsiteAccess(req);
@@ -3314,6 +3337,9 @@ export async function registerRoutes(
 
       const builderState = await storage.getBuilderState(req.params.id);
       if (!builderState) return res.status(400).json({ message: "No builder state found" });
+      if (!Number.isInteger(req.body?.expectedRevision) || req.body.expectedRevision !== builderState.revision) {
+        return res.status(409).json({ code: 'STALE_PUBLISH_REVISION', message: 'The website changed. Save and review the current version before publishing.' });
+      }
 
       const vercelToken = process.env.VERCEL_TOKEN;
       if (!vercelToken) {
@@ -3340,6 +3366,12 @@ export async function registerRoutes(
       // means a migration failure cannot disturb the currently live site.
       const compatibility = migrateSiteStateToCurrent(builderState.state);
       const canonicalState = compatibility.state;
+      if (canonicalState.websiteBrief) {
+        const bookingSetup = await loadBookingSetupCheck(website.id, canonicalState, storage);
+        if (bookingSetup.status === 'needs_owner_input' || bookingSetup.status === 'unavailable') {
+          return res.status(422).json({ code: 'BOOKING_SETUP_REQUIRED', message: 'Native booking is not configured or could not be checked. Set up services and availability before publishing.', bookingSetup });
+        }
+      }
       console.log("[Publish] state_migrated", {
         websiteId: req.params.id,
         sourceVersion: compatibility.report.sourceVersion,
@@ -3423,6 +3455,7 @@ export async function registerRoutes(
         requestedBy: access.actorUserId,
         idempotencyKey,
         content: canonicalState,
+        expectedRevision: builderState.revision,
       });
 
       console.log('[Publish] snapshot_created', { websiteId: req.params.id, publishJobId: job.id });
@@ -3468,6 +3501,9 @@ export async function registerRoutes(
           message: error.message,
           failureDetails: { stage: error.stage, ...error.details },
         });
+      }
+      if (error?.code === 'STALE_PUBLISH_REVISION') {
+        return res.status(409).json({ code: error.code, message: error.message });
       }
       if (error?.code === '23505' || /unique.*publish_jobs_one_active/i.test(error?.message ?? '')) {
         return res.status(409).json({ message: "A publish is already in progress for this site." });
@@ -4327,6 +4363,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Customer name, email, service, and date are required" });
       }
 
+      const timeError = bookingTimeError(date, time, openSlotId);
+      if (timeError) return res.status(400).json({ message: timeError, code: "INVALID_BOOKING_TIME" });
+
       const website = await storage.getWebsite(websiteId);
       if (!website) {
         console.log(`[Booking] REJECTED: Website not found: ${websiteId}`);
@@ -4401,7 +4440,7 @@ export async function registerRoutes(
         let dateStr: string | null = null;
         if (serviceId && time) {
           // Parse date string to YYYY-MM-DD format
-          const dateObj = new Date(date);
+          const dateObj = new Date(String(date).slice(0, 10) + 'T00:00:00.000Z');
           dateStr = dateObj.toISOString().split('T')[0];
           
           console.log(`[Booking] Checking availability for service ${serviceId} on ${dateStr} at ${time}`);
@@ -4448,7 +4487,7 @@ export async function registerRoutes(
           customerPhone,
           service,
           serviceId: serviceId || null,
-          date: new Date(date),
+          date: new Date(String(date).slice(0, 10) + 'T00:00:00.000Z'),
           time: time || null,
           durationMinutes,
           teamMemberId: requestedMemberId,
@@ -6186,6 +6225,7 @@ export async function registerRoutes(
   // with polled progress. One full generation per (empty) website.
   const onboardingGenStarts = new Map<string, number[]>();
   const onboardingGenBodySchema = z.object({
+    practice: practiceProfileSchema.optional(),
     business: z.object({
       name: z.string().min(1).max(80),
       industry: z.string().max(80).default(""),
@@ -6208,6 +6248,7 @@ export async function registerRoutes(
     if (session?.answers?.path !== "ai") return null;
     const a = session.answers;
     const parsed = onboardingGenBodySchema.safeParse({
+      practice: a.practice,
       business: {
         name: a.businessName,
         industry: a.industry ?? "",
@@ -6239,6 +6280,7 @@ export async function registerRoutes(
       inspirationUrls: body.inspirationUrls.filter((url) => ownedPaths.has(url)).slice(0, 5),
       ownImageUrls: body.ownImageUrls.filter((url) => ownedPaths.has(url)).slice(0, 6),
       plan: a.plan,
+      planBriefFingerprint: a.planBriefFingerprint,
     };
   };
 
@@ -6302,6 +6344,7 @@ export async function registerRoutes(
       const genWebsite = await storage.getWebsite(req.params.id);
 
       const status = await startOnboardingGeneration(req.params.id, {
+        practice: body.practice,
         language: normalizeSiteLanguage(genWebsite?.language),
         business: body.business,
         wishes: body.wishes,

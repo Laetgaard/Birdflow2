@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(__dirname, "..");
-const read = (...p: string[]) => readFileSync(join(root, ...p), "utf8");
+const read = (...p: string[]) => readFileSync(join(root, ...p), "utf8").replaceAll("\r\n", "\n");
 
 /**
  * /auth — the branded sign-in and sign-up page.

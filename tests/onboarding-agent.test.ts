@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { storage } from '../server/storage';
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { zodToJsonSchema } from "zod-to-json-schema";
@@ -46,6 +47,25 @@ describe("onboarding agent catalogue", () => {
   it("has a sane step ceiling", () => {
     expect(ONBOARDING_MAX_STEPS).toBeGreaterThan(2);
     expect(ONBOARDING_MAX_STEPS).toBeLessThanOrEqual(12);
+  });
+});
+
+describe('practice answers in the onboarding tool', () => {
+  it('persists merged answers and invalidates an earlier design plan when practice facts change', async () => {
+    const save = vi.spyOn(storage, 'upsertOnboardingSession').mockResolvedValue({} as never);
+    try {
+      const ctx: any = { userId:'fixture-user', lang:'en', answers: {
+        plan:{ pages:[] },
+        practice:{ type:'clinic', practitioners:[{key:'anna',name:'Fictional Anna'}], services:[{key:'therapy',name:'Therapy',durationMinutes:50}] },
+      } };
+      const tool = buildOnboardingTools().find(tool => tool.name === 'save_answers')!;
+      const result = await tool.run({ practice:{ services:[{key:'therapy',name:'Therapy',priceMinor:120000}] } }, ctx);
+      expect(result.ok).toBe(true);
+      expect(ctx.answers.plan).toBeNull();
+      expect(ctx.answers.practice.practitioners).toEqual([{key:'anna',name:'Fictional Anna'}]);
+      expect(ctx.answers.practice.services[0]).toMatchObject({durationMinutes:50,priceMinor:120000});
+      expect(save).toHaveBeenCalledWith('fixture-user', {answers: expect.objectContaining({practice:ctx.answers.practice,plan:null})});
+    } finally { save.mockRestore(); }
   });
 });
 

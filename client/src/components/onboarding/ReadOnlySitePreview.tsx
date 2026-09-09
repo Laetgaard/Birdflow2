@@ -32,6 +32,7 @@ export type PreviewPage = {
 
 export const PREVIEW_WIDTHS = {
   desktop: 1200,
+  tablet: 768,
   /** A real phone width - the mobile view is not a scaled-down desktop. */
   mobile: 390,
 } as const;
@@ -85,13 +86,19 @@ function useNeutralisedInteractions(enabled: boolean): void {
       event.stopPropagation();
     };
 
-    const onSubmit = (event: Event) => stop(event);
+    const onSubmit = (event: Event) => {
+      if (event.target instanceof HTMLFormElement && event.target.hasAttribute("data-preview-local-form")) return;
+      stop(event);
+    };
 
     const onClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       const actionable = target.closest("a, button, [role='button'], input[type='submit']");
       if (!actionable) return;
+      // Only trusted local controls opt in. Their forms simulate completion;
+      // the network guard still rejects every mutation request.
+      if (actionable.tagName === "BUTTON" && actionable.hasAttribute("data-preview-local-interaction")) return;
       // Let in-preview page links through - the preview handles them itself.
       if (actionable instanceof HTMLAnchorElement) {
         const href = actionable.getAttribute("href") || "";
@@ -135,6 +142,7 @@ function useReadOnlyNetwork(enabled: boolean): void {
 const noop = () => {};
 
 export function ReadOnlySitePreview({
+  language = "da",
   pages,
   activePageId,
   globalStyles,
@@ -149,6 +157,7 @@ export function ReadOnlySitePreview({
   onRenderDiagnostics,
   neutralise = true,
 }: {
+  language?: "da" | "en";
   pages: PreviewPage[];
   activePageId?: string;
   globalStyles?: DesignTokens;
@@ -277,6 +286,7 @@ export function ReadOnlySitePreview({
       >
         {topLevelComponents(composed).map((component) => (
           <ComponentRenderer
+            language={language}
             key={component.id}
             component={component}
             isPreview
@@ -295,8 +305,9 @@ export function ReadOnlySitePreview({
 }
 
 /** Small helper the preview page uses to keep its own loading state tidy. */
-export function usePreviewData(websiteId: string | null, token: string | null, directionId?: string | null) {
+export function usePreviewData(websiteId: string | null, token: string | null, directionId?: string | null, renderer: 'builder' | 'published' = 'builder') {
   const [data, setData] = useState<{
+    language: 'da' | 'en';
     pages: PreviewPage[];
     globalStyles: DesignTokens;
     chrome?: SiteChrome;
@@ -311,6 +322,7 @@ export function usePreviewData(websiteId: string | null, token: string | null, d
     websiteId: string;
     revision: number;
     fingerprint: string;
+    publishedHtml?: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -319,7 +331,7 @@ export function usePreviewData(websiteId: string | null, token: string | null, d
     if (!websiteId || !token) return;
     let cancelled = false;
     setLoading(true);
-    const query = directionId ? `?directionId=${encodeURIComponent(directionId)}` : "";
+    const query = '?' + new URLSearchParams({ ...(directionId ? { directionId } : {}), renderer }).toString();
     fetch(`/api/onboarding/preview/${websiteId}${query}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -331,6 +343,7 @@ export function usePreviewData(websiteId: string | null, token: string | null, d
       .then((body) => {
         if (cancelled) return;
         setData({
+          language: body.language === 'en' ? 'en' : 'da',
           pages: body.pages ?? [],
           globalStyles: body.globalStyles ?? {},
           chrome: body.siteChrome ?? undefined,
@@ -342,6 +355,7 @@ export function usePreviewData(websiteId: string | null, token: string | null, d
           websiteId: body.websiteId ?? websiteId,
           revision: body.revision ?? 0,
           fingerprint: body.fingerprint ?? "",
+          publishedHtml: body.publishedHtml,
         });
         setError(null);
       })
@@ -354,7 +368,7 @@ export function usePreviewData(websiteId: string | null, token: string | null, d
     return () => {
       cancelled = true;
     };
-  }, [websiteId, token, directionId]);
+  }, [websiteId, token, directionId, renderer]);
 
   return { data, error, loading };
 }

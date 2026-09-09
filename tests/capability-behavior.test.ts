@@ -35,6 +35,7 @@ import { createPrimitiveNode } from '@shared/generative/nodes';
 import { AIPrimitiveNodeSchema } from '@shared/aiBuilderSchema';
 import {
   generateComponentRenderer,
+  generateTrustedRuntime,
 } from '../server/publisher/templates';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
@@ -656,21 +657,8 @@ describe('publisher rendering — behavior boxes execute without crash', () => {
   });
 });
 
-describe('publisher source — behavior components and helpers are present', () => {
-  let cachedSrc: string;
-  function getSource(): string {
-    if (!cachedSrc) cachedSrc = generateComponentRenderer('da');
-    return cachedSrc;
-  }
-
-  it.each(BEHAVIOR_TYPES)('BehaviorXxx component for %s is in the generated source', (bType) => {
-    const componentName = 'Behavior' + (bType as string).charAt(0).toUpperCase() + (bType as string).slice(1);
-    expect(getSource()).toContain(componentName);
-  });
-
-  it('includes extractBehaviorLabel helper', () => {
-    expect(getSource()).toContain('extractBehaviorLabel');
-  });
+describe('publisher source — trusted runtime emission', () => {
+  const getSource = () => generateComponentRenderer('da');
 
   it("includes capability case 'capability' in CustomNode switch", () => {
     expect(getSource()).toContain("case 'capability'");
@@ -689,7 +677,7 @@ describe('publisher source — behavior components and helpers are present', () 
 describe('accessibility — ARIA attributes in generated behavior source', () => {
   let cachedSrc: string;
   function publisherSource(): string {
-    if (!cachedSrc) cachedSrc = generateComponentRenderer('da');
+    if (!cachedSrc) cachedSrc = generateTrustedRuntime();
     return cachedSrc;
   }
 

@@ -52,6 +52,9 @@ type SafeConfigScalar = string | number | boolean;
 // NEVER include endpoint, url, api, key, script, or callback fields.
 const CAPABILITY_CONFIG_KEYS: Record<CapabilityType, Set<string>> = {
   booking: new Set([
+    'title',
+    'description',
+    'buttonText',
     'variant',        // 'default' | 'compact' | 'inline'
     'displayMode',    // 'calendar' | 'list'
     'headingVisible', // boolean
@@ -100,6 +103,12 @@ export function sanitizeCapabilityConfig(
   for (const [k, v] of Object.entries(config as Record<string, unknown>)) {
     if (!allowed.has(k)) continue;
     if (!isSafeConfigScalar(v)) continue;
+    if (capability === 'booking') {
+      if (['title', 'description', 'buttonText'].includes(k) && typeof v !== 'string') continue;
+      if (k === 'headingVisible' && typeof v !== 'boolean') continue;
+      if (k === 'variant' && !['default', 'compact', 'inline'].includes(String(v))) continue;
+      if (k === 'displayMode' && !['calendar', 'list'].includes(String(v))) continue;
+    }
     out[k] = v;
   }
   return Object.keys(out).length > 0 ? out : undefined;

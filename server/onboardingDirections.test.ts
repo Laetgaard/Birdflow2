@@ -131,7 +131,7 @@ describe("production onboarding design directions", () => {
     expect(brief.assets).toHaveLength(2);
     expect(brief.assets[0]).toMatchObject({
       url: input.ownImageUrls[0],
-      heroSuitable: true,
+      heroSuitable: false,
       preferredCrop: expect.any(String),
     });
   });

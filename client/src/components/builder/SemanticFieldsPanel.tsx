@@ -80,6 +80,7 @@ export default function SemanticFieldsPanel({
   onOpenAdvanced,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
+  const [styleDevice, setStyleDevice] = useState<'styles' | 'tabletStyles' | 'mobileStyles'>('styles');
   const [expandedItems, setExpandedItems] = useState<Record<string, number | null>>({});
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -211,6 +212,10 @@ export default function SemanticFieldsPanel({
     const node = resolveNode(target);
     if (!node) return null;
     const uploading = uploadingKey === testId;
+    const inherited = { ...node.styles, ...(styleDevice === 'mobileStyles' ? node.tabletStyles : {}), ...node[styleDevice] };
+    const position = /^(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%$/.exec(inherited.objectPosition ?? '50% 50%');
+    const focal = position ? [Number(position[1]), Number(position[2])] : [50, 50];
+    const imageStyle = (property: 'objectFit' | 'objectPosition', value: string) => apply({ kind: 'set-image-presentation', target, property, value, device: styleDevice });
     return (
       <div key={testId} className={`space-y-1 rounded-md ${highlighted ? "ring-1 ring-primary/60 p-1 -m-1" : ""}`}>
         <Label className="text-xs">{label}</Label>
@@ -244,6 +249,24 @@ export default function SemanticFieldsPanel({
           className="h-8 text-xs"
           data-testid={`${testId}-alt`}
         />
+        <label className="block text-xs space-y-1">
+          <span>Billedtilpasning</span>
+          <select className="w-full border rounded-md bg-background p-1.5" value={node[styleDevice]?.objectFit ?? ''} onChange={e => imageStyle('objectFit', e.target.value)} data-testid={`${testId}-fit`}>
+            <option value="">Følg designet</option>
+            <option value="cover">Udfyld rammen</option>
+            <option value="contain">Vis hele billedet</option>
+          </select>
+        </label>
+        {['Vandret fokus', 'Lodret fokus'].map((caption, axis) => (
+          <label key={caption} className="block text-xs space-y-1">
+            <span>{caption}</span>
+            <input className="w-full" type="range" min="0" max="100" step="1" value={focal[axis]} data-testid={`${testId}-focus-${axis}`} onChange={e => {
+              const point = [...focal]; point[axis] = Number(e.target.value);
+              imageStyle('objectPosition', `${point[0]}% ${point[1]}%`);
+            }} />
+          </label>
+        ))}
+        <Button size="sm" variant="ghost" onClick={() => imageStyle('objectPosition', '')} data-testid={`${testId}-reset-focus`}>Nulstil fokus</Button>
       </div>
     );
   };
@@ -313,7 +336,7 @@ export default function SemanticFieldsPanel({
       <div key={field.key} className={`space-y-2 rounded-md ${highlighted ? "ring-1 ring-primary/60 p-1 -m-1" : ""}`}>
         <Label className="text-xs">{field.label}</Label>
         {field.keys.map((styleKey: PrimitiveStyleKey) => {
-          const value = node.styles?.[styleKey] ?? "";
+          const value = node[styleDevice]?.[styleKey] ?? "";
           const isColor = /color/i.test(styleKey);
           return (
             <div key={styleKey} className="flex items-center gap-2">
@@ -322,13 +345,13 @@ export default function SemanticFieldsPanel({
                 <Input
                   type="color"
                   value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : "#ffffff"}
-                  onChange={(e) => apply({ kind: "set-style", target, styleKey, value: e.target.value })}
+                  onChange={(e) => apply({ kind: "set-style", target, styleKey, value: e.target.value, device: styleDevice })}
                   className="w-9 h-8 p-1 cursor-pointer"
                 />
               )}
               <Input
                 value={value}
-                onChange={(e) => apply({ kind: "set-style", target, styleKey, value: e.target.value })}
+                onChange={(e) => apply({ kind: "set-style", target, styleKey, value: e.target.value, device: styleDevice })}
                 placeholder="Nedarvet"
                 className="flex-1 h-8 text-xs"
                 data-testid={`semantic-style-${field.key}-${styleKey}`}
@@ -472,6 +495,15 @@ export default function SemanticFieldsPanel({
 
   return (
     <div className="space-y-4" data-testid="semantic-fields-panel">
+      <label className="block text-xs space-y-1">
+        <span>Layout og billedudsnit</span>
+        <select className="w-full border rounded-md bg-background p-1.5" value={styleDevice} onChange={e => setStyleDevice(e.target.value as typeof styleDevice)} data-testid="semantic-style-device">
+          <option value="styles">Computer / grunddesign</option>
+          <option value="tabletStyles">Tablet</option>
+          <option value="mobileStyles">Mobil</option>
+        </select>
+        <span className="block text-muted-foreground">Tekst, links og billedvalg gælder stadig på alle enheder.</span>
+      </label>
       <input
         ref={fileRef}
         type="file"
