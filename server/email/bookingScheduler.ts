@@ -9,6 +9,7 @@ import { bookings, emailSettings } from '@shared/schema';
 import { db } from '../storage';
 import { emailService } from './service';
 import { bookingStartUtc, bookingEndUtc } from './bookingTime';
+import { processBookingNotificationOutbox } from './bookingOutbox';
 
 const TICK_MS = 60_000;
 const MAX_SENDS_PER_TICK = 25;
@@ -42,6 +43,7 @@ export async function tick(): Promise<void> {
   try {
     await processReminders();
     await processFollowups();
+    await processBookingNotificationOutbox();
   } catch (err) {
     console.error('[BookingScheduler] Tick failed:', err);
   } finally {

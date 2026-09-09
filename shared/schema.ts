@@ -822,6 +822,7 @@ export const bookings = pgTable("bookings", {
   followupSentAt: timestamp("followup_sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  version: integer("version").notNull().default(1),
 });
 
 export const insertBookingSchema = createInsertSchema(bookings).omit({
@@ -1076,6 +1077,8 @@ export const bookingServices = pgTable("booking_services", {
   name: text("name").notNull(),
   description: text("description"),
   durationMinutes: integer("duration_minutes").notNull().default(30),
+  color: text("color").notNull().default("#6366f1"),
+  allowCustomDuration: boolean("allow_custom_duration").notNull().default(false),
   price: text("price").notNull().default("0"),
   currency: text("currency").notNull().default("USD"),
   active: text("active").notNull().default("true"),
@@ -1092,6 +1095,56 @@ export const insertBookingServiceSchema = createInsertSchema(bookingServices).om
 
 export type InsertBookingService = z.infer<typeof insertBookingServiceSchema>;
 export type BookingService = typeof bookingServices.$inferSelect;
+
+/** A period during which a website (or a service/team member) cannot be booked. */
+export const bookingBlockedTimes = pgTable("booking_blocked_times", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  serviceId: varchar("service_id"),
+  teamMemberId: varchar("team_member_id"),
+  date: text("date").notNull(), // YYYY-MM-DD, deliberately timezone-free
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  durationMinutes: integer("duration_minutes"),
+  category: text("category"),
+  notes: text("notes"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export const insertBookingBlockedTimeSchema = createInsertSchema(bookingBlockedTimes).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBookingBlockedTime = z.infer<typeof insertBookingBlockedTimeSchema>;
+export type BookingBlockedTime = typeof bookingBlockedTimes.$inferSelect;
+
+/** Durable transactional email intents. Unique key makes retries harmless. */
+export const bookingNotificationOutbox = pgTable("booking_notification_outbox", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+  bookingId: varchar("booking_id").notNull(),
+  websiteId: varchar("website_id").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  processingStartedAt: timestamp("processing_started_at"),
+  claimToken: varchar("claim_token", { length: 64 }),
+  availableAt: timestamp("available_at").defaultNow().notNull(),
+  sentAt: timestamp("sent_at"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ idempotencyUnique: uniqueIndex("booking_notification_outbox_key").on(table.idempotencyKey) }));
+export const insertBookingNotificationOutboxSchema = createInsertSchema(bookingNotificationOutbox).omit({ id: true, createdAt: true });
+export type InsertBookingNotificationOutbox = z.infer<typeof insertBookingNotificationOutboxSchema>;
+export type BookingNotificationOutbox = typeof bookingNotificationOutbox.$inferSelect;
+
+export const bookingSchedulingAudit = pgTable("booking_scheduling_audit", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  bookingId: varchar("booking_id"),
+  action: text("action").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BookingSchedulingAudit = typeof bookingSchedulingAudit.$inferSelect;
 
 // Service availability - defines available time slots per service
 export const serviceAvailability = pgTable("service_availability", {

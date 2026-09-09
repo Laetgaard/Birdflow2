@@ -16,6 +16,8 @@ import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } fr
 import { isAllowedMediaStoragePath } from "./mediaPaths";
 import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp, lt as ltOp } from "drizzle-orm";
 import { z, ZodError } from "zod";
+import crypto from "node:crypto";
+import { nextCalendarDate } from "./bookingDate";
 import { createClient } from "@supabase/supabase-js";
 import { publishWebsite } from "./publisher";
 import { resolvePlatformUrl } from "./publisher/platformUrl";
@@ -1619,11 +1621,53 @@ export async function registerRoutes(
     try {
       const website = getWebsiteAccess(req).website;
 
-      const bookings = await storage.getBookings(req.params.id);
+      const start = typeof req.query.from === "string" ? req.query.from
+        : (typeof req.query.start === "string" ? req.query.start : undefined);
+      const end = typeof req.query.to === "string" ? req.query.to
+        : (typeof req.query.end === "string" ? req.query.end : undefined);
+      const range = start && end ? { start: new Date(`${start}T00:00:00`), end: new Date(`${nextCalendarDate(end)}T00:00:00`) } : undefined;
+      const bookings = await storage.getBookings(req.params.id, undefined, range);
       res.json(bookings);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
+  });
+
+  // Website-wide blocked periods are authoritative calendar constraints.
+  app.get("/api/websites/:id/blocked-times", requireAuth, requireWebsitePermission("readManage"), async (req, res) => {
+    try {
+      getWebsiteAccess(req);
+      res.json(await storage.listBlockedTimes(req.params.id,
+        typeof req.query.from === "string" ? req.query.from : (typeof req.query.start === "string" ? req.query.start : undefined),
+        typeof req.query.to === "string" ? req.query.to : (typeof req.query.end === "string" ? req.query.end : undefined)));
+    } catch (error: any) { res.status(error.status || 500).json({ message: error.message, code: error.code }); }
+  });
+  app.post("/api/websites/:id/blocked-times", requireAuth, requireWebsitePermission("updateManage"), async (req, res) => {
+    try {
+      getWebsiteAccess(req);
+      const { date, startTime, durationMinutes, category, notes, reason, serviceId, teamMemberId } = req.body || {};
+      const endTime = typeof req.body?.endTime === "string" ? req.body.endTime
+        : Number.isInteger(durationMinutes) && /^\d{2}:\d{2}$/.test(startTime)
+          ? (() => {
+              const [hours, minutes] = startTime.split(":").map(Number);
+              const total = hours * 60 + minutes + durationMinutes;
+              return total < 24 * 60
+                ? `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
+                : undefined;
+            })()
+          : undefined;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(startTime) || !endTime || !/^\d{2}:\d{2}$/.test(endTime) || startTime >= endTime)
+        return res.status(400).json({ message: "Invalid blocked time" });
+      res.status(201).json(await storage.createBlockedTime({ websiteId: req.params.id, date, startTime, endTime, durationMinutes: durationMinutes || null, category: category || null, notes: notes || null, reason: reason || notes || null, serviceId: serviceId || null, teamMemberId: teamMemberId || null }));
+    } catch (error: any) { res.status(error.status || 500).json({ message: error.message, code: error.code }); }
+  });
+  app.patch("/api/websites/:id/blocked-times/:blockedTimeId", requireAuth, requireWebsitePermission("updateManage"), async (req, res) => {
+    try { getWebsiteAccess(req); const allowed = ["date", "startTime", "endTime", "durationMinutes", "category", "notes", "reason", "serviceId", "teamMemberId"]; const patch = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => allowed.includes(key))); const row = await storage.updateBlockedTimeTransactional(req.params.blockedTimeId, req.params.id, patch); if (!row) return res.status(404).json({ message: "Blocked time not found" }); res.json(row); }
+    catch (error: any) { res.status(error.status || 500).json({ message: error.message, code: error.code }); }
+  });
+  app.delete("/api/websites/:id/blocked-times/:blockedTimeId", requireAuth, requireWebsitePermission("updateManage"), async (req, res) => {
+    try { getWebsiteAccess(req); if (!await storage.deleteBlockedTime(req.params.blockedTimeId, req.params.id)) return res.status(404).json({ message: "Blocked time not found" }); res.status(204).end(); }
+    catch (error: any) { res.status(500).json({ message: error.message }); }
   });
 
   // Create a booking as the website owner (from the manage calendar)
@@ -1654,6 +1698,12 @@ export async function registerRoutes(
         if (svc) duration = svc.durationMinutes || 0;
       }
       if (!duration) duration = 60;
+      if (serviceId) {
+        const svc = await storage.getBookingService(serviceId, req.params.id);
+        if (svc && !svc.allowCustomDuration && duration !== svc.durationMinutes) {
+          return res.status(400).json({ message: "Service duration cannot be changed", code: "DURATION_LOCKED" });
+        }
+      }
 
       if (teamMemberId) {
         const member = await storage.getTeamMember(teamMemberId, req.params.id);
@@ -1681,7 +1731,7 @@ export async function registerRoutes(
         }
       }
 
-      const booking = await storage.createBooking({
+      const booking = await storage.createBookingTransactional({
         websiteId: req.params.id,
         serviceId: serviceId || null,
         service,
@@ -1698,7 +1748,11 @@ export async function registerRoutes(
         sendReminder: sendReminder !== false,
         price: price || null,
         currency: currency || null,
-      });
+      }, sendConfirmationEmail !== false && customerEmail ? {
+        eventType: "booking_confirmation",
+        idempotencyKey: crypto.createHash("sha256").update(`confirmation:${req.params.id}:${date}:${time}:${customerEmail}`).digest("hex"),
+        payload: { serviceName: service, websiteUrl: website.deploymentUrl || undefined },
+      } : undefined);
 
       // Optimistic post-insert verification (closes the create race window)
       const raceConflict = await storage.findPlacementConflict(req.params.id, booking.id);
@@ -1742,18 +1796,9 @@ export async function registerRoutes(
         console.error('[Booking] Kunne ikke reservere matchende ledigt tidspunkt:', slotErr);
       }
 
-      if (booking.customerEmail && sendConfirmationEmail !== false) {
-        try {
-          const websiteUrl = website.deploymentUrl || undefined;
-          await emailService.sendBookingConfirmation(booking, booking.customerEmail, booking.service, websiteUrl);
-        } catch (emailErr) {
-          console.error(`[Booking] Failed to send owner-created confirmation email:`, emailErr);
-        }
-      }
-
       res.status(201).json(booking);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.status || 500).json({ message: error.message, code: error.code });
     }
   });
 
@@ -2344,6 +2389,9 @@ export async function registerRoutes(
       }
 
       const body = req.body || {};
+      if (!Number.isInteger(body.version) || body.version < 1) {
+        return res.status(409).json({ message: "Bookingen er ændret et andet sted. Genindlæs og prøv igen.", code: "STALE_BOOKING" });
+      }
       const data: Record<string, unknown> = {};
 
       // Whitelisted updatable fields
@@ -2371,7 +2419,7 @@ export async function registerRoutes(
             return res.status(400).json({ message: "Ugyldig dato" });
           }
           newDateStr = parsed.toISOString().slice(0, 10);
-          data.date = parsed;
+          data.date = new Date(`${newDateStr}T00:00:00`);
         }
       }
       if (body.time !== undefined) {
@@ -2396,8 +2444,13 @@ export async function registerRoutes(
 
       // Conflict checks when the effective time/assignee changes, or when a
       // cancelled booking is reactivated (its old time may have been retaken)
-      const timingChanged = body.date !== undefined || body.time !== undefined
-        || body.durationMinutes !== undefined || body.teamMemberId !== undefined;
+      const timingChanged = body.status !== "cancelled" && (
+        (newDateStr !== undefined && newDateStr !== new Date(originalBooking.date).toISOString().slice(0, 10))
+        || (body.time !== undefined && body.time !== originalBooking.time)
+        || (body.durationMinutes !== undefined && body.durationMinutes !== originalBooking.durationMinutes)
+        || (body.teamMemberId !== undefined && (body.teamMemberId || null) !== originalBooking.teamMemberId)
+        || (body.serviceId !== undefined && (body.serviceId || null) !== originalBooking.serviceId)
+      );
       const reactivating = body.status !== undefined && body.status !== 'cancelled'
         && originalBooking.status === 'cancelled';
       if (timingChanged || reactivating) {
@@ -2431,15 +2484,23 @@ export async function registerRoutes(
         }
       }
 
-      const booking = await storage.updateBooking(req.params.bookingId, req.params.id, data);
+      const rescheduled = timingChanged;
+      const notificationEvent = originalBooking.customerEmail ? (
+        body.status === 'cancelled' && originalBooking.status !== 'cancelled' ? "booking_cancelled" :
+        (body.status && body.status !== "completed" && originalBooking.status !== body.status) || rescheduled ? "booking_updated" : undefined
+      ) : undefined;
+      const booking = await storage.updateBookingTransactional(req.params.bookingId, req.params.id, data,
+        notificationEvent ? {
+          eventType: notificationEvent,
+          idempotencyKey: crypto.createHash("sha256").update(`${notificationEvent}:${req.params.bookingId}:${originalBooking.version + 1}`).digest("hex"),
+          payload: { serviceName: String(data.service || originalBooking.service), websiteUrl: website.deploymentUrl || undefined },
+        } : undefined,
+        body.version !== undefined ? Number(body.version) : undefined);
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
 
       // Send email on status change or reschedule
-      const rescheduled = (body.date !== undefined || body.time !== undefined)
-        && (new Date(booking.date).getTime() !== new Date(originalBooking.date).getTime() || booking.time !== originalBooking.time);
-
       // A cancelled or rescheduled booking that claimed an open slot reopens it
       // (the slot's time is offered again; the booking no longer occupies it)
       if ((body.status === 'cancelled' && originalBooking.status !== 'cancelled') || rescheduled) {
@@ -2449,36 +2510,9 @@ export async function registerRoutes(
           console.error(`Failed to release open slot for cancelled/moved booking:`, slotErr);
         }
       }
-      if (booking.customerEmail) {
-        const websiteUrl = website.deploymentUrl || undefined;
-        try {
-          if (body.status === 'cancelled' && originalBooking.status !== 'cancelled') {
-            await emailService.sendBookingCancelled(
-              booking,
-              booking.customerEmail,
-              booking.service
-            );
-            console.log(`Booking cancelled email sent to ${booking.customerEmail}`);
-          } else if (body.status === 'completed' && !rescheduled) {
-            // Marking a past appointment as held is bookkeeping, not a change
-            // the customer needs an email about.
-          } else if ((body.status && originalBooking.status !== body.status) || rescheduled) {
-            await emailService.sendBookingUpdated(
-              booking,
-              booking.customerEmail,
-              booking.service,
-              websiteUrl
-            );
-            console.log(`Booking updated email sent to ${booking.customerEmail}`);
-          }
-        } catch (emailErr) {
-          console.error(`Failed to send booking update email:`, emailErr);
-        }
-      }
-
       res.json(booking);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      res.status(error.status || 500).json({ message: error.message, code: error.code });
     }
   });
 
@@ -3804,7 +3838,7 @@ export async function registerRoutes(
     try {
       const website = getWebsiteAccess(req).website;
 
-      const { name, description, durationMinutes, price, currency, isActive } = req.body;
+      const { name, description, durationMinutes, price, currency, isActive, color, allowCustomDuration } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Service name is required" });
       }
@@ -3816,6 +3850,8 @@ export async function registerRoutes(
         durationMinutes: durationMinutes || 30,
         price: price || '0',
         currency: currency || 'USD',
+        color: color || '#6366f1',
+        allowCustomDuration: allowCustomDuration === true,
         active: isActive !== false ? 'true' : 'false',
       });
 
@@ -3837,6 +3873,9 @@ export async function registerRoutes(
         ...rest,
         ...(isActive !== undefined ? { active: isActive ? 'true' : 'false' } : {}),
       };
+      if (updateData.durationMinutes !== undefined && typeof updateData.durationMinutes !== "number") {
+        return res.status(400).json({ message: "Invalid duration" });
+      }
 
       const service = await storage.updateBookingService(req.params.serviceId, req.params.id, updateData);
       if (!service) {
@@ -4319,12 +4358,16 @@ export async function registerRoutes(
     console.log(`[Booking] Received booking request for website ${websiteId}`);
     
     try {
-      const { customerName, customerEmail, customerPhone, service, serviceId, date, time, notes, teamMemberId, openSlotId, place } = req.body;
+      const { customerName, customerEmail, customerPhone, service, serviceId, date, notes, teamMemberId, openSlotId, place } = req.body;
+      const submittedTime = typeof req.body.time === "string"
+        ? req.body.time
+        : (typeof date === "string" ? /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(date)?.[2] : undefined);
+      const time = submittedTime;
       console.log(`[Booking] Request details:`, { customerName, customerEmail, service, serviceId, date, time, teamMemberId, openSlotId });
       
-      if (!customerName || !customerEmail || !service || !date) {
+      if (!customerName || !customerEmail || !service || !serviceId || !date || (!openSlotId && (!time || !/^\d{2}:\d{2}$/.test(time)))) {
         console.log(`[Booking] REJECTED: Missing required fields`);
-        return res.status(400).json({ message: "Customer name, email, service, and date are required" });
+        return res.status(400).json({ message: "Customer name, email, service, service ID, date, and time are required" });
       }
 
       const website = await storage.getWebsite(websiteId);
@@ -4333,6 +4376,10 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Website not found" });
       }
       console.log(`[Booking] Website found: ${website.name}`);
+      const requestedService = await storage.getBookingService(serviceId, websiteId);
+      if (!requestedService || requestedService.active !== "true") {
+        return res.status(400).json({ message: "Selected service is not available" });
+      }
 
       // Validate the requested team member (if any) belongs to this website
       let requestedMemberId: string | null = null;
@@ -4348,9 +4395,9 @@ export async function registerRoutes(
       let booking;
 
       if (openSlotId && typeof openSlotId === 'string') {
-        // Owner-placed open slot: claim it atomically, then create the booking from it
-        const claimed = await storage.claimOpenSlot(openSlotId, websiteId);
-        if (!claimed) {
+        // Read for display defaults only; the transaction re-reads and claims it.
+        const slot = await storage.getOpenSlot(openSlotId, websiteId);
+        if (!slot || slot.status !== "open") {
           console.log(`[Booking] CONFLICT: Open slot ${openSlotId} already taken`);
           return res.status(409).json({
             message: "This time slot is no longer available. Please select a different time.",
@@ -4358,44 +4405,37 @@ export async function registerRoutes(
           });
         }
 
-        try {
-          // Slot settings win over request values
-          let slotServiceId = claimed.serviceId || serviceId || null;
-          let serviceName = service;
-          if (claimed.serviceId && claimed.serviceId !== serviceId) {
-            const svc = await storage.getBookingService(claimed.serviceId, websiteId);
-            if (svc) serviceName = svc.name;
-          }
+        // Slot settings win over request values.
+        const slotServiceId = slot.serviceId || serviceId || null;
+        let serviceName = service;
+        if (slot.serviceId && slot.serviceId !== serviceId) {
+          const svc = await storage.getBookingService(slot.serviceId, websiteId);
+          if (svc) serviceName = svc.name;
+        }
 
-          booking = await storage.createBooking({
+        booking = await storage.createBookingFromOpenSlotTransactional(slot.id, websiteId, {
             websiteId,
             customerName,
             customerEmail,
             customerPhone,
             service: serviceName,
             serviceId: slotServiceId,
-            date: new Date(claimed.date + 'T00:00:00'),
-            time: claimed.time,
-            durationMinutes: claimed.durationMinutes || null,
-            teamMemberId: claimed.teamMemberId || requestedMemberId,
+            date: new Date(slot.date + 'T00:00:00'),
+            time: slot.time,
+            durationMinutes: slot.durationMinutes || null,
+            teamMemberId: slot.teamMemberId || requestedMemberId,
             place: typeof place === 'string' && place ? place : null,
             notes,
-          });
-          await storage.linkOpenSlotBooking(claimed.id, booking.id);
-        } catch (createErr) {
-          // Revert the claim so the slot is not lost
-          await storage.releaseOpenSlot(claimed.id).catch(() => {});
-          throw createErr;
-        }
-        console.log(`[Booking] SUCCESS: Created booking ${booking.id} from open slot ${claimed.id}`);
+          }, {
+            eventType: "booking_confirmation",
+            idempotencyKey: "",
+            payload: { serviceName, websiteUrl: website.deploymentUrl || undefined },
+        });
+        console.log(`[Booking] SUCCESS: Created booking ${booking.id} from open slot ${slot.id}`);
       } else {
         // Resolve the service duration once — used for conflict checks and
         // stored on the booking so calendar and emails know the real length
-        let durationMinutes: number | null = null;
-        if (serviceId) {
-          const svc = await storage.getBookingService(serviceId, websiteId);
-          if (svc?.durationMinutes) durationMinutes = svc.durationMinutes;
-        }
+        const durationMinutes = requestedService.durationMinutes;
 
         // Double-booking prevention: Check if slot is still available
         let dateStr: string | null = null;
@@ -4441,55 +4481,27 @@ export async function registerRoutes(
           }
         }
 
-        booking = await storage.createBooking({
+        booking = await storage.createBookingTransactional({
           websiteId,
           customerName,
           customerEmail,
           customerPhone,
           service,
           serviceId: serviceId || null,
-          date: new Date(date),
+          date: new Date(`${String(date).slice(0, 10)}T00:00:00`),
           time: time || null,
           durationMinutes,
           teamMemberId: requestedMemberId,
           place: typeof place === 'string' && place ? place : null,
           notes,
-        });
-
-        // Optimistic post-insert verification: two concurrent requests can
-        // both pass the pre-checks above; the later-created booking loses
-        // and is rolled back.
-        const raceConflict = await storage.findPlacementConflict(websiteId, booking.id);
-        if (raceConflict) {
-          await storage.deleteBooking(booking.id, websiteId);
-          console.log(`[Booking] RACE: booking rolled back, lost to earlier booking ${raceConflict.id}`);
-          return res.status(409).json({
-            message: "This time slot is no longer available. Please select a different time.",
-            code: "SLOT_UNAVAILABLE"
-          });
-        }
+        }, { eventType: "booking_confirmation", idempotencyKey: crypto.createHash("sha256").update(`confirmation:${websiteId}:${date}:${time}:${customerEmail}`).digest("hex"), payload: { serviceName: service, websiteUrl: website.deploymentUrl || undefined } });
       }
       console.log(`[Booking] SUCCESS: Created booking ${booking.id} for ${customerName} (${customerEmail})`);
-
-      // Send booking confirmation email
-      try {
-        const websiteUrl = website.deploymentUrl || undefined;
-        console.log(`[Booking] Sending confirmation email to ${customerEmail}`);
-        await emailService.sendBookingConfirmation(
-          booking,
-          customerEmail,
-          service,
-          websiteUrl
-        );
-        console.log(`[Booking] Email sent successfully to ${customerEmail}`);
-      } catch (emailErr) {
-        console.error(`[Booking] FAILED to send confirmation email to ${customerEmail}:`, emailErr);
-      }
 
       res.status(201).json(booking);
     } catch (error: any) {
       console.error(`[Booking] ERROR: Failed to create booking for website ${websiteId}:`, error.message);
-      res.status(500).json({ message: error.message });
+      res.status(error.status || 500).json({ message: error.message, code: error.code });
     }
   });
 
@@ -7655,16 +7667,14 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
 
       let booking;
       if (typeof openSlotId === 'string' && openSlotId) {
-        // Owner-placed slot: claim atomically first, then build from it.
-        const claimed = await storage.claimOpenSlot(openSlotId, website.id);
-        if (!claimed) {
+        const slot = await storage.getOpenSlot(openSlotId, website.id);
+        if (!slot || slot.status !== "open") {
           return res.status(409).json({
             message: "Tidspunktet er desværre lige blevet taget. Vælg venligst et andet.",
             code: "SLOT_UNAVAILABLE",
           });
         }
-        try {
-          booking = await storage.createBooking({
+        booking = await storage.createBookingFromOpenSlotTransactional(slot.id, website.id, {
             websiteId: website.id,
             context: 'platform_onboarding',
             customerUserId: user.id,
@@ -7675,17 +7685,16 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
             customerPhone: typeof customerPhone === 'string' ? customerPhone : (profile?.phoneNumber || null),
             service: service.name,
             serviceId: service.id,
-            date: new Date(claimed.date + 'T00:00:00'),
-            time: claimed.time,
-            durationMinutes: claimed.durationMinutes || service.durationMinutes,
+            date: new Date(slot.date + 'T00:00:00'),
+            time: slot.time,
+            durationMinutes: slot.durationMinutes || service.durationMinutes,
             status: 'confirmed',
             notes: typeof notes === 'string' && notes ? notes : null,
-          });
-          await storage.linkOpenSlotBooking(claimed.id, booking.id);
-        } catch (createErr) {
-          await storage.releaseOpenSlot(claimed.id).catch(() => {});
-          throw createErr;
-        }
+          }, {
+            eventType: "booking_confirmation",
+            idempotencyKey: "",
+            payload: { serviceName: service.name },
+        });
       } else {
         const isAvailable = await storage.checkSlotAvailable(service.id, website.id, date, time);
         if (!isAvailable) {
@@ -7704,7 +7713,7 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
           });
         }
 
-        booking = await storage.createBooking({
+        booking = await storage.createBookingTransactional({
           websiteId: website.id,
           context: 'platform_onboarding',
           customerUserId: user.id,
@@ -7720,17 +7729,11 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
           durationMinutes: service.durationMinutes,
           status: 'confirmed',
           notes: typeof notes === 'string' && notes ? notes : null,
+        }, {
+          eventType: "booking_confirmation",
+          idempotencyKey: "",
+          payload: { serviceName: service.name },
         });
-
-        // Two requests can both clear the pre-checks; the later insert loses.
-        const race = await storage.findPlacementConflict(website.id, booking.id);
-        if (race) {
-          await storage.deleteBooking(booking.id, website.id);
-          return res.status(409).json({
-            message: "Tidspunktet er desværre lige blevet taget. Vælg venligst et andet.",
-            code: "SLOT_UNAVAILABLE",
-          });
-        }
       }
 
       // An improvement meeting booked from the onboarding decision screen
@@ -7751,11 +7754,6 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
       // Confirmation with calendar invite to the customer, notification to
       // BirdFlow. Neither may turn a booked meeting into an error.
       try {
-        await emailService.sendBookingConfirmation(booking, customerEmail, service.name);
-      } catch (emailErr) {
-        console.error(`[PlatformCalendar] confirmation email failed for booking ${booking.id}:`, emailErr);
-      }
-      try {
         const adminEmails = await storage.getAdminNotificationEmails();
         const adminUrl = `${resolveAppOrigin(req.headers.host)}/admin`;
         for (const adminEmail of adminEmails) {
@@ -7775,7 +7773,7 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
       });
     } catch (error: any) {
       console.error("[PlatformCalendar] booking failed:", error);
-      res.status(500).json({ message: error.message });
+      res.status(error.status || 500).json({ message: error.message, code: error.code });
     }
   });
 

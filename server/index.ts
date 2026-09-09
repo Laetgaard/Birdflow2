@@ -21,6 +21,7 @@ import { startPublishActivationReconciler } from "./publisher/worker";
 import { resumeOrphanedBuilds } from "./buildWorker";
 import { storage as appStorage } from "./storage";
 import { registerSeoRoutes } from "./seo";
+import { ensureBookingSchema } from "./bookingSchema";
 
 const app = express();
 const httpServer = createServer(app);
@@ -287,6 +288,8 @@ app.use((req, res, next) => {
   void startSvgAssetSchema(db);
   void startAccountComponentSchema(db);
   void startInvoiceSchema(db);
+  // Booking extensions are idempotent because deployments do not run db:push.
+  void ensureBookingSchema(db).catch(err => console.warn("[BookingSchema] setup skipped:", err?.message || err));
   startPublishJobSchema(db).then(ready => {
     if (ready) {
       void failStalePublishJobs().catch(err =>

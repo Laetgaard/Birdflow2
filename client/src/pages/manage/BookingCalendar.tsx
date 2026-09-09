@@ -17,7 +17,7 @@ import { da } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChevronLeft, ChevronRight, CalendarPlus, Clock, Plus } from "lucide-react";
-import type { Booking, OpenSlot, TeamMember } from "./types";
+import type { Booking, BookingService, BlockedTime, OpenSlot, TeamMember } from "./types";
 
 /** Neutral farve når en booking ikke har en person tilknyttet. */
 export const NEUTRAL_MEMBER_COLOR = "#94a3b8";
@@ -90,11 +90,13 @@ type DayItem =
   | { kind: "slot"; time: string; minutes: number; slot: OpenSlot };
 
 export type BookingCalendarProps = {
-  view: "week" | "month";
+  view: "day" | "week" | "month" | "agenda";
   anchorDate: Date;
   onAnchorDateChange: (date: Date) => void;
   bookings: Booking[];
   openSlots: OpenSlot[];
+  blockedTimes?: BlockedTime[];
+  services?: BookingService[];
   teamMembers: TeamMember[];
   memberFilter: string;
   onMemberFilterChange: (value: string) => void;
@@ -103,6 +105,8 @@ export type BookingCalendarProps = {
   onCreateBooking: (date: string, time?: string) => void;
   onCreateSlot: (date: string, time?: string) => void;
   onMoveBooking: (booking: Booking, date: string, time: string) => void;
+  onSelectBlocked?: (blocked: BlockedTime) => void;
+  onCreateBlocked?: (date: string, time?: string) => void;
 };
 
 export function BookingCalendar({
@@ -111,6 +115,8 @@ export function BookingCalendar({
   onAnchorDateChange,
   bookings,
   openSlots,
+  blockedTimes = [],
+  services = [],
   teamMembers,
   memberFilter,
   onMemberFilterChange,
@@ -119,10 +125,24 @@ export function BookingCalendar({
   onCreateBooking,
   onCreateSlot,
   onMoveBooking,
+  onSelectBlocked,
+  onCreateBlocked,
 }: BookingCalendarProps) {
   const [draggingBooking, setDraggingBooking] = useState<Booking | null>(null);
   const [menuKey, setMenuKey] = useState<string | null>(null);
   const [expandedDays, setExpandedDays] = useState<string[]>([]);
+  const [workingHours, setWorkingHours] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("birdflow-working-hours") || '{"start":7,"end":21}'); } catch { return { start: 7, end: 21 }; }
+  });
+  const startMinutes = workingHours.start * 60;
+  const rowCount = (workingHours.end - workingHours.start) * 2;
+  const timezone = "Europe/Copenhagen";
+  const updateWorkingHours = (key: "start" | "end", value: number) => {
+    const next = { ...workingHours, [key]: value };
+    if (next.end <= next.start) return;
+    setWorkingHours(next);
+    localStorage.setItem("birdflow-working-hours", JSON.stringify(next));
+  };
 
   const memberById = useMemo(() => {
     const map = new Map<string, TeamMember>();
@@ -196,12 +216,20 @@ export function BookingCalendar({
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart],
   );
+  const timelineDays = view === "day" ? [anchorDate] : weekDays;
 
-  const today = new Date();
+  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+  const today = new Date(`${todayKey}T12:00:00`);
+  const currentTimeParts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+  const currentMinutes = Number(currentTimeParts.find((part) => part.type === "hour")?.value || 0) * 60 + Number(currentTimeParts.find((part) => part.type === "minute")?.value || 0);
 
   const rangeLabel =
     view === "month"
       ? capitalize(format(anchorDate, "LLLL yyyy", { locale: da }))
+      : view === "agenda"
+        ? "Agenda"
+        : view === "day"
+          ? format(anchorDate, "EEEE d. MMMM yyyy", { locale: da })
       : `Uge ${getISOWeek(weekStart)} · ${format(weekStart, "d. MMM", { locale: da })} – ${format(
           addDays(weekStart, 6),
           "d. MMM yyyy",
@@ -209,9 +237,9 @@ export function BookingCalendar({
         )}`;
 
   const goPrev = () =>
-    onAnchorDateChange(view === "month" ? addMonths(anchorDate, -1) : addWeeks(anchorDate, -1));
+    onAnchorDateChange(view === "month" ? addMonths(anchorDate, -1) : view === "day" ? addDays(anchorDate, -1) : addWeeks(anchorDate, -1));
   const goNext = () =>
-    onAnchorDateChange(view === "month" ? addMonths(anchorDate, 1) : addWeeks(anchorDate, 1));
+    onAnchorDateChange(view === "month" ? addMonths(anchorDate, 1) : view === "day" ? addDays(anchorDate, 1) : addWeeks(anchorDate, 1));
 
   const handleDropOnDay = (date: Date, time?: string) => {
     const booking = draggingBooking;
@@ -225,6 +253,8 @@ export function BookingCalendar({
 
   const memberColor = (memberId?: string | null) =>
     (memberId && memberById.get(memberId)?.color) || NEUTRAL_MEMBER_COLOR;
+  const serviceColor = (booking: Booking) =>
+    services.find((service) => service.id === booking.serviceId)?.color || memberColor(booking.teamMemberId);
 
   const memberName = (memberId?: string | null) =>
     (memberId && memberById.get(memberId)?.name) || "";
@@ -250,6 +280,14 @@ export function BookingCalendar({
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
+            onClick={() => { setMenuKey(null); onCreateBlocked?.(dateStr, time); }}
+            data-testid="menu-new-blocked-time"
+          >
+            <span className="h-3 w-3 rounded-sm bg-slate-400" /> Bloker tid
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted"
             onClick={() => {
               setMenuKey(null);
               onCreateSlot(dateStr, time);
@@ -264,7 +302,7 @@ export function BookingCalendar({
   };
 
   const bookingChip = (booking: Booking, compact: boolean) => {
-    const color = memberColor(booking.teamMemberId);
+    const color = serviceColor(booking);
     const cancelled = booking.status === "cancelled";
     return (
       <div
@@ -281,6 +319,20 @@ export function BookingCalendar({
           e.stopPropagation();
           onSelectBooking(booking);
         }}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelectBooking(booking);
+          } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && booking.status !== "cancelled") {
+            e.preventDefault();
+            const current = timeToMinutes(bookingTimeOf(booking));
+            const nextTime = e.key === "ArrowUp" ? minutesToTime(current - 30) : e.key === "ArrowDown" ? minutesToTime(current + 30) : bookingTimeOf(booking);
+            const date = bookingDayKey(booking.date);
+            const nextDate = e.key === "ArrowLeft" ? dayKey(addDays(new Date(`${date}T12:00:00`), -1)) : e.key === "ArrowRight" ? dayKey(addDays(new Date(`${date}T12:00:00`), 1)) : date;
+            onMoveBooking(booking, nextDate, nextTime);
+          }
+        }}
         className={`truncate rounded-md border-l-4 px-1.5 py-0.5 text-[11px] font-medium leading-tight ${
           cancelled ? "line-through opacity-60" : "cursor-pointer hover:brightness-95"
         } ${compact ? "" : "h-full overflow-hidden"}`}
@@ -293,6 +345,7 @@ export function BookingCalendar({
         }`}
         data-testid={`calendar-booking-${booking.id}`}
       >
+        <button type="button" className="ml-1 rounded bg-background/70 px-1 text-[10px] underline underline-offset-2" aria-label={`Rediger tidspunkt for ${booking.customerName}`} onClick={(e) => { e.stopPropagation(); onSelectBooking(booking); }}>Flyt</button>
         <span className="tabular-nums opacity-70">{bookingTimeOf(booking)}</span>{" "}
         <span>{booking.customerName}</span>
         {!compact && (
@@ -311,6 +364,12 @@ export function BookingCalendar({
           e.stopPropagation();
           onSelectSlot(slot);
         }}
+        tabIndex={0}
+        role="button"
+        aria-label={`Ledig tid ${slot.time?.slice(0, 5) || ""}. Åbn detaljer`}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectSlot(slot); }
+        }}
         className={`cursor-pointer truncate rounded-md border border-dashed px-1.5 py-0.5 text-[11px] leading-tight text-muted-foreground hover:bg-muted ${
           compact ? "" : "h-full overflow-hidden"
         }`}
@@ -324,6 +383,15 @@ export function BookingCalendar({
       </div>
     );
   };
+
+  const blockedChip = (item: BlockedTime, compact: boolean) => (
+    <button key={`blocked-${item.id}`} type="button" onClick={(e) => { e.stopPropagation(); onSelectBlocked?.(item); }}
+      className={`w-full truncate rounded-md border border-dashed border-slate-400 bg-slate-200/80 px-1.5 py-0.5 text-left text-[11px] text-slate-700 ${compact ? "" : "h-full overflow-hidden"}`}
+      aria-label={`Blokeret tid ${item.startTime.slice(0, 5)} ${item.category || item.reason || ""}`}
+      title={`${item.startTime.slice(0, 5)} · ${item.category || item.reason || "Blokeret tid"}`}>
+      <span className="tabular-nums">{item.startTime.slice(0, 5)}</span> · {item.category || item.reason || "Blokeret tid"}
+    </button>
+  );
 
   return (
     <div className="space-y-3">
@@ -348,6 +416,14 @@ export function BookingCalendar({
         <div className="text-base font-semibold" data-testid="calendar-range-label">
           {rangeLabel}
         </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        <span>Tidszone: <strong className="text-foreground">{timezone}</strong></span>
+        <span className="flex items-center gap-2">Arbejdstid
+          <select aria-label="Arbejdsdag starter" value={workingHours.start} onChange={(e) => updateWorkingHours("start", Number(e.target.value))} className="rounded border bg-background px-1 py-1 text-foreground">{Array.from({ length: 13 }, (_, i) => i + 5).map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}</select>
+          <span>–</span>
+          <select aria-label="Arbejdsdag slutter" value={workingHours.end} onChange={(e) => updateWorkingHours("end", Number(e.target.value))} className="rounded border bg-background px-1 py-1 text-foreground">{Array.from({ length: 13 }, (_, i) => i + 10).map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}</select>
+        </span>
       </div>
 
       {/* Personfilter */}
@@ -383,7 +459,27 @@ export function BookingCalendar({
         </div>
       )}
 
-      {view === "month" ? (
+      {view === "agenda" ? (
+        <div className="space-y-2" data-testid="calendar-agenda">
+          {Array.from(new Set([...Array.from(itemsByDay.keys()), ...blockedTimes.map((item) => item.date.slice(0, 10))])).sort().map((key) => (
+            <div key={key} className="rounded-xl border bg-card/70 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-sm font-semibold">{format(new Date(`${key}T12:00:00`), "EEEE d. MMMM", { locale: da })}</p>
+                <Button variant="ghost" size="sm" onClick={() => onCreateBooking(key, "09:00")}><CalendarPlus className="mr-1 h-4 w-4" />Ny booking</Button>
+              </div>
+              <div className="space-y-1">
+                {(itemsByDay.get(key) || []).map((item) => item.kind === "booking" ? bookingChip(item.booking, false) : slotChip(item.slot, false))}
+                {blockedTimes.filter((item) => item.date.slice(0, 10) === key).map((item) => (
+                  <button key={item.id} type="button" onClick={() => onSelectBlocked?.(item)} className="flex w-full items-center gap-2 rounded-md border border-dashed border-slate-300 bg-slate-100/70 px-2 py-1 text-left text-xs text-slate-600">
+                    <span className="h-2 w-2 rounded-full bg-slate-500" />{item.startTime.slice(0, 5)} · {item.category || item.reason} ({item.durationMinutes} min)
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {itemsByDay.size === 0 && blockedTimes.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Ingen aftaler i denne periode.</p>}
+        </div>
+      ) : view === "month" ? (
         <div className="overflow-hidden rounded-lg border" data-testid="calendar-month">
           <div className="grid grid-cols-7 border-b bg-muted/40">
             {weekDays.map((day) => (
@@ -411,6 +507,10 @@ export function BookingCalendar({
                     inMonth ? "" : "bg-muted/20 text-muted-foreground"
                   }`}
                   onClick={() => setMenuKey(key)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Åbn hurtighandlinger for ${format(day, "EEEE d. MMMM", { locale: da })}`}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMenuKey(key); } }}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
                     e.preventDefault();
@@ -431,6 +531,7 @@ export function BookingCalendar({
                     {shown.map((item) =>
                       item.kind === "booking" ? bookingChip(item.booking, true) : slotChip(item.slot, true),
                     )}
+                    {blockedTimes.filter((item) => item.date.slice(0, 10) === key).map((item) => blockedChip(item, true))}
                     {hidden > 0 && (
                       <button
                         type="button"
@@ -458,7 +559,7 @@ export function BookingCalendar({
         <div className="overflow-hidden rounded-lg border" data-testid="calendar-week">
           <div className="flex border-b bg-muted/40">
             <div className="w-14 shrink-0" />
-            {weekDays.map((day) => {
+            {timelineDays.map((day) => {
               const isToday = isSameDay(day, today);
               return (
                 <div
@@ -484,26 +585,26 @@ export function BookingCalendar({
             <div className="flex">
               {/* Tidsakse */}
               <div className="w-14 shrink-0">
-                {Array.from({ length: WEEK_END_HOUR - WEEK_START_HOUR }, (_, i) => (
+                {Array.from({ length: workingHours.end - workingHours.start }, (_, i) => (
                   <div
                     key={`hour-${i}`}
                     className="relative border-b text-[11px] text-muted-foreground"
                     style={{ height: ROW_HEIGHT * 2 }}
                   >
                     <span className="absolute right-1 top-0 -translate-y-1/2 bg-background px-0.5">
-                      {String(WEEK_START_HOUR + i).padStart(2, "0")}:00
+                       {String(workingHours.start + i).padStart(2, "0")}:00
                     </span>
                   </div>
                 ))}
               </div>
 
-              {weekDays.map((day) => {
+              {timelineDays.map((day) => {
                 const key = dayKey(day);
                 const items = itemsByDay.get(key) || [];
                 return (
                   <div key={`col-${key}`} className="relative flex-1 border-l">
-                    {Array.from({ length: WEEK_ROWS }, (_, row) => {
-                      const minutes = WEEK_START_MINUTES + row * SLOT_MINUTES;
+                    {Array.from({ length: rowCount }, (_, row) => {
+                      const minutes = startMinutes + row * SLOT_MINUTES;
                       const time = minutesToTime(minutes);
                       const cellKey = `${key}T${time}`;
                       const cell = (
@@ -513,6 +614,10 @@ export function BookingCalendar({
                           }`}
                           style={{ height: ROW_HEIGHT }}
                           onClick={() => setMenuKey(cellKey)}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`Tom celle ${key} kl. ${time}. Åbn hurtighandlinger`}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMenuKey(cellKey); } }}
                           onDragOver={(e) => e.preventDefault()}
                           onDrop={(e) => {
                             e.preventDefault();
@@ -526,6 +631,10 @@ export function BookingCalendar({
                       );
                     })}
 
+                    {todayKey === key && (() => {
+                      const top = ((currentMinutes - startMinutes) / SLOT_MINUTES) * ROW_HEIGHT;
+                      return top >= 0 && top <= rowCount * ROW_HEIGHT ? <div className="pointer-events-none absolute left-0 right-0 z-10 border-t-2 border-rose-400" style={{ top }}><span className="absolute -top-2 right-1 rounded bg-rose-400 px-1 text-[9px] text-white">Nu</span></div> : null;
+                    })()}
                     {/* Chips oven på rasteret */}
                     <div className="pointer-events-none absolute inset-0">
                       {items.map((item) => {
@@ -533,7 +642,7 @@ export function BookingCalendar({
                           item.kind === "booking"
                             ? item.booking.durationMinutes || 60
                             : item.slot.durationMinutes || 30;
-                        const top = ((item.minutes - WEEK_START_MINUTES) / SLOT_MINUTES) * ROW_HEIGHT;
+                            const top = ((item.minutes - startMinutes) / SLOT_MINUTES) * ROW_HEIGHT;
                         const height = Math.max(20, (duration / SLOT_MINUTES) * ROW_HEIGHT - 2);
                         if (top < -height) return null;
                         return (
@@ -547,6 +656,11 @@ export function BookingCalendar({
                               : slotChip(item.slot, false)}
                           </div>
                         );
+                      })}
+                      {blockedTimes.filter((item) => item.date.slice(0, 10) === key).map((item) => {
+                        const top = ((timeToMinutes(item.startTime.slice(0, 5)) - startMinutes) / SLOT_MINUTES) * ROW_HEIGHT;
+                        const height = Math.max(20, (item.durationMinutes / SLOT_MINUTES) * ROW_HEIGHT - 2);
+                        return <div key={`blocked-position-${item.id}`} className="pointer-events-auto absolute left-0.5 right-0.5" style={{ top: Math.max(0, top), height }}>{blockedChip(item, false)}</div>;
                       })}
                     </div>
                   </div>

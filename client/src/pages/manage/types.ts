@@ -73,6 +73,7 @@ export type Booking = {
   customerUserId?: string | null;
   customerWebsiteId?: string | null;
   onboardingSessionId?: string | null;
+  version?: number;
 };
 
 /** Who a BirdFlow onboarding meeting is with, for the admin Bookinger tab. */
@@ -203,6 +204,20 @@ export type BookingService = {
   price: string;
   currency: string;
   isActive: boolean;
+  color: string;
+  allowCustomDuration: boolean;
+};
+
+export type BlockedTime = {
+  id: string;
+  websiteId: string;
+  teamMemberId?: string | null;
+  date: string;
+  startTime: string;
+  durationMinutes: number;
+  category: string;
+  reason?: string;
+  notes?: string | null;
 };
 
 export type ServiceAvailability = {

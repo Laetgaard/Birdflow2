@@ -288,6 +288,7 @@ export default function BookingWidget({ websiteId, styles, props, isPreview, isS
           serviceId: selectedService,
           service: service?.name || 'Service',
           date: `${selectedDate}T${selectedTime}:00`,
+          time: selectedTime,
           notes: notes || undefined,
           teamMemberId: selectedMemberId || undefined,
           openSlotId: selectedOpenSlotId || undefined,

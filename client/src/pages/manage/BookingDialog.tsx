@@ -124,6 +124,7 @@ export function BookingDialog({
   }, [open, booking?.id, prefill?.date, prefill?.time]);
 
   const activeServices = services.filter((s) => s.isActive || s.id === form.serviceId);
+  const selectedService = services.find((s) => s.id === form.serviceId);
 
   const patch = (partial: Partial<FormState>) => setForm((prev) => ({ ...prev, ...partial }));
 
@@ -179,6 +180,8 @@ export function BookingDialog({
 
     if (!isEdit) {
       payload.sendConfirmationEmail = !!form.customerEmail.trim() && form.sendConfirmationEmail;
+    } else {
+      payload.version = booking!.version;
     }
 
     setIsSaving(true);
@@ -224,7 +227,7 @@ export function BookingDialog({
       const res = await fetch(`/api/websites/${websiteId}/bookings/${booking.id}`, {
         method: "PATCH",
         headers: jsonAuthHeaders(accessToken),
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, version: booking.version }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -352,9 +355,13 @@ export function BookingDialog({
                 min={5}
                 step={5}
                 value={form.durationMinutes}
+                disabled={!!selectedService && !selectedService.allowCustomDuration}
                 onChange={(e) => patch({ durationMinutes: e.target.value })}
                 data-testid="input-booking-duration"
               />
+              {selectedService && !selectedService.allowCustomDuration && (
+                <p className="text-[11px] text-muted-foreground">Fast længde fra ydelsen ({selectedService.durationMinutes} min)</p>
+              )}
             </div>
           </div>
 

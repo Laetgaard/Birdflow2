@@ -30,6 +30,7 @@ interface EmailData {
   variables: Record<string, string>;
   buttonUrl?: string;
   attachments?: EmailAttachment[];
+  idempotencyKey?: string;
 }
 
 function generateEmailHtml(
@@ -250,7 +251,10 @@ export class EmailService {
         ...(data.attachments && data.attachments.length > 0
           ? { attachments: data.attachments }
           : {}),
-      });
+      }, data.idempotencyKey ? { idempotencyKey: data.idempotencyKey } : undefined);
+      if (result?.error) {
+        throw new Error(result.error.message || 'Email provider rejected the message');
+      }
 
       console.log(`[EmailService] Resend API response:`, result);
       console.log(`[EmailService] SUCCESS: ${data.templateType} email sent to ${data.to}`);
@@ -418,7 +422,7 @@ export class EmailService {
     return variables;
   }
 
-  async sendBookingConfirmation(booking: Booking, customerEmail: string, serviceName: string, websiteUrl?: string): Promise<boolean> {
+  async sendBookingConfirmation(booking: Booking, customerEmail: string, serviceName: string, websiteUrl?: string, idempotencyKey?: string): Promise<boolean> {
     return this.sendEmail({
       to: customerEmail,
       websiteId: booking.websiteId,
@@ -426,10 +430,11 @@ export class EmailService {
       variables: await this.bookingVariables(booking, serviceName),
       buttonUrl: websiteUrl ? `${websiteUrl}/bookings/${booking.id}` : undefined,
       attachments: await this.buildBookingIcsAttachment(booking, serviceName, 'REQUEST'),
+      idempotencyKey,
     });
   }
 
-  async sendBookingUpdated(booking: Booking, customerEmail: string, serviceName: string, websiteUrl?: string): Promise<boolean> {
+  async sendBookingUpdated(booking: Booking, customerEmail: string, serviceName: string, websiteUrl?: string, idempotencyKey?: string): Promise<boolean> {
     return this.sendEmail({
       to: customerEmail,
       websiteId: booking.websiteId,
@@ -440,16 +445,18 @@ export class EmailService {
       },
       buttonUrl: websiteUrl ? `${websiteUrl}/bookings/${booking.id}` : undefined,
       attachments: await this.buildBookingIcsAttachment(booking, serviceName, 'REQUEST'),
+      idempotencyKey,
     });
   }
 
-  async sendBookingCancelled(booking: Booking, customerEmail: string, serviceName: string): Promise<boolean> {
+  async sendBookingCancelled(booking: Booking, customerEmail: string, serviceName: string, idempotencyKey?: string): Promise<boolean> {
     return this.sendEmail({
       to: customerEmail,
       websiteId: booking.websiteId,
       templateType: 'booking_cancelled',
       variables: await this.bookingVariables(booking, serviceName),
       attachments: await this.buildBookingIcsAttachment(booking, serviceName, 'CANCEL'),
+      idempotencyKey,
     });
   }
 
