@@ -1,0 +1,442 @@
+Det jeg ville ændre før Build
+
+1. Del den i 3 leverancer.
+
+Jeg ville gøre:
+
+#238A — Professional Booking Calendar Core
+#238B — Google Calendar Integration
+#238C — Apple / ICS Calendar Integration
+
+#238A skal være 100 % production-ready, før Google eller Apple får lov til at påvirke availability.
+
+2. Drag-and-drop skal ikke direkte sende mails.
+
+Formuleringen:
+
+“successful moves update the booking atomically ... and trigger notification exactly once”
+
+er teknisk lidt farlig.
+
+Databaseændringen kan være atomisk. Mail/SMS/API-kald kan ikke være en del af samme database-transaktion.
+
+Brug i stedet:
+
+calendar interaction → validate → DB transaction → booking_updated event/outbox → notification worker
+
+Så hvis noget retries, får kunden ikke tre mails om samme ændring.
+
+3. Der mangler en ordentlig concurrency-model.
+
+Dette er vigtigt:
+
+already-claimed slots
+
+Det er ikke nok at kontrollere det i frontend.
+
+Hvis to personer forsøger at booke samme tid samtidigt, skal serveren være autoriteten.
+
+Jeg ville eksplicit kræve:
+
+BEGIN TRANSACTION
+
+lock relevant practitioner/date availability
+validate booking state
+validate overlap
+validate external busy periods
+update booking
+create audit entry
+create notification outbox entry
+
+COMMIT
+
+Frontend-conflict detection er kun UX.
+
+Serveren bestemmer altid.
+
+4. Resize af behandlinger skal begrænses.
+
+Jeg ville ikke automatisk tillade:
+
+60 min behandling → drag bottom edge → 47 minutter
+
+Hvis en service normalt er 60 minutter, bør kalenderen som default kun acceptere servicens duration.
+
+Eventuelt:
+
+lockedDuration = true default
+owner kan vælge Allow custom duration
+
+Ellers risikerer du at gøre Birdflows service-/availability-model unødvendigt kompliceret.
+
+Det vigtigste UX-flow mangler
+
+Klik på en tom kalenderplads bør ikke bare være:
+
+create booking/open slot
+
+Det bør være et meget hurtigt flow:
+
+Click 10:00
+
++ New booking
+────────────────
+
+Customer
+[ Search or create ]
+
+Service
+[ Initial consultation ]
+
+Practitioner
+[ Amalie ]
+
+Date
+9 September 2026
+
+Time
+10:00
+
+Duration
+60 min
+
+[ Create booking ]
+
+Hvis booking findes:
+
+10:00–11:00
+Initial consultation
+
+Anna Jensen
+Confirmed
+
+[ View customer ]
+[ Reschedule ]
+[ Cancel ]
+[ ••• ]
+
+Det er dét, der gør kalenderen til et dagligt arbejdsredskab frem for bare en visualisering.
+
+Servicefarver: god idé, men jeg ville ændre modellen
+
+Planen siger service color som primary identity.
+
+Det er rigtigt.
+
+Jeg ville have:
+
+EVENT CARD
+
+● Consultation
+Anna Jensen
+10:00–11:00
+
+Service color → background / side accent
+Status → icon + label
+Practitioner → avatar/initial
+Location → optional icon
+
+Ikke:
+
+grøn = confirmed
+blå = service
+lilla = practitioner
+gul = location
+
+Det bliver hurtigt visuelt kaos.
+
+Én hovedfarve bør betyde service.
+
+Status vises separat:
+
+✓ Confirmed
+◷ Pending
+⊘ Cancelled
+! No-show
+Eksterne kalendere kræver en vigtig privacy-regel
+
+Den mangler helt i planen.
+
+Birdflow bør som default aldrig sende klientnavn, behandlingsform eller andre følsomme oplysninger til Google/Apple Calendar.
+
+Et mirrored event bør som udgangspunkt være:
+
+Birdflow booking
+10:00–11:00
+Busy
+
+Ikke:
+
+Anna Jensen – Angst consultation
+
+I settings kunne ejeren aktivt vælge mere information, men privacy-first bør være default.
+
+Derudover bør eksterne events, der importeres til Birdflow, normalt kun blive til:
+
+External busy
+
+Birdflow behøver ikke event title, attendees, description osv. for at blokere tiden.
+
+Det er både simplere og bedre dataminimering.
+
+Google Calendar
+
+Her er Replit-planen ret god.
+
+Men jeg ville eksplicit have to niveauer:
+
+Level 1 — Busy blocking
+Google Calendar
+✓ Connected
+
+Calendar:
+Work Calendar
+
+Use Google events to:
+☑ Block unavailable times
+
+Birdflow skal kun vide:
+
+{
+  start,
+  end,
+  provider,
+  externalId
+}
+Level 2 — Write Birdflow bookings
+
+Separat opt-in:
+
+☐ Add Birdflow bookings to Google Calendar
+
+Hvis aktiveret:
+
+Birdflow booking
+Busy
+10:00–11:00
+
+med mulighed for senere at vælge detaljer.
+
+Det bør ikke være default.
+
+Apple Calendar
+
+Her synes jeg Replit-planen bliver for ambitiøs.
+
+CalDAV + app-specific-password + credential encryption + discovery + sync + retries + conflicts bliver et helt integrationprojekt.
+
+Jeg ville til Birdflow V1 gøre:
+
+Apple Calendar
+
+Option A
+
+Subscribe to Birdflow calendar
+
+Add to Apple Calendar
+
+via ICS subscription.
+
+Option B senere
+Advanced
+Connect iCloud Calendar
+
+via CalDAV.
+
+Jeg ville først bygge rigtig Apple two-way sync, når kunder faktisk efterspørger det.
+
+Google Calendar er langt vigtigere at få ekstremt stabilt.
+
+En anden ting Replit overser: synkroniseringsretning
+
+Det skal defineres meget mere præcist.
+
+Jeg ville bruge denne regel:
+
+Birdflow booking
+        ↓
+    Birdflow DB
+        ↓
+optional mirror
+        ↓
+Google / Apple
+
+Og:
+
+Google event
+     ↓
+busy period
+     ↓
+Birdflow availability
+
+Men aldrig:
+
+Google event
+    ↓
+modify Birdflow booking
+
+Hvis brugeren flytter det mirrored Birdflow-event i Google Calendar, ville jeg i første version ikke flytte booking'en i Birdflow.
+
+Vis i stedet evt.:
+
+This Birdflow booking was changed externally. Open Birdflow to reschedule it.
+
+Ellers får du ekstremt svære edge cases omkring kundekommunikation og availability.
+
+Jeg ville også tilføje "unscheduled / blocked time"
+
+Du har lige nu bookings + open slots.
+
+Men praktiserende har også brug for:
+
+Lunch
+Administration
+Meeting
+Personal
+Vacation
+Block time
+
+Så empty cell burde give:
+
++ Booking
++ Block time
++ Open slot
+
+Det er en lille feature med stor praktisk værdi.
+
+Mobile
+
+“Dense days remain readable” er for vagt.
+
+På mobil ville jeg ikke prøve at lave desktop-calendaren miniaturiseret.
+
+Jeg ville gøre:
+
+TODAY
+Wed 9 Sep
+
+<     Today      >
+
+09:00  ┃ Consultation
+       ┃ Anna
+       ┃ 09:00–10:00
+
+10:30  ┃ External busy
+
+12:00  ┃ Lunch
+
+13:00  ┃ Therapy
+       ┃ Peter
+
+Altså primært agenda/day view.
+
+Week/month er sekundære navigationsoverblik.
+
+Performance acceptance criteria
+
+“remains responsive” bør erstattes med noget målbart.
+
+Fx:
+
+calendar fetch only visible range + buffer
+500 bookings/month skal være problemfrit
+100 visible events skal render uden mærkbar lag
+navigation bør ikke refetche hele booking-historikken
+realtime events dedupliceres via booking ID/version
+optimistic mutation rollback <1 UI interaction
+filters må ikke refetche data unødvendigt
+
+Replit arbejder bedre, når “good” kan testes.
+
+Min anbefalede struktur
+
+Jeg ville omskrive #238 til dette:
+
+Phase 1 — Calendar foundation
+Day / Week / Month / Agenda
+Today navigation
+current-time indicator
+working hours
+timezone
+visible-range fetching
+persistent preferences
+Phase 2 — Event UX
+service colors
+status labels
+event details panel
+quick booking
+block time
+open slot
+filters
+search
+Phase 3 — Safe scheduling
+drag booking
+change date/time
+change practitioner
+optional resize
+
+server-side validation
+concurrency protection
+optimistic UI
+rollback
+audit trail
+outbox notifications
+idempotency
+Phase 4 — Responsive calendar
+desktop week/day calendar
+mobile agenda/day-first UX
+dense layouts
+keyboard support
+touch interactions
+STOP + QA
+
+Først når dette består integrationstests:
+
+Booking calendar core = production ready
+#238B — Google Calendar
+
+Derefter:
+
+OAuth
+↓
+calendar selection
+↓
+read busy periods
+↓
+merge with availability
+↓
+conflict prevention
+↓
+connection health
+↓
+optional Birdflow event mirroring
+↓
+idempotent sync
+↓
+token refresh / revoked access
+
+Ikke write-back før read-only blocking virker stabilt.
+
+#238C — Apple Calendar
+
+Start med:
+
+Birdflow ICS calendar feed
+↓
+Add to Apple Calendar
+
+og først derefter:
+
+optional CalDAV connection
+calendar discovery
+encrypted app-specific credentials
+busy sync
+Én regel jeg ville skrive øverst i Replit-opgaven
+
+Do not build new calendar UI on top of weak booking invariants. Server-side scheduling correctness, concurrency protection and idempotency take priority over visual features. The UI may optimistically preview a change, but only the server can authorize a booking mutation.
+
+Og en anden:
+
+External calendars are availability inputs and optional mirrors, never the authority for Birdflow bookings. Import the minimum external data necessary, and never expose customer or appointment-sensitive metadata to an external calendar by default.
+
+Det vil sandsynligvis forhindre nogle af de værste arkitekturfejl.
