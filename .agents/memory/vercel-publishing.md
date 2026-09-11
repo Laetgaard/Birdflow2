@@ -1,6 +1,6 @@
 ---
 name: Vercel publishing quirks
-description: Public reachability of published customer sites — SSO protection, stable aliases, v9 PATCH shape
+description: Public reachability and activation behavior for customer sites on Vercel
 ---
 
 # Vercel publishing quirks
@@ -13,4 +13,7 @@ description: Public reachability of published customer sites — SSO protection,
 - Platform prod URL for `birdflowApiUrl` is `https://bird-flow.com`; workspace env lacks `BIRDFLOW_API_URL`, and the REPLIT_DOMAINS fallback bakes a dev domain into published sites (breaks their email calls when the workspace sleeps).
 - A ready preview deployment can omit `target` in Vercel’s response; retry promotion only for that exact deployment, and use the stable public URL’s immutable deployment identity as alternative proof that the promotion completed.
   - **Why:** `target` can lag or be omitted after a restart. Releasing the activation fence on an inconclusive answer risks a later job overwriting live traffic.
-  - **How to apply:** retain jobs for unknown/409 outcomes; a definitive Vercel 400/404/410/422 promotion rejection means no promotion occurred, so fail the job with retry guidance and keep raw response text server-only.
+  - **How to apply:** retain jobs for unknown outcomes; reconcile 409/422 against the deployment’s current target before failing or creating a production redeploy.
+- On a brand-new project, Vercel can report the first targetless deployment as production; `target: null` is rejected and `target: "preview"` still becomes production.
+  - **Why:** controlled canaries reproduced 409 “already current production,” explaining why promoting a READY first deployment can fail despite the deployment already being live.
+  - **How to apply:** verify project ownership and the immutable marker, then accept `target: "production"` without another promotion call; never store its hashed deployment URL.

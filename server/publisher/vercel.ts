@@ -123,6 +123,19 @@ function assertDeploymentBelongsToProject(
   }
 }
 
+async function readVercelErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = JSON.parse(await response.text()) as {
+      error?: { code?: unknown };
+    };
+    return typeof body.error?.code === 'string'
+      ? body.error.code.slice(0, 100)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getOrCreateProject(
   projectName: string,
   config: VercelConfig,
@@ -284,9 +297,10 @@ export async function deployProject(
       name: projectName,
       project: projectId,
       files,
-      // Deliberately omit target: this is a preview/staging deployment. It
-      // must build and pass all activation checks before it is allowed to
-      // replace traffic on the customer's current production URL.
+      // Omit target to request Vercel's normal preview behavior. On a brand-new
+      // project Vercel may still report the first successful deployment as
+      // production; the caller detects that authoritative state and verifies
+      // ownership, content identity, and the stable alias before recording it.
       projectSettings: {
         framework: 'nextjs',
         buildCommand: 'npm run build',
@@ -322,12 +336,12 @@ export async function promoteDeployment(
     { method: 'POST' },
   );
   if (!res.ok) {
-    const responseText = await res.text();
+    const vercelErrorCode = await readVercelErrorCode(res);
     console.warn('[Publish] Vercel promotion rejected', {
       projectId,
       deploymentId,
       status: res.status,
-      responseText,
+      vercelErrorCode,
     });
     throw new VercelPromotionError(res.status);
   }
@@ -359,12 +373,12 @@ export async function redeployPreviewToProduction(
     }),
   });
   if (!res.ok) {
-    const responseText = await res.text();
+    const vercelErrorCode = await readVercelErrorCode(res);
     console.warn('[Publish] Vercel production redeploy rejected', {
       projectId,
       previewDeploymentId,
       status: res.status,
-      responseText,
+      vercelErrorCode,
     });
     throw new VercelPromotionError(res.status);
   }
@@ -391,7 +405,11 @@ export async function getDeploymentProductionState(
   if (!res.ok) return 'unknown';
   const deployment = await res.json();
   if (deployment.target === 'production') return 'production';
-  if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
+  if (
+    deployment.readyState === 'ERROR' ||
+    deployment.readyState === 'CANCELED' ||
+    deployment.readyState === 'BLOCKED'
+  ) {
     return 'failed';
   }
   // Preview deployments are intentionally created without a target. Vercel can
@@ -581,23 +599,14 @@ export async function waitForDeployment(
       if (deployment.errorCode) {
         errorDetails += ` (${deployment.errorCode})`;
       }
-      console.error('Vercel deployment error details:', JSON.stringify(deployment, null, 2));
-      
-      // Try to fetch build logs
-      try {
-        const eventsRes = await vercelFetch(`/v3/deployments/${deploymentId}/events`, config);
-        if (eventsRes.ok) {
-          const events = await eventsRes.json();
-          const buildLogs = events.filter((e: any) => e.type === 'stdout' || e.type === 'stderr')
-            .map((e: any) => `[${e.type}] ${e.payload?.text || e.text || JSON.stringify(e)}`)
-            .join('\n');
-          if (buildLogs) {
-            console.error('Build logs:\n', buildLogs);
-          }
-        }
-      } catch (logError) {
-        console.error('Failed to fetch build logs:', logError);
-      }
+      console.error('[Publish] Vercel deployment failed', {
+        deploymentId,
+        projectId: projectIdFromDeployment(deployment),
+        readyState: deployment.readyState,
+        errorCode: typeof deployment.errorCode === 'string'
+          ? deployment.errorCode.slice(0, 100)
+          : undefined,
+      });
       
       throw new Error(`Deployment failed: ${errorDetails}`);
     }

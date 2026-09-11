@@ -5,6 +5,7 @@ import {
   setProjectEnvVars,
   deployProject,
   waitForDeployment,
+  getDeploymentProductionState,
   addCustomDomain,
   getProjectDomain,
   getProductionAliasUrlWithRetry,
@@ -365,50 +366,75 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       };
     }
     let activatedDeployment = readyDeployment;
-    try {
-      await promoteDeployment(projectId, readyDeployment.id, vercelConfig);
-    } catch (error) {
-      // The direct Vercel promotion API remains the fastest path and preserves
-      // the same verified deployment. Some Vercel accounts reject targetless
-      // file deployments with 422, despite the artifact being READY. In that
-      // documented compatibility case, create a production deployment from the
-      // exact preview artifact, then verify its immutable marker again.
-      if (!(error instanceof VercelPromotionError) || error.status !== 422) {
-        throw error;
-      }
-      currentStage = 'activation';
-      console.warn('[Publish] direct promotion rejected; retrying as production redeploy', {
+    if (readyDeployment.target === 'production') {
+      // Vercel currently treats the first successful deployment in a new
+      // project as production even when target is omitted. Its immutable marker
+      // was verified above, so promoting it again would only produce 409/422.
+      console.log('[Publish] ready deployment is already production', {
         websiteId: config.websiteId,
         vercelProjectId: projectId,
-        previewDeploymentId: readyDeployment.id,
+        deploymentId: readyDeployment.id,
       });
-      const productionDeployment = await redeployPreviewToProduction(
-        projectId,
-        readyDeployment.id,
-        projectName,
-        vercelConfig,
-      );
-      // The worker's durable activation reservation must follow the new Vercel
-      // deployment so a restart can reconcile the actual production candidate.
-      await config.onStatusUpdate?.('activating', {
-        vercelProjectId: projectId,
-        vercelDeploymentId: productionDeployment.id,
-        deploymentUrl: productionDeployment.url,
-      });
-      activatedDeployment = await waitForDeployment(
-        productionDeployment.id,
-        vercelConfig,
-        300000,
-        projectId,
-      );
-      await verifyRemoteDeploymentIdentity(activatedDeployment.url, deploymentIdentity);
+    } else {
+      try {
+        await promoteDeployment(projectId, readyDeployment.id, vercelConfig);
+      } catch (error) {
+        const productionState =
+          error instanceof VercelPromotionError && [409, 422].includes(error.status)
+            ? await getDeploymentProductionState(readyDeployment.id, vercelConfig)
+            : 'unknown';
+        if (productionState === 'production') {
+          // Vercel accepted or had already completed activation even though the
+          // promotion response was not a success status. Trust its authoritative
+          // state, then continue with alias and marker verification below.
+          console.warn('[Publish] promotion response reconciled as production', {
+            websiteId: config.websiteId,
+            vercelProjectId: projectId,
+            deploymentId: readyDeployment.id,
+            promotionStatus: error instanceof VercelPromotionError ? error.status : undefined,
+          });
+        } else {
+          // Some Vercel accounts reject targetless file deployments with 422.
+          // When Vercel confirms it is not already production, rebuild the exact
+          // preview source using production environment variables.
+          if (!(error instanceof VercelPromotionError) || error.status !== 422) {
+            throw error;
+          }
+          currentStage = 'activation';
+          console.warn('[Publish] direct promotion rejected; retrying as production redeploy', {
+            websiteId: config.websiteId,
+            vercelProjectId: projectId,
+            previewDeploymentId: readyDeployment.id,
+          });
+          const productionDeployment = await redeployPreviewToProduction(
+            projectId,
+            readyDeployment.id,
+            projectName,
+            vercelConfig,
+          );
+          // The worker's durable activation reservation must follow the new
+          // Vercel deployment so a restart can reconcile the actual candidate.
+          await config.onStatusUpdate?.('activating', {
+            vercelProjectId: projectId,
+            vercelDeploymentId: productionDeployment.id,
+            deploymentUrl: productionDeployment.url,
+          });
+          activatedDeployment = await waitForDeployment(
+            productionDeployment.id,
+            vercelConfig,
+            300000,
+            projectId,
+          );
+          await verifyRemoteDeploymentIdentity(activatedDeployment.url, deploymentIdentity);
+        }
+      }
     }
 
     // A first publish has no prior production alias to check. Resolve it only
     // after promotion; there is no previously live project traffic to replace.
     if (!stableUrl) {
       stableUrl = await getProductionAliasUrlWithRetry(projectId, vercelConfig, {
-        deploymentAliases: readyDeployment.aliases,
+        deploymentAliases: activatedDeployment.aliases,
       });
     }
     if (!stableUrl) {
@@ -416,14 +442,14 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
         success: false,
         error:
           'Website was activated, but Vercel did not finish assigning its public URL. Try publishing again.',
-        rawDeploymentUrl: readyDeployment.url,
-        deploymentId: readyDeployment.id,
+        rawDeploymentUrl: activatedDeployment.url,
+        deploymentId: activatedDeployment.id,
         vercelProjectId: projectId,
         failureDetails: {
           stage: 'alias',
           errorMessage:
             'Vercel did not finish assigning the public URL after activation completed.',
-          vercelDeploymentId: readyDeployment.id,
+          vercelDeploymentId: activatedDeployment.id,
           timestamp: new Date().toISOString(),
         },
       };

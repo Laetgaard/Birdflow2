@@ -286,8 +286,8 @@ describe('getOrCreateProject', () => {
 describe('safe production activation', () => {
   const baseConfig = { token: 'test-token', teamId: undefined };
 
-  it('promotes only an already-ready deployment through Vercel’s explicit project endpoint', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  it('accepts Vercel’s asynchronous 202 response from the explicit promotion endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202 });
     vi.stubGlobal('fetch', fetchMock);
 
     await promoteDeployment('project-id', 'deployment-id', baseConfig);
@@ -427,6 +427,8 @@ describe('safe production activation', () => {
     expect(publisherSource).toContain('await promoteDeployment(projectId, readyDeployment.id, vercelConfig)');
     expect(publisherSource).toContain('redeployPreviewToProduction(');
     expect(publisherSource).toContain("error.status !== 422");
+    expect(publisherSource).toContain("readyDeployment.target === 'production'");
+    expect(publisherSource).toContain('getDeploymentProductionState(readyDeployment.id, vercelConfig)');
     expect(publisherSource.indexOf('onBeforeActivation')).toBeLessThan(
       publisherSource.indexOf('await promoteDeployment(projectId, readyDeployment.id, vercelConfig)'),
     );
@@ -435,7 +437,7 @@ describe('safe production activation', () => {
       previewDeploymentStart,
       vercelSource.indexOf('export async function promoteDeployment', previewDeploymentStart),
     );
-    expect(previewDeploymentSource).not.toContain("target: 'production'");
+    expect(previewDeploymentSource).not.toMatch(/\btarget:/);
     expect(vercelSource).toContain("target: 'production'");
     expect(workerSource).toContain('claimPublishActivation');
     expect(jobsSource).toContain("status = 'activating'");

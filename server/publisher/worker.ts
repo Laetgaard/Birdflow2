@@ -128,6 +128,21 @@ export async function reconcileExpiredPublishActivations(
         await promoteDeployment(job.vercelProjectId, job.vercelDeploymentId, config);
       } catch (error) {
         if (error instanceof VercelPromotionError && error.status === 422) {
+          const reconciledState = await getDeploymentProductionState(
+            job.vercelDeploymentId,
+            config,
+          );
+          if (reconciledState === 'production') {
+            console.warn('[Publish] activation rejection reconciled as production', {
+              publishJobId: job.id,
+              vercelProjectId: job.vercelProjectId,
+              deploymentId: job.vercelDeploymentId,
+              promotionStatus: error.status,
+            });
+            // The next reconciliation pass verifies the marker and stable alias
+            // before writing live website metadata.
+            continue;
+          }
           // Newer publish attempts use this Vercel compatibility path inline.
           // Keep recovery symmetric for an activation that was reserved just
           // before a process restart, so it does not regress to a terminal
