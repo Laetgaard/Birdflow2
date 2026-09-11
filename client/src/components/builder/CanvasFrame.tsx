@@ -142,11 +142,16 @@ export default function CanvasFrame({ width, height, theme, scale = 1, children 
       win: doc.defaultView,
       // A rect from inside the frame is relative to the frame's own viewport,
       // and the frame may be drawn scaled. Undo both to land on the element.
-      toParentRect: (rect) => ({
-        top: frameOrigin.top + rect.top * scale,
-        left: frameOrigin.left + rect.left * scale,
-        width: rect.width * scale,
-        height: rect.height * scale,
+      toParentRect: (rect) => {
+        const top = frameOrigin.top + rect.top * scale;
+        const left = frameOrigin.left + rect.left * scale;
+        const width = rect.width * scale;
+        const height = rect.height * scale;
+        return { top, left, width, height, bottom: top + height, right: left + width };
+      },
+      toParentPoint: (point) => ({
+        x: frameOrigin.left + point.x * scale,
+        y: frameOrigin.top + point.y * scale,
       }),
       revision,
     };

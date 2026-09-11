@@ -5,6 +5,7 @@ import {
   Type, Minus, Plus, ChevronDown, Palette
 } from 'lucide-react';
 import { fontFamilyPresets } from '@shared/componentRegistry';
+import { useBuilderDocuments, listenToAll } from './canvasDocument';
 
 interface InlineTextToolbarProps {
   targetElement: HTMLElement;
@@ -22,6 +23,7 @@ export default function InlineTextToolbar({
   containerRef,
   onFormatChange,
 }: InlineTextToolbarProps) {
+  const documents = useBuilderDocuments();
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [showFontPicker, setShowFontPicker] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -81,9 +83,10 @@ export default function InlineTextToolbar({
         setShowColorPicker(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    // A click on the canvas lands in its own document and would otherwise
+    // leave these pickers open.
+    return listenToAll(documents, 'mousedown', handleClickOutside);
+  }, [documents]);
 
   const applyStyle = (prop: string, value: string) => {
     targetElement.style[prop as any] = value;
