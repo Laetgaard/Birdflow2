@@ -98,7 +98,6 @@ import CoachMarks from "@/components/builder/CoachMarks";
 import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
 import DragDropLayer from "@/components/builder/DragDropLayer";
 import MobileBottomSheet from "@/components/builder/MobileBottomSheet";
-import GlobalStylesPanel from "@/components/builder/GlobalStylesPanel";
 import { SiteStructurePanel } from "@/components/builder/SiteStructurePanel";
 import VersionHistoryPanel from "@/components/builder/VersionHistoryPanel";
 import SpacingIndicators from "@/components/builder/SpacingIndicators";
@@ -2193,20 +2192,9 @@ export default function BuilderPage() {
 
             <TabsContent value="components" className="flex-1 p-4 pt-2 overflow-auto">
               <div className="space-y-3">
-                {/* Global Styles */}
-                {builderState?.globalStyles && (
-                  <GlobalStylesPanel
-                    globalStyles={builderState.globalStyles}
-                    onUpdate={(updates) => {
-                      const newState = {
-                        ...builderState,
-                        globalStyles: { ...builderState.globalStyles, ...updates },
-                      };
-                      updateStateWithHistory(newState, 'Update global styles');
-                    }}
-                  />
-                )}
-
+                {/* Site-wide colour and typography live in the brand guide, which
+                    is now their only editor: two panels writing the same values
+                    meant whichever was touched last silently won. */}
                 {/* Template Button */}
                 <Button
                   variant="outline"
@@ -2435,21 +2423,20 @@ export default function BuilderPage() {
               {builderState && (
                 <BrandGuidePanel
                   brandGuide={builderState.brandGuide ?? createDefaultBrandGuide(builderState.globalStyles)}
-                  onChange={(guide) => updateStateWithHistory({ ...builderState, brandGuide: guide }, 'Opdater brand guide')}
-                  onApplyToSite={(guide) => {
-                    updateStateWithHistory(
+                  onChange={(guide) =>
+                    // The brand guide is the only editor of site-wide colour and
+                    // typography, so its design half is applied as it is edited
+                    // rather than waiting for an "apply" press that used to
+                    // claim it had updated things it never touched.
+                    debouncedHistoryPush(
                       {
                         ...builderState,
                         brandGuide: guide,
                         globalStyles: { ...builderState.globalStyles, ...brandGuideToDesignTokens(guide) },
                       },
-                      'Anvend brand guide på hjemmesiden'
-                    );
-                    toast({
-                      title: "Brand guide anvendt",
-                      description: "Farver og skrifttyper er opdateret på hele hjemmesiden.",
-                    });
-                  }}
+                      'Opdater brand guide'
+                    )
+                  }
                   websiteId={id || ''}
                   accessToken={session?.access_token || ''}
                 />
