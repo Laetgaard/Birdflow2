@@ -400,18 +400,29 @@ export default function Dashboard() {
                   >
                     <Globe className="w-8 h-8 text-muted-foreground" />
                   </div>
-                  <div className="mt-3 flex justify-between items-center">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs text-muted-foreground">
                       Created {new Date(website.createdAt).toLocaleDateString()}
                     </span>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => setLocation(`/builder/${website.id}`)}
-                      data-testid={`button-edit-website-${website.id}`}
-                    >
-                      Open Builder
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setLocation(`/manage/${website.id}`)}
+                        data-testid={`button-manage-website-${website.id}`}
+                      >
+                        <Settings className="mr-1.5 h-4 w-4" />
+                        Manage
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setLocation(`/builder/${website.id}`)}
+                        data-testid={`button-edit-website-${website.id}`}
+                      >
+                        Open Builder
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

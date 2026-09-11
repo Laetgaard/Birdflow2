@@ -19,7 +19,10 @@ import {
   getProductionAliasUrlWithRetry,
   getOrCreateProject,
   promoteDeployment,
+  redeployPreviewToProduction,
   recoverVerifiedProjectForLiveUrl,
+  waitForDeployment,
+  VercelPromotionError,
 } from '../server/publisher/vercel';
 import {
   ensurePublishJobSchema,
@@ -224,6 +227,22 @@ describe('getProductionAliasUrlWithRetry', () => {
     expect(result).toBeNull();
     vi.unstubAllGlobals();
   });
+
+  it('also recognises Vercel’s top-level stable project aliases', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        alias: ['my-site.vercel.app'],
+        targets: { production: { alias: [] } },
+      }),
+    }));
+
+    await expect(getProductionAliasUrlWithRetry('proj123', baseConfig, {
+      maxAttempts: 1,
+      delayMs: 0,
+    })).resolves.toBe('https://my-site.vercel.app');
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('getOrCreateProject', () => {
@@ -267,8 +286,8 @@ describe('getOrCreateProject', () => {
 describe('safe production activation', () => {
   const baseConfig = { token: 'test-token', teamId: undefined };
 
-  it('promotes only an already-ready deployment through Vercel’s explicit project endpoint', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  it('accepts Vercel’s asynchronous 202 response from the explicit promotion endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202 });
     vi.stubGlobal('fetch', fetchMock);
 
     await promoteDeployment('project-id', 'deployment-id', baseConfig);
@@ -277,6 +296,87 @@ describe('safe production activation', () => {
       '/v10/projects/project-id/promote/deployment-id',
     );
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+    vi.unstubAllGlobals();
+  });
+
+  it('classifies Vercel’s definitive activation rejection without exposing its response body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      text: async () => '{"error":{"message":"internal deployment detail"}}',
+    }));
+
+    await expect(
+      promoteDeployment('project-id', 'deployment-id', baseConfig),
+    ).rejects.toMatchObject({
+      name: 'VercelPromotionError',
+      status: 422,
+      isDefinitive: true,
+      message: 'Vercel rejected the production activation for this version.',
+    } satisfies Partial<VercelPromotionError>);
+    vi.unstubAllGlobals();
+  });
+
+  it('falls back by redeploying the exact verified preview as production', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'production-deployment',
+        url: 'site-production.vercel.app',
+        readyState: 'BUILDING',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      redeployPreviewToProduction('project-id', 'preview-deployment', 'site-name', baseConfig),
+    ).resolves.toMatchObject({
+      id: 'production-deployment',
+      url: 'https://site-production.vercel.app',
+    });
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/v13/deployments');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({
+        deploymentId: 'preview-deployment',
+        name: 'site-name',
+        target: 'production',
+      }),
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('stops when Vercel reports a ready deployment from another project', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'deployment-id',
+        url: 'site-preview.vercel.app',
+        readyState: 'READY',
+        projectId: 'another-project',
+      }),
+    }));
+
+    await expect(
+      waitForDeployment('deployment-id', baseConfig, 1_000, 'expected-project'),
+    ).rejects.toThrow(/different project/i);
+    vi.unstubAllGlobals();
+  });
+
+  it('stops when a ready deployment has no project identity to verify', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: 'deployment-id',
+        url: 'site-preview.vercel.app',
+        readyState: 'READY',
+      }),
+    }));
+
+    await expect(
+      waitForDeployment('deployment-id', baseConfig, 1_000, 'expected-project'),
+    ).rejects.toThrow(/project identity/i);
     vi.unstubAllGlobals();
   });
 
@@ -325,10 +425,20 @@ describe('safe production activation', () => {
     );
     expect(publisherSource).not.toContain('structuredClone(config.builderState)');
     expect(publisherSource).toContain('await promoteDeployment(projectId, readyDeployment.id, vercelConfig)');
+    expect(publisherSource).toContain('redeployPreviewToProduction(');
+    expect(publisherSource).toContain("error.status !== 422");
+    expect(publisherSource).toContain("readyDeployment.target === 'production'");
+    expect(publisherSource).toContain('getDeploymentProductionState(readyDeployment.id, vercelConfig)');
     expect(publisherSource.indexOf('onBeforeActivation')).toBeLessThan(
       publisherSource.indexOf('await promoteDeployment(projectId, readyDeployment.id, vercelConfig)'),
     );
-    expect(vercelSource).not.toContain("target: 'production'");
+    const previewDeploymentStart = vercelSource.indexOf('export async function deployProject');
+    const previewDeploymentSource = vercelSource.slice(
+      previewDeploymentStart,
+      vercelSource.indexOf('export async function promoteDeployment', previewDeploymentStart),
+    );
+    expect(previewDeploymentSource).not.toMatch(/\btarget:/);
+    expect(vercelSource).toContain("target: 'production'");
     expect(workerSource).toContain('claimPublishActivation');
     expect(jobsSource).toContain("status = 'activating'");
   });

@@ -1,0 +1,62 @@
+Changes I would make to the plan
+1. Specify a job recovery endpoint
+   The builder stores publishJobId only in React state, so it disappears after refresh. The existing API can fetch a job only when its ID is already known.
+   Add something like:
+   GET /api/websites/:websiteId/publish-job
+   It should return the latest active job, or an explicitly defined recent terminal job, after checking the website’s publish permission. The database already has getActivePublishJob(), so this should be a small addition.
+2. Define the exact dialog mapping
+   “Saving” happens before a publish job is created, so it cannot be recovered from durable job status. Use:
+   Dialog stage	Source
+   Saving changes	Temporary client state
+   Preparing site	queued, generating
+   Uploading	uploading
+   Building on Vercel	deploying
+   Setting public URL	waiting_for_alias, activating
+   Published	published
+   Failed	failed plus failureDetails.stage
+   
+   
+   This distinction keeps the “durable status rather than guessed timers” promise accurate.
+3. Define when completed dialogs reappear
+   “Recently completed” is currently ambiguous. Without a rule, the success dialog could reopen every time the builder loads.
+   I recommend:
+   - Always restore active jobs.
+   - Restore terminal jobs only until the user dismisses that specific job ID.
+   - Store dismissal locally as UI state; keep the server job as the source of publishing truth.
+   - Show a persistent View publish status control while an active job continues behind a closed dialog.
+4. Adopt an existing job on HTTP 409
+   Duplicate protection already exists server-side and returns the active jobId in the normal conflict path. See [routes.ts (line 3416)](C:/Users/gaard/Documents/Codex/2026-09-11/can/work/Birdflow2/server/routes.ts:3416).
+   The builder should interpret that response as:
+   Publishing is already underway. Here is its current status.
+   
+   It should adopt the returned job ID and open the dialog instead of displaying a generic failure. The publish button must remain disabled according to the backend’s active job, even if the dialog is closed.
+5. Resolve the publishing-permission contradiction
+   The builder hides Publish from administrators and says the server rejects them. But the server permission table explicitly grants administrators publish: true.
+   - UI behavior: [builder.tsx (line 1746)](C:/Users/gaard/Documents/Codex/2026-09-11/can/work/Birdflow2/client/src/pages/builder.tsx:1746)
+   - Server permission: [websiteAccess.ts (line 93)](C:/Users/gaard/Documents/Codex/2026-09-11/can/work/Birdflow2/server/websiteAccess.ts:93)
+   “Existing access rules preserved” is therefore insufficient. The ticket should decide whether admins may publish and make the UI, API, and tests agree.
+6. Strengthen the domain acceptance case
+   The plan should explicitly test three conditions:
+   - No domain: use the stable *.vercel.app project alias.
+   - Active custom domain: use the customer domain.
+   - Pending, failed, or misconfigured custom domain: continue showing the stable Vercel alias.
+   The current backend already selects only domains with status === "active" during publishing. See [routes.ts (line 3451)](C:/Users/gaard/Documents/Codex/2026-09-11/can/work/Birdflow2/server/routes.ts:3451).
+7. Use safe, centralized failure messages
+   The job model already contains structured failureDetails, including stage, page, component, and deployment context. See [publishJobs.ts (line 48)](C:/Users/gaard/Documents/Codex/2026-09-11/can/work/Birdflow2/server/publisher/publishJobs.ts:48).
+   Create one status-to-presentation mapper so every failure gets:
+   - A friendly stage name.
+   - A safe explanation.
+   - Page/component context when helpful.
+   - A fallback for unknown error codes.
+   - Retry only after the current job is terminal.
+   Avoid presenting raw Vercel response bodies in the dialog.
+Suggested additional acceptance criteria
+- Closing the dialog never cancels publishing.
+- An active publish remains discoverable and the dialog can be reopened.
+- Refreshing the browser reconnects to the same job without creating another.
+- A server restart produces the existing recoverable SERVER_RESTART failure, while an interrupted activation continues through its reconciliation path.
+- Two websites never reuse one another’s Vercel project.
+- Unknown job statuses and error codes fall back to a useful message.
+- The live-site link always uses productionUrl, never deploymentUrl.
+- Manage links preserve the same access resolution used by the destination route.
+DomainsCard.tsx should probably remain largely untouched. It is relevant as the source of domain status, but redesigning domain management would expand the ticket beyond its intended scope.

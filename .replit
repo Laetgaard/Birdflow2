@@ -102,6 +102,9 @@ BIRDFLOW_PUBLIC_PLATFORM_URL = "https://bird-flow.com"
 [userenv.development]
 BIRDFLOW_API_URL = "https://bird-flow.com"
 
+[userenv.production]
+VERCEL_TEAM_ID = "team_RhyIScL5A5ZKVhpNI5PUJlO8"
+
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 180000

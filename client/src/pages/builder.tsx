@@ -107,6 +107,12 @@ import SectionInsertPoint from "@/components/builder/SectionInsertPoint";
 import ContextualTips from "@/components/builder/ContextualTips";
 import type { WebsiteTemplate } from "@shared/websiteTemplates";
 import { BuilderSelectionProvider } from "@/contexts/BuilderSelectionContext";
+import PublishStatusDialog from "@/components/builder/PublishStatusDialog";
+import {
+  isActivePublishStatus,
+  type PublishJobSummary,
+  type PublishPreflightFailure,
+} from "@/components/builder/publishStatus";
 import { 
   createHistory, 
   pushHistory, 
@@ -232,8 +238,10 @@ export default function BuilderPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
-  const [publishJobId, setPublishJobId] = useState<string | null>(null);
-  const [publishProgress, setPublishProgress] = useState('');
+  const [publishJob, setPublishJob] = useState<PublishJobSummary | null>(null);
+  const [publishStatusDialogOpen, setPublishStatusDialogOpen] = useState(false);
+  const [isPublishSaving, setIsPublishSaving] = useState(false);
+  const [publishPreflightFailure, setPublishPreflightFailure] = useState<PublishPreflightFailure | null>(null);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [hoveredComponentId, setHoveredComponentId] = useState<string | null>(null);
   const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null);
@@ -823,127 +831,219 @@ export default function BuilderPage() {
     }
   }, [isLoading, builderState]);
 
-  // Poll job status every 3 s until the publish succeeds or fails.
-  // The effect is activated by storing a jobId in publishJobId state after
-  // POST /api/websites/:id/publish returns 202.
+  const publishDismissalKey = id ? `birdflow:publish-status-dismissed:${id}` : null;
+
+  const isPublishResultDismissed = useCallback((jobId: string): boolean => {
+    return Boolean(publishDismissalKey && window.localStorage.getItem(publishDismissalKey) === jobId);
+  }, [publishDismissalKey]);
+
+  const dismissPublishStatus = useCallback(() => {
+    if (
+      publishJob &&
+      !isActivePublishStatus(publishJob.status) &&
+      publishDismissalKey
+    ) {
+      window.localStorage.setItem(publishDismissalKey, publishJob.jobId);
+    }
+    setPublishJob(null);
+    setPublishPreflightFailure(null);
+    setPublishStatusDialogOpen(false);
+  }, [publishDismissalKey, publishJob]);
+
+  const handlePublishStatusDialogOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      setPublishStatusDialogOpen(true);
+      return;
+    }
+    if (isPublishSaving || isActivePublishStatus(publishJob?.status)) {
+      setPublishStatusDialogOpen(false);
+      return;
+    }
+    dismissPublishStatus();
+  }, [dismissPublishStatus, isPublishSaving, publishJob?.status]);
+
+  // The builder keeps no durable job id of its own. Restore an authorized active
+  // job on load (or one recent terminal result that has not been dismissed) so a
+  // refresh does not lose a publish that is still happening in the background.
   useEffect(() => {
-    if (!publishJobId || !session) return;
+    if (!id || !session) return;
+    let cancelled = false;
 
-    const LABELS: Record<string, string> = {
-      queued: 'Queued…',
-      generating: 'Generating site…',
-      uploading: 'Uploading files…',
-      deploying: 'Deploying…',
-      waiting_for_alias: 'Finalising URL…',
-      activating: 'Making the new version live…',
-    };
-
-    const intervalId = setInterval(async () => {
+    const restorePublishJob = async () => {
       try {
-        const r = await fetch(`/api/publish-jobs/${publishJobId}`, {
+        const response = await fetch(`/api/websites/${id}/publish-job`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
-        if (!r.ok) return; // transient error — keep polling
+        if (!response.ok) return;
+        const data = await response.json() as { job?: PublishJobSummary | null };
+        const job = data.job;
+        if (cancelled || !job || isPublishResultDismissed(job.jobId)) return;
 
-        const job = await r.json();
-        if (LABELS[job.status]) setPublishProgress(LABELS[job.status]);
-
-        if (job.status === 'published') {
-          clearInterval(intervalId);
-          setPublishJobId(null);
-          setIsPublishing(false);
-          setPublishProgress('');
-          if (job.productionUrl) {
-            setWebsite(prev =>
-              prev ? { ...prev, status: 'published', deploymentUrl: job.productionUrl } : prev
-            );
-          }
-          toast({ title: 'Published!', description: `Your site is live at ${job.productionUrl}` });
-        } else if (job.status === 'failed') {
-          clearInterval(intervalId);
-          setPublishJobId(null);
-          setIsPublishing(false);
-          setPublishProgress('');
-          toast({
-            title: 'Publish failed',
-            description: job.errorMessage || 'An error occurred while publishing. Please try again.',
-            variant: 'destructive',
-          });
+        setPublishJob(job);
+        setPublishPreflightFailure(null);
+        setIsPublishing(isActivePublishStatus(job.status));
+        setPublishStatusDialogOpen(true);
+        const publishedUrl = job.status === "published" ? job.productionUrl : null;
+        if (publishedUrl) {
+          setWebsite(prev =>
+            prev ? { ...prev, status: "published", deploymentUrl: publishedUrl } : prev,
+          );
         }
       } catch {
-        // Transient network error — keep polling
+        // The ordinary builder remains usable if publish status cannot load.
       }
-    }, 3_000);
+    };
 
-    return () => clearInterval(intervalId);
-  }, [publishJobId, session, toast]);
+    void restorePublishJob();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isPublishResultDismissed, session]);
+
+  // Poll the durable publish job until it reaches a terminal state. Status is
+  // deliberately read from the server rather than inferred from client timers.
+  useEffect(() => {
+    if (!publishJob?.jobId || !session || !isActivePublishStatus(publishJob.status)) return;
+    let cancelled = false;
+    let pollInFlight = false;
+
+    const pollPublishJob = async () => {
+      if (pollInFlight) return;
+      pollInFlight = true;
+      try {
+        const response = await fetch(`/api/publish-jobs/${publishJob.jobId}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!response.ok) return;
+        const job = await response.json() as PublishJobSummary;
+        if (cancelled) return;
+
+        setPublishJob(job);
+        if (!isActivePublishStatus(job.status)) {
+          setIsPublishing(false);
+          setIsPublishSaving(false);
+          setPublishStatusDialogOpen(true);
+          const publishedUrl = job.status === "published" ? job.productionUrl : null;
+          if (publishedUrl) {
+            setWebsite(prev =>
+              prev ? { ...prev, status: "published", deploymentUrl: publishedUrl } : prev,
+            );
+          }
+        }
+      } catch {
+        // A transient request failure must not abandon a publish that continues
+        // on the server. The next poll will reconnect to the same job.
+      } finally {
+        pollInFlight = false;
+      }
+    };
+
+    void pollPublishJob();
+    const intervalId = window.setInterval(() => void pollPublishJob(), 3_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [publishJob?.jobId, publishJob?.status, session]);
 
   const publishSite = useCallback(async () => {
-    if (!session || !id || !builderState) return;
+    if (!session || !id || !builderState || isPublishing) return;
 
-    // Cancel pending auto-save and save immediately before publishing
+    setIsPublishing(true);
+    setIsPublishSaving(true);
+    setPublishPreflightFailure(null);
+    setPublishJob(null);
+    setPublishStatusDialogOpen(true);
+
+    // Cancel pending auto-save and save immediately before publishing.
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
     const saved = await saveState(builderState);
     if (!saved) {
-      toast({ title: "Publish cancelled", description: "Failed to save before publishing. Please try again.", variant: "destructive" });
+      setIsPublishSaving(false);
+      setIsPublishing(false);
+      setPublishPreflightFailure({ code: "SAVE_FAILED" });
       return;
     }
 
-    setIsPublishing(true);
-    setPublishProgress('Queued…');
-    // Local flag — tracks whether this invocation handed off to the polling
-    // effect. Checked in `finally` instead of reading React state, which is
-    // stale inside closures (publishJobId is null at callback creation time).
-    let handedOff = false;
+    setIsPublishSaving(false);
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session.access_token}`,
+      };
+      if (adminSessionIdRef.current) {
+        headers["X-Admin-Session-Id"] = adminSessionIdRef.current;
+      }
       const response = await fetch(`/api/websites/${id}/publish`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
+        headers,
         body: JSON.stringify({
           idempotencyKey: `${id}-${Date.now()}`,
           expectedRevision: revisionRef.current,
         }),
       });
+      const data = await response.json().catch(() => ({}));
 
-      const data = await response.json();
-
-      if (response.status === 202) {
-        // Async publish: store the jobId so the polling effect kicks in.
-        // Set handedOff BEFORE setPublishJobId so the finally guard is correct
-        // even if React batches the state write.
-        handedOff = true;
-        setPublishJobId(data.jobId);
+      if (response.status === 202 && typeof data.jobId === "string") {
+        // Create a local queued view immediately; the polling effect replaces it
+        // with the durable server status on its first request.
+        setPublishJob({
+          jobId: data.jobId,
+          status: typeof data.status === "string" ? data.status : "queued",
+          productionUrl: null,
+          errorCode: null,
+          failureDetails: null,
+        });
         if (data.warning) {
-          toast({ title: "Publishing…", description: data.warning });
+          toast({ title: "Publishing note", description: data.warning });
         }
-        // isPublishing stays true — the polling effect will clear it
         return;
       }
 
-      if (!response.ok) {
-        throw new Error(data.error || data.message || "Failed to publish");
+      // A different browser tab can race this one, including a narrow DB
+      // unique-index race where the initial 409 contains no job id. Always
+      // look up the authoritative website-level status before calling this a
+      // failed publish, then adopt either the active job or its fresh result.
+      if (response.status === 409) {
+        let recoveredJob: PublishJobSummary | null = null;
+        try {
+          const recoverResponse = await fetch(`/api/websites/${id}/publish-job`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (recoverResponse.ok) {
+            const recovered = await recoverResponse.json() as { job?: PublishJobSummary | null };
+            recoveredJob = recovered.job ?? null;
+          }
+        } catch {
+          // Use the conflict response's job id below if status recovery is
+          // briefly unavailable. It will be replaced by the normal poll.
+        }
+        if (!recoveredJob && typeof data.jobId === "string") {
+          recoveredJob = {
+            jobId: data.jobId,
+            status: typeof data.status === "string" ? data.status : "queued",
+            productionUrl: null,
+            errorCode: null,
+            failureDetails: null,
+          };
+        }
+        if (recoveredJob) {
+          setPublishJob(recoveredJob);
+          setIsPublishing(isActivePublishStatus(recoveredJob.status));
+          return;
+        }
       }
 
-      // Synchronous success (should not happen with new backend, kept for safety)
-      setWebsite(prev => prev ? { ...prev, status: 'published', deploymentUrl: data.deploymentUrl } : prev);
-      toast({ title: "Published!", description: `Your site is live at ${data.deploymentUrl}` });
-    } catch (error: any) {
-      toast({ title: "Publish failed", description: error.message, variant: "destructive" });
-    } finally {
-      // Only reset publishing state when this call owns it — not when the
-      // polling effect is running (it clears the state when the job resolves).
-      if (!handedOff) {
-        setIsPublishing(false);
-        setPublishProgress('');
-      }
+      setPublishPreflightFailure({ code: data.code, status: response.status });
+      setIsPublishing(false);
+    } catch {
+      setPublishPreflightFailure({ status: 0 });
+      setIsPublishing(false);
     }
-  }, [session, id, builderState, saveState, toast]);
+  }, [builderState, id, isPublishing, saveState, session, toast]);
 
   const addComponent = (type: ComponentType) => {
     if (!builderState) return;
@@ -1819,6 +1919,16 @@ export default function BuilderPage() {
             </div>
           </DialogContent>
         </Dialog>
+        <PublishStatusDialog
+          open={publishStatusDialogOpen}
+          onOpenChange={handlePublishStatusDialogOpenChange}
+          job={publishJob}
+          isSaving={isPublishSaving}
+          preflightFailure={publishPreflightFailure}
+          onRetry={publishSite}
+          onDismissResult={dismissPublishStatus}
+        />
+
         {/* Action buttons - save always visible, others hidden on small screens */}
         <div className="flex items-center gap-1 md:gap-2">
           <Button size="sm" className={`gap-1 md:gap-2 px-2 md:px-3 relative ${isDirty ? 'border-amber-400' : ''}`} variant={isDirty ? "outline" : "default"} onClick={() => { if (autoSaveTimerRef.current) { clearTimeout(autoSaveTimerRef.current); autoSaveTimerRef.current = null; } saveState(builderState); }} disabled={isSaving} data-testid="button-save">
@@ -1826,14 +1936,33 @@ export default function BuilderPage() {
             <span className="hidden sm:inline">{isSaving ? 'Saving...' : isDirty ? 'Unsaved' : 'Saved'}</span>
             {isDirty && !isSaving && <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full" />}
           </Button>
-          {/* Publishing stays owner-only: the server denies it for admins,
-              so don't show a button that can only fail. */}
-          {!website.adminContext && (
-            <Button size="sm" variant="secondary" className="gap-1 md:gap-2 px-2 md:px-3" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
-              {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              <span className="hidden sm:inline">{isPublishing ? (publishProgress || 'Publishing…') : 'Publish'}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1 md:gap-2 px-2 md:px-3"
+            onClick={() => setLocation(`/manage/${id}`)}
+            data-testid="button-manage-website"
+            title="Manage website"
+          >
+            <Settings className="w-4 h-4" />
+            <span className="hidden sm:inline">Manage</span>
+          </Button>
+          {isActivePublishStatus(publishJob?.status) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 md:gap-2 px-2 md:px-3"
+              onClick={() => setPublishStatusDialogOpen(true)}
+              data-testid="button-view-publish-status"
+            >
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="hidden sm:inline">Publish status</span>
             </Button>
           )}
+          <Button size="sm" variant="secondary" className="gap-1 md:gap-2 px-2 md:px-3" onClick={publishSite} disabled={isPublishing} data-testid="button-publish">
+            {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            <span className="hidden sm:inline">{isPublishing ? 'Publishing…' : 'Publish'}</span>
+          </Button>
         </div>
 
         {/* Toggle sidebar button */}

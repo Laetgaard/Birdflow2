@@ -64,7 +64,7 @@ describe("booking core wiring", () => {
   });
 
   it("keeps the generated booking widget aligned with the public API", () => {
-    expect(bookingWidget).toContain("time: selectedTime");
+    expect(bookingWidget).toContain("selectedTime={selectedTime}");
     expect(routes).toContain("const submittedTime");
   });
 

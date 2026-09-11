@@ -10,11 +10,45 @@ export type DeploymentResult = {
   id: string;
   url: string;
   readyState: string;
+  /** Vercel's immutable project identity for this deployment. */
+  projectId?: string;
+  /** Deployment environment reported by Vercel when available. */
+  target?: string | null;
   /** Aliases assigned to this specific deployment by Vercel (e.g. stable
    *  *.vercel.app entries). Available as soon as readyState === 'READY' and
    *  checked before falling back to the project-level metadata lookup. */
   aliases?: string[];
 };
+
+/**
+ * Promotion errors retain only the HTTP class needed for safe recovery. The
+ * response body is logged on the server but is never propagated to the builder.
+ */
+export class VercelPromotionError extends Error {
+  readonly isDefinitive: boolean;
+
+  constructor(readonly status: number) {
+    super('Vercel rejected the production activation for this version.');
+    this.name = 'VercelPromotionError';
+    // These responses mean Vercel did not accept the promotion request. A 409
+    // may still mean a competing Vercel operation is in progress, so it stays
+    // recoverable rather than releasing the activation reservation.
+    this.isDefinitive = [400, 404, 410, 422].includes(status);
+  }
+}
+
+/**
+ * A deployment identifier is global, but a publish job must never use that as
+ * permission to promote a deployment belonging to another project. This check
+ * protects against stale or corrupted job metadata before production traffic is
+ * changed.
+ */
+export class VercelDeploymentProjectMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VercelDeploymentProjectMismatchError';
+  }
+}
 
 async function vercelFetch(
   endpoint: string,
@@ -34,6 +68,72 @@ async function vercelFetch(
       ...options.headers,
     },
   });
+}
+
+function projectIdFromDeployment(deployment: Record<string, unknown>): string | null {
+  if (typeof deployment.projectId === 'string' && deployment.projectId) {
+    return deployment.projectId;
+  }
+  const project = deployment.project;
+  if (
+    project &&
+    typeof project === 'object' &&
+    typeof (project as Record<string, unknown>).id === 'string'
+  ) {
+    return (project as Record<string, unknown>).id as string;
+  }
+  return null;
+}
+
+function aliasesFromDeployment(deployment: Record<string, unknown>): string[] {
+  const aliases = [deployment.alias, deployment.aliases].flatMap((value) =>
+    Array.isArray(value) ? value : [],
+  );
+  return aliases.filter((alias): alias is string => typeof alias === 'string');
+}
+
+function deploymentResultFromPayload(deployment: Record<string, unknown>): DeploymentResult {
+  if (typeof deployment.id !== 'string' || typeof deployment.url !== 'string') {
+    throw new Error('Vercel returned an incomplete deployment record.');
+  }
+  return {
+    id: deployment.id,
+    url: `https://${deployment.url}`,
+    readyState: typeof deployment.readyState === 'string' ? deployment.readyState : 'UNKNOWN',
+    projectId: projectIdFromDeployment(deployment) ?? undefined,
+    target: typeof deployment.target === 'string' ? deployment.target : null,
+    aliases: aliasesFromDeployment(deployment),
+  };
+}
+
+function assertDeploymentBelongsToProject(
+  deployment: Record<string, unknown>,
+  expectedProjectId: string,
+): void {
+  const actualProjectId = projectIdFromDeployment(deployment);
+  if (!actualProjectId) {
+    throw new VercelDeploymentProjectMismatchError(
+      'Vercel did not return a project identity for the ready deployment. Production was not changed.',
+    );
+  }
+  if (actualProjectId !== expectedProjectId) {
+    throw new VercelDeploymentProjectMismatchError(
+      'The ready Vercel deployment belongs to a different project. Production was not changed.',
+    );
+  }
+}
+
+async function readVercelErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = JSON.parse(await response.text()) as {
+      error?: { code?: unknown };
+    };
+    return typeof body.error?.code === 'string'
+      ? body.error.code.slice(0, 100)
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function getOrCreateProject(
@@ -197,9 +297,10 @@ export async function deployProject(
       name: projectName,
       project: projectId,
       files,
-      // Deliberately omit target: this is a preview/staging deployment. It
-      // must build and pass all activation checks before it is allowed to
-      // replace traffic on the customer's current production URL.
+      // Omit target to request Vercel's normal preview behavior. On a brand-new
+      // project Vercel may still report the first successful deployment as
+      // production; the caller detects that authoritative state and verifies
+      // ownership, content identity, and the stable alias before recording it.
       projectSettings: {
         framework: 'nextjs',
         buildCommand: 'npm run build',
@@ -216,12 +317,7 @@ export async function deployProject(
   }
   
   const deployment = await res.json();
-  
-  return {
-    id: deployment.id,
-    url: `https://${deployment.url}`,
-    readyState: deployment.readyState,
-  };
+  return deploymentResultFromPayload(deployment);
 }
 
 /**
@@ -240,10 +336,56 @@ export async function promoteDeployment(
     { method: 'POST' },
   );
   if (!res.ok) {
-    throw new Error(
-      `Could not activate the ready Vercel deployment: ${await res.text()}`,
-    );
+    const vercelErrorCode = await readVercelErrorCode(res);
+    console.warn('[Publish] Vercel promotion rejected', {
+      projectId,
+      deploymentId,
+      status: res.status,
+      vercelErrorCode,
+    });
+    throw new VercelPromotionError(res.status);
   }
+}
+
+/**
+ * Vercel's current production flow can rebuild an already verified preview
+ * deployment with production environment variables. This is a compatibility
+ * fallback for accounts where the alias-only promote endpoint rejects a
+ * targetless file deployment with HTTP 422.
+ *
+ * The caller must verify the returned production deployment's immutable marker
+ * before treating it as published. The original preview deployment is passed
+ * by id, so Vercel reuses that exact source artifact rather than generating a
+ * new site from mutable builder state.
+ */
+export async function redeployPreviewToProduction(
+  projectId: string,
+  previewDeploymentId: string,
+  projectName: string,
+  config: VercelConfig,
+): Promise<DeploymentResult> {
+  const res = await vercelFetch('/v13/deployments', config, {
+    method: 'POST',
+    body: JSON.stringify({
+      deploymentId: previewDeploymentId,
+      name: projectName,
+      target: 'production',
+    }),
+  });
+  if (!res.ok) {
+    const vercelErrorCode = await readVercelErrorCode(res);
+    console.warn('[Publish] Vercel production redeploy rejected', {
+      projectId,
+      previewDeploymentId,
+      status: res.status,
+      vercelErrorCode,
+    });
+    throw new VercelPromotionError(res.status);
+  }
+  const deployment = await res.json() as Record<string, unknown>;
+  // The create response is sometimes abbreviated. The ready-status read below
+  // is the authoritative project-ownership check before activation completes.
+  return deploymentResultFromPayload(deployment);
 }
 
 /**
@@ -263,10 +405,19 @@ export async function getDeploymentProductionState(
   if (!res.ok) return 'unknown';
   const deployment = await res.json();
   if (deployment.target === 'production') return 'production';
-  if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
+  if (
+    deployment.readyState === 'ERROR' ||
+    deployment.readyState === 'CANCELED' ||
+    deployment.readyState === 'BLOCKED'
+  ) {
     return 'failed';
   }
-  if (deployment.target === 'preview') return 'preview';
+  // Preview deployments are intentionally created without a target. Vercel can
+  // report that as either "preview" or an omitted target, but a READY response
+  // from this endpoint is still safe to retry promotion for this exact id.
+  if (deployment.target === 'preview' || deployment.readyState === 'READY') {
+    return 'preview';
+  }
   return 'unknown';
 }
 
@@ -348,7 +499,12 @@ export async function getProductionAliasUrl(
     const res = await vercelFetch(`/v9/projects/${projectId}`, config);
     if (!res.ok) return null;
     const project = await res.json();
-    const aliases: string[] = project.targets?.production?.alias || [];
+    const aliases = [
+      ...(Array.isArray(project.alias) ? project.alias : []),
+      ...(Array.isArray(project.targets?.production?.alias)
+        ? project.targets.production.alias
+        : []),
+    ].filter((alias: unknown): alias is string => typeof alias === 'string');
     // Keep only vercel.app aliases and skip the team-scoped alias
     // (site-...-<team>-projects-<hash>.vercel.app); the shortest remaining
     // entry is the stable project alias.
@@ -409,7 +565,8 @@ export async function getProductionAliasUrlWithRetry(
 export async function waitForDeployment(
   deploymentId: string,
   config: VercelConfig,
-  maxWaitMs = 300000
+  maxWaitMs = 300000,
+  expectedProjectId?: string,
 ): Promise<DeploymentResult> {
   const startTime = Date.now();
   
@@ -423,20 +580,17 @@ export async function waitForDeployment(
     const deployment = await res.json();
     
     if (deployment.readyState === 'READY') {
-      // Capture aliases from the deployment response. Vercel assigns the
-      // stable *.vercel.app alias to the deployment at the same moment it
-      // becomes READY, so this list is immediately usable — no separate
-      // project-level polling needed for new projects.
-      const aliases: string[] = Array.isArray(deployment.alias) ? deployment.alias : [];
-      return {
-        id: deployment.id,
-        url: `https://${deployment.url}`,
-        readyState: deployment.readyState,
-        aliases,
-      };
+      if (expectedProjectId) {
+        assertDeploymentBelongsToProject(deployment, expectedProjectId);
+      }
+      return deploymentResultFromPayload(deployment);
     }
     
-    if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
+    if (
+      deployment.readyState === 'ERROR' ||
+      deployment.readyState === 'CANCELED' ||
+      deployment.readyState === 'BLOCKED'
+    ) {
       // Try to get build logs for more details
       let errorDetails = deployment.readyState;
       if (deployment.errorMessage) {
@@ -445,23 +599,14 @@ export async function waitForDeployment(
       if (deployment.errorCode) {
         errorDetails += ` (${deployment.errorCode})`;
       }
-      console.error('Vercel deployment error details:', JSON.stringify(deployment, null, 2));
-      
-      // Try to fetch build logs
-      try {
-        const eventsRes = await vercelFetch(`/v3/deployments/${deploymentId}/events`, config);
-        if (eventsRes.ok) {
-          const events = await eventsRes.json();
-          const buildLogs = events.filter((e: any) => e.type === 'stdout' || e.type === 'stderr')
-            .map((e: any) => `[${e.type}] ${e.payload?.text || e.text || JSON.stringify(e)}`)
-            .join('\n');
-          if (buildLogs) {
-            console.error('Build logs:\n', buildLogs);
-          }
-        }
-      } catch (logError) {
-        console.error('Failed to fetch build logs:', logError);
-      }
+      console.error('[Publish] Vercel deployment failed', {
+        deploymentId,
+        projectId: projectIdFromDeployment(deployment),
+        readyState: deployment.readyState,
+        errorCode: typeof deployment.errorCode === 'string'
+          ? deployment.errorCode.slice(0, 100)
+          : undefined,
+      });
       
       throw new Error(`Deployment failed: ${errorDetails}`);
     }
