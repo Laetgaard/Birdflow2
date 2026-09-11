@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getSupabase } from "@/lib/supabaseClient";
 import { addDays, format, startOfMonth, startOfWeek } from "date-fns";
 import { Calendar, Clock, CheckCircle, XCircle, MapPin, Plus, CalendarPlus, ExternalLink, Sparkles } from "lucide-react";
-import type { SectionProps, Booking, BookingService, OpenSlot, PlatformMeetingLink, TeamMember } from "./types";
+import type { SectionProps, Booking, BookingService, OpenSlot, BlockedTime, PlatformMeetingLink, TeamMember } from "./types";
 import {
   authHeaders,
   jsonAuthHeaders,
@@ -29,6 +29,7 @@ import {
 } from "./BookingCalendar";
 import { BookingDialog, type BookingDialogPrefill } from "./BookingDialog";
 import { OpenSlotDialog, type OpenSlotDialogPrefill } from "./OpenSlotDialog";
+import { BlockedTimeDialog } from "./BlockedTimeDialog";
 
 /** Short Danish date with weekday, e.g. "man. 4. mar." */
 function formatShortWeekdayDa(date: Date): string {
@@ -52,13 +53,14 @@ export type PlatformCalendarMode = {
   meetingLinks: Record<string, PlatformMeetingLink>;
 };
 
-type BookingsView = 'list' | 'week' | 'month';
+type BookingsView = 'list' | 'day' | 'week' | 'month' | 'agenda';
 const VIEW_STORAGE_KEY = 'manage-bookings-view';
 
 function readStoredView(): BookingsView {
   if (typeof window === 'undefined') return 'list';
+  if (window.innerWidth < 768) return 'day';
   const stored = window.localStorage.getItem(VIEW_STORAGE_KEY);
-  return stored === 'week' || stored === 'month' || stored === 'list' ? stored : 'list';
+  return stored === 'day' || stored === 'week' || stored === 'month' || stored === 'agenda' || stored === 'list' ? stored : 'day';
 }
 
 export function BookingsSection({
@@ -72,6 +74,7 @@ export function BookingsSection({
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [openSlots, setOpenSlots] = useState<OpenSlot[]>([]);
+  const [blockedTimes, setBlockedTimes] = useState<BlockedTime[]>([]);
   const [services, setServices] = useState<BookingService[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export function BookingsSection({
   const [view, setView] = useState<BookingsView>(readStoredView);
   const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
   const [memberFilter, setMemberFilter] = useState<string>('all');
+  const [serviceFilter, setServiceFilter] = useState<string>('all');
 
   const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled'>('all');
   const [bookingSearch, setBookingSearch] = useState('');
@@ -93,6 +97,9 @@ export function BookingsSection({
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
   const [editingSlot, setEditingSlot] = useState<OpenSlot | null>(null);
   const [slotPrefill, setSlotPrefill] = useState<OpenSlotDialogPrefill | undefined>(undefined);
+  const [blockedDialogOpen, setBlockedDialogOpen] = useState(false);
+  const [editingBlocked, setEditingBlocked] = useState<BlockedTime | null>(null);
+  const [blockedPrefill, setBlockedPrefill] = useState<{ date?: string; time?: string }>();
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -110,8 +117,14 @@ export function BookingsSection({
       const start = startOfWeek(anchorDate, { weekStartsOn: 1 });
       return { from: dayKey(start), to: dayKey(addDays(start, 6)) };
     }
-    const today = new Date();
-    return { from: dayKey(addDays(today, -30)), to: dayKey(addDays(today, 120)) };
+    if (view === 'day') {
+      return { from: dayKey(anchorDate), to: dayKey(anchorDate) };
+    }
+    if (view === 'agenda') {
+      return { from: dayKey(anchorDate), to: dayKey(addDays(anchorDate, 30)) };
+    }
+    // List view deliberately retains the complete transactional history.
+    return { from: '', to: '' };
   }, [view, anchorDate]);
 
   const fetchBookings = useCallback(async () => {
@@ -119,7 +132,10 @@ export function BookingsSection({
     setIsLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`/api/websites/${websiteId}/bookings`, {
+      const rangeQuery = visibleRange.from && visibleRange.to
+        ? `?from=${visibleRange.from}&to=${visibleRange.to}`
+        : "";
+      const res = await fetch(`/api/websites/${websiteId}/bookings${rangeQuery}`, {
         headers: authHeaders(accessToken),
       });
       if (!res.ok) throw new Error(`Kunne ikke hente bookinger (${res.status})`);
@@ -129,7 +145,7 @@ export function BookingsSection({
     } finally {
       setIsLoading(false);
     }
-  }, [websiteId, accessToken]);
+  }, [websiteId, accessToken, visibleRange.from, visibleRange.to]);
 
   const fetchTeamMembers = useCallback(async () => {
     if (!websiteId || !accessToken) return;
@@ -171,6 +187,14 @@ export function BookingsSection({
     }
   }, [websiteId, accessToken, visibleRange.from, visibleRange.to]);
 
+  const fetchBlockedTimes = useCallback(async () => {
+    if (!websiteId || !accessToken) return;
+    try {
+      const res = await fetch(`/api/websites/${websiteId}/blocked-times?from=${visibleRange.from}&to=${visibleRange.to}`, { headers: authHeaders(accessToken) });
+      if (res.ok) setBlockedTimes(await res.json());
+    } catch { /* optional calendar layer */ }
+  }, [websiteId, accessToken, visibleRange.from, visibleRange.to]);
+
   useEffect(() => {
     fetchBookings();
   }, [fetchBookings]);
@@ -182,7 +206,8 @@ export function BookingsSection({
 
   useEffect(() => {
     fetchOpenSlots();
-  }, [fetchOpenSlots]);
+    fetchBlockedTimes();
+  }, [fetchOpenSlots, fetchBlockedTimes]);
 
   useEffect(() => {
     if (!websiteId) return;
@@ -194,12 +219,18 @@ export function BookingsSection({
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'bookings',
           filter: `website_id=eq.${websiteId}`,
         },
         (payload) => {
+          const eventType = (payload as any).eventType as "INSERT" | "UPDATE" | "DELETE";
+          if (eventType === "DELETE") {
+            const deletedId = (payload.old as any)?.id;
+            if (deletedId) setBookings((prev) => prev.filter((booking) => booking.id !== deletedId));
+            return;
+          }
           const newBooking = payload.new as any;
           const formattedBooking: Booking = {
             id: newBooking.id,
@@ -222,19 +253,29 @@ export function BookingsSection({
             customerUserId: newBooking.customer_user_id,
             customerWebsiteId: newBooking.customer_website_id,
             onboardingSessionId: newBooking.onboarding_session_id,
+            version: newBooking.version,
           };
+          const bookingDate = (formattedBooking.date || "").slice(0, 10);
+          const inVisibleRange = !visibleRange.from || !visibleRange.to
+            || (bookingDate >= visibleRange.from && bookingDate <= visibleRange.to);
+          if (!inVisibleRange) {
+            setBookings((prev) => prev.filter((booking) => booking.id !== formattedBooking.id));
+            return;
+          }
 
-          setBookings((prev) => {
-            if (prev.some(b => b.id === formattedBooking.id)) {
-              return prev;
-            }
-            return [formattedBooking, ...prev];
-          });
+           setBookings((prev) => {
+             const existing = prev.find((b) => b.id === formattedBooking.id);
+             if (!existing) return [formattedBooking, ...prev];
+             if ((formattedBooking.version || 0) <= (existing.version || 0)) return prev;
+             return prev.map((b) => b.id === formattedBooking.id ? formattedBooking : b);
+           });
 
-          toast({
-            title: "Ny booking!",
-            description: `${formattedBooking.customerName} har booket ${formattedBooking.service}`,
-          });
+           if (eventType === "INSERT") {
+             toast({
+               title: "Ny booking!",
+               description: `${formattedBooking.customerName} har booket ${formattedBooking.service}`,
+             });
+           }
         }
       )
       .subscribe();
@@ -242,7 +283,7 @@ export function BookingsSection({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [websiteId, toast]);
+  }, [websiteId, toast, visibleRange.from, visibleRange.to]);
 
   const memberById = useMemo(() => {
     const map = new Map<string, TeamMember>();
@@ -253,13 +294,13 @@ export function BookingsSection({
   // Kontekstfilteret gælder både liste, kalender og optællingerne på
   // statusknapperne, så de tre altid viser det samme udsnit.
   const visibleBookings = useMemo(() => {
-    if (contextFilter === 'all') return bookings;
-    return bookings.filter(b =>
+    const contextual = contextFilter === 'all' ? bookings : bookings.filter(b =>
       contextFilter === 'platform_onboarding'
         ? b.context === 'platform_onboarding'
         : b.context !== 'platform_onboarding',
     );
-  }, [bookings, contextFilter]);
+    return serviceFilter === 'all' ? contextual : contextual.filter((booking) => booking.serviceId === serviceFilter);
+  }, [bookings, contextFilter, serviceFilter]);
 
   const futureOpenSlotCount = useMemo(() => {
     const todayKey = dayKey(new Date());
@@ -269,22 +310,26 @@ export function BookingsSection({
   const handleUpdateBookingStatus = async (bookingId: string, newStatus: Booking['status']) => {
     if (!accessToken || !websiteId) return;
 
-    const previousBookings = [...bookings];
+    const original = bookings.find((booking) => booking.id === bookingId);
+    if (!original) return;
 
-    setBookings(bookings.map(b => b.id === bookingId ? { ...b, status: newStatus } : b));
+    setBookings((current) => current.map(b => b.id === bookingId ? { ...b, status: newStatus } : b));
 
     try {
       const res = await fetch(`/api/websites/${websiteId}/bookings/${bookingId}`, {
         method: 'PATCH',
         headers: jsonAuthHeaders(accessToken),
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status: newStatus, version: original.version }),
       });
 
       if (!res.ok) {
-        setBookings(previousBookings);
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.message || `Kunne ikke opdatere bookingen (${res.status})`);
       }
+      const saved: Booking = await res.json();
+      setBookings((current) => current.map((booking) =>
+        booking.id === saved.id && (saved.version || 0) >= (booking.version || 0) ? { ...booking, ...saved } : booking,
+      ));
 
       toast({
         title: "Booking opdateret",
@@ -296,7 +341,13 @@ export function BookingsSection({
         fetchOpenSlots();
       }
     } catch (error: any) {
-      setBookings(previousBookings);
+      setBookings((current) => current.map((booking) =>
+        booking.id === original.id
+          && booking.status === newStatus
+          && (booking.version || 0) === (original.version || 0)
+          ? original
+          : booking,
+      ));
       toast({
         title: "Fejl",
         description: error.message,
@@ -309,30 +360,38 @@ export function BookingsSection({
   const handleMoveBooking = async (booking: Booking, date: string, time: string) => {
     if (!accessToken || !websiteId) return;
 
-    const previousBookings = bookings;
+    const original = bookings.find((current) => current.id === booking.id) || booking;
     setBookings(prev => prev.map(b => (b.id === booking.id ? { ...b, date, time } : b)));
 
     try {
       const res = await fetch(`/api/websites/${websiteId}/bookings/${booking.id}`, {
         method: 'PATCH',
         headers: jsonAuthHeaders(accessToken),
-        body: JSON.stringify({ date, time }),
+        body: JSON.stringify({ date, time, version: original.version }),
       });
 
       if (!res.ok) {
-        setBookings(previousBookings);
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.message || `Kunne ikke flytte bookingen (${res.status})`);
       }
 
       const saved: Booking = await res.json();
-      setBookings(prev => prev.map(b => (b.id === saved.id ? { ...b, ...saved } : b)));
+      setBookings(prev => prev.map(b =>
+        b.id === saved.id && (saved.version || 0) >= (b.version || 0) ? { ...b, ...saved } : b,
+      ));
       toast({
         title: "Booking flyttet",
         description: `${booking.customerName} er flyttet til ${format(new Date(date + 'T00:00:00'), 'dd.MM.yyyy')} kl. ${time}.`,
       });
     } catch (error: any) {
-      setBookings(previousBookings);
+      setBookings((current) => current.map((candidate) =>
+        candidate.id === original.id
+          && bookingDayKey(candidate.date) === bookingDayKey(date)
+          && candidate.time === time
+          && (candidate.version || 0) === (original.version || 0)
+          ? original
+          : candidate,
+      ));
       toast({
         title: "Kunne ikke flytte bookingen",
         description: error.message,
@@ -357,6 +416,17 @@ export function BookingsSection({
     setEditingSlot(null);
     setSlotPrefill({ date: date || dayKey(new Date()), time: time || '09:00' });
     setSlotDialogOpen(true);
+  };
+
+  const openNewBlocked = (date?: string, time?: string) => {
+    setEditingBlocked(null);
+    setBlockedPrefill({ date: date || dayKey(new Date()), time: time || '09:00' });
+    setBlockedDialogOpen(true);
+  };
+  const openEditBlocked = (item: BlockedTime) => {
+    setEditingBlocked(item);
+    setBlockedPrefill(undefined);
+    setBlockedDialogOpen(true);
   };
 
   const openEditSlot = (slot: OpenSlot) => {
@@ -423,12 +493,15 @@ export function BookingsSection({
                 <TabsList>
                   <TabsTrigger value="list" data-testid="view-list">Liste</TabsTrigger>
                   <TabsTrigger value="week" data-testid="view-week">Uge</TabsTrigger>
+                  <TabsTrigger value="day" data-testid="view-day">Dag</TabsTrigger>
+                  <TabsTrigger value="agenda" data-testid="view-agenda">Agenda</TabsTrigger>
                   <TabsTrigger value="month" data-testid="view-month">Måned</TabsTrigger>
                 </TabsList>
               </Tabs>
               <Button size="sm" variant="outline" onClick={() => openNewSlot()} data-testid="button-add-open-slot">
                 <Clock className="mr-1 h-4 w-4" /> Ny ledig tid
               </Button>
+              <Button size="sm" variant="outline" onClick={() => openNewBlocked()} data-testid="button-add-blocked-time">Bloker tid</Button>
               <Button size="sm" onClick={() => openNewBooking()} data-testid="button-add-booking">
                 <Plus className="mr-1 h-4 w-4" /> Ny booking
               </Button>
@@ -526,6 +599,12 @@ export function BookingsSection({
                   data-testid="input-booking-search"
                 />
               </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <select aria-label="Filtrer efter ydelse" value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="h-9 rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="all">Alle ydelser</option>
+                  {services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
+                </select>
+              </div>
             </>
           )}
         </CardHeader>
@@ -539,6 +618,8 @@ export function BookingsSection({
               onAnchorDateChange={setAnchorDate}
               bookings={visibleBookings}
               openSlots={openSlots}
+              blockedTimes={blockedTimes}
+              services={services}
               teamMembers={teamMembers}
               memberFilter={memberFilter}
               onMemberFilterChange={setMemberFilter}
@@ -547,6 +628,8 @@ export function BookingsSection({
               onCreateBooking={(date, time) => openNewBooking(date, time)}
               onCreateSlot={(date, time) => openNewSlot(date, time)}
               onMoveBooking={handleMoveBooking}
+              onSelectBlocked={openEditBlocked}
+              onCreateBlocked={openNewBlocked}
             />
           ) : visibleBookings.length === 0 ? (
             <EmptyState
@@ -818,6 +901,17 @@ export function BookingsSection({
         teamMembers={teamMembers}
         onSaved={handleSlotSaved}
         onDeleted={handleSlotDeleted}
+      />
+      <BlockedTimeDialog
+        open={blockedDialogOpen}
+        onOpenChange={setBlockedDialogOpen}
+        websiteId={websiteId}
+        accessToken={accessToken}
+        blockedTime={editingBlocked}
+        prefill={blockedPrefill}
+        teamMembers={teamMembers}
+        onSaved={(saved, mode) => setBlockedTimes((prev) => mode === "create" ? [...prev, saved] : prev.map((x) => x.id === saved.id ? saved : x))}
+        onDeleted={(id) => setBlockedTimes((prev) => prev.filter((x) => x.id !== id))}
       />
     </div>
   );

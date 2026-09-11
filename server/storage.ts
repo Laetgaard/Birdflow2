@@ -84,6 +84,9 @@ import {
   legalSettings, type LegalSettings, type InsertLegalSettings,
   serviceAvailability, type ServiceAvailability, type InsertServiceAvailability,
   serviceBlockedDates, type ServiceBlockedDate, type InsertServiceBlockedDate,
+  bookingBlockedTimes, type BookingBlockedTime, type InsertBookingBlockedTime,
+  bookingNotificationOutbox, type BookingNotificationOutbox, type InsertBookingNotificationOutbox,
+  bookingSchedulingAudit,
   serviceDateRanges, type ServiceDateRange, type InsertServiceDateRange,
   supportTickets, type SupportTicket, type InsertSupportTicket,
   accountComponents, type AccountComponent, type InsertAccountComponent,
@@ -108,6 +111,28 @@ export type AvailableSlot = {
 
 import { timeToMinutes, intervalsOverlap, TIME_RE } from "./bookingOverlap";
 import { normalizeSiteLanguage } from "@shared/siteLanguage";
+import { bookingAdvisoryLockKey, validBookingDate, validateDuration } from "./bookingPolicy";
+import { isValidCopenhagenWallTime, nextCalendarDate } from "./bookingDate";
+export class BookingConflictError extends Error { status = 409; code = "SLOT_UNAVAILABLE"; constructor(message: string, code = "SLOT_UNAVAILABLE") { super(message); this.code = code; } }
+
+function normalizeBlockedInterval(value: InsertBookingBlockedTime, preferSubmittedEnd = false): InsertBookingBlockedTime {
+  if (!validBookingDate(value.date) || !TIME_RE.test(value.startTime) || (preferSubmittedEnd && !TIME_RE.test(value.endTime))) {
+    throw new BookingConflictError("Invalid blocked interval", "INVALID_INTERVAL");
+  }
+  const start = timeToMinutes(value.startTime);
+  const duration = preferSubmittedEnd
+    ? timeToMinutes(value.endTime) - start
+    : Number(value.durationMinutes || (TIME_RE.test(value.endTime) ? timeToMinutes(value.endTime) - start : 0));
+  if (!Number.isInteger(duration) || duration <= 0 || start + duration > 24 * 60) {
+    throw new BookingConflictError("Invalid blocked interval", "INVALID_INTERVAL");
+  }
+  const end = start + duration;
+  return {
+    ...value,
+    durationMinutes: duration,
+    endTime: `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`,
+  };
+}
 import { SEEDED_TEMPLATE_TYPES, defaultEmailTemplates } from "./email/defaultTemplates";
 
 // Use Supabase database as primary storage
@@ -419,6 +444,12 @@ export interface IStorage {
   updateOpenSlot(id: string, websiteId: string, data: Partial<InsertBookingOpenSlot>): Promise<BookingOpenSlot | undefined>;
   deleteOpenSlot(id: string, websiteId: string): Promise<void>;
   claimOpenSlot(id: string, websiteId: string): Promise<BookingOpenSlot | undefined>;
+  createBookingFromOpenSlotTransactional(
+    id: string,
+    websiteId: string,
+    booking: InsertBooking,
+    notification?: { eventType: string; payload: Record<string, unknown>; idempotencyKey: string },
+  ): Promise<Booking>;
   releaseOpenSlot(id: string): Promise<void>;
   releaseOpenSlotByBooking(websiteId: string, bookingId: string): Promise<void>;
   linkOpenSlotBooking(id: string, bookingId: string): Promise<void>;
@@ -787,10 +818,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Bookings methods
-  async getBookings(websiteId: string, context?: BookingContext): Promise<Booking[]> {
-    const where = context
-      ? and(eq(bookings.websiteId, websiteId), eq(bookings.context, context))
-      : eq(bookings.websiteId, websiteId);
+  async getBookings(websiteId: string, context?: BookingContext, range?: { start: Date; end: Date }): Promise<Booking[]> {
+    const clauses = [eq(bookings.websiteId, websiteId)];
+    if (context) clauses.push(eq(bookings.context, context));
+    if (range) clauses.push(gte(bookings.date, range.start), lt(bookings.date, range.end));
+    const where = and(...clauses);
     return db.select().from(bookings).where(where);
   }
 
@@ -806,10 +838,261 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  /** Serialized booking write: the lock is transaction-scoped and held through validation and outbox insert. */
+  async createBookingTransactional(booking: InsertBooking, notification?: { eventType: string; payload: Record<string, unknown>; idempotencyKey: string }): Promise<Booking> {
+    return db.transaction(async (tx) => {
+      const dateKey = booking.date instanceof Date ? booking.date.toISOString().slice(0, 10) : String(booking.date).slice(0, 10);
+      const key = bookingAdvisoryLockKey(booking.websiteId, dateKey);
+      await tx.execute(sql`select pg_advisory_xact_lock(${key})`);
+      if (booking.serviceId) {
+        const svc = (await tx.select().from(bookingServices).where(and(eq(bookingServices.id, booking.serviceId), eq(bookingServices.websiteId, booking.websiteId))).limit(1))[0];
+        if (!svc) throw new Error("Service not found");
+        const duration = validateDuration(booking.durationMinutes ?? undefined, svc.durationMinutes, svc.allowCustomDuration);
+        booking = { ...booking, durationMinutes: duration };
+      }
+      await this.assertBookingPlacement(tx, booking, undefined);
+      const result = await tx.insert(bookings).values(booking as any).returning();
+      const created = result[0];
+      if (!created) throw new Error("Booking was not created");
+      if (notification) await tx.insert(bookingNotificationOutbox).values({
+        idempotencyKey: `${notification.eventType}:${created.id}:v${created.version}`, bookingId: created.id, websiteId: created.websiteId,
+        eventType: notification.eventType, payload: notification.payload,
+      } as any).onConflictDoNothing({ target: bookingNotificationOutbox.idempotencyKey });
+      await tx.insert(bookingSchedulingAudit).values({ websiteId: created.websiteId, bookingId: created.id, action: "create", payload: notification?.payload || {} });
+      return created;
+    });
+  }
+
+  /** Claims an advertised slot, creates its booking, links it, and records side effects atomically. */
+  async createBookingFromOpenSlotTransactional(
+    id: string,
+    websiteId: string,
+    booking: InsertBooking,
+    notification?: { eventType: string; payload: Record<string, unknown>; idempotencyKey: string },
+  ): Promise<Booking> {
+    return db.transaction(async (tx) => {
+      // Row-lock first so the date used for the advisory lock cannot move underneath us.
+      const locked = await tx.execute(sql`select id from booking_open_slots where id = ${id} and website_id = ${websiteId} for update`);
+      if (!(locked.rows as unknown[]).length) throw new BookingConflictError("Open slot is no longer available");
+      const initial = (await tx.select().from(bookingOpenSlots)
+        .where(and(eq(bookingOpenSlots.id, id), eq(bookingOpenSlots.websiteId, websiteId))).limit(1))[0];
+      if (!initial || initial.status !== "open") throw new BookingConflictError("Open slot is no longer available");
+      await tx.execute(sql`select pg_advisory_xact_lock(${bookingAdvisoryLockKey(websiteId, initial.date)})`);
+      const claimed = (await tx.update(bookingOpenSlots)
+        .set({ status: "booked", updatedAt: new Date() })
+        .where(and(eq(bookingOpenSlots.id, id), eq(bookingOpenSlots.websiteId, websiteId), eq(bookingOpenSlots.status, "open")))
+        .returning())[0];
+      if (!claimed) throw new BookingConflictError("Open slot is no longer available");
+      let candidate: InsertBooking = {
+        ...booking,
+        websiteId,
+        serviceId: claimed.serviceId || booking.serviceId || null,
+        teamMemberId: claimed.teamMemberId || booking.teamMemberId || null,
+        date: new Date(`${claimed.date}T00:00:00`),
+        time: claimed.time,
+        durationMinutes: claimed.durationMinutes || booking.durationMinutes,
+      };
+      if (candidate.serviceId) {
+        const service = (await tx.select().from(bookingServices)
+          .where(and(eq(bookingServices.id, candidate.serviceId), eq(bookingServices.websiteId, websiteId))).limit(1))[0];
+        if (!service) throw new Error("Service not found");
+        candidate = {
+          ...candidate,
+          service: service.name,
+          durationMinutes: validateDuration(
+            candidate.durationMinutes ?? undefined,
+            service.durationMinutes,
+            service.allowCustomDuration,
+          ),
+        };
+      }
+      await this.assertBookingPlacement(tx, candidate);
+      const created = (await tx.insert(bookings).values(candidate as any).returning())[0];
+      if (!created) throw new Error("Booking was not created");
+      await tx.update(bookingOpenSlots)
+        .set({ bookingId: created.id, updatedAt: new Date() })
+        .where(and(eq(bookingOpenSlots.id, id), eq(bookingOpenSlots.websiteId, websiteId)));
+      if (notification) await tx.insert(bookingNotificationOutbox).values({
+        idempotencyKey: `${notification.eventType}:${created.id}:v${created.version}`,
+        bookingId: created.id,
+        websiteId,
+        eventType: notification.eventType,
+        payload: notification.payload,
+      } as any).onConflictDoNothing({ target: bookingNotificationOutbox.idempotencyKey });
+      await tx.insert(bookingSchedulingAudit).values({
+        websiteId,
+        bookingId: created.id,
+        action: "create_from_open_slot",
+        payload: notification?.payload || {},
+      });
+      return created;
+    });
+  }
+
+  async updateBookingTransactional(bookingId: string, websiteId: string, data: Partial<InsertBooking>, notification?: { eventType: string; payload: Record<string, unknown>; idempotencyKey: string }, expectedVersion?: number): Promise<Booking | undefined> {
+    return db.transaction(async tx => {
+      // The row lock stabilizes the old placement before advisory date locks are chosen.
+      const locked = await tx.execute(sql`select id from bookings where id = ${bookingId} and website_id = ${websiteId} for update`);
+      if (!(locked.rows as unknown[]).length) return undefined;
+      const current = (await tx.select().from(bookings).where(and(eq(bookings.id, bookingId), eq(bookings.websiteId, websiteId))).limit(1))[0];
+      if (!current) return undefined;
+      const dates = [new Date(current.date).toISOString().slice(0, 10), data.date instanceof Date ? data.date.toISOString().slice(0, 10) : undefined].filter(Boolean).sort();
+      const uniqueDates: string[] = [];
+      for (const date of dates) if (date && !uniqueDates.includes(date)) uniqueDates.push(date);
+      for (const date of uniqueDates) await tx.execute(sql`select pg_advisory_xact_lock(${bookingAdvisoryLockKey(websiteId, date)})`);
+      const effectiveDate = data.date instanceof Date ? data.date : current.date;
+      const cancelling = data.status === "cancelled";
+      const placementChanged = !cancelling && (
+        new Date(effectiveDate).toISOString().slice(0, 10) !== new Date(current.date).toISOString().slice(0, 10)
+        || (data.time !== undefined && data.time !== current.time)
+        || (data.durationMinutes !== undefined && data.durationMinutes !== current.durationMinutes)
+        || (data.teamMemberId !== undefined && data.teamMemberId !== current.teamMemberId)
+        || (data.serviceId !== undefined && data.serviceId !== current.serviceId)
+        || (current.status === "cancelled" && data.status !== undefined && data.status !== "cancelled")
+      );
+      const serviceId = data.serviceId !== undefined ? data.serviceId : current.serviceId;
+      if (placementChanged && serviceId) {
+        const service = (await tx.select().from(bookingServices).where(and(eq(bookingServices.id, serviceId), eq(bookingServices.websiteId, websiteId))).limit(1))[0];
+        if (!service) throw new Error("Service not found");
+        data = {
+          ...data,
+          durationMinutes: validateDuration(
+            data.durationMinutes ?? current.durationMinutes ?? undefined,
+            service.durationMinutes,
+            service.allowCustomDuration,
+          ),
+        };
+      }
+      const where = [eq(bookings.id, bookingId), eq(bookings.websiteId, websiteId)];
+      if (expectedVersion !== undefined) where.push(eq(bookings.version, expectedVersion));
+      const result = await tx.update(bookings).set({ ...data, updatedAt: new Date(), version: sql`${bookings.version} + 1` } as any).where(and(...where)).returning();
+      if (!result[0]) throw new BookingConflictError("Booking was changed elsewhere; reload and try again", "STALE_BOOKING");
+      if (placementChanged) await this.assertBookingPlacement(tx, result[0], bookingId);
+      if (notification) await tx.insert(bookingNotificationOutbox).values({ idempotencyKey: `${notification.eventType}:${bookingId}:v${result[0].version}`, bookingId, websiteId, eventType: notification.eventType, payload: notification.payload } as any).onConflictDoNothing({ target: bookingNotificationOutbox.idempotencyKey });
+      await tx.insert(bookingSchedulingAudit).values({ websiteId, bookingId, action: "update", payload: notification?.payload || {} });
+      return result[0];
+    });
+  }
+
+  private async assertBookingPlacement(tx: any, booking: Booking | InsertBooking, excludeId?: string): Promise<void> {
+    if (!booking.time || !booking.durationMinutes || !booking.date) return;
+    const date = new Date(booking.date).toISOString().slice(0, 10);
+    const start = timeToMinutes(booking.time.slice(0, 5)), duration = booking.durationMinutes;
+    if (!isValidCopenhagenWallTime(date, booking.time.slice(0, 5))) {
+      throw new BookingConflictError("This local time does not exist because of daylight saving time", "INVALID_LOCAL_TIME");
+    }
+    if (booking.serviceId) {
+      const day = new Date(`${date}T00:00:00`).getUTCDay();
+      const allWindows = await tx.select().from(serviceAvailability).where(and(eq(serviceAvailability.websiteId, booking.websiteId), eq(serviceAvailability.serviceId, booking.serviceId), eq(serviceAvailability.isActive, true)));
+      const specific = allWindows.filter((w: any) => w.specificDate === date);
+      const windows = specific.length ? specific : allWindows.filter((w: any) => w.dayOfWeek === day);
+      if (allWindows.length && !windows.some((w: any) => start >= timeToMinutes(w.startTime) && start + duration <= timeToMinutes(w.endTime)))
+        throw new BookingConflictError("Outside service availability", "OUTSIDE_AVAILABILITY");
+    }
+    if (booking.teamMemberId) {
+      const member = (await tx.select().from(bookingTeamMembers).where(and(eq(bookingTeamMembers.id, booking.teamMemberId), eq(bookingTeamMembers.websiteId, booking.websiteId))).limit(1))[0];
+      if (!member || !member.active) throw new BookingConflictError("Team member unavailable", "MEMBER_UNAVAILABLE");
+      if (member.serviceIds?.length && booking.serviceId && !member.serviceIds.includes(booking.serviceId)) throw new BookingConflictError("Team member does not provide this service", "MEMBER_UNAVAILABLE");
+      if (member.availability?.length) {
+        const day = new Date(`${date}T00:00:00`).getUTCDay();
+        if (!member.availability.some((w: any) => w.dayOfWeek === day && start >= timeToMinutes(w.startTime) && start + duration <= timeToMinutes(w.endTime)))
+          throw new BookingConflictError("Outside team member availability", "MEMBER_UNAVAILABLE");
+      }
+    }
+    const rows = await tx.select().from(bookings).where(and(
+      eq(bookings.websiteId, booking.websiteId),
+      gte(bookings.date, new Date(`${date}T00:00:00`)),
+      lt(bookings.date, new Date(`${nextCalendarDate(date)}T00:00:00`)),
+    ));
+    for (const other of rows) {
+      if (other.id === excludeId || other.status === "cancelled" || !other.time) continue;
+      const sameResource = !booking.teamMemberId && !booking.serviceId
+        ? true
+        : (!!booking.teamMemberId && other.teamMemberId === booking.teamMemberId) || (!!booking.serviceId && other.serviceId === booking.serviceId);
+      if (sameResource && intervalsOverlap(start, duration, timeToMinutes(other.time.slice(0, 5)), other.durationMinutes || 60))
+        throw new BookingConflictError("Booking overlaps an existing appointment");
+    }
+    if (booking.serviceId) {
+      const blocked = await tx.select().from(serviceBlockedDates).where(eq(serviceBlockedDates.serviceId, booking.serviceId));
+      const monthDay = date.slice(5);
+      if (blocked.some((b: any) => b.blockedDate === date || (b.isRecurringYearly && b.blockedDate.slice(5) === monthDay)))
+        throw new BookingConflictError("Service is blocked on this date", "SERVICE_BLOCKED");
+      const ranges = await tx.select().from(serviceDateRanges).where(and(eq(serviceDateRanges.serviceId, booking.serviceId), eq(serviceDateRanges.isActive, true)));
+      if (ranges.length && !ranges.some((r: any) => date >= r.startDate && (!r.endDate || date <= r.endDate)))
+        throw new BookingConflictError("Service is not available on this date", "SERVICE_UNAVAILABLE");
+    }
+    const blocked = await tx.select().from(bookingBlockedTimes).where(and(eq(bookingBlockedTimes.websiteId, booking.websiteId), eq(bookingBlockedTimes.date, date)));
+    for (const block of blocked) {
+      if (block.serviceId && block.serviceId !== booking.serviceId) continue;
+      if (block.teamMemberId && block.teamMemberId !== booking.teamMemberId) continue;
+      const blockDuration = block.durationMinutes || timeToMinutes(block.endTime) - timeToMinutes(block.startTime);
+      if (intervalsOverlap(start, duration, timeToMinutes(block.startTime), blockDuration))
+        throw new BookingConflictError("Booking overlaps blocked time");
+    }
+  }
+
+  async listBlockedTimes(websiteId: string, startDate?: string, endDate?: string): Promise<BookingBlockedTime[]> {
+    const clauses = [eq(bookingBlockedTimes.websiteId, websiteId)];
+    if (startDate) clauses.push(gte(bookingBlockedTimes.date, startDate));
+    if (endDate) clauses.push(lte(bookingBlockedTimes.date, endDate));
+    return db.select().from(bookingBlockedTimes).where(and(...clauses)).orderBy(asc(bookingBlockedTimes.date), asc(bookingBlockedTimes.startTime));
+  }
+  async createBlockedTime(value: InsertBookingBlockedTime): Promise<BookingBlockedTime> {
+    return db.transaction(async tx => {
+      value = normalizeBlockedInterval(value, value.durationMinutes == null);
+      await tx.execute(sql`select pg_advisory_xact_lock(${bookingAdvisoryLockKey(value.websiteId, value.date)})`);
+      const duration = value.durationMinutes || timeToMinutes(value.endTime) - timeToMinutes(value.startTime);
+      if (duration <= 0) throw new BookingConflictError("Invalid blocked interval", "INVALID_INTERVAL");
+      const rows = await tx.select().from(bookings).where(and(
+        eq(bookings.websiteId, value.websiteId),
+        gte(bookings.date, new Date(`${value.date}T00:00:00`)),
+        lt(bookings.date, new Date(`${nextCalendarDate(value.date)}T00:00:00`)),
+      ));
+      for (const b of rows) if (b.status !== "cancelled" && b.time && (!value.serviceId || b.serviceId === value.serviceId) && (!value.teamMemberId || b.teamMemberId === value.teamMemberId) && intervalsOverlap(timeToMinutes(value.startTime), duration, timeToMinutes(b.time), b.durationMinutes || 60)) throw new BookingConflictError("Blocked time overlaps a booking");
+      const result = await tx.insert(bookingBlockedTimes).values(value as any).returning();
+      return result[0];
+    });
+  }
+  async updateBlockedTime(id: string, websiteId: string, value: Partial<InsertBookingBlockedTime>): Promise<BookingBlockedTime | undefined> {
+    return this.updateBlockedTimeTransactional(id, websiteId, value);
+  }
+  async updateBlockedTimeTransactional(id: string, websiteId: string, value: Partial<InsertBookingBlockedTime>): Promise<BookingBlockedTime | undefined> {
+    return db.transaction(async tx => {
+      const locked = await tx.execute(sql`select id from booking_blocked_times where id = ${id} and website_id = ${websiteId} for update`);
+      if (!(locked.rows as unknown[]).length) return undefined;
+      const old = (await tx.select().from(bookingBlockedTimes).where(and(eq(bookingBlockedTimes.id, id), eq(bookingBlockedTimes.websiteId, websiteId))).limit(1))[0];
+      if (!old) return undefined;
+      const merged = { ...old, ...value } as InsertBookingBlockedTime;
+      const next = normalizeBlockedInterval(merged, value.endTime !== undefined && value.durationMinutes === undefined);
+      const dates = [old.date, next.date].sort();
+      for (const date of dates) await tx.execute(sql`select pg_advisory_xact_lock(${bookingAdvisoryLockKey(websiteId, date)})`);
+      const duration = next.durationMinutes || timeToMinutes(next.endTime) - timeToMinutes(next.startTime);
+      if (duration <= 0) throw new BookingConflictError("Invalid blocked interval", "INVALID_INTERVAL");
+      const rows = await tx.select().from(bookings).where(and(
+        eq(bookings.websiteId, websiteId),
+        gte(bookings.date, new Date(`${next.date}T00:00:00`)),
+        lt(bookings.date, new Date(`${nextCalendarDate(next.date)}T00:00:00`)),
+      ));
+      for (const b of rows) if (b.status !== "cancelled" && b.time && (!next.serviceId || b.serviceId === next.serviceId) && (!next.teamMemberId || b.teamMemberId === next.teamMemberId) && intervalsOverlap(timeToMinutes(next.startTime), duration, timeToMinutes(b.time), b.durationMinutes || 60)) throw new BookingConflictError("Blocked time overlaps a booking");
+      return (await tx.update(bookingBlockedTimes).set({ ...next, updatedAt: new Date() } as any)
+        .where(and(eq(bookingBlockedTimes.id, id), eq(bookingBlockedTimes.websiteId, websiteId))).returning())[0];
+    });
+  }
+  async deleteBlockedTime(id: string, websiteId: string): Promise<boolean> {
+    return (await db.delete(bookingBlockedTimes).where(and(eq(bookingBlockedTimes.id, id), eq(bookingBlockedTimes.websiteId, websiteId))).returning()).length > 0;
+  }
+  async enqueueBookingNotification(value: InsertBookingNotificationOutbox): Promise<BookingNotificationOutbox> {
+    const result = await db.insert(bookingNotificationOutbox).values(value as any).onConflictDoNothing({ target: bookingNotificationOutbox.idempotencyKey }).returning();
+    if (result[0]) return result[0];
+    const existing = await db.select().from(bookingNotificationOutbox).where(eq(bookingNotificationOutbox.idempotencyKey, value.idempotencyKey)).limit(1);
+    if (!existing[0]) throw new Error("Unable to enqueue booking notification");
+    return existing[0];
+  }
+
   async updateBooking(bookingId: string, websiteId: string, data: Partial<InsertBooking>): Promise<Booking | undefined> {
     const result = await db
       .update(bookings)
-      .set({ ...data, updatedAt: new Date() } as any)
+      .set({ ...data, updatedAt: new Date(), version: sql`${bookings.version} + 1` } as any)
       .where(and(eq(bookings.id, bookingId), eq(bookings.websiteId, websiteId)))
       .returning();
     return result[0];
@@ -2901,6 +3184,17 @@ export class DatabaseStorage implements IStorage {
           sql`${bookings.status} != 'cancelled'`
         )
       );
+
+    const dayBlocks = await db.select().from(bookingBlockedTimes).where(and(
+      eq(bookingBlockedTimes.websiteId, websiteId),
+      eq(bookingBlockedTimes.date, date),
+    ));
+    const blockedBusy = (startMin: number, slotDur: number): boolean => dayBlocks.some(block => {
+      if (block.serviceId && block.serviceId !== serviceId) return false;
+      if (block.teamMemberId && block.teamMemberId !== teamMemberId) return false;
+      const blockDuration = block.durationMinutes || timeToMinutes(block.endTime) - timeToMinutes(block.startTime);
+      return intervalsOverlap(startMin, slotDur, timeToMinutes(block.startTime), blockDuration);
+    });
     
     // Same-service exact-time collisions (original behavior)
     const bookedTimes = new Set(
@@ -2950,7 +3244,7 @@ export class DatabaseStorage implements IStorage {
             if (!existingSlot) {
               slots.push({
                 time: timeStr,
-                available: !bookedTimes.has(timeStr) && !memberBusy(currentTime, slotDuration)
+                available: !bookedTimes.has(timeStr) && !memberBusy(currentTime, slotDuration) && !blockedBusy(currentTime, slotDuration)
               });
             }
           }
@@ -2975,7 +3269,9 @@ export class DatabaseStorage implements IStorage {
       if (teamMemberId && openSlot.teamMemberId && openSlot.teamMemberId !== teamMemberId) continue;
       if (!TIME_RE.test(openSlot.time)) continue;
       // Selected member must actually be free at the open slot's time
-      if (member && memberBusy(timeToMinutes(openSlot.time.slice(0, 5)), openSlot.durationMinutes || durationMinutes)) continue;
+      const openStart = timeToMinutes(openSlot.time.slice(0, 5));
+      const openDuration = openSlot.durationMinutes || durationMinutes;
+      if ((member && memberBusy(openStart, openDuration)) || blockedBusy(openStart, openDuration)) continue;
       // Keep regular slots as-is; only add times not already offered
       if (slots.find(s => s.time === openSlot.time)) continue;
       slots.push({

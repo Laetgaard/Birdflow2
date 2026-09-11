@@ -64,6 +64,8 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
     price: '',
     currency: 'USD',
     isActive: true,
+    color: '#2f6f73',
+    allowCustomDuration: false,
   });
 
   const [selectedServiceForAvailability, setSelectedServiceForAvailability] = useState<BookingService | null>(null);
@@ -143,6 +145,8 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
         price: service.price,
         currency: service.currency,
         isActive: service.isActive,
+         color: service.color || '#2f6f73',
+         allowCustomDuration: service.allowCustomDuration === true,
       });
     } else {
       resetServiceForm();
@@ -269,6 +273,8 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
           endTime: availabilityForm.endTime,
           slotDurationMinutes: availabilityForm.slotDurationMinutes,
           isActive: true,
+        color: '#2f6f73',
+        allowCustomDuration: false,
         }),
       });
 
@@ -569,6 +575,19 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
                     </select>
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="serviceColor">Kalenderfarve</Label>
+                    <div className="flex items-center gap-2">
+                      <Input id="serviceColor" type="color" className="h-10 w-14 p-1" value={serviceForm.color || '#2f6f73'} onChange={(e) => setServiceForm({...serviceForm, color: e.target.value})} />
+                      <span className="text-xs text-muted-foreground">{serviceForm.color || '#2f6f73'}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 pt-7">
+                    <input type="checkbox" id="serviceCustomDuration" checked={serviceForm.allowCustomDuration ?? false} onChange={(e) => setServiceForm({...serviceForm, allowCustomDuration: e.target.checked})} className="rounded" />
+                    <Label htmlFor="serviceCustomDuration">Tillad tilpasset varighed</Label>
+                  </div>
+                </div>
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -628,7 +647,7 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
                   </div>
 
                   <div className="mb-4">
-                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mb-3">
+                      <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-3" style={{ backgroundColor: service.color || '#2f6f73' }}>
                       <Calendar className="w-6 h-6 text-white" />
                     </div>
                     <h3 className="font-semibold text-lg">{service.name}</h3>
