@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getPreflightFailureMessage,
+  getPublishFailureMessage,
   getPublishFailureContext,
   getPublishPresentation,
   isActivePublishStatus,
@@ -48,6 +49,18 @@ describe("publish status presentation", () => {
     expect(presentation.description).toMatch(/Vercel could not build/i);
     expect(presentation.description).not.toContain("internal build trace");
     expect(getPublishFailureContext(failed)).toBe("Related page: Contact.");
+  });
+
+  it("explains when Vercel cannot prove deployment ownership", () => {
+    const failed: PublishJobSummary = {
+      ...job("failed"),
+      jobId: "publish-job-project-mismatch",
+      errorCode: "ACTIVATION_PROJECT_MISMATCH",
+      failureDetails: { stage: "activation" },
+    };
+
+    expect(getPublishFailureMessage(failed)).toContain("belongs to this website");
+    expect(getPublishFailureMessage(failed)).toContain("existing website was not changed");
   });
 
   it("has a useful fallback for unfamiliar status and error codes", () => {

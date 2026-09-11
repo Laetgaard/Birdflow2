@@ -39,6 +39,7 @@ import {
   getDeploymentProductionState,
   getProductionAliasUrlWithRetry,
   promoteDeployment,
+  redeployPreviewToProduction,
   VercelPromotionError,
   type VercelConfig,
 } from './vercel';
@@ -126,6 +127,55 @@ export async function reconcileExpiredPublishActivations(
         // view and preserves the ordering fence.
         await promoteDeployment(job.vercelProjectId, job.vercelDeploymentId, config);
       } catch (error) {
+        if (error instanceof VercelPromotionError && error.status === 422) {
+          // Newer publish attempts use this Vercel compatibility path inline.
+          // Keep recovery symmetric for an activation that was reserved just
+          // before a process restart, so it does not regress to a terminal
+          // error merely because the worker was interrupted.
+          try {
+            const productionDeployment = await redeployPreviewToProduction(
+              job.vercelProjectId,
+              job.vercelDeploymentId,
+              `site-${job.websiteId}`.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+              config,
+            );
+            await updatePublishJobStatus(job.id, 'activating', {
+              vercelProjectId: job.vercelProjectId,
+              vercelDeploymentId: productionDeployment.id,
+              deploymentUrl: productionDeployment.url,
+            });
+            console.warn('[Publish] activation reconciliation switched to production redeploy', {
+              publishJobId: job.id,
+              vercelProjectId: job.vercelProjectId,
+              previewDeploymentId: job.vercelDeploymentId,
+              productionDeploymentId: productionDeployment.id,
+            });
+            continue;
+          } catch (fallbackError) {
+            if (
+              fallbackError instanceof VercelPromotionError &&
+              fallbackError.isDefinitive
+            ) {
+              await failPublishJob(job.id, {
+                errorCode: 'ACTIVATION_NOT_PROMOTED',
+                errorMessage:
+                  'Vercel rejected the production activation for this version. Your existing website was not changed; you can publish again.',
+                failureDetails: {
+                  stage: 'activation',
+                  timestamp: new Date().toISOString(),
+                },
+              });
+              continue;
+            }
+            console.warn('[Publish] activation production redeploy deferred', {
+              publishJobId: job.id,
+              error: fallbackError instanceof Error
+                ? fallbackError.message
+                : String(fallbackError),
+            });
+            continue;
+          }
+        }
         if (error instanceof VercelPromotionError && error.isDefinitive) {
           await failPublishJob(job.id, {
             errorCode: 'ACTIVATION_NOT_PROMOTED',

@@ -10,6 +10,10 @@ export type DeploymentResult = {
   id: string;
   url: string;
   readyState: string;
+  /** Vercel's immutable project identity for this deployment. */
+  projectId?: string;
+  /** Deployment environment reported by Vercel when available. */
+  target?: string | null;
   /** Aliases assigned to this specific deployment by Vercel (e.g. stable
    *  *.vercel.app entries). Available as soon as readyState === 'READY' and
    *  checked before falling back to the project-level metadata lookup. */
@@ -33,6 +37,19 @@ export class VercelPromotionError extends Error {
   }
 }
 
+/**
+ * A deployment identifier is global, but a publish job must never use that as
+ * permission to promote a deployment belonging to another project. This check
+ * protects against stale or corrupted job metadata before production traffic is
+ * changed.
+ */
+export class VercelDeploymentProjectMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VercelDeploymentProjectMismatchError';
+  }
+}
+
 async function vercelFetch(
   endpoint: string,
   config: VercelConfig,
@@ -51,6 +68,59 @@ async function vercelFetch(
       ...options.headers,
     },
   });
+}
+
+function projectIdFromDeployment(deployment: Record<string, unknown>): string | null {
+  if (typeof deployment.projectId === 'string' && deployment.projectId) {
+    return deployment.projectId;
+  }
+  const project = deployment.project;
+  if (
+    project &&
+    typeof project === 'object' &&
+    typeof (project as Record<string, unknown>).id === 'string'
+  ) {
+    return (project as Record<string, unknown>).id as string;
+  }
+  return null;
+}
+
+function aliasesFromDeployment(deployment: Record<string, unknown>): string[] {
+  const aliases = [deployment.alias, deployment.aliases].flatMap((value) =>
+    Array.isArray(value) ? value : [],
+  );
+  return aliases.filter((alias): alias is string => typeof alias === 'string');
+}
+
+function deploymentResultFromPayload(deployment: Record<string, unknown>): DeploymentResult {
+  if (typeof deployment.id !== 'string' || typeof deployment.url !== 'string') {
+    throw new Error('Vercel returned an incomplete deployment record.');
+  }
+  return {
+    id: deployment.id,
+    url: `https://${deployment.url}`,
+    readyState: typeof deployment.readyState === 'string' ? deployment.readyState : 'UNKNOWN',
+    projectId: projectIdFromDeployment(deployment) ?? undefined,
+    target: typeof deployment.target === 'string' ? deployment.target : null,
+    aliases: aliasesFromDeployment(deployment),
+  };
+}
+
+function assertDeploymentBelongsToProject(
+  deployment: Record<string, unknown>,
+  expectedProjectId: string,
+): void {
+  const actualProjectId = projectIdFromDeployment(deployment);
+  if (!actualProjectId) {
+    throw new VercelDeploymentProjectMismatchError(
+      'Vercel did not return a project identity for the ready deployment. Production was not changed.',
+    );
+  }
+  if (actualProjectId !== expectedProjectId) {
+    throw new VercelDeploymentProjectMismatchError(
+      'The ready Vercel deployment belongs to a different project. Production was not changed.',
+    );
+  }
 }
 
 export async function getOrCreateProject(
@@ -233,12 +303,7 @@ export async function deployProject(
   }
   
   const deployment = await res.json();
-  
-  return {
-    id: deployment.id,
-    url: `https://${deployment.url}`,
-    readyState: deployment.readyState,
-  };
+  return deploymentResultFromPayload(deployment);
 }
 
 /**
@@ -266,6 +331,47 @@ export async function promoteDeployment(
     });
     throw new VercelPromotionError(res.status);
   }
+}
+
+/**
+ * Vercel's current production flow can rebuild an already verified preview
+ * deployment with production environment variables. This is a compatibility
+ * fallback for accounts where the alias-only promote endpoint rejects a
+ * targetless file deployment with HTTP 422.
+ *
+ * The caller must verify the returned production deployment's immutable marker
+ * before treating it as published. The original preview deployment is passed
+ * by id, so Vercel reuses that exact source artifact rather than generating a
+ * new site from mutable builder state.
+ */
+export async function redeployPreviewToProduction(
+  projectId: string,
+  previewDeploymentId: string,
+  projectName: string,
+  config: VercelConfig,
+): Promise<DeploymentResult> {
+  const res = await vercelFetch('/v13/deployments', config, {
+    method: 'POST',
+    body: JSON.stringify({
+      deploymentId: previewDeploymentId,
+      name: projectName,
+      target: 'production',
+    }),
+  });
+  if (!res.ok) {
+    const responseText = await res.text();
+    console.warn('[Publish] Vercel production redeploy rejected', {
+      projectId,
+      previewDeploymentId,
+      status: res.status,
+      responseText,
+    });
+    throw new VercelPromotionError(res.status);
+  }
+  const deployment = await res.json() as Record<string, unknown>;
+  // The create response is sometimes abbreviated. The ready-status read below
+  // is the authoritative project-ownership check before activation completes.
+  return deploymentResultFromPayload(deployment);
 }
 
 /**
@@ -375,7 +481,12 @@ export async function getProductionAliasUrl(
     const res = await vercelFetch(`/v9/projects/${projectId}`, config);
     if (!res.ok) return null;
     const project = await res.json();
-    const aliases: string[] = project.targets?.production?.alias || [];
+    const aliases = [
+      ...(Array.isArray(project.alias) ? project.alias : []),
+      ...(Array.isArray(project.targets?.production?.alias)
+        ? project.targets.production.alias
+        : []),
+    ].filter((alias: unknown): alias is string => typeof alias === 'string');
     // Keep only vercel.app aliases and skip the team-scoped alias
     // (site-...-<team>-projects-<hash>.vercel.app); the shortest remaining
     // entry is the stable project alias.
@@ -436,7 +547,8 @@ export async function getProductionAliasUrlWithRetry(
 export async function waitForDeployment(
   deploymentId: string,
   config: VercelConfig,
-  maxWaitMs = 300000
+  maxWaitMs = 300000,
+  expectedProjectId?: string,
 ): Promise<DeploymentResult> {
   const startTime = Date.now();
   
@@ -450,20 +562,17 @@ export async function waitForDeployment(
     const deployment = await res.json();
     
     if (deployment.readyState === 'READY') {
-      // Capture aliases from the deployment response. Vercel assigns the
-      // stable *.vercel.app alias to the deployment at the same moment it
-      // becomes READY, so this list is immediately usable — no separate
-      // project-level polling needed for new projects.
-      const aliases: string[] = Array.isArray(deployment.alias) ? deployment.alias : [];
-      return {
-        id: deployment.id,
-        url: `https://${deployment.url}`,
-        readyState: deployment.readyState,
-        aliases,
-      };
+      if (expectedProjectId) {
+        assertDeploymentBelongsToProject(deployment, expectedProjectId);
+      }
+      return deploymentResultFromPayload(deployment);
     }
     
-    if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
+    if (
+      deployment.readyState === 'ERROR' ||
+      deployment.readyState === 'CANCELED' ||
+      deployment.readyState === 'BLOCKED'
+    ) {
       // Try to get build logs for more details
       let errorDetails = deployment.readyState;
       if (deployment.errorMessage) {

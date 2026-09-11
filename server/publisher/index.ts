@@ -9,6 +9,8 @@ import {
   getProjectDomain,
   getProductionAliasUrlWithRetry,
   promoteDeployment,
+  redeployPreviewToProduction,
+  VercelDeploymentProjectMismatchError,
   VercelPromotionError,
   type VercelConfig,
 } from './vercel';
@@ -262,7 +264,7 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     });
     
     // Poll until Vercel reports READY (or throws on ERROR/timeout)
-    const readyDeployment = await waitForDeployment(deployment.id, vercelConfig);
+    const readyDeployment = await waitForDeployment(deployment.id, vercelConfig, 300000, projectId);
     console.log('[Publish] vercel_deployment_ready', {
       websiteId: config.websiteId,
       deploymentId: readyDeployment.id,
@@ -308,9 +310,15 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     // success:false. We NEVER fall back to readyDeployment.url because that
     // hashed per-deployment URL is SSO-protected and would make the customer
     // site unreachable.
-    let stableUrl = await getProductionAliasUrlWithRetry(projectId, vercelConfig, {
-      deploymentAliases: readyDeployment.aliases,
-    });
+    // An established site must retain a known public address until the next
+    // deployment is ready to take traffic. A first publish has no production
+    // alias yet, so asking Vercel for one before activation only adds delay and
+    // can never prove a public URL exists.
+    let stableUrl = config.existingVercelProjectId
+      ? await getProductionAliasUrlWithRetry(projectId, vercelConfig, {
+          deploymentAliases: readyDeployment.aliases,
+        })
+      : null;
     // Existing projects must have a stable URL before activation. If we cannot
     // prove that current production traffic has a public stable alias, leave it
     // untouched rather than promoting a deployment we cannot surface safely.
@@ -356,7 +364,45 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
         },
       };
     }
-    await promoteDeployment(projectId, readyDeployment.id, vercelConfig);
+    let activatedDeployment = readyDeployment;
+    try {
+      await promoteDeployment(projectId, readyDeployment.id, vercelConfig);
+    } catch (error) {
+      // The direct Vercel promotion API remains the fastest path and preserves
+      // the same verified deployment. Some Vercel accounts reject targetless
+      // file deployments with 422, despite the artifact being READY. In that
+      // documented compatibility case, create a production deployment from the
+      // exact preview artifact, then verify its immutable marker again.
+      if (!(error instanceof VercelPromotionError) || error.status !== 422) {
+        throw error;
+      }
+      currentStage = 'activation';
+      console.warn('[Publish] direct promotion rejected; retrying as production redeploy', {
+        websiteId: config.websiteId,
+        vercelProjectId: projectId,
+        previewDeploymentId: readyDeployment.id,
+      });
+      const productionDeployment = await redeployPreviewToProduction(
+        projectId,
+        readyDeployment.id,
+        projectName,
+        vercelConfig,
+      );
+      // The worker's durable activation reservation must follow the new Vercel
+      // deployment so a restart can reconcile the actual production candidate.
+      await config.onStatusUpdate?.('activating', {
+        vercelProjectId: projectId,
+        vercelDeploymentId: productionDeployment.id,
+        deploymentUrl: productionDeployment.url,
+      });
+      activatedDeployment = await waitForDeployment(
+        productionDeployment.id,
+        vercelConfig,
+        300000,
+        projectId,
+      );
+      await verifyRemoteDeploymentIdentity(activatedDeployment.url, deploymentIdentity);
+    }
 
     // A first publish has no prior production alias to check. Resolve it only
     // after promotion; there is no previously live project traffic to replace.
@@ -390,8 +436,8 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
     return {
       success: true,
       deploymentUrl: stableUrl,
-      rawDeploymentUrl: readyDeployment.url,
-      deploymentId: readyDeployment.id,
+      rawDeploymentUrl: activatedDeployment.url,
+      deploymentId: activatedDeployment.id,
       vercelProjectId: projectId,
     };
   } catch (error) {
@@ -417,6 +463,12 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
         timestamp: new Date().toISOString(),
       };
     } else if (error instanceof VercelPromotionError) {
+      failureDetails = {
+        stage: 'activation',
+        errorMessage: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    } else if (error instanceof VercelDeploymentProjectMismatchError) {
       failureDetails = {
         stage: 'activation',
         errorMessage: error.message,
@@ -448,6 +500,8 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
       errorCode:
         error instanceof DeploymentIdentityError
           ? error.code
+          : error instanceof VercelDeploymentProjectMismatchError
+            ? 'ACTIVATION_PROJECT_MISMATCH'
           : error instanceof VercelPromotionError && error.isDefinitive
             ? 'ACTIVATION_NOT_PROMOTED'
             : undefined,

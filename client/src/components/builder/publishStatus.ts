@@ -164,6 +164,9 @@ export function getPublishFailureMessage(job: Pick<PublishJobSummary, "errorCode
   if (job.errorCode === "ACTIVATION_NOT_PROMOTED") {
     return "Vercel could not make this version live. Your existing website was not changed.";
   }
+  if (job.errorCode === "ACTIVATION_PROJECT_MISMATCH") {
+    return "We could not confirm that the new Vercel version belongs to this website. Your existing website was not changed.";
+  }
 
   switch (job.failureDetails?.stage) {
     case "normalization":
